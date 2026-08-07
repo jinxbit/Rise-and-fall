@@ -2,20 +2,58 @@
   "$schema": "./units.schema.json",
   "units": [
     {
-      "id": "settlement",
-      "name": "Settlement",
+      "id": "city",
+      "name": "City",
       "description": "",
+      "supply": { "byPlayerCount": { "2": 0, "3": 0, "4": 0 } },
       "movement": {
         "isMobile": false,
         "terrains": [],
         "canCrossCliffs": false
       },
-      "actions": [  ]
+      "actions": []
     },
     {
-      "id": "mobile-unit",
-      "name": "",
+      "id": "shrine",
+      "name": "Shrine",
       "description": "",
+      "supply": { "byPlayerCount": { "2": 0, "3": 0, "4": 0 } },
+      "movement": {
+        "isMobile": false,
+        "terrains": [],
+        "canCrossCliffs": false
+      },
+      "actions": []
+    },
+    {
+      "id": "nomad",
+      "name": "Nomad",
+      "description": "",
+      "supply": { "byPlayerCount": { "2": 0, "3": 0, "4": 0 } },
+      "movement": {
+        "isMobile": true,
+        "terrains": [],
+        "canCrossCliffs": false
+      },
+      "actions": []
+    },
+    {
+      "id": "merchant",
+      "name": "Merchant",
+      "description": "",
+      "supply": { "byPlayerCount": { "2": 0, "3": 0, "4": 0 } },
+      "movement": {
+        "isMobile": true,
+        "terrains": [],
+        "canCrossCliffs": false
+      },
+      "actions": []
+    },
+    {
+      "id": "explorer",
+      "name": "Explorer",
+      "description": "",
+      "supply": { "byPlayerCount": { "2": 0, "3": 0, "4": 0 } },
       "movement": {
         "isMobile": true,
         "terrains": [],
@@ -27,6 +65,7 @@
       "id": "ship",
       "name": "Ship",
       "description": "",
+      "supply": { "byPlayerCount": { "2": 0, "3": 0, "4": 0 } },
       "movement": {
         "isMobile": true,
         "terrains": ["water"],

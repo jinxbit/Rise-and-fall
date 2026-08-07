@@ -10,6 +10,9 @@ them and encodes the actual `applyAction()` logic against them.
 One entry per unit type. `id` matches the engine's `Unit.kind` field
 (`src/engine/types.ts`). For each unit:
 
+- `supply.byPlayerCount` — total pieces of this unit type available, i.e. the
+  hard cap a player can have in play at once, keyed by player count. Placeholder
+  `0` values until the real counts are decided.
 - `movement.isMobile` — `false` for static units like settlements.
 - `movement.terrains` — which of the 5 terrain types (see below) this unit
   can move onto.
@@ -22,9 +25,9 @@ One entry per unit type. `id` matches the engine's `Unit.kind` field
   notes/parameters make sense (move distance, resource yield, etc.) until
   the exact rule text is locked in.
 
-Pre-filled with the three unit kinds already known from the starting tribe
-(settlement, mobile unit, ship) — `name`, `description`, `movement.terrains`,
-and `actions` are left blank/empty where the rules aren't decided yet.
+Pre-filled with the six unit kinds (city, shrine, nomad, merchant, ship,
+explorer) — `description`, `supply`, `movement.terrains`, and `actions` are
+left blank/placeholder where the rules aren't decided yet.
 
 ## `terrain.json` (validated by `terrain.schema.json`)
 
