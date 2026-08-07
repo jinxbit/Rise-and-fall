@@ -126,6 +126,21 @@ across live/async/hotseat sessions.
 Once that's done, "Sign in with Discord" on the home page should work end
 to end.
 
+## Testing without Discord OAuth set up
+
+Set `VITE_ALLOW_GUEST_AUTH=true` (see `.env.example`) to show a "Continue
+as guest (testing)" button next to the Discord one. It uses Supabase's
+built-in anonymous sign-in, which produces a real session/`auth.uid()`, so
+RLS and the rest of the app work exactly as with a Discord identity — the
+only difference is the display name (`Guest 1234`) and no persistent
+account across browsers/devices.
+
+This requires **Authentication → Sign In / Providers → Allow anonymous
+sign-ins** to be enabled in the Supabase dashboard (off by default).
+
+Leave `VITE_ALLOW_GUEST_AUTH` unset in production — Discord sign-in is
+meant to be mandatory there; this is a testing-only escape hatch.
+
 ## Hotseat identity — tradeoff to decide before it's built
 
 The spec asks for one of two approaches for switching the active player on

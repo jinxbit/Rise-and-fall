@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { DiscordSignIn } from '../components/DiscordSignIn'
+import { GuestSignIn } from '../components/GuestSignIn'
 import { PlayModeSelector } from '../components/PlayModeSelector'
 import { useAuth } from '../hooks/useAuth'
 import { createGame, getGameByRoomCode } from '../lib/gameApi'
@@ -27,7 +28,10 @@ export function HomePage() {
         <p className="max-w-sm text-neutral-400">
           Sign in with Discord to create or join a game with your friends.
         </p>
-        <DiscordSignIn />
+        <div className="flex flex-col items-center gap-3">
+          <DiscordSignIn />
+          {import.meta.env.VITE_ALLOW_GUEST_AUTH === 'true' && <GuestSignIn />}
+        </div>
       </div>
     )
   }
