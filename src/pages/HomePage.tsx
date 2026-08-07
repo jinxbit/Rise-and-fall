@@ -28,9 +28,10 @@ export function HomePage() {
         <p className="max-w-sm text-neutral-400">
           Sign in with Discord to create or join a game with your friends.
         </p>
+        {error && <div className="rounded-md bg-red-500/10 p-3 text-sm text-red-400">{error}</div>}
         <div className="flex flex-col items-center gap-3">
-          <DiscordSignIn />
-          {import.meta.env.VITE_ALLOW_GUEST_AUTH === 'true' && <GuestSignIn />}
+          <DiscordSignIn onError={setError} />
+          {import.meta.env.VITE_ALLOW_GUEST_AUTH === 'true' && <GuestSignIn onError={setError} />}
         </div>
       </div>
     )
