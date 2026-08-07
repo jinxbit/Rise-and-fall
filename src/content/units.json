@@ -33,22 +33,51 @@
         "canCrossCliffs": false
       },
       "actions": [
-         "transformToNomad": 
-           { 
-             "actionType": "transform", 
-             "targetUnit": "Nomad", 
-             "targetHex": { "terrainType": ["Plain"], "location": "adj" },
-             "destroySelf": true,
-             "cost": [{"gold": 0, "wood": 0, "stone": 0}]
-           },
-        "transformToCity": 
-           { 
-             "actionType": "transform", 
-             "targetUnit": "City", 
-             "targetHex": { "terrainType": ["Plain"], "location": "adj" },
-             "destroySelf": true,
-             "cost": [{"gold": 0, "wood": 0, "stone": 1}]
-           }
+        {
+          "id": "transform-to-nomad",
+          "name": "Transform to Nomad",
+          "description": "",
+          "effect": {
+            "actionType": "transform",
+            "targetUnit": "Nomad",
+            "targetHex": { "terrainType": ["Plain"], "location": "adj" },
+            "destroySelf": true,
+            "cost": { "gold": 0, "wood": 0, "stone": 0 }
+          }
+        },
+        {
+          "id": "transform-to-city",
+          "name": "Transform to City",
+          "description": "",
+          "effect": {
+            "actionType": "transform",
+            "targetUnit": "City",
+            "targetHex": { "terrainType": ["Plain"], "location": "adj" },
+            "destroySelf": true,
+            "cost": { "gold": 0, "wood": 0, "stone": 1 }
+          }
+        },
+        {
+          "id": "transform-to-merchant",
+          "name": "Transform to merchant",
+          "description": "",
+          "effect": {
+            "actionType": "transform",
+            "targetUnit": "Merchant",
+            "targetHex": { "terrainType": ["Plain"], "location": "adj" },
+            "destroySelf": true,
+            "cost": { "gold": 5, "wood": 0, "stone": 0 }
+          }
+        },
+        {
+          "id": "trade",
+          "name": "Trade",
+          "description": "",
+          "effect": {
+            "actionType": "trade",
+            "goldPerCity": 5
+          }
+        }
       ]
     }
   ]
