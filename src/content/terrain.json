@@ -1,0 +1,94 @@
+{
+  "$schema": "./terrain.schema.json",
+  "terrainTypes": [
+    {
+      "id": "water",
+      "name": "Water",
+      "placesOn": null,
+      "shapeGroups": [
+        {
+          "id": "initial",
+          "label": "Starting water tiles, placed during game setup",
+          "shapes": [],
+          "limits": {
+            "byPlayerCount": { "2": 0, "3": 0, "4": 0 },
+            "modules": {}
+          }
+        },
+        {
+          "id": "expansion",
+          "label": "Water tiles placed later by players during the game",
+          "shapes": [],
+          "limits": {
+            "byPlayerCount": { "2": 0, "3": 0, "4": 0 },
+            "modules": {}
+          }
+        }
+      ]
+    },
+    {
+      "id": "plain",
+      "name": "Plain",
+      "placesOn": ["water"],
+      "shapeGroups": [
+        {
+          "id": "standard",
+          "label": "Plain tiles",
+          "shapes": [],
+          "limits": {
+            "byPlayerCount": { "2": 0, "3": 0, "4": 0 },
+            "modules": {}
+          }
+        }
+      ]
+    },
+    {
+      "id": "forest",
+      "name": "Forest",
+      "placesOn": ["plain"],
+      "shapeGroups": [
+        {
+          "id": "standard",
+          "label": "Forest tiles",
+          "shapes": [],
+          "limits": {
+            "byPlayerCount": { "2": 0, "3": 0, "4": 0 },
+            "modules": {}
+          }
+        }
+      ]
+    },
+    {
+      "id": "mountain",
+      "name": "Mountain",
+      "placesOn": ["forest"],
+      "shapeGroups": [
+        {
+          "id": "standard",
+          "label": "Mountain tiles",
+          "shapes": [],
+          "limits": {
+            "byPlayerCount": { "2": 0, "3": 0, "4": 0 },
+            "modules": {}
+          }
+        }
+      ]
+    },
+    {
+      "id": "glacier",
+      "name": "Glacier",
+      "placesOn": ["mountain"],
+      "shapeGroups": [
+        {
+          "id": "standard",
+          "label": "Glacier tiles",
+          "shapes": [],
+          "limits": {
+            "byPlayerCount": { "2": 0, "3": 0, "4": 0 },
+            "modules": {}
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,88 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://rise-and-fall.local/units.schema.json",
+  "title": "Rise & Fall unit definitions",
+  "description": "Every unit type in the game. Each card in a player's deck is associated with exactly one unit type (by `id`); playing that card lets the player pick one of that unit's `actions` and perform it with every unit of that type they own.",
+  "type": "object",
+  "required": ["units"],
+  "additionalProperties": false,
+  "properties": {
+    "units": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/unit" }
+    }
+  },
+  "definitions": {
+    "unit": {
+      "type": "object",
+      "required": ["id", "name", "description", "movement", "actions"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Stable identifier, kebab-case. Matches the engine's Unit.kind field."
+        },
+        "name": {
+          "type": "string",
+          "description": "Display name."
+        },
+        "description": {
+          "type": "string",
+          "description": "Flavor/rules text, written from scratch (no reproduced rulebook text)."
+        },
+        "movement": {
+          "type": "object",
+          "required": ["isMobile", "terrains", "canCrossCliffs"],
+          "additionalProperties": false,
+          "properties": {
+            "isMobile": {
+              "type": "boolean",
+              "description": "False for static units such as settlements — they occupy a tile but never move."
+            },
+            "terrains": {
+              "type": "array",
+              "description": "Terrain type ids (see terrain.json) this unit is allowed to move onto. Empty for immobile units.",
+              "items": {
+                "type": "string",
+                "enum": ["water", "plain", "forest", "mountain", "glacier"]
+              },
+              "uniqueItems": true
+            },
+            "canCrossCliffs": {
+              "type": "boolean",
+              "description": "Whether this unit can cross a cliff edge — an edge between tiles that otherwise blocks movement/adjacency for every other unit."
+            }
+          }
+        },
+        "actions": {
+          "type": "array",
+          "description": "The actions this unit's card can trigger. Exactly one is chosen each time the card is played, and it applies simultaneously to every unit of this type the playing player controls.",
+          "items": { "$ref": "#/definitions/action" }
+        }
+      }
+    },
+    "action": {
+      "type": "object",
+      "required": ["id", "name", "description"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Stable identifier, kebab-case. Matches the engine's PlayCardAction resolution once implemented."
+        },
+        "name": {
+          "type": "string",
+          "description": "Display name, e.g. 'Move', 'Build settlement', 'Gather resources'."
+        },
+        "description": {
+          "type": "string",
+          "description": "What the action does, written from scratch."
+        },
+        "effect": {
+          "description": "Free-form parameters for this action (e.g. move distance, resource yield). Shape is intentionally open until the rules are finalized — fill in whatever fields make sense per action.",
+          "type": ["object", "string", "null"]
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,116 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://rise-and-fall.local/terrain.schema.json",
+  "title": "Rise & Fall terrain definitions",
+  "description": "The 5 terrain types, their setup hierarchy (which type may be placed on top of which), their physical tile shapes, and how many of each are available per player count and per optional module.",
+  "type": "object",
+  "required": ["terrainTypes"],
+  "additionalProperties": false,
+  "properties": {
+    "terrainTypes": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/terrainType" }
+    }
+  },
+  "definitions": {
+    "terrainType": {
+      "type": "object",
+      "required": ["id", "name", "placesOn", "shapeGroups"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "enum": ["water", "plain", "forest", "mountain", "glacier"]
+        },
+        "name": { "type": "string" },
+        "placesOn": {
+          "description": "Terrain type id(s) this type may be placed on top of during board setup. null only for water, the base terrain.",
+          "type": ["array", "null"],
+          "items": { "type": "string" }
+        },
+        "shapeGroups": {
+          "type": "array",
+          "description": "Distinct pools of tiles for this terrain type. Most terrain types have a single 'standard' group; water has two, since its starting tiles (placed at game setup) and its later tiles (placed by players during play) are physically different tile sets.",
+          "items": { "$ref": "#/definitions/shapeGroup" }
+        }
+      }
+    },
+    "shapeGroup": {
+      "type": "object",
+      "required": ["id", "label", "shapes", "limits"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "e.g. 'standard', 'initial', 'expansion'."
+        },
+        "label": { "type": "string" },
+        "shapes": {
+          "type": "array",
+          "description": "The distinct multi-hex tile shapes available in this group.",
+          "items": { "$ref": "#/definitions/shape" }
+        },
+        "limits": { "$ref": "#/definitions/limits" }
+      }
+    },
+    "shape": {
+      "type": "object",
+      "required": ["id", "cells"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "cells": {
+          "type": "array",
+          "description": "Relative axial {q,r} offsets of every hex making up this tile piece. The first cell should be {0,0}; the rest describe how the hexagons are joined together.",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["q", "r"],
+            "additionalProperties": false,
+            "properties": {
+              "q": { "type": "integer" },
+              "r": { "type": "integer" }
+            }
+          }
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "required": ["byPlayerCount"],
+      "additionalProperties": false,
+      "properties": {
+        "byPlayerCount": {
+          "type": "object",
+          "description": "How many tiles from this shape group are available in the base game, keyed by player count as a string.",
+          "additionalProperties": false,
+          "properties": {
+            "2": { "type": "integer", "minimum": 0 },
+            "3": { "type": "integer", "minimum": 0 },
+            "4": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "modules": {
+          "type": "object",
+          "description": "Extra tiles contributed by an optional module, keyed by module id. Additive on top of byPlayerCount.",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["byPlayerCount"],
+            "additionalProperties": false,
+            "properties": {
+              "byPlayerCount": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "2": { "type": "integer", "minimum": 0 },
+                  "3": { "type": "integer", "minimum": 0 },
+                  "4": { "type": "integer", "minimum": 0 }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

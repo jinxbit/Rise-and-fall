@@ -1,0 +1,38 @@
+{
+  "$schema": "./units.schema.json",
+  "units": [
+    {
+      "id": "settlement",
+      "name": "Settlement",
+      "description": "",
+      "movement": {
+        "isMobile": false,
+        "terrains": [],
+        "canCrossCliffs": false
+      },
+      "actions": []
+    },
+    {
+      "id": "mobile-unit",
+      "name": "",
+      "description": "",
+      "movement": {
+        "isMobile": true,
+        "terrains": [],
+        "canCrossCliffs": false
+      },
+      "actions": []
+    },
+    {
+      "id": "ship",
+      "name": "Ship",
+      "description": "",
+      "movement": {
+        "isMobile": true,
+        "terrains": ["water"],
+        "canCrossCliffs": false
+      },
+      "actions": []
+    }
+  ]
+}
