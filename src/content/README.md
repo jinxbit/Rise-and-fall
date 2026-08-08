@@ -25,7 +25,7 @@ One entry per unit type. `id` matches the engine's `Unit.kind` field
   notes/parameters make sense (move distance, resource yield, etc.) until
   the exact rule text is locked in.
 
-Pre-filled with the six unit kinds (city, shrine, nomad, merchant, ship,
+Pre-filled with the six unit kinds (city, temple, nomad, merchant, ship,
 explorer) — `description`, `supply`, `movement.terrains`, and `actions` are
 left blank/placeholder where the rules aren't decided yet.
 

@@ -57,8 +57,8 @@
       ]
     },
     {
-      "id": "shrine",
-      "name": "Shrine",
+      "id": "temple",
+      "name": "Temple",
       "description": "",
       "supply": { "byPlayerCount": { "2": 0, "3": 0, "4": 0 } },
       "movement": {
@@ -66,7 +66,30 @@
         "terrains": [],
         "canCrossCliffs": false
       },
-      "actions": []
+      "actions": [
+        {
+          "id": "convert-enemy-unit",
+          "name": "Convert Enemy Unit",
+          "description": "Convert an adjacent enemy unit to your control. Only mobile units can be converted.",
+          "effect": {
+            "actionType": "convert",
+            "targetHex": { "location": "adj" },
+            "targetOwner": "enemy",
+            "targetMobileOnly": true,
+            "cost": { "gold": 0, "wood": 0, "stone": 0 }
+          }
+        },
+        {
+          "id": "generate-income",
+          "name": "Generate Income",
+          "description": "Generate 2 gold for each adjacent unit you control that is not a Temple.",
+          "effect": {
+            "actionType": "income",
+            "goldPerAdjacentOwnUnit": 2,
+            "excludeUnitTypes": ["temple"]
+          }
+        }
+      ]
     },
     {
       "id": "nomad",
