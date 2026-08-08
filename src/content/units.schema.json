@@ -79,6 +79,11 @@
               "type": "string",
               "enum": ["none", "enemy", "all"],
               "description": "Which units this unit's movement path is blocked by (i.e. cannot move through their hexes): 'none', only 'enemy' units, or 'all' units regardless of owner. Optional, only set once decided for a given unit."
+            },
+            "canEndMoveOnUnitTypes": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Unit type ids this unit is allowed to end its movement on top of (sharing a hex with), as an exception to the normal rule that a move must end on an unoccupied hex. Optional, only set once decided for a given unit."
             }
           }
         },

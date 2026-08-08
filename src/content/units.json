@@ -161,10 +161,49 @@
       "supply": { "byPlayerCount": { "2": 0, "3": 0, "4": 0 } },
       "movement": {
         "isMobile": true,
-        "terrains": [],
-        "canCrossCliffs": false
+        "terrains": ["water", "plain", "forest", "mountain"],
+        "canCrossCliffs": false,
+        "moveDistance": 4,
+        "blockedByUnits": "none",
+        "canEndMoveOnUnitTypes": ["city"]
       },
-      "actions": []
+      "actions": [
+        {
+          "id": "trade-resource",
+          "name": "Buy/Sell Resource",
+          "description": "Buy or sell a single resource for 5 gold.",
+          "effect": {
+            "actionType": "trade-resource",
+            "resourceAmount": 1,
+            "goldPerResource": 5,
+            "modes": ["buy", "sell"]
+          }
+        },
+        {
+          "id": "generate-income",
+          "name": "Generate Income",
+          "description": "Generate gold based on adjacent Cities: 3 gold per adjacent own City, 5 gold per adjacent enemy City.",
+          "effect": {
+            "actionType": "income",
+            "goldPerAdjacentUnit": {
+              "own": { "city": 3 },
+              "enemy": { "city": 5 }
+            }
+          }
+        },
+        {
+          "id": "transform-to-ship",
+          "name": "Transform to Ship",
+          "description": "Transform into a Ship on an adjacent water hex.",
+          "effect": {
+            "actionType": "transform",
+            "targetUnit": "Ship",
+            "targetHex": { "terrainType": ["water"], "location": "adj" },
+            "destroySelf": true,
+            "cost": { "gold": 0, "wood": 2, "stone": 0 }
+          }
+        }
+      ]
     },
     {
       "id": "mountaineer",
