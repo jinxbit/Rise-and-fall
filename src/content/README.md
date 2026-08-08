@@ -26,7 +26,7 @@ One entry per unit type. `id` matches the engine's `Unit.kind` field
   the exact rule text is locked in.
 
 Pre-filled with the six unit kinds (city, temple, nomad, merchant, ship,
-explorer) — `description`, `supply`, `movement.terrains`, and `actions` are
+mountaineer) — `description`, `supply`, `movement.terrains`, and `actions` are
 left blank/placeholder where the rules aren't decided yet.
 
 ## `terrain.json` (validated by `terrain.schema.json`)

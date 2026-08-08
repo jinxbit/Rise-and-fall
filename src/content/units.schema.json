@@ -76,8 +76,9 @@
               "description": "Max hexes this unit can move in a single move action. Optional, only set once decided for a given unit."
             },
             "blockedByUnits": {
-              "type": "boolean",
-              "description": "Whether this unit's movement path is blocked by hexes occupied by other units (i.e. it cannot move through them). Optional, only set once decided for a given unit."
+              "type": "string",
+              "enum": ["none", "enemy", "all"],
+              "description": "Which units this unit's movement path is blocked by (i.e. cannot move through their hexes): 'none', only 'enemy' units, or 'all' units regardless of owner. Optional, only set once decided for a given unit."
             }
           }
         },

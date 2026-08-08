@@ -35,12 +35,12 @@
           }
         },
         {
-          "id": "create-explorer",
-          "name": "Create Explorer",
-          "description": "Create an Explorer on an adjacent hex. Cannot target a hex across a cliff edge.",
+          "id": "create-mountaineer",
+          "name": "Create Mountaineer",
+          "description": "Create a Mountaineer on an adjacent hex. Cannot target a hex across a cliff edge.",
           "effect": {
             "actionType": "create",
-            "targetUnit": "Explorer",
+            "targetUnit": "Mountaineer",
             "targetHex": { "location": "adj", "crossCliff": false },
             "cost": { "gold": 1, "wood": 0, "stone": 0 }
           }
@@ -101,7 +101,7 @@
         "terrains": ["plain", "forest", "mountain"],
         "canCrossCliffs": false,
         "moveDistance": 1,
-        "blockedByUnits": true
+        "blockedByUnits": "all"
       },
       "actions": [
         {
@@ -167,16 +167,44 @@
       "actions": []
     },
     {
-      "id": "explorer",
-      "name": "Explorer",
+      "id": "mountaineer",
+      "name": "Mountaineer",
       "description": "",
       "supply": { "byPlayerCount": { "2": 0, "3": 0, "4": 0 } },
       "movement": {
         "isMobile": true,
-        "terrains": [],
-        "canCrossCliffs": false
+        "terrains": ["water", "plain", "forest", "mountain", "glacier"],
+        "canCrossCliffs": true,
+        "moveDistance": 3,
+        "blockedByUnits": "enemy"
       },
-      "actions": []
+      "actions": [
+        {
+          "id": "produce-resource",
+          "name": "Produce Resource",
+          "description": "Produce a resource based on the terrain the Mountaineer occupies: 1 wood in Forest, 1 stone in Mountain, 1 stone in Glacier.",
+          "effect": {
+            "actionType": "produce",
+            "resourceByTerrain": {
+              "forest": { "wood": 1 },
+              "mountain": { "stone": 1 },
+              "glacier": { "stone": 1 }
+            }
+          }
+        },
+        {
+          "id": "transform-to-city",
+          "name": "Transform to City",
+          "description": "Transform into a City in its own space. Only on Forest or Mountain.",
+          "effect": {
+            "actionType": "transform",
+            "targetUnit": "City",
+            "targetHex": { "terrainType": ["forest", "mountain"], "location": "self" },
+            "destroySelf": true,
+            "cost": { "gold": 0, "wood": 2, "stone": 0 }
+          }
+        }
+      ]
     },
     {
       "id": "ship",
