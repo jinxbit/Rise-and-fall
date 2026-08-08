@@ -11,7 +11,50 @@
         "terrains": [],
         "canCrossCliffs": false
       },
-      "actions": []
+      "actions": [
+        {
+          "id": "create-nomad",
+          "name": "Create Nomad",
+          "description": "Create a Nomad on an adjacent hex. Cannot target a hex across a cliff edge.",
+          "effect": {
+            "actionType": "create",
+            "targetUnit": "Nomad",
+            "targetHex": { "location": "adj", "crossCliff": false },
+            "cost": { "gold": 0, "wood": 0, "stone": 0 }
+          }
+        },
+        {
+          "id": "create-merchant",
+          "name": "Create Merchant",
+          "description": "Create a Merchant on an adjacent hex. Cannot target a hex across a cliff edge.",
+          "effect": {
+            "actionType": "create",
+            "targetUnit": "Merchant",
+            "targetHex": { "location": "adj", "crossCliff": false },
+            "cost": { "gold": 2, "wood": 0, "stone": 0 }
+          }
+        },
+        {
+          "id": "create-explorer",
+          "name": "Create Explorer",
+          "description": "Create an Explorer on an adjacent hex. Cannot target a hex across a cliff edge.",
+          "effect": {
+            "actionType": "create",
+            "targetUnit": "Explorer",
+            "targetHex": { "location": "adj", "crossCliff": false },
+            "cost": { "gold": 1, "wood": 0, "stone": 0 }
+          }
+        },
+        {
+          "id": "generate-income",
+          "name": "Generate Income",
+          "description": "Generate gold based on the terrain type the City occupies.",
+          "effect": {
+            "actionType": "income",
+            "goldByTerrain": { "plain": 2, "forest": 3, "mountain": 1 }
+          }
+        }
+      ]
     },
     {
       "id": "shrine",
