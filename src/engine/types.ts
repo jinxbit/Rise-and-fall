@@ -74,12 +74,27 @@ export interface Unit {
 }
 
 /**
- * A card in a player's personal deck. `effectId` is resolved against a
- * content table by the (not-yet-written) action-resolution logic; the
- * engine skeleton only needs to move cards between zones.
+ * The five places a card can be, per the card-play rules:
+ * - `hand`: playable by its owner.
+ * - `currentlyPlayed`: transient — the card mid-resolution on the turn it's played.
+ * - `discard`: played cards, recycled into the hand once the hand is empty.
+ * - `supply`: the card's owner currently has no unit of its kind on the board.
+ * - `decline`: leaves only when bought back (rules for this land later).
+ */
+export type CardZone = 'hand' | 'currentlyPlayed' | 'discard' | 'supply' | 'decline'
+
+/**
+ * A card in a player's personal set. Each player has exactly one card per
+ * unit kind (`kind`), so `kind` doubles as which unit type this card
+ * governs. `effectId` is resolved against a content table by the
+ * (not-yet-written) action-resolution logic; the engine skeleton only needs
+ * to move cards between zones.
  */
 export interface Card {
   id: string
+  ownerId: string
+  /** Unit kind this card corresponds to — matches `Unit.kind` / content/units.json ids. */
+  kind: string
   name: string
   description: string
   effectId: string
@@ -92,8 +107,11 @@ export interface Player {
   displayName: string
   color: string
   handCardIds: string[]
-  deckCardIds: string[]
+  /** At most one card, since only a single card can be played per turn. */
+  currentlyPlayedCardId: string | null
   discardCardIds: string[]
+  supplyCardIds: string[]
+  declineCardIds: string[]
 }
 
 /** Append-only log entry, kept since the game has no hidden information. */
@@ -111,6 +129,8 @@ export interface GameState {
   status: GameStatus
   turn: number
   activePlayerId: string | null
+  /** Whether the active player has already played their one card this turn. */
+  cardPlayedThisTurn: boolean
   /** Ordered turn sequence, e.g. player ids in seating order. */
   turnOrder: string[]
   board: Board

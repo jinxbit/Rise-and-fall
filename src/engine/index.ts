@@ -1,5 +1,6 @@
 export * from './types'
 export * from './board'
+export * from './cards'
 export * from './actions'
 export * from './applyAction'
 export * from './createGame'

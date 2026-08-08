@@ -1,5 +1,6 @@
 import { getTile, setTile } from './board'
-import type { Board, Coordinate, GameState, PlayMode, Player, Unit } from './types'
+import { createPlayerCards, syncCardZonesWithBoard } from './cards'
+import type { Board, Card, Coordinate, GameState, PlayMode, Player, Unit } from './types'
 
 export interface PlayerSeed {
   id: string
@@ -8,22 +9,35 @@ export interface PlayerSeed {
   color: string
 }
 
-/** Builds a fresh lobby-status game: board is set but no units are placed yet. */
+/**
+ * Builds a fresh lobby-status game: board is set but no units are placed
+ * yet. Each player's six unit cards (one per unit kind) start in supply per
+ * rule 5 — nobody has any units on the board yet.
+ */
 export function createNewGame(params: {
   gameId: string
   playMode: PlayMode
   board: Board
   players: PlayerSeed[]
 }): GameState {
-  const players: Player[] = params.players.map((seed) => ({
-    id: seed.id,
-    authUserId: seed.authUserId,
-    displayName: seed.displayName,
-    color: seed.color,
-    handCardIds: [],
-    deckCardIds: [],
-    discardCardIds: [],
-  }))
+  const cards: Record<string, Card> = {}
+  const players: Player[] = params.players.map((seed) => {
+    const playerCards = createPlayerCards(seed.id)
+    for (const card of playerCards) {
+      cards[card.id] = card
+    }
+    return {
+      id: seed.id,
+      authUserId: seed.authUserId,
+      displayName: seed.displayName,
+      color: seed.color,
+      handCardIds: [],
+      currentlyPlayedCardId: null,
+      discardCardIds: [],
+      supplyCardIds: playerCards.map((c) => c.id),
+      declineCardIds: [],
+    }
+  })
 
   return {
     gameId: params.gameId,
@@ -31,11 +45,12 @@ export function createNewGame(params: {
     status: 'lobby',
     turn: 0,
     activePlayerId: null,
+    cardPlayedThisTurn: false,
     turnOrder: players.map((p) => p.id),
     board: params.board,
     players,
     units: [],
-    cards: {},
+    cards,
     log: [],
     winnerPlayerId: null,
   }
@@ -99,11 +114,15 @@ export function startGame(state: GameState, startingPositions: Record<string, Co
     )
   }
 
-  return {
+  const nextState: GameState = {
     ...state,
     board,
     units,
     status: 'active',
     activePlayerId: state.turnOrder[0] ?? null,
   }
+
+  // Rule 6: a player's card enters their hand the moment they get their
+  // first unit of that kind on the board — apply that for the starting units.
+  return syncCardZonesWithBoard(nextState)
 }

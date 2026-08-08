@@ -77,10 +77,11 @@ describe('applyAction', () => {
   })
 
   it('logs an event for each successful action', () => {
+    const logLengthBefore = state.log.length
     const result = applyAction(state, { type: 'END_TURN', playerId: 'p1' })
     expect(result.ok).toBe(true)
     if (result.ok) {
-      expect(result.state.log).toHaveLength(1)
+      expect(result.state.log).toHaveLength(logLengthBefore + 1)
     }
   })
 
