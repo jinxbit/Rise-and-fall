@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="750" height="1050" viewBox="0 0 750 1050">
+  <defs>
+    <linearGradient id="back-frame" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3d0f80"/>
+      <stop offset="1" stop-color="#aa3bff"/>
+    </linearGradient>
+    <radialGradient id="back-field" cx="0.5" cy="0.42" r="0.75">
+      <stop offset="0" stop-color="#6a1fc9"/>
+      <stop offset="1" stop-color="#2c0a5c"/>
+    </radialGradient>
+    <linearGradient id="back-emblem" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f4e7ff"/>
+      <stop offset="1" stop-color="#c9a0ff"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="750" height="1050" rx="42" fill="url(#back-frame)"/>
+  <rect x="26" y="26" width="698" height="998" rx="30" fill="url(#back-field)" stroke="#f4e7ff" stroke-width="2"/>
+  <rect x="46" y="46" width="658" height="958" rx="22" fill="none" stroke="#c9a0ff" stroke-width="2" stroke-opacity="0.6"/>
+  <rect x="58" y="58" width="634" height="934" rx="16" fill="none" stroke="#c9a0ff" stroke-width="1.5" stroke-opacity="0.4"/>
+
+  <g transform="translate(375,485)">
+    <polygon points="0,-92 78,-46 78,46 0,92 -78,46 -78,-46" fill="none" stroke="#f4e7ff" stroke-width="3" stroke-opacity="0.85"/>
+    <polygon points="0,-64 54,-32 54,32 0,64 -54,32 -54,-32" fill="url(#back-emblem)" opacity="0.92"/>
+    <polygon points="0,-38 32,-19 32,19 0,38 -32,19 -32,-19" fill="#6a1fc9"/>
+    <circle cx="0" cy="0" r="10" fill="#f4e7ff"/>
+  </g>
+
+  <text x="375" y="655" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="40" font-weight="700" letter-spacing="4" fill="#f4e7ff">RISE &amp; FALL</text>
+  <text x="375" y="689" text-anchor="middle" font-family="'Trebuchet MS', 'Segoe UI', Verdana, sans-serif" font-size="16" letter-spacing="6" fill="#c9a0ff">UNIT CARD</text>
+</svg>

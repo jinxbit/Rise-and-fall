@@ -1,0 +1,253 @@
+import { readFileSync, writeFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const repoRoot = join(__dirname, '..')
+const cardsDir = join(repoRoot, 'public/cards')
+const outPath = process.argv[2]
+
+const units = JSON.parse(readFileSync(join(repoRoot, 'src/content/units.json'), 'utf8')).units
+const ACCENTS = {
+  city: '#e0a83f', temple: '#c9a0ff', nomad: '#c98a3d',
+  merchant: '#35b596', mountaineer: '#7f97b3', ship: '#3f9be0',
+}
+
+const cardTiles = units
+  .map((u) => {
+    const svg = readFileSync(join(cardsDir, `${u.id}.svg`), 'utf8')
+    return `<figure class="tile" style="--tile-accent:${ACCENTS[u.id]}">
+      <div class="tile-card">${svg}</div>
+      <figcaption><span class="tile-name">${u.name}</span><span class="tile-file">cards/${u.id}.svg</span></figcaption>
+    </figure>`
+  })
+  .join('\n')
+
+const backSvg = readFileSync(join(cardsDir, 'card-back.svg'), 'utf8')
+
+const html = `<!doctype html>
+<title>Rise &amp; Fall — Unit Cards</title>
+<style>
+@font-face {
+  font-family: 'Georgia-fallback';
+  src: local('Georgia');
+}
+
+:root {
+  --bg: #0f0b16;
+  --surface: #17111f;
+  --surface-raised: #1e1729;
+  --border: #2e2440;
+  --text: #f3eefb;
+  --muted: #a99bc2;
+  --accent: #aa3bff;
+  --accent-soft: #c9a0ff;
+  --mono: ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  --display: Georgia, 'Times New Roman', serif;
+  --body: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Trebuchet MS', sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: radial-gradient(120% 140% at 20% -10%, #241a34 0%, var(--bg) 55%);
+  color: var(--text);
+  font-family: var(--body);
+  line-height: 1.5;
+  padding: 56px 32px 80px;
+}
+
+.wrap { max-width: 1180px; margin: 0 auto; }
+
+header.page {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  justify-content: space-between;
+  align-items: flex-end;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 28px;
+  margin-bottom: 40px;
+}
+
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent-soft);
+  margin: 0 0 10px;
+}
+
+h1 {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: clamp(32px, 4vw, 44px);
+  margin: 0;
+  text-wrap: balance;
+  letter-spacing: 0.01em;
+}
+
+.page-meta {
+  font-size: 14px;
+  color: var(--muted);
+  max-width: 46ch;
+  text-align: right;
+}
+
+.page-meta a { color: var(--accent-soft); }
+
+section.intro {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 24px;
+  margin-bottom: 48px;
+}
+
+.intro-block {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 20px 22px;
+}
+
+.intro-block h2 {
+  font-family: var(--body);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-soft);
+  margin: 0 0 10px;
+}
+
+.intro-block p {
+  margin: 0;
+  font-size: 14.5px;
+  color: var(--text);
+}
+
+.intro-block code {
+  font-family: var(--mono);
+  font-size: 13px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  color: var(--accent-soft);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 28px;
+}
+
+.tile { margin: 0; }
+
+.tile-card {
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.65), 0 0 0 1px var(--border);
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.tile-card svg { display: block; width: 100%; height: auto; }
+
+.tile:hover .tile-card {
+  transform: translateY(-4px);
+  box-shadow: 0 24px 48px -16px rgba(0, 0, 0, 0.7), 0 0 0 1px var(--tile-accent);
+}
+
+figcaption {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-top: 12px;
+  gap: 10px;
+}
+
+.tile-name {
+  font-family: var(--display);
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.tile-file {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.back-section {
+  margin-top: 56px;
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 28px;
+  align-items: center;
+}
+
+.back-section .tile-card { max-width: 220px; }
+
+.back-copy h2 {
+  font-family: var(--display);
+  font-size: 22px;
+  margin: 0 0 8px;
+}
+
+.back-copy p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14.5px;
+  max-width: 52ch;
+}
+
+@media (max-width: 620px) {
+  .back-section { grid-template-columns: 1fr; }
+  .back-section .tile-card { max-width: 260px; }
+  .page-meta { text-align: left; }
+}
+</style>
+
+<div class="wrap">
+  <header class="page">
+    <div>
+      <p class="eyebrow">Rise &amp; Fall · Card Art</p>
+      <h1>Unit Cards</h1>
+    </div>
+    <p class="page-meta">Standard poker size (2.5&Prime; × 3.5&Prime;, 750×1050px @300dpi), one per unit in <code>src/content/units.json</code>, generated by <code>scripts/generate-cards.mjs</code>.</p>
+  </header>
+
+  <section class="intro">
+    <div class="intro-block">
+      <h2>Data-driven</h2>
+      <p>Each card's actions, costs, movement and terrain are pulled straight from the units JSON. Edit the ruleset, re-run the script, cards stay in sync.</p>
+    </div>
+    <div class="intro-block">
+      <h2>Print-ready SVG</h2>
+      <p>Vector output at standard trading-card size. Scales cleanly for a physical print-and-play prototype or in-app display.</p>
+    </div>
+    <div class="intro-block">
+      <h2>Regenerate</h2>
+      <p><code>node scripts/generate-cards.mjs</code> writes into <code>public/cards/</code>. Rerun any time <code>units.json</code> changes.</p>
+    </div>
+  </section>
+
+  <div class="grid">
+    ${cardTiles}
+  </div>
+
+  <div class="back-section">
+    <div class="tile-card">${backSvg}</div>
+    <div class="back-copy">
+      <h2>Card back</h2>
+      <p>One shared back for all units — nested hex crest on a deep violet field, matching the app's existing accent color.</p>
+    </div>
+  </div>
+</div>
+`
+
+writeFileSync(outPath, html)
+console.log('wrote', outPath)

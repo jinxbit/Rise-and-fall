@@ -1,0 +1,104 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="750" height="1050" viewBox="0 0 750 1050">
+  <defs>
+    <linearGradient id="frame-mountaineer" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2c3e54"/>
+      <stop offset="1" stop-color="#6b84a3"/>
+    </linearGradient>
+    <linearGradient id="title-mountaineer" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#2c3e54"/>
+      <stop offset="1" stop-color="#6b84a3"/>
+    </linearGradient>
+    <linearGradient id="art-mountaineer" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#eaf1f7"/>
+      <stop offset="1" stop-color="#b9cbdc"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="0" y="0" width="750" height="1050" rx="42" fill="url(#frame-mountaineer)"/>
+  <rect x="26" y="26" width="698" height="998" rx="30" fill="#faf6ee" stroke="#3f5670" stroke-width="2"/>
+
+  <path d="M 56,26 H 694 A 30,30 0 0 1 724,56 V 126 H 26 V 56 A 30,30 0 0 1 56,26 Z" fill="url(#title-mountaineer)"/>
+  <text x="375" y="92" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="46" font-weight="700" fill="#25384d" opacity="0.35">Mountaineer</text>
+  <text x="375" y="89" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="46" font-weight="700" fill="#fff8ea">Mountaineer</text>
+
+  <rect x="26" y="126" width="698" height="40" fill="#e2e9f0"/>
+  <text x="375" y="153" text-anchor="middle" font-family="'Trebuchet MS', 'Segoe UI', Verdana, sans-serif" font-size="18" font-weight="700" letter-spacing="3" fill="#25384d">UNIT  ·  MOBILE</text>
+
+  <rect x="48" y="180" width="654" height="336" rx="18" fill="url(#art-mountaineer)" stroke="#3f5670" stroke-width="4"/>
+  <g clip-path="url(#artclip-mountaineer)">
+    <clipPath id="artclip-mountaineer"><rect x="50" y="182" width="650" height="332" rx="16"/></clipPath>
+    <g transform="translate(375,348) scale(0.925) translate(-160,-160)">
+      
+    <polygon points="20,282 108,150 160,220 200,168 300,282" fill="#7f97b3" stroke="#556a85" stroke-width="4" stroke-linejoin="round"/>
+    <polygon points="80,196 108,150 138,196" fill="#f2f6fa" stroke="#556a85" stroke-width="3" stroke-linejoin="round"/>
+    <polygon points="176,198 200,168 224,200" fill="#f2f6fa" stroke="#556a85" stroke-width="3" stroke-linejoin="round"/>
+    
+  <path d="M110,150 Q112,118 160,108 Q208,118 210,150 L232,175 Q258,205 264,278 L56,278 Q62,205 88,175 Z"
+        fill="#3f5670" stroke="#25384d" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M56,278 L264,278 L258,262 L62,262 Z" fill="#25384d" opacity="0.55"/>
+  <path d="M124,150 L136,278 M160,148 L160,278 M196,150 L184,278" stroke="#25384d" stroke-width="3" opacity="0.4" fill="none"/>
+  
+  <circle cx="160" cy="106" r="30" fill="#e3b78a"/>
+  
+
+    <path d="M128,86 Q160,64 192,86 L188,104 Q160,90 132,104 Z" fill="#e9edf2" stroke="#25384d" stroke-width="3"/>
+    <g fill="none" stroke="#c9b389" stroke-width="4">
+      <circle cx="96" cy="230" r="16"/>
+      <circle cx="96" cy="230" r="10"/>
+    </g>
+    <g stroke="#5a5a5a" stroke-width="6" stroke-linecap="round">
+      <line x1="222" y1="204" x2="270" y2="122"/>
+    </g>
+    <path d="M270,122 L242,100 Q262,96 278,108 Z" fill="#8b8b8b" stroke="#4a4a4a" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M270,122 L296,138 Q280,146 262,136 Z" fill="#8b8b8b" stroke="#4a4a4a" stroke-width="3" stroke-linejoin="round"/>
+  
+    </g>
+  </g>
+
+  <rect x="48" y="530" width="654" height="54" rx="27" fill="#ffffff" fill-opacity="0.6" stroke="#3f5670" stroke-width="2"/><g transform="translate(75.67500000000001,557) scale(0.7692307692307693)">
+    <circle r="13" fill="#25384d" opacity="0.16"/>
+    <path d="M -3,-9 Q 3,-9 3,-4 Q 3,0 -2,2 L 4,9" fill="none" stroke="#25384d" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="-3" cy="-9" r="2" fill="#25384d"/>
+  </g><text x="91.67500000000001" y="562" font-family="'Trebuchet MS', 'Segoe UI', Verdana, sans-serif" font-size="13" font-weight="600" fill="#25384d">Move 3</text><g transform="translate(156.57500000000002,557) scale(0.7692307692307693)">
+    <circle r="9" fill="#3f9be0" opacity="0.22"/>
+    <path d="M -6,1 Q -3,-3 0,1 Q 3,-3 6,1" fill="none" stroke="#3f9be0" stroke-width="2" stroke-linecap="round"/>
+    <path d="M -6,5 Q -3,1 0,5 Q 3,1 6,5" fill="none" stroke="#3f9be0" stroke-width="2" stroke-linecap="round"/>
+  </g><text x="172.57500000000002" y="562" font-family="'Trebuchet MS', 'Segoe UI', Verdana, sans-serif" font-size="13" font-weight="600" fill="#25384d">Water</text><g transform="translate(230.32500000000002,557) scale(0.7692307692307693)">
+    <circle r="9" fill="#8fb84e" opacity="0.22"/>
+    <circle r="5.5" fill="#8fb84e"/>
+  </g><text x="246.32500000000002" y="562" font-family="'Trebuchet MS', 'Segoe UI', Verdana, sans-serif" font-size="13" font-weight="600" fill="#25384d">Plain</text><g transform="translate(304.07500000000005,557) scale(0.7692307692307693)">
+    <circle r="9" fill="#2f7a3f" opacity="0.22"/>
+    <polygon points="0,-7 6,4 -6,4" fill="#2f7a3f"/>
+    <rect x="-1.5" y="4" width="3" height="3" fill="#2f7a3f"/>
+  </g><text x="320.07500000000005" y="562" font-family="'Trebuchet MS', 'Segoe UI', Verdana, sans-serif" font-size="13" font-weight="600" fill="#25384d">Forest</text><g transform="translate(384.975,557) scale(0.7692307692307693)">
+    <circle r="9" fill="#7f7f7f" opacity="0.22"/>
+    <polygon points="-7,6 -1,-6 3,0 7,6" fill="#7f7f7f"/>
+  </g><text x="400.975" y="562" font-family="'Trebuchet MS', 'Segoe UI', Verdana, sans-serif" font-size="13" font-weight="600" fill="#25384d">Mountain</text><g transform="translate(480.175,557) scale(0.7692307692307693)">
+    <circle r="9" fill="#8ec7e0" opacity="0.22"/>
+    <polygon points="-7,6 -1,-6 3,0 7,6" fill="#8ec7e0"/>
+    <polygon points="-7,6 -1,-6 -3,3" fill="#ffffff"/>
+  </g><text x="496.175" y="562" font-family="'Trebuchet MS', 'Segoe UI', Verdana, sans-serif" font-size="13" font-weight="600" fill="#25384d">Glacier</text><g transform="translate(568.225,557) scale(0.7692307692307693)">
+    <circle r="13" fill="#25384d" opacity="0.16"/>
+    <path d="M -9,7 L -2,7 L -2,-7 L 5,-2 L 5,7 L 9,7" fill="none" stroke="#25384d" stroke-width="2.1" stroke-linejoin="round" stroke-linecap="round"/>
+  </g><text x="584.225" y="562" font-family="'Trebuchet MS', 'Segoe UI', Verdana, sans-serif" font-size="13" font-weight="600" fill="#25384d">Crosses Cliffs</text>
+
+  <rect x="48" y="604" width="654" height="376" rx="16" fill="#fffaf2" stroke="#3f5670" stroke-width="2.5"/><g transform="translate(86,635.5) scale(1.05)">
+    <circle r="13" fill="#3f5670" opacity="0.16"/>
+    <line x1="0" y1="9" x2="0" y2="-6" stroke="#3f5670" stroke-width="2.2" stroke-linecap="round"/>
+    <path d="M 0,-6 C -2,-11 -8,-11 -10,-8 C -10,-3 -3,-1 0,-6 Z" fill="#3f5670"/>
+    <line x1="-6" y1="-7" x2="-2" y2="-5" stroke="#ffffff" stroke-width="1" opacity="0.55"/>
+  </g><text x="110" y="642.56" font-family="'Trebuchet MS', 'Segoe UI', Verdana, sans-serif" font-size="23" font-weight="700" fill="#2c2313">Produce Resource</text><text x="110" y="672.16" font-family="'Trebuchet MS', 'Segoe UI', Verdana, sans-serif" font-size="18" fill="#5a4f3d">Produce a resource based on the terrain the Mountaineer</text><text x="110" y="694.16" font-family="'Trebuchet MS', 'Segoe UI', Verdana, sans-serif" font-size="18" fill="#5a4f3d">occupies: 1 wood in Forest, 1 stone in Mountain, 1 stone</text><text x="110" y="716.16" font-family="'Trebuchet MS', 'Segoe UI', Verdana, sans-serif" font-size="18" fill="#5a4f3d">in Glacier.</text><line x1="72" y1="729" x2="678" y2="729" stroke="#3f5670" stroke-opacity="0.22" stroke-width="1.5"/><g transform="translate(86,746.5) scale(1.05)">
+    <circle r="13" fill="#3f5670" opacity="0.14"/>
+    <path d="M -8,-2 A 9,9 0 0 1 8,-4" fill="none" stroke="#3f5670" stroke-width="2.4" stroke-linecap="round"/>
+    <polygon points="8,-8 8,-1 2,-4" fill="#3f5670"/>
+    <path d="M 8,2 A 9,9 0 0 1 -8,4" fill="none" stroke="#3f5670" stroke-width="2.4" stroke-linecap="round"/>
+    <polygon points="-8,8 -8,1 -2,4" fill="#3f5670"/>
+  </g><text x="110" y="753.56" font-family="'Trebuchet MS', 'Segoe UI', Verdana, sans-serif" font-size="23" font-weight="700" fill="#2c2313">Transform to City</text><g transform="translate(656.3,746.5) scale(0.9)">
+    <rect x="-11" y="-6" width="22" height="12" rx="6" fill="#8a5a2b" stroke="#5a3719" stroke-width="1.5"/>
+    <ellipse cx="-9" cy="0" rx="3" ry="5.5" fill="none" stroke="#5a3719" stroke-width="1.3"/>
+  </g><text x="671.3" y="751.5" font-family="'Trebuchet MS', 'Segoe UI', Verdana, sans-serif" font-size="15" font-weight="700" fill="#3a2f22">2</text><text x="110" y="783.16" font-family="'Trebuchet MS', 'Segoe UI', Verdana, sans-serif" font-size="18" fill="#5a4f3d">Transform into a City in its own space. Only on Forest or</text><text x="110" y="805.16" font-family="'Trebuchet MS', 'Segoe UI', Verdana, sans-serif" font-size="18" fill="#5a4f3d">Mountain.</text>
+
+  <line x1="66" y1="988" x2="684" y2="988" stroke="#3f5670" stroke-opacity="0.3" stroke-width="1.5"/>
+  <text x="48" y="1012" font-family="'Trebuchet MS', 'Segoe UI', Verdana, sans-serif" font-size="14" letter-spacing="2" fill="#25384d" opacity="0.75">RISE &amp; FALL</text>
+  <text x="702" y="1012" text-anchor="end" font-family="'Trebuchet MS', 'Segoe UI', Verdana, sans-serif" font-size="14" letter-spacing="1" fill="#25384d" opacity="0.75">5 / 6</text>
+</svg>

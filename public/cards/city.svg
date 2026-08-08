@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="750" height="1050" viewBox="0 0 750 1050">
+  <defs>
+    <linearGradient id="frame-city" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#8a5a12"/>
+      <stop offset="1" stop-color="#e0a83f"/>
+    </linearGradient>
+    <linearGradient id="title-city" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#8a5a12"/>
+      <stop offset="1" stop-color="#e0a83f"/>
+    </linearGradient>
+    <linearGradient id="art-city" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fbe9c9"/>
+      <stop offset="1" stop-color="#f0b86e"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="0" y="0" width="750" height="1050" rx="42" fill="url(#frame-city)"/>
+  <rect x="26" y="26" width="698" height="998" rx="30" fill="#faf6ee" stroke="#8a5a12" stroke-width="2"/>
+
+  <path d="M 56,26 H 694 A 30,30 0 0 1 724,56 V 126 H 26 V 56 A 30,30 0 0 1 56,26 Z" fill="url(#title-city)"/>
+  <text x="375" y="92" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="46" font-weight="700" fill="#5f3d0c" opacity="0.35">City</text>
+  <text x="375" y="89" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="46" font-weight="700" fill="#fff8ea">City</text>
+
+  <rect x="26" y="126" width="698" height="40" fill="#f0e6d2"/>
+  <text x="375" y="153" text-anchor="middle" font-family="'Trebuchet MS', 'Segoe UI', Verdana, sans-serif" font-size="18" font-weight="700" letter-spacing="3" fill="#5f3d0c">STRUCTURE  ·  STATIONARY</text>
+
+  <rect x="48" y="180" width="654" height="336" rx="18" fill="url(#art-city)" stroke="#8a5a12" stroke-width="4"/>
+  <g clip-path="url(#artclip-city)">
+    <clipPath id="artclip-city"><rect x="50" y="182" width="650" height="332" rx="16"/></clipPath>
+    <g transform="translate(375,348) scale(0.925) translate(-160,-160)">
+      
+    <ellipse cx="160" cy="272" rx="146" ry="26" fill="#6f8f4a"/>
+    <circle cx="246" cy="62" r="24" fill="#ffd76a"/>
+    <g stroke="#ffd76a" stroke-width="4" stroke-linecap="round">
+      <line x1="246" y1="24" x2="246" y2="10"/>
+      <line x1="280" y1="40" x2="292" y2="30"/>
+      <line x1="292" y1="70" x2="306" y2="70"/>
+    </g>
+    <rect x="46" y="252" width="228" height="14" rx="4" fill="#9c9c8c"/>
+    <g>
+      <rect x="58" y="182" width="62" height="82" fill="#c98a3d" stroke="#8a4a26" stroke-width="3"/>
+      <polygon points="52,182 126,182 89,142" fill="#8a4a26" stroke="#5f3116" stroke-width="3" stroke-linejoin="round"/>
+      <rect x="78" y="216" width="16" height="16" fill="#5f3116"/>
+      <rect x="80" y="238" width="18" height="26" fill="#5f3116"/>
+    </g>
+    <g>
+      <rect x="206" y="192" width="58" height="72" fill="#c98a3d" stroke="#8a4a26" stroke-width="3"/>
+      <polygon points="200,192 270,192 235,156" fill="#8a4a26" stroke="#5f3116" stroke-width="3" stroke-linejoin="round"/>
+      <rect x="222" y="222" width="16" height="16" fill="#5f3116"/>
+    </g>
+    <g>
+      <rect x="128" y="122" width="76" height="140" fill="#d69a4e" stroke="#7a3f20" stroke-width="4"/>
+      <polygon points="120,122 216,122 168,66" fill="#7a3f20" stroke="#4a260f" stroke-width="4" stroke-linejoin="round"/>
+      <rect x="146" y="150" width="18" height="18" fill="#4a260f"/>
+      <rect x="176" y="150" width="18" height="18" fill="#4a260f"/>
+      <rect x="152" y="212" width="32" height="50" fill="#4a260f"/>
+      <line x1="168" y1="66" x2="168" y2="30" stroke="#4a260f" stroke-width="4" stroke-linecap="round"/>
+      <polygon points="168,30 196,40 168,50" fill="#b8322f" stroke="#4a260f" stroke-width="2" stroke-linejoin="round"/>
+    </g>
+  
+    </g>
+  </g>
+
+  <rect x="48" y="530" width="654" height="54" rx="27" fill="#ffffff" fill-opacity="0.6" stroke="#8a5a12" stroke-width="2"/><g transform="translate(326.625,557) scale(0.9230769230769231)">
+    <circle r="13" fill="#5f3d0c" opacity="0.16"/>
+    <line x1="0" y1="-9" x2="0" y2="9" stroke="#5f3d0c" stroke-width="2.2"/>
+    <line x1="-6" y1="9" x2="6" y2="9" stroke="#5f3d0c" stroke-width="2.2" stroke-linecap="round"/>
+    <path d="M -7,-4 Q 0,-11 7,-4" fill="none" stroke="#5f3d0c" stroke-width="2.2" stroke-linecap="round"/>
+    <circle cx="0" cy="-9" r="2.4" fill="#5f3d0c"/>
+  </g><text x="344.625" y="562" font-family="'Trebuchet MS', 'Segoe UI', Verdana, sans-serif" font-size="15" font-weight="600" fill="#5f3d0c">Cannot Move</text>
+
+  <rect x="48" y="604" width="654" height="376" rx="16" fill="#fffaf2" stroke="#8a5a12" stroke-width="2.5"/><g transform="translate(86,635.5) scale(1.05)">
+    <circle r="13" fill="#8a5a12" opacity="0.16"/>
+    <circle r="13" fill="none" stroke="#8a5a12" stroke-width="2.2"/>
+    <line x1="-6" y1="0" x2="6" y2="0" stroke="#8a5a12" stroke-width="2.6" stroke-linecap="round"/>
+    <line x1="0" y1="-6" x2="0" y2="6" stroke="#8a5a12" stroke-width="2.6" stroke-linecap="round"/>
+  </g><text x="110" y="642.56" font-family="'Trebuchet MS', 'Segoe UI', Verdana, sans-serif" font-size="23" font-weight="700" fill="#2c2313">Create Nomad</text><text x="110" y="672.16" font-family="'Trebuchet MS', 'Segoe UI', Verdana, sans-serif" font-size="18" fill="#5a4f3d">Create a Nomad on an adjacent hex. Cannot target a hex</text><text x="110" y="694.16" font-family="'Trebuchet MS', 'Segoe UI', Verdana, sans-serif" font-size="18" fill="#5a4f3d">across a cliff edge.</text><line x1="72" y1="707" x2="678" y2="707" stroke="#8a5a12" stroke-opacity="0.22" stroke-width="1.5"/><g transform="translate(86,724.5) scale(1.05)">
+    <circle r="13" fill="#8a5a12" opacity="0.16"/>
+    <circle r="13" fill="none" stroke="#8a5a12" stroke-width="2.2"/>
+    <line x1="-6" y1="0" x2="6" y2="0" stroke="#8a5a12" stroke-width="2.6" stroke-linecap="round"/>
+    <line x1="0" y1="-6" x2="0" y2="6" stroke="#8a5a12" stroke-width="2.6" stroke-linecap="round"/>
+  </g><text x="110" y="731.56" font-family="'Trebuchet MS', 'Segoe UI', Verdana, sans-serif" font-size="23" font-weight="700" fill="#2c2313">Create Merchant</text><g transform="translate(656.3,724.5) scale(0.9)">
+    <circle r="10" fill="#f0c419" stroke="#8a6d1a" stroke-width="2"/>
+    <circle r="5.5" fill="none" stroke="#8a6d1a" stroke-width="1.5"/>
+  </g><text x="671.3" y="729.5" font-family="'Trebuchet MS', 'Segoe UI', Verdana, sans-serif" font-size="15" font-weight="700" fill="#3a2f22">2</text><text x="110" y="761.16" font-family="'Trebuchet MS', 'Segoe UI', Verdana, sans-serif" font-size="18" fill="#5a4f3d">Create a Merchant on an adjacent hex. Cannot target a hex</text><text x="110" y="783.16" font-family="'Trebuchet MS', 'Segoe UI', Verdana, sans-serif" font-size="18" fill="#5a4f3d">across a cliff edge.</text><line x1="72" y1="796" x2="678" y2="796" stroke="#8a5a12" stroke-opacity="0.22" stroke-width="1.5"/><g transform="translate(86,813.5) scale(1.05)">
+    <circle r="13" fill="#8a5a12" opacity="0.16"/>
+    <circle r="13" fill="none" stroke="#8a5a12" stroke-width="2.2"/>
+    <line x1="-6" y1="0" x2="6" y2="0" stroke="#8a5a12" stroke-width="2.6" stroke-linecap="round"/>
+    <line x1="0" y1="-6" x2="0" y2="6" stroke="#8a5a12" stroke-width="2.6" stroke-linecap="round"/>
+  </g><text x="110" y="820.56" font-family="'Trebuchet MS', 'Segoe UI', Verdana, sans-serif" font-size="23" font-weight="700" fill="#2c2313">Create Mountaineer</text><g transform="translate(656.3,813.5) scale(0.9)">
+    <circle r="10" fill="#f0c419" stroke="#8a6d1a" stroke-width="2"/>
+    <circle r="5.5" fill="none" stroke="#8a6d1a" stroke-width="1.5"/>
+  </g><text x="671.3" y="818.5" font-family="'Trebuchet MS', 'Segoe UI', Verdana, sans-serif" font-size="15" font-weight="700" fill="#3a2f22">1</text><text x="110" y="850.16" font-family="'Trebuchet MS', 'Segoe UI', Verdana, sans-serif" font-size="18" fill="#5a4f3d">Create a Mountaineer on an adjacent hex. Cannot target a</text><text x="110" y="872.16" font-family="'Trebuchet MS', 'Segoe UI', Verdana, sans-serif" font-size="18" fill="#5a4f3d">hex across a cliff edge.</text><line x1="72" y1="885" x2="678" y2="885" stroke="#8a5a12" stroke-opacity="0.22" stroke-width="1.5"/><g transform="translate(86,902.5) scale(1.05)">
+    <circle r="13" fill="#8a5a12" opacity="0.16"/>
+    <circle cx="-4" cy="3" r="7" fill="none" stroke="#8a5a12" stroke-width="2"/>
+    <circle cx="4" cy="-3" r="7" fill="#fffaf2" stroke="#8a5a12" stroke-width="2"/>
+  </g><text x="110" y="909.56" font-family="'Trebuchet MS', 'Segoe UI', Verdana, sans-serif" font-size="23" font-weight="700" fill="#2c2313">Generate Income</text><text x="110" y="939.16" font-family="'Trebuchet MS', 'Segoe UI', Verdana, sans-serif" font-size="18" fill="#5a4f3d">Generate gold based on the terrain type the City occupies.</text>
+
+  <line x1="66" y1="988" x2="684" y2="988" stroke="#8a5a12" stroke-opacity="0.3" stroke-width="1.5"/>
+  <text x="48" y="1012" font-family="'Trebuchet MS', 'Segoe UI', Verdana, sans-serif" font-size="14" letter-spacing="2" fill="#5f3d0c" opacity="0.75">RISE &amp; FALL</text>
+  <text x="702" y="1012" text-anchor="end" font-family="'Trebuchet MS', 'Segoe UI', Verdana, sans-serif" font-size="14" letter-spacing="1" fill="#5f3d0c" opacity="0.75">1 / 6</text>
+</svg>
