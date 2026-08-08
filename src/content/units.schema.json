@@ -69,6 +69,15 @@
             "canCrossCliffs": {
               "type": "boolean",
               "description": "Whether this unit can cross a cliff edge — an edge between tiles that otherwise blocks movement/adjacency for every other unit."
+            },
+            "moveDistance": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Max hexes this unit can move in a single move action. Optional, only set once decided for a given unit."
+            },
+            "blockedByUnits": {
+              "type": "boolean",
+              "description": "Whether this unit's movement path is blocked by hexes occupied by other units (i.e. it cannot move through them). Optional, only set once decided for a given unit."
             }
           }
         },

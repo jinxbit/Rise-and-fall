@@ -98,10 +98,61 @@
       "supply": { "byPlayerCount": { "2": 0, "3": 0, "4": 0 } },
       "movement": {
         "isMobile": true,
-        "terrains": [],
-        "canCrossCliffs": false
+        "terrains": ["plain", "forest", "mountain"],
+        "canCrossCliffs": false,
+        "moveDistance": 1,
+        "blockedByUnits": true
       },
-      "actions": []
+      "actions": [
+        {
+          "id": "produce-resource",
+          "name": "Produce Resource",
+          "description": "Produce a resource based on the terrain the Nomad occupies: 1 wood in Forest, 1 stone in Mountain.",
+          "effect": {
+            "actionType": "produce",
+            "resourceByTerrain": {
+              "forest": { "wood": 1 },
+              "mountain": { "stone": 1 }
+            }
+          }
+        },
+        {
+          "id": "transform-to-ship",
+          "name": "Transform to Ship",
+          "description": "Transform into a Ship on an adjacent water hex.",
+          "effect": {
+            "actionType": "transform",
+            "targetUnit": "Ship",
+            "targetHex": { "terrainType": ["water"], "location": "adj" },
+            "destroySelf": true,
+            "cost": { "gold": 0, "wood": 1, "stone": 0 }
+          }
+        },
+        {
+          "id": "transform-to-city",
+          "name": "Transform to City",
+          "description": "Transform into a City in its own space. Only on Plain or Forest.",
+          "effect": {
+            "actionType": "transform",
+            "targetUnit": "City",
+            "targetHex": { "terrainType": ["plain", "forest"], "location": "self" },
+            "destroySelf": true,
+            "cost": { "gold": 0, "wood": 1, "stone": 1 }
+          }
+        },
+        {
+          "id": "transform-to-temple",
+          "name": "Transform to Temple",
+          "description": "Transform into a Temple in its own space. Only on Plain or Mountain.",
+          "effect": {
+            "actionType": "transform",
+            "targetUnit": "Temple",
+            "targetHex": { "terrainType": ["plain", "mountain"], "location": "self" },
+            "destroySelf": true,
+            "cost": { "gold": 0, "wood": 0, "stone": 2 }
+          }
+        }
+      ]
     },
     {
       "id": "merchant",
