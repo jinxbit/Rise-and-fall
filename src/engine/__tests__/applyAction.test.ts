@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { applyAction } from '../applyAction'
 import { createEmptyBoard } from '../board'
+import { cardIdFor } from '../cards'
 import { createNewGame, startGame } from '../createGame'
 import type { GameState } from '../types'
 
@@ -38,7 +39,14 @@ describe('createNewGame / startGame', () => {
     expect(state.status).toBe('active')
     expect(state.units).toHaveLength(6)
     expect(state.units.filter((u) => u.ownerId === 'p1')).toHaveLength(3)
-    expect(state.activePlayerId).toBe('p1')
+  })
+
+  it('starts round 1 in the select-cards phase with every player pending', () => {
+    const state = makeActiveGame()
+    expect(state.turn).toBe(0)
+    expect(state.roundPhase).toBe('selectCards')
+    expect(state.activePlayerId).toBeNull()
+    expect(state.pendingPlayerIds).toEqual(['p1', 'p2'])
   })
 })
 
@@ -49,46 +57,48 @@ describe('applyAction', () => {
     state = makeActiveGame()
   })
 
-  it('rejects actions from a player who is not active', () => {
-    const result = applyAction(state, { type: 'END_TURN', playerId: 'p2' })
+  it('rejects CHOOSE_CARD for a card not in hand', () => {
+    const result = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') })
     expect(result.ok).toBe(false)
   })
 
-  it('advances the active player on END_TURN', () => {
-    const result = applyAction(state, { type: 'END_TURN', playerId: 'p1' })
-    expect(result.ok).toBe(true)
-    if (result.ok) {
-      expect(result.state.activePlayerId).toBe('p2')
-      expect(result.state.turn).toBe(0)
-    }
+  it('rejects a player choosing a card twice in the same round', () => {
+    const shipCardId = cardIdFor('p1', 'ship')
+    const first = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: shipCardId })
+    expect(first.ok).toBe(true)
+    if (!first.ok) return
+
+    const second = applyAction(first.state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: shipCardId })
+    expect(second.ok).toBe(false)
   })
 
-  it('increments the turn counter after a full round', () => {
-    const afterP1 = applyAction(state, { type: 'END_TURN', playerId: 'p1' })
-    expect(afterP1.ok).toBe(true)
-    if (!afterP1.ok) return
+  it('moves to the actions phase once every player has chosen a card', () => {
+    const p1Choice = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'ship') })
+    expect(p1Choice.ok).toBe(true)
+    if (!p1Choice.ok) return
+    expect(p1Choice.state.roundPhase).toBe('selectCards')
 
-    const afterP2 = applyAction(afterP1.state, { type: 'END_TURN', playerId: 'p2' })
-    expect(afterP2.ok).toBe(true)
-    if (!afterP2.ok) return
-
-    expect(afterP2.state.activePlayerId).toBe('p1')
-    expect(afterP2.state.turn).toBe(1)
+    const p2Choice = applyAction(p1Choice.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'ship') })
+    expect(p2Choice.ok).toBe(true)
+    if (!p2Choice.ok) return
+    expect(p2Choice.state.roundPhase).toBe('actions')
+    expect(p2Choice.state.activePlayerId).toBe('p1')
+    expect(p2Choice.state.pendingPlayerIds).toEqual(['p1', 'p2'])
   })
 
-  it('logs an event for each successful action', () => {
-    const logLengthBefore = state.log.length
-    const result = applyAction(state, { type: 'END_TURN', playerId: 'p1' })
-    expect(result.ok).toBe(true)
-    if (result.ok) {
-      expect(result.state.log).toHaveLength(logLengthBefore + 1)
-    }
+  it('rejects RESOLVE_UNIT_ACTION outside the actions phase', () => {
+    const result = applyAction(state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1' })
+    expect(result.ok).toBe(false)
   })
 
-  it('does not mutate the input state', () => {
-    const snapshot = JSON.stringify(state)
-    applyAction(state, { type: 'END_TURN', playerId: 'p1' })
-    expect(JSON.stringify(state)).toBe(snapshot)
+  it('rejects RESOLVE_UNIT_ACTION out of turn order', () => {
+    const p1Choice = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'ship') })
+    if (!p1Choice.ok) throw new Error('setup failed')
+    const p2Choice = applyAction(p1Choice.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'ship') })
+    if (!p2Choice.ok) throw new Error('setup failed')
+
+    const result = applyAction(p2Choice.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2' })
+    expect(result.ok).toBe(false)
   })
 
   it('returns NOT_IMPLEMENTED for actions not yet built', () => {
@@ -99,9 +109,15 @@ describe('applyAction', () => {
     }
   })
 
+  it('does not mutate the input state', () => {
+    const snapshot = JSON.stringify(state)
+    applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'ship') })
+    expect(JSON.stringify(state)).toBe(snapshot)
+  })
+
   it('rejects actions when the game is not active', () => {
     const lobbyState: GameState = { ...state, status: 'lobby' }
-    const result = applyAction(lobbyState, { type: 'END_TURN', playerId: 'p1' })
+    const result = applyAction(lobbyState, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'ship') })
     expect(result.ok).toBe(false)
   })
 })

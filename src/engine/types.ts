@@ -107,12 +107,29 @@ export interface Player {
   displayName: string
   color: string
   handCardIds: string[]
-  /** At most one card, since only a single card can be played per turn. */
+  /** At most one card, since only a single card can be played per round. */
   currentlyPlayedCardId: string | null
   discardCardIds: string[]
   supplyCardIds: string[]
   declineCardIds: string[]
 }
+
+/**
+ * The phases within a single round, per the round sequence:
+ * 1. `selectCards` — every player simultaneously picks the one card they'll
+ *    play from their hand.
+ * 2. `actions` — in turn order, each player resolves the action for the
+ *    unit kind they chose.
+ * 3. `decline` — only inserted when a player reached a unit-kind limit this
+ *    round; in turn order, each player moves one card from hand/discard to
+ *    decline.
+ * 4. `purchase` — every player, in turn order, may buy one card back from
+ *    their decline (cost rules TBD) or pass.
+ * Recycle-check and round-end/game-end are automatic bookkeeping the engine
+ * performs when the purchase phase completes, so they aren't states a game
+ * ever sits in — see `finishRound` in ./round.ts.
+ */
+export type RoundPhase = 'selectCards' | 'actions' | 'decline' | 'purchase'
 
 /** Append-only log entry, kept since the game has no hidden information. */
 export interface GameEvent {
@@ -127,11 +144,20 @@ export interface GameState {
   gameId: string
   playMode: PlayMode
   status: GameStatus
+  /** Round number — increments each time a round finishes (see ./round.ts). */
   turn: number
+  /**
+   * Whoever must act next in the current sequential phase (actions/decline/
+   * purchase) — the head of `pendingPlayerIds`. Null during `selectCards`,
+   * since that phase is simultaneous and has no single active player.
+   */
   activePlayerId: string | null
-  /** Whether the active player has already played their one card this turn. */
-  cardPlayedThisTurn: boolean
-  /** Ordered turn sequence, e.g. player ids in seating order. */
+  roundPhase: RoundPhase
+  /** This round's simultaneous card pick (rule 1); null until that player has chosen. */
+  chosenCardIdByPlayerId: Record<string, string | null>
+  /** Players, in turn order, still owed a turn in the current phase. */
+  pendingPlayerIds: string[]
+  /** Ordered turn sequence, e.g. player ids in seating order. turnOrder[0] is the current first player. */
   turnOrder: string[]
   board: Board
   players: Player[]

@@ -1,5 +1,6 @@
 import { getTile, setTile } from './board'
 import { createPlayerCards, syncCardZonesWithBoard } from './cards'
+import { beginSelectCardsPhase } from './round'
 import type { Board, Card, Coordinate, GameState, PlayMode, Player, Unit } from './types'
 
 export interface PlayerSeed {
@@ -39,14 +40,18 @@ export function createNewGame(params: {
     }
   })
 
+  const turnOrder = players.map((p) => p.id)
+
   return {
     gameId: params.gameId,
     playMode: params.playMode,
     status: 'lobby',
     turn: 0,
     activePlayerId: null,
-    cardPlayedThisTurn: false,
-    turnOrder: players.map((p) => p.id),
+    roundPhase: 'selectCards',
+    chosenCardIdByPlayerId: Object.fromEntries(players.map((p) => [p.id, null])),
+    pendingPlayerIds: [...turnOrder],
+    turnOrder,
     board: params.board,
     players,
     units: [],
@@ -119,10 +124,10 @@ export function startGame(state: GameState, startingPositions: Record<string, Co
     board,
     units,
     status: 'active',
-    activePlayerId: state.turnOrder[0] ?? null,
   }
 
   // Rule 6: a player's card enters their hand the moment they get their
   // first unit of that kind on the board — apply that for the starting units.
-  return syncCardZonesWithBoard(nextState)
+  // Then kick off round 1's select-cards phase.
+  return beginSelectCardsPhase(syncCardZonesWithBoard(nextState))
 }

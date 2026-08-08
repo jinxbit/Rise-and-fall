@@ -1,14 +1,10 @@
 import type { Coordinate } from './types'
 
-// The full action set (movement, card play, combat, etc.) will be fleshed
-// out once the exact rules are specified. END_TURN is implemented now so
-// the turn-order/active-player machinery is exercised end to end; the rest
-// are typed placeholders that applyAction() rejects with NOT_IMPLEMENTED.
-
-export interface EndTurnAction {
-  type: 'END_TURN'
-  playerId: string
-}
+// The action set matches the round sequence in ./round.ts: CHOOSE_CARD
+// (phase 1, simultaneous), RESOLVE_UNIT_ACTION (phase 2, turn order),
+// MOVE_TO_DECLINE (phase 3, turn order, only reachable when triggered),
+// PURCHASE_CARD / PASS_PURCHASE (phase 4, turn order). Recycle-check and
+// round-end are automatic engine bookkeeping, not player actions.
 
 export interface MoveUnitAction {
   type: 'MOVE_UNIT'
@@ -17,10 +13,38 @@ export interface MoveUnitAction {
   to: Coordinate
 }
 
-export interface PlayCardAction {
-  type: 'PLAY_CARD'
+export interface ChooseCardAction {
+  type: 'CHOOSE_CARD'
   playerId: string
   cardId: string
 }
 
-export type Action = EndTurnAction | MoveUnitAction | PlayCardAction
+export interface ResolveUnitActionAction {
+  type: 'RESOLVE_UNIT_ACTION'
+  playerId: string
+}
+
+export interface MoveToDeclineAction {
+  type: 'MOVE_TO_DECLINE'
+  playerId: string
+  cardId: string
+}
+
+export interface PurchaseCardAction {
+  type: 'PURCHASE_CARD'
+  playerId: string
+  cardId: string
+}
+
+export interface PassPurchaseAction {
+  type: 'PASS_PURCHASE'
+  playerId: string
+}
+
+export type Action =
+  | MoveUnitAction
+  | ChooseCardAction
+  | ResolveUnitActionAction
+  | MoveToDeclineAction
+  | PurchaseCardAction
+  | PassPurchaseAction

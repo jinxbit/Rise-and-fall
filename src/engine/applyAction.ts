@@ -1,7 +1,8 @@
 import type { Action } from './actions'
 import { moveCard } from './cards'
 import { appendLog } from './log'
-import type { GameState, Player } from './types'
+import { beginActionsPhase, beginPostActionsPhase, beginPurchasePhase, finishRound } from './round'
+import type { GameState } from './types'
 
 export type ActionResult =
   | { ok: true; state: GameState }
@@ -20,12 +21,19 @@ export function applyAction(state: GameState, action: Action): ActionResult {
   }
 
   switch (action.type) {
-    case 'END_TURN':
-      return applyEndTurn(state, action.playerId)
     case 'MOVE_UNIT':
       return { ok: false, error: 'NOT_IMPLEMENTED: MOVE_UNIT' }
-    case 'PLAY_CARD':
-      return applyPlayCard(state, action.playerId, action.cardId)
+    case 'CHOOSE_CARD':
+      return applyChooseCard(state, action.playerId, action.cardId)
+    case 'RESOLVE_UNIT_ACTION':
+      return applyResolveUnitAction(state, action.playerId)
+    case 'MOVE_TO_DECLINE':
+      return applyMoveToDecline(state, action.playerId, action.cardId)
+    case 'PURCHASE_CARD':
+      // Purchase cost is determined by player achievements, not yet specified.
+      return { ok: false, error: 'NOT_IMPLEMENTED: PURCHASE_CARD' }
+    case 'PASS_PURCHASE':
+      return applyPassPurchase(state, action.playerId)
     default: {
       const exhaustive: never = action
       return { ok: false, error: `Unknown action: ${JSON.stringify(exhaustive)}` }
@@ -33,43 +41,13 @@ export function applyAction(state: GameState, action: Action): ActionResult {
   }
 }
 
-function applyEndTurn(state: GameState, playerId: string): ActionResult {
-  if (state.activePlayerId !== playerId) {
-    return { ok: false, error: 'It is not this player\'s turn' }
+/** Round step 1 (rule 1): every player simultaneously picks the card they'll play from hand. */
+function applyChooseCard(state: GameState, playerId: string, cardId: string): ActionResult {
+  if (state.roundPhase !== 'selectCards') {
+    return { ok: false, error: 'Cards can only be chosen during the select-cards phase' }
   }
-  if (state.turnOrder.length === 0) {
-    return { ok: false, error: 'Game has no turn order configured' }
-  }
-
-  const currentIndex = state.turnOrder.indexOf(playerId)
-  const nextIndex = (currentIndex + 1) % state.turnOrder.length
-  const nextPlayerId = state.turnOrder[nextIndex]
-  const wrapped = nextIndex === 0
-
-  const nextState: GameState = {
-    ...state,
-    turn: wrapped ? state.turn + 1 : state.turn,
-    activePlayerId: nextPlayerId,
-    cardPlayedThisTurn: false,
-  }
-
-  return {
-    ok: true,
-    state: { ...nextState, log: appendLog(nextState, playerId, `Player ${playerId} ended their turn`) },
-  }
-}
-
-/**
- * Implements rules 3, 4, 9, 10, 11: play the one card allowed per turn from
- * hand, discard it, and — if that empties the hand — recycle the discard
- * back into the hand and hand "first player" to whoever is next.
- */
-function applyPlayCard(state: GameState, playerId: string, cardId: string): ActionResult {
-  if (state.activePlayerId !== playerId) {
-    return { ok: false, error: 'It is not this player\'s turn' }
-  }
-  if (state.cardPlayedThisTurn) {
-    return { ok: false, error: 'Only a single card can be played each turn' }
+  if (!state.pendingPlayerIds.includes(playerId)) {
+    return { ok: false, error: 'This player has already chosen a card this round' }
   }
 
   const playerIndex = state.players.findIndex((p) => p.id === playerId)
@@ -77,9 +55,44 @@ function applyPlayCard(state: GameState, playerId: string, cardId: string): Acti
     return { ok: false, error: `Unknown player: ${playerId}` }
   }
   const player = state.players[playerIndex]
-
   if (!player.handCardIds.includes(cardId)) {
-    return { ok: false, error: 'Card can only be played from hand' }
+    return { ok: false, error: 'Card can only be chosen from hand' }
+  }
+  const card = state.cards[cardId]
+  if (!card) {
+    return { ok: false, error: `Unknown card: ${cardId}` }
+  }
+
+  let nextState: GameState = {
+    ...state,
+    chosenCardIdByPlayerId: { ...state.chosenCardIdByPlayerId, [playerId]: cardId },
+    pendingPlayerIds: state.pendingPlayerIds.filter((id) => id !== playerId),
+  }
+  nextState = { ...nextState, log: appendLog(nextState, playerId, `Player ${playerId} chose to play ${card.name}`) }
+
+  if (nextState.pendingPlayerIds.length === 0) {
+    nextState = beginActionsPhase(nextState)
+  }
+  return { ok: true, state: nextState }
+}
+
+/** Round step 2 (rules 3 & 4): in turn order, resolve each player's chosen card into discard. */
+function applyResolveUnitAction(state: GameState, playerId: string): ActionResult {
+  if (state.roundPhase !== 'actions') {
+    return { ok: false, error: 'Not in the action-resolution phase' }
+  }
+  if (state.pendingPlayerIds[0] !== playerId) {
+    return { ok: false, error: "It is not this player's turn to resolve their action" }
+  }
+
+  const playerIndex = state.players.findIndex((p) => p.id === playerId)
+  if (playerIndex === -1) {
+    return { ok: false, error: `Unknown player: ${playerId}` }
+  }
+  const player = state.players[playerIndex]
+  const cardId = state.chosenCardIdByPlayerId[playerId]
+  if (!cardId) {
+    return { ok: false, error: 'Player has no chosen card to resolve' }
   }
   const card = state.cards[cardId]
   if (!card) {
@@ -89,48 +102,66 @@ function applyPlayCard(state: GameState, playerId: string, cardId: string): Acti
   // Rule 3 then 4: hand -> currently played -> discard.
   let nextPlayer = moveCard(player, cardId, 'currentlyPlayed')
   nextPlayer = moveCard(nextPlayer, cardId, 'discard')
-
   const players = [...state.players]
   players[playerIndex] = nextPlayer
 
-  let nextState: GameState = { ...state, players, cardPlayedThisTurn: true }
+  let nextState: GameState = { ...state, players, pendingPlayerIds: state.pendingPlayerIds.slice(1) }
   nextState = { ...nextState, log: appendLog(nextState, playerId, `Player ${playerId} played ${card.name}`) }
+  nextState = { ...nextState, activePlayerId: nextState.pendingPlayerIds[0] ?? null }
 
-  return applyRecycleIfNeeded(nextState, playerIndex, playerId)
+  if (nextState.pendingPlayerIds.length === 0) {
+    nextState = beginPostActionsPhase(nextState)
+  }
+  return { ok: true, state: nextState }
 }
 
-/** Rule 10 + 11: an empty hand pulls the whole discard back in, and the next player becomes first. */
-function applyRecycleIfNeeded(state: GameState, playerIndex: number, playerId: string): ActionResult {
+/** Round step 3 (rule 3 of decline): in turn order, move one card from hand or discard to decline. */
+function applyMoveToDecline(state: GameState, playerId: string, cardId: string): ActionResult {
+  if (state.roundPhase !== 'decline') {
+    return { ok: false, error: 'Not in the decline phase' }
+  }
+  if (state.pendingPlayerIds[0] !== playerId) {
+    return { ok: false, error: "It is not this player's turn to move a card into decline" }
+  }
+
+  const playerIndex = state.players.findIndex((p) => p.id === playerId)
+  if (playerIndex === -1) {
+    return { ok: false, error: `Unknown player: ${playerId}` }
+  }
   const player = state.players[playerIndex]
-  if (player.handCardIds.length > 0 || player.discardCardIds.length === 0) {
-    return { ok: true, state }
+  if (!player.handCardIds.includes(cardId) && !player.discardCardIds.includes(cardId)) {
+    return { ok: false, error: 'Card moved to decline must come from hand or discard' }
   }
 
-  const recycledPlayer: Player = {
-    ...player,
-    handCardIds: player.discardCardIds,
-    discardCardIds: [],
-  }
+  const nextPlayer = moveCard(player, cardId, 'decline')
   const players = [...state.players]
-  players[playerIndex] = recycledPlayer
+  players[playerIndex] = nextPlayer
 
-  let nextState: GameState = { ...state, players }
-  nextState = {
-    ...nextState,
-    log: appendLog(nextState, playerId, `Player ${playerId}'s discard was recycled into their hand`),
+  let nextState: GameState = { ...state, players, pendingPlayerIds: state.pendingPlayerIds.slice(1) }
+  nextState = { ...nextState, log: appendLog(nextState, playerId, `Player ${playerId} moved a card into decline`) }
+  nextState = { ...nextState, activePlayerId: nextState.pendingPlayerIds[0] ?? null }
+
+  if (nextState.pendingPlayerIds.length === 0) {
+    nextState = beginPurchasePhase(nextState)
+  }
+  return { ok: true, state: nextState }
+}
+
+/** Round step 4: a player declines their opportunity to buy a card back from decline. */
+function applyPassPurchase(state: GameState, playerId: string): ActionResult {
+  if (state.roundPhase !== 'purchase') {
+    return { ok: false, error: 'Not in the purchase phase' }
+  }
+  if (state.pendingPlayerIds[0] !== playerId) {
+    return { ok: false, error: "It is not this player's turn in the purchase phase" }
   }
 
-  const currentIndex = nextState.turnOrder.indexOf(playerId)
-  if (currentIndex !== -1 && nextState.turnOrder.length > 0) {
-    const nextFirstIndex = (currentIndex + 1) % nextState.turnOrder.length
-    const turnOrder = [...nextState.turnOrder.slice(nextFirstIndex), ...nextState.turnOrder.slice(0, nextFirstIndex)]
-    const nextFirstPlayerId = turnOrder[0]
-    nextState = {
-      ...nextState,
-      turnOrder,
-      log: appendLog(nextState, nextFirstPlayerId, `Player ${nextFirstPlayerId} becomes the first player`),
-    }
-  }
+  let nextState: GameState = { ...state, pendingPlayerIds: state.pendingPlayerIds.slice(1) }
+  nextState = { ...nextState, log: appendLog(nextState, playerId, `Player ${playerId} passed on purchasing`) }
+  nextState = { ...nextState, activePlayerId: nextState.pendingPlayerIds[0] ?? null }
 
+  if (nextState.pendingPlayerIds.length === 0) {
+    nextState = finishRound(nextState)
+  }
   return { ok: true, state: nextState }
 }
