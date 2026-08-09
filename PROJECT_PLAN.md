@@ -108,7 +108,14 @@ decisions get made.
       finished game today is decided almost entirely by achievement VP —
       the win-condition logic itself is complete and tested.
 - [ ] Implement board generation/drafting at game start; wire it into
-      `startGame()`.
+      `startGame()`. The rules are now settled (not just the tile shapes/
+      quantities in `content/terrain.json`, but the full procedure — seed
+      the starting water tiles, then place the rest tier by tier in player
+      order, each tile only placeable where it fully covers the tier
+      directly below it): see `src/content/README.md`'s "Board generation"
+      section and `todo.md` #7. Still just data + a written-down
+      procedure, though — no `generateBoard()` or placement-legality
+      function exists in `src/engine/` yet.
 - [x] Expand the unit test suite in `src/engine/__tests__/` to cover
       every action and edge case as it's implemented — 162 tests, including
       a pass against the real `content/*.json` files, not just synthetic

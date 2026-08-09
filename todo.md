@@ -167,3 +167,46 @@ can't leave its water region" rule via `moveDistance: "unlimited"` bounded
 implicitly by `terrains: ["water"]`), simply does nothing that turn — the
 rest still act. There is no standalone `MOVE_UNIT` action type — see
 `UnitActions.md`'s resolved questions #5.
+
+## 7. Board generation — rules settled, implementation still open
+
+Rule: the first phase of a game builds the map, in three parts.
+
+1. Seed the board with `content/terrain.json`'s water `initial` shapeGroup
+   (the 8-hex "hourglass", rows of 3-2-3) — one tile per player. For 2
+   players, the two hourglasses interlock along one tile's
+   `{q:2,r:0}`/`{q:1,r:1}`/`{q:1,r:2}` edge, offset by `(dq:2, dr:1)` —
+   the second tile sits one row lower than the first, not at the same
+   height. For 3 players, three tiles chain together the same way,
+   pairwise. For 4 players, it's two separate 2-player pairs, not one
+   chain of 4.
+2. Then, in player turn order, each player places one tile per turn,
+   working through the full terrain hierarchy in order — every remaining
+   water tile (the `expansion` shapeGroup's 7-hex "flower"), then every
+   plain tile (6-hex "wedge"), then forest (4-hex "rhombus"), then
+   mountain (3-hex triangle), then glacier (2-hex domino) — fully
+   exhausting each tier's `limits.byPlayerCount` supply before the next
+   tier starts. Quantities: 12/10/8/6/2 (2p), 15/14/11/8/3 (3p),
+   19/17/15/11/4 (4p), following that same hierarchy order.
+3. Placement rule: a tile may only be placed where every hex it covers is
+   *currently* the one terrain type directly below it in the hierarchy
+   (`placesOn` — e.g. every hex a Plain tile covers must currently be
+   Water). Covering a mix of terrains, or any not-yet-tiled "hole", is
+   illegal. Placing it converts every covered hex to the new terrain —
+   this is why each tier's supply is smaller than the one below: a tier
+   can only ever claim part of the area the tier beneath it covers, so
+   the map's usable area narrows as it rises in elevation, visibly
+   matching the existing `level` 0-4 elevation/cliff system.
+
+All of this is recorded in `src/content/terrain.json` (shapes + per-tier
+quantities) and `src/content/README.md`'s "Board generation" section, but
+none of it is implemented in code yet — there's no `generateBoard()` (or
+similar) in `src/engine/`, and `createGame.ts`'s `startGame()` still places
+placeholder units on a couple of hardcoded tiles rather than running this
+procedure. See `PROJECT_PLAN.md` section 2's board generation item. Open
+questions once implementation starts: how a player *chooses* where to
+place a tile (free choice among all legal spots, presumably), what happens
+if no legal placement exists for the tile a player must place, and
+whether rotation-only (no reflection) placement needs a canonical-shape
+rotation helper in the engine (`legalMoveDestinations`-style pure
+function) before board generation can be written.

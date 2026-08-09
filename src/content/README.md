@@ -107,13 +107,56 @@ The 5 terrain types (water, plain, forest, mountain, glacier) plus:
   - `shapes` — the distinct multi-hex tile pieces available in that group.
     Each shape's `cells` array lists the relative `{q, r}` axial offset of
     every hex the piece covers (first cell is always `{0, 0}`) — this is
-    what "how the hexagons are joined together" becomes in data. Currently
-    empty; fill in one entry per distinct tile shape you have.
+    what "how the hexagons are joined together" becomes in data. Filled in
+    per ruling: water/`initial` is an 8-hex "hourglass" (rows of 3-2-3),
+    water/`expansion` a 7-hex "flower" (rows of 2-3-2, one hex ringed by
+    6), plain a 6-hex "wedge" (rows of 1-2-3), forest a 4-hex "rhombus"
+    (a straight 2x2 block), mountain a 3-hex mutually-adjacent triangle,
+    glacier a 2-hex domino. Rotation is allowed at placement (not
+    reflection), so only one canonical orientation is stored per shape.
   - `limits.byPlayerCount` — how many tiles from that group are available
-    in the base game, keyed by player count (`"2"`/`"3"`/`"4"`).
+    in the base game, keyed by player count (`"2"`/`"3"`/`"4"`). Filled in
+    per ruling: water/`initial` is one hourglass tile per player
+    (2/3/4); every other group follows the same hierarchy order
+    (water/`expansion`, plain, forest, mountain, glacier) at
+    12/10/8/6/2 (2p), 15/14/11/8/3 (3p), 19/17/15/11/4 (4p) — the pool
+    shrinks at each tier, since (see board generation below) each tier
+    only ever covers *part* of the tier beneath it.
   - `limits.modules` — additional tiles contributed by an optional module,
     keyed by module id, additive on top of `byPlayerCount`. Empty until you
     have modules to define.
+
+### Board generation (phase 1 of a round — rules settled, not yet implemented in code)
+
+Per ruling, the very first phase of a game builds the map:
+
+1. **Seed the board** with the `initial` water shapeGroup's hourglass
+   tiles — one per player. For 2 players, the two hourglasses are placed
+   adjacent, connected along one tile's `{q:2,r:0}`/`{q:1,r:1}`/`{q:1,r:2}`
+   edge (in that tile's own local coordinates) to the second tile's
+   mirror-image edge, offset by `(dq:2, dr:1)` — i.e. the second tile is
+   *not* at the same "height" as the first; it interlocks one row lower.
+   For 3 players, three hourglasses chain together the same way (each new
+   tile connected to the previous one via the same `(dq:2, dr:1)` offset).
+   For 4 players, it's two separate 2-player pairs (not one chain of 4).
+2. **Then, in player turn order, each player places one tile per turn**,
+   working through the terrain hierarchy in order — first every remaining
+   water tile (the `expansion` flower shapes) is placed, then every plain
+   tile, then forest, then mountain, then glacier — fully exhausting one
+   tier's supply (per `limits.byPlayerCount` above) before the next tier
+   begins.
+3. **Placement rule:** a tile may only be placed where every hex it covers
+   is *currently* the one terrain type immediately below it in the
+   hierarchy (`placesOn` — e.g. every hex a Plain tile covers must
+   currently be Water). Covering a mix of terrains, or any hex with no
+   tile at all yet (a "hole"), is illegal. Placing the tile converts every
+   hex it covers to the new terrain. This is why the pool shrinks tier by
+   tier: each tier can only ever claim part of the area the tier below it
+   covered, so the map narrows in area as it rises in elevation — visibly
+   matching the `level` 0-4 elevation/cliff system above.
+
+None of this is implemented yet — see `PROJECT_PLAN.md` section 2's board
+generation item and `todo.md`.
 
 ## `achievements.json` (validated by `achievements.schema.json`)
 
