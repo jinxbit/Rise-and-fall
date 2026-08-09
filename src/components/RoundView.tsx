@@ -400,7 +400,7 @@ export function RoundView(props: {
   const actionMenu = menuUnit
     ? {
         coord: menuUnit.coord,
-        options: actionsForKind.map((a) => ({ id: a.id, label: a.name.slice(0, 2).toUpperCase(), title: a.name })),
+        options: actionsForKind.map((a) => ({ id: a.id, label: a.name })),
         onSelect: selectAction,
       }
     : undefined

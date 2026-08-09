@@ -7,7 +7,7 @@ import { eliminatePlayersWithNoCardToDecline } from './elimination'
 import { appendLog } from './log'
 import { calculatePurchaseCost } from './purchaseCost'
 import { spendResource } from './resources'
-import { beginActionsPhase, beginPostActionsPhase, beginPurchasePhase, finishRound } from './round'
+import { beginActionsPhase, beginPostActionsPhase, beginPurchasePhase, finishRound, skipEmptyDeclinePurchasers } from './round'
 import { EMPTY_BOARD_GENERATION_CONTENT } from './boardGenerationContent'
 import type { BoardGenerationContent } from './boardGenerationContent'
 import { placeTile, placeUnit } from './boardSetup'
@@ -87,7 +87,7 @@ function dispatchAction(
     case 'RESOLVE_UNIT_ACTION':
       return applyResolveUnitAction(state, action.playerId, action.unitActions, unitContent, achievementContent)
     case 'MOVE_TO_DECLINE':
-      return applyMoveToDecline(state, action.playerId, action.cardId)
+      return applyMoveToDecline(state, action.playerId, action.cardId, achievementContent)
     case 'PURCHASE_CARD':
       return applyPurchaseCard(state, action.playerId, action.cardId, achievementContent)
     case 'PASS_PURCHASE':
@@ -204,7 +204,7 @@ function applyResolveUnitAction(
   nextState = updateAchievementClaims(nextState, achievementContent, unitContent.unitSupplyCaps)
 
   if (nextState.pendingPlayerIds.length === 0) {
-    nextState = beginPostActionsPhase(nextState)
+    nextState = beginPostActionsPhase(nextState, achievementContent)
   }
   return { ok: true, state: nextState }
 }
@@ -226,7 +226,7 @@ function removeOneOccurrence(ids: string[], id: string): string[] {
  * (and may act again, in any order relative to everyone else) until all of
  * their occurrences are gone.
  */
-function applyMoveToDecline(state: GameState, playerId: string, cardId: string): ActionResult {
+function applyMoveToDecline(state: GameState, playerId: string, cardId: string, achievementContent: AchievementContent): ActionResult {
   if (state.roundPhase !== 'decline') {
     return { ok: false, error: 'Not in the decline phase' }
   }
@@ -254,7 +254,7 @@ function applyMoveToDecline(state: GameState, playerId: string, cardId: string):
   nextState = eliminatePlayersWithNoCardToDecline(nextState)
 
   if (nextState.pendingPlayerIds.length === 0) {
-    nextState = beginPurchasePhase(nextState)
+    nextState = beginPurchasePhase(nextState, achievementContent)
   }
   return { ok: true, state: nextState }
 }
@@ -301,6 +301,7 @@ function applyPurchaseCard(state: GameState, playerId: string, cardId: string, a
   nextState = syncCardZonesWithBoard(nextState)
   nextState = { ...nextState, log: appendLog(nextState, playerId, `Player ${playerId} purchased a card back from decline for ${cost} gold`) }
   nextState = { ...nextState, activePlayerId: nextState.pendingPlayerIds[0] ?? null }
+  nextState = skipEmptyDeclinePurchasers(nextState)
 
   if (nextState.pendingPlayerIds.length === 0) {
     nextState = finishRound(nextState, achievementContent)
@@ -320,6 +321,7 @@ function applyPassPurchase(state: GameState, playerId: string, achievementConten
   let nextState: GameState = { ...state, pendingPlayerIds: state.pendingPlayerIds.slice(1) }
   nextState = { ...nextState, log: appendLog(nextState, playerId, `Player ${playerId} passed on purchasing`) }
   nextState = { ...nextState, activePlayerId: nextState.pendingPlayerIds[0] ?? null }
+  nextState = skipEmptyDeclinePurchasers(nextState)
 
   if (nextState.pendingPlayerIds.length === 0) {
     nextState = finishRound(nextState, achievementContent)

@@ -47,10 +47,8 @@ export interface UnitMarker {
 
 export interface ActionMenuOption {
   id: string
-  /** Short label drawn inside the option's circle (a couple characters). */
+  /** Full action name, shown in full in the option's box — no abbreviation, since a 1-2 letter label made the menu unusable (had to hover to find out what each option was). */
   label: string
-  /** Full name shown as a native SVG tooltip on hover. */
-  title?: string
 }
 
 export interface ActionMenu {
@@ -59,6 +57,14 @@ export interface ActionMenu {
   options: ActionMenuOption[]
   onSelect: (optionId: string) => void
 }
+
+/** Distance from the unit to each option box's center — grows with option count so boxes wide enough for full action names (e.g. "Transform to Merchant") don't overlap (Merchant has 7 options, the most of any unit kind). */
+function actionMenuRadius(size: number, optionCount: number): number {
+  return size * (2.6 + Math.max(0, optionCount - 3) * 0.6)
+}
+
+const ACTION_MENU_BOX_WIDTH_FACTOR = 3.4
+const ACTION_MENU_BOX_HEIGHT_FACTOR = 1.7
 
 /**
  * Renders a Board as an SVG hex grid, with optional extras for interactive
@@ -103,7 +109,8 @@ export function HexBoard(props: {
   const boundsPoints = [...pixels.map((p) => ({ x: p.x, y: p.y }))]
   if (props.actionMenu) {
     const { x, y } = axialToPixel(props.actionMenu.coord, size)
-    const menuPad = size * 3.5
+    const menuPad =
+      actionMenuRadius(size, props.actionMenu.options.length) + size * Math.max(ACTION_MENU_BOX_WIDTH_FACTOR, ACTION_MENU_BOX_HEIGHT_FACTOR)
     boundsPoints.push({ x: x - menuPad, y: y - menuPad }, { x: x + menuPad, y: y + menuPad })
   }
   const minX = Math.min(...boundsPoints.map((p) => p.x)) - pad
@@ -170,17 +177,22 @@ export function HexBoard(props: {
           {props.actionMenu.options.map((option, i) => {
             const count = props.actionMenu!.options.length
             const angle = (Math.PI / 180) * ((360 / count) * i - 90)
-            const radius = size * 2.2
+            const radius = actionMenuRadius(size, count)
             const ox = actionMenuCenter.x + radius * Math.cos(angle)
             const oy = actionMenuCenter.y + radius * Math.sin(angle)
+            const boxWidth = size * ACTION_MENU_BOX_WIDTH_FACTOR
+            const boxHeight = size * ACTION_MENU_BOX_HEIGHT_FACTOR
             return (
               <g key={option.id} className="cursor-pointer" onClick={() => props.actionMenu?.onSelect(option.id)}>
-                {option.title && <title>{option.title}</title>}
                 <line x1={actionMenuCenter.x} y1={actionMenuCenter.y} x2={ox} y2={oy} stroke="#71717a" strokeWidth={1} />
-                <circle cx={ox} cy={oy} r={size * 0.6} fill="#1e1b4b" stroke="#818cf8" strokeWidth={2} className="hover:fill-indigo-900" />
-                <text x={ox} y={oy} textAnchor="middle" dominantBaseline="central" fontSize={size * 0.42} fill="#e0e7ff" pointerEvents="none">
-                  {option.label}
-                </text>
+                <foreignObject x={ox - boxWidth / 2} y={oy - boxHeight / 2} width={boxWidth} height={boxHeight}>
+                  <div
+                    style={{ fontSize: size * 0.3, lineHeight: 1.15 }}
+                    className="flex h-full w-full items-center justify-center rounded-md border-2 border-indigo-400 bg-indigo-950 px-1 text-center font-medium text-indigo-100 hover:bg-indigo-900"
+                  >
+                    {option.label}
+                  </div>
+                </foreignObject>
               </g>
             )
           })}

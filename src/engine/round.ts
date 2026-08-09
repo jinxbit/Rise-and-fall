@@ -54,7 +54,7 @@ export function beginActionsPhase(state: GameState): GameState {
  * one occurrence per card declined, regardless of which player goes when,
  * until every player has supplied all their required cards.
  */
-export function beginDeclinePhase(state: GameState): GameState {
+export function beginDeclinePhase(state: GameState, achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT): GameState {
   const cardsPerPlayer = Math.max(1, state.achievementsClaimedThisRound)
   const started: GameState = {
     ...state,
@@ -63,22 +63,53 @@ export function beginDeclinePhase(state: GameState): GameState {
     activePlayerId: null,
   }
   const afterEliminations = eliminatePlayersWithNoCardToDecline(started)
-  return afterEliminations.pendingPlayerIds.length === 0 ? beginPurchasePhase(afterEliminations) : afterEliminations
+  return afterEliminations.pendingPlayerIds.length === 0
+    ? beginPurchasePhase(afterEliminations, achievementContent)
+    : afterEliminations
 }
 
-/** Round step 4: every player may buy one card back from decline, or pass, in turn order. */
-export function beginPurchasePhase(state: GameState): GameState {
-  return {
+/**
+ * Skips past any player(s) at the front of the purchase-phase queue who
+ * have nothing in decline to buy back — there's nothing for them to
+ * meaningfully decide, so no PASS_PURCHASE action should be required from
+ * them. Keeps skipping across multiple consecutive empty-decline players
+ * (e.g. nobody has declined anything yet this game) until it finds one
+ * with cards to consider, or runs out. A no-op outside the purchase phase.
+ */
+export function skipEmptyDeclinePurchasers(state: GameState): GameState {
+  let nextState = state
+  while (nextState.roundPhase === 'purchase' && nextState.pendingPlayerIds.length > 0) {
+    const playerId = nextState.pendingPlayerIds[0]
+    const player = nextState.players.find((p) => p.id === playerId)
+    if (!player || player.declineCardIds.length > 0) break
+    nextState = { ...nextState, pendingPlayerIds: nextState.pendingPlayerIds.slice(1) }
+    nextState = { ...nextState, log: appendLog(nextState, playerId, `Player ${playerId} had nothing to purchase back`) }
+    nextState = { ...nextState, activePlayerId: nextState.pendingPlayerIds[0] ?? null }
+  }
+  return nextState
+}
+
+/**
+ * Round step 4: every player may buy one card back from decline, or pass,
+ * in turn order. Players with an empty decline are skipped automatically
+ * (see skipEmptyDeclinePurchasers) — if that empties the whole queue (the
+ * common case: nobody has declined anything yet), the round finishes
+ * immediately without any player having to act.
+ */
+export function beginPurchasePhase(state: GameState, achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT): GameState {
+  const started: GameState = {
     ...state,
     roundPhase: 'purchase',
     pendingPlayerIds: [...state.turnOrder],
     activePlayerId: state.turnOrder[0] ?? null,
   }
+  const afterSkips = skipEmptyDeclinePurchasers(started)
+  return afterSkips.pendingPlayerIds.length === 0 ? finishRound(afterSkips, achievementContent) : afterSkips
 }
 
 /** Once the actions phase finishes: rule 3 inserts the decline phase only if it was triggered this round. */
-export function beginPostActionsPhase(state: GameState): GameState {
-  return isDeclineTriggered(state) ? beginDeclinePhase(state) : beginPurchasePhase(state)
+export function beginPostActionsPhase(state: GameState, achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT): GameState {
+  return isDeclineTriggered(state) ? beginDeclinePhase(state, achievementContent) : beginPurchasePhase(state, achievementContent)
 }
 
 /**

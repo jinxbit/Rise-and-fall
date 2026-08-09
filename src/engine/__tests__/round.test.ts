@@ -94,21 +94,51 @@ describe('round flow', () => {
     result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2', unitActions: [] }, testUnitContent)
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    // No units are anywhere near the placeholder limit, so decline is skipped.
-    expect(result.state.roundPhase).toBe('purchase')
-
-    result = applyAction(result.state, { type: 'PASS_PURCHASE', playerId: 'p1' })
-    if (!result.ok) throw new Error('setup failed')
-    result = applyAction(result.state, { type: 'PASS_PURCHASE', playerId: 'p2' })
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-
+    // No units are anywhere near the placeholder limit, so decline is
+    // skipped; neither player has anything in decline either, so the
+    // purchase phase auto-completes right here (see
+    // skipEmptyDeclinePurchasers in ../round.ts) — no PASS_PURCHASE needed.
     expect(result.state.turn).toBe(1)
     expect(result.state.roundPhase).toBe('selectCards')
     expect(result.state.pendingPlayerIds).toEqual(['p1', 'p2'])
     expect(result.state.activePlayerId).toBeNull()
     const p1After = result.state.players.find((p) => p.id === 'p1')!
     expect(p1After.discardCardIds).toContain(p1City)
+  })
+
+  it('purchase phase auto-skips a player with nothing in decline, but still waits on one who has something', () => {
+    // turnOrder is [p1, p2]; giving p2 (not p1) the decline card means the
+    // phase must skip past p1 automatically before landing on p2.
+    let state = makeActiveGameWithFullHands()
+    const p2Index = state.players.findIndex((p) => p.id === 'p2')
+    const p2 = moveCard(state.players[p2Index], cardIdFor('p2', 'temple'), 'decline')
+    const players = [...state.players]
+    players[p2Index] = p2
+    state = { ...state, players }
+
+    let result = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') })
+    if (!result.ok) throw new Error('setup failed')
+    result = applyAction(result.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') })
+    if (!result.ok) throw new Error('setup failed')
+    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [] }, testUnitContent)
+    if (!result.ok) throw new Error('setup failed')
+    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2', unitActions: [] }, testUnitContent)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    // p1 was auto-skipped (nothing in decline); p2 has something, so the
+    // phase waits on them instead of auto-completing straight through.
+    expect(result.state.roundPhase).toBe('purchase')
+    expect(result.state.activePlayerId).toBe('p2')
+    expect(result.state.pendingPlayerIds).toEqual(['p2'])
+    expect(result.state.log.at(-1)?.message).toContain('nothing to purchase back')
+
+    result = applyAction(result.state, { type: 'PASS_PURCHASE', playerId: 'p2' })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    // p2 passing empties the queue -> round ends normally.
+    expect(result.state.roundPhase).toBe('selectCards')
+    expect(result.state.turn).toBe(1)
   })
 
   it('inserts a decline phase when a player reaches their unit limit, then returns to purchase', () => {
@@ -207,7 +237,16 @@ describe('round flow', () => {
   })
 
   it('rejects PURCHASE_CARD for a card not in that player\'s decline', () => {
-    const state = makeActiveGameWithFullHands()
+    // p1 needs *something* in decline, or the purchase phase auto-skips
+    // them entirely (see skipEmptyDeclinePurchasers in ../round.ts) before
+    // they'd ever get a chance to submit this rejected request.
+    let state = makeActiveGameWithFullHands()
+    const p1Index = state.players.findIndex((p) => p.id === 'p1')
+    const p1 = moveCard(state.players[p1Index], cardIdFor('p1', 'nomad'), 'decline')
+    const players = [...state.players]
+    players[p1Index] = p1
+    state = { ...state, players }
+
     let result = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') })
     if (!result.ok) throw new Error('setup failed')
     result = applyAction(result.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') })
@@ -218,6 +257,7 @@ describe('round flow', () => {
     if (!result.ok) throw new Error('setup failed')
     expect(result.state.roundPhase).toBe('purchase')
 
+    // p1's decline holds 'nomad', not 'temple'.
     const purchase = applyAction(result.state, { type: 'PURCHASE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'temple') })
     expect(purchase.ok).toBe(false)
     if (!purchase.ok) {
@@ -314,21 +354,19 @@ describe('round flow', () => {
     if (!result.ok) throw new Error('setup failed')
     result = applyAction(result.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') })
     if (!result.ok) throw new Error('setup failed')
-    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [] }, testUnitContent)
-    if (!result.ok) throw new Error('setup failed')
-    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2', unitActions: [] }, testUnitContent)
-    if (!result.ok) throw new Error('setup failed')
-    expect(result.state.roundPhase).toBe('purchase')
-
     const achievementContent: AchievementContent = {
       ...EMPTY_ACHIEVEMENT_CONTENT,
       gameLength: 3,
       achievementVictoryPoints: { 'city-mastery': 1, 'temple-mastery': 1, 'nomad-mastery': 1 },
     }
 
-    result = applyAction(result.state, { type: 'PASS_PURCHASE', playerId: 'p1' }, testUnitContent, achievementContent)
+    // Neither player has anything in decline, so the purchase phase (and
+    // the game-end check that finishes it) auto-completes as soon as it's
+    // entered, right inside p2's RESOLVE_UNIT_ACTION — achievementContent
+    // must be passed here, not to a since-removed PASS_PURCHASE call.
+    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [] }, testUnitContent, achievementContent)
     if (!result.ok) throw new Error('setup failed')
-    result = applyAction(result.state, { type: 'PASS_PURCHASE', playerId: 'p2' }, testUnitContent, achievementContent)
+    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2', unitActions: [] }, testUnitContent, achievementContent)
     expect(result.ok).toBe(true)
     if (!result.ok) return
 
@@ -347,15 +385,15 @@ describe('round flow', () => {
     if (!result.ok) throw new Error('setup failed')
     result = applyAction(result.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') })
     if (!result.ok) throw new Error('setup failed')
-    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [] }, testUnitContent)
-    if (!result.ok) throw new Error('setup failed')
-    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2', unitActions: [] }, testUnitContent)
-    if (!result.ok) throw new Error('setup failed')
 
     const achievementContent: AchievementContent = { ...EMPTY_ACHIEVEMENT_CONTENT, gameLength: 4 }
-    result = applyAction(result.state, { type: 'PASS_PURCHASE', playerId: 'p1' }, testUnitContent, achievementContent)
+    // Neither player has anything in decline, so the purchase phase
+    // auto-completes right inside p2's RESOLVE_UNIT_ACTION — the below-
+    // gameLength check needs achievementContent passed there, not to a
+    // since-removed PASS_PURCHASE call.
+    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [] }, testUnitContent, achievementContent)
     if (!result.ok) throw new Error('setup failed')
-    result = applyAction(result.state, { type: 'PASS_PURCHASE', playerId: 'p2' }, testUnitContent, achievementContent)
+    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2', unitActions: [] }, testUnitContent, achievementContent)
     expect(result.ok).toBe(true)
     if (!result.ok) return
 
@@ -380,15 +418,12 @@ describe('round flow', () => {
     if (!result.ok) throw new Error('setup failed')
     result = applyAction(result.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') })
     if (!result.ok) throw new Error('setup failed')
+    // Neither player has anything in decline, so the purchase phase
+    // auto-completes right inside p2's RESOLVE_UNIT_ACTION — no
+    // PASS_PURCHASE needed.
     result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [] }, testUnitContent)
     if (!result.ok) throw new Error('setup failed')
     result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2', unitActions: [] }, testUnitContent)
-    if (!result.ok) throw new Error('setup failed')
-    expect(result.state.roundPhase).toBe('purchase')
-
-    result = applyAction(result.state, { type: 'PASS_PURCHASE', playerId: 'p1' })
-    if (!result.ok) throw new Error('setup failed')
-    result = applyAction(result.state, { type: 'PASS_PURCHASE', playerId: 'p2' })
     expect(result.ok).toBe(true)
     if (!result.ok) return
 
@@ -405,13 +440,12 @@ describe('round flow', () => {
     if (!result.ok) throw new Error('setup failed')
     result = applyAction(result.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') })
     if (!result.ok) throw new Error('setup failed')
+    // Neither player has anything in decline, so the purchase phase
+    // auto-completes right inside p2's RESOLVE_UNIT_ACTION — no
+    // PASS_PURCHASE needed.
     result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [] }, testUnitContent)
     if (!result.ok) throw new Error('setup failed')
     result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2', unitActions: [] }, testUnitContent)
-    if (!result.ok) throw new Error('setup failed')
-    result = applyAction(result.state, { type: 'PASS_PURCHASE', playerId: 'p1' })
-    if (!result.ok) throw new Error('setup failed')
-    result = applyAction(result.state, { type: 'PASS_PURCHASE', playerId: 'p2' })
     expect(result.ok).toBe(true)
     if (!result.ok) return
 

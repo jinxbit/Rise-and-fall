@@ -595,3 +595,46 @@ fixture (it had a City placed on a seeded starting-water tile, now
 illegal) and added a direct regression test for City/Nomad rejected on
 Water in `boardSetup.test.ts`. 236 tests total (was 235); `tsc -b`/
 `oxlint`/`npm run build` all clean.
+
+## 13. Purchase phase auto-skip for empty decline + radial menu full text — fixed
+
+Two requested fixes.
+
+**Auto-advance the purchase phase.** A player with nothing in their
+`declineCardIds` has no meaningful choice in round step 4 (buy back a
+card or pass) — passing was their only option, but it still required an
+explicit `PASS_PURCHASE` click. Added `skipEmptyDeclinePurchasers()`
+(`round.ts`): repeatedly drops whoever's at the front of the
+purchase-phase queue if their decline is empty (logging "had nothing to
+purchase back" for each), until it finds someone with cards to consider
+or empties the queue outright — the common case, since most rounds
+nobody has declined anything yet, so the whole phase now completes
+automatically with no player action at all. Called from
+`beginPurchasePhase()` (so it can also fire the moment the phase starts)
+and from `applyPurchaseCard`/`applyPassPurchase` (so it also fires after
+each real decision). This meant `beginPurchasePhase`/`beginDeclinePhase`/
+`beginPostActionsPhase` needed an `achievementContent` param threaded
+through (default `EMPTY_ACHIEVEMENT_CONTENT`, same pattern as
+`finishRound`) — `beginPurchasePhase` can now trigger `finishRound`
+directly, not just the `PURCHASE_CARD`/`PASS_PURCHASE` handlers. Six
+`round.test.ts` cases that manually called `PASS_PURCHASE` for players
+with nothing in decline needed updating (the phase now auto-completes
+before those calls would even apply), plus a new regression test for the
+mixed case: one player auto-skipped, the other still correctly waited on.
+
+**Full action text in the radial menu.** `RoundView.tsx`'s per-unit
+action picker (`HexBoard.tsx`'s `actionMenu`) drew each option as a tiny
+circle with a 2-letter abbreviation (e.g. "GE" for "Generate Income"),
+full name only visible via hover tooltip — reported unusable, since you
+had to hover every option to find out what it did. Replaced the
+circle+abbreviation with an SVG `<foreignObject>` box showing the full
+action name directly (`ActionMenuOption.label` is now the full name, no
+`title` tooltip needed). Box placement radius now scales with option
+count (`actionMenuRadius()`) so it stays legible up to Merchant's 7
+options (the most of any unit kind) without the boxes overlapping.
+
+237 tests total (was 236); `tsc -b`/`oxlint`/`npm run build` all clean.
+Not click-tested in a browser — same sandbox limitation as all prior UI
+work here (no Supabase credentials/Docker) — the radial-menu spacing at
+high option counts is especially worth a visual check on a real
+deployment.
