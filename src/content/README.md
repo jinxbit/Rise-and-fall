@@ -11,8 +11,13 @@ One entry per unit type. `id` matches the engine's `Unit.kind` field
 (`src/engine/types.ts`). For each unit:
 
 - `supply.byPlayerCount` — total pieces of this unit type available, i.e. the
-  hard cap a player can have in play at once, keyed by player count. Placeholder
-  `0` values until the real counts are decided.
+  hard cap a player can have in play at once, keyed by player count (same
+  value for every player count per the ruling): 8 Cities, 3 Temples, 8
+  Nomads, 6 Merchants, 3 Mountaineers, 5 Ships. Doubles as the decline-phase
+  trigger limit — see `getUnitLimit`/`isDeclineTriggered` in
+  `src/engine/decline.ts`, and `createNewGame`'s `unitLimits` param
+  (`src/engine/createGame.ts`), which the caller should resolve from this
+  field.
 - `movement.isMobile` — `false` for static units like settlements.
 - `movement.terrains` — which of the 5 terrain types (see below) this unit
   can move onto.
@@ -31,8 +36,8 @@ One entry per unit type. `id` matches the engine's `Unit.kind` field
   the exact rule text is locked in.
 
 Pre-filled with the six unit kinds (city, temple, nomad, merchant, ship,
-mountaineer) — `description`, `supply`, `movement.terrains`, and `actions` are
-left blank/placeholder where the rules aren't decided yet.
+mountaineer). `description` and `victoryPoints.byBoardCount` are still
+blank/placeholder where the rules aren't decided yet.
 
 ## `terrain.json` (validated by `terrain.schema.json`)
 

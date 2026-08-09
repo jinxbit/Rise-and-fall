@@ -199,6 +199,13 @@ export interface GameState {
    * player's `resources` on every gain/spend (src/engine/resources.ts).
    */
   resourceBank: Resources
+  /**
+   * Per-unit-kind limit (decline rules 1 & 2): once any player reaches this
+   * many of a kind, decline triggers for the round. Set once at game
+   * creation (createNewGame's `unitLimits` param) from content/units.json's
+   * `supply.byPlayerCount` — see src/engine/decline.ts's `getUnitLimit`.
+   */
+  unitLimits: Record<string, number>
   log: GameEvent[]
   /**
    * The winner(s) once the game ends: whoever has the most total VP

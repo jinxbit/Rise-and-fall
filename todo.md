@@ -5,16 +5,20 @@ Open items surfaced while implementing the card-play and decline rules in
 being finished — the code has a clearly marked placeholder or stub at each
 spot below until the real rule is provided.
 
-## 1. Real per-unit-kind unit limits
+## 1. Real per-unit-kind unit limits — done
 
 Decline rule 1 says every unit kind has a limit, per player, that triggers
-decline once reached. The engine currently uses a flat placeholder of `2`
-for every unit kind (`PLACEHOLDER_UNIT_LIMIT` / `getUnitLimit()` in
-`src/engine/decline.ts`).
+decline once reached. Real values now in `src/content/units.json`'s
+`supply.byPlayerCount` (8 Cities, 3 Temples, 8 Nomads, 6 Merchants, 3
+Mountaineers, 5 Ships — same across every player count), which turned out
+to be exactly the concept this item was asking about.
 
-Needs: the real limit per unit kind (and possibly per player count — see
-`supply.byPlayerCount` in `src/content/units.json`, which has the same `0`
-placeholder shape for what looks like the same concept).
+`getUnitLimit()`/`isDeclineTriggered()` (`src/engine/decline.ts`) now read
+`GameState.unitLimits`, set once at game creation via `createNewGame`'s
+`unitLimits` param (`src/engine/createGame.ts`) — the caller resolves it
+from `units.json`, same pattern as `resourceBank`. Defaults to `{}` (no
+limits) if omitted, so existing callers/tests are unaffected. Tested in
+`src/engine/__tests__/decline.test.ts`.
 
 ## 2. Purchase-phase cost formula
 

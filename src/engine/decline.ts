@@ -2,15 +2,15 @@ import { UNIT_KINDS } from './cards'
 import type { GameState } from './types'
 
 /**
- * Placeholder per-kind unit limit, per player — the user's own example
- * ("let's say the limit is 2") while real numbers are pending. Should
- * eventually read from src/content/units.json's `supply.byPlayerCount`
- * once that's filled in (see content/README.md).
+ * Per-kind unit limit, per player (rules 1 & 2 of decline) — reads
+ * `state.unitLimits`, set once at game creation from content/units.json's
+ * `supply.byPlayerCount` (same value across every player count — 8 Cities,
+ * 3 Temples, 8 Nomads, 6 Merchants, 3 Mountaineers, 5 Ships — see
+ * createNewGame's `unitLimits` param). A kind missing from the map has no
+ * limit (never triggers decline on its own).
  */
-const PLACEHOLDER_UNIT_LIMIT = 2
-
-export function getUnitLimit(_kind: string): number {
-  return PLACEHOLDER_UNIT_LIMIT
+export function getUnitLimit(state: GameState, kind: string): number {
+  return state.unitLimits[kind] ?? Infinity
 }
 
 function countUnitsOfKind(state: GameState, playerId: string, kind: string): number {
@@ -26,6 +26,6 @@ function countUnitsOfKind(state: GameState, playerId: string, kind: string): num
  */
 export function isDeclineTriggered(state: GameState): boolean {
   return state.players.some((player) =>
-    UNIT_KINDS.some((kind) => countUnitsOfKind(state, player.id, kind) >= getUnitLimit(kind)),
+    UNIT_KINDS.some((kind) => countUnitsOfKind(state, player.id, kind) >= getUnitLimit(state, kind)),
   )
 }

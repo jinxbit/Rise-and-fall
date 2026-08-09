@@ -77,9 +77,10 @@ describe('round flow', () => {
   })
 
   it('inserts a decline phase when a player reaches their unit limit, then returns to purchase', () => {
-    const limit = getUnitLimit('city')
-    const units: Unit[] = Array.from({ length: limit }, (_, i) => makeUnit('p1', 'city', `p1_city_${i}`))
-    const state = { ...makeActiveGameWithFullHands(), units }
+    const unitLimits = { city: 2 }
+    const units: Unit[] = Array.from({ length: unitLimits.city }, (_, i) => makeUnit('p1', 'city', `p1_city_${i}`))
+    const state = { ...makeActiveGameWithFullHands(), units, unitLimits }
+    expect(getUnitLimit(state, 'city')).toBe(2)
 
     let result = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') })
     if (!result.ok) throw new Error('setup failed')
@@ -107,9 +108,9 @@ describe('round flow', () => {
   })
 
   it('rejects moving a card to decline that is not in hand or discard', () => {
-    const limit = getUnitLimit('city')
-    const units: Unit[] = Array.from({ length: limit }, (_, i) => makeUnit('p1', 'city', `p1_city_${i}`))
-    const state = { ...makeActiveGameWithFullHands(), units }
+    const unitLimits = { city: 2 }
+    const units: Unit[] = Array.from({ length: unitLimits.city }, (_, i) => makeUnit('p1', 'city', `p1_city_${i}`))
+    const state = { ...makeActiveGameWithFullHands(), units, unitLimits }
 
     let result = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') })
     if (!result.ok) throw new Error('setup failed')

@@ -6,7 +6,7 @@
       "name": "City",
       "description": "",
       "victoryPoints": { "byBoardCount": [] },
-      "supply": { "byPlayerCount": { "2": 0, "3": 0, "4": 0 } },
+      "supply": { "byPlayerCount": { "2": 8, "3": 8, "4": 8 } },
       "movement": {
         "isMobile": false,
         "terrains": [],
@@ -62,7 +62,7 @@
       "name": "Temple",
       "description": "",
       "victoryPoints": { "byBoardCount": [] },
-      "supply": { "byPlayerCount": { "2": 0, "3": 0, "4": 0 } },
+      "supply": { "byPlayerCount": { "2": 3, "3": 3, "4": 3 } },
       "movement": {
         "isMobile": false,
         "terrains": [],
@@ -98,7 +98,7 @@
       "name": "Nomad",
       "description": "",
       "victoryPoints": { "byBoardCount": [] },
-      "supply": { "byPlayerCount": { "2": 0, "3": 0, "4": 0 } },
+      "supply": { "byPlayerCount": { "2": 8, "3": 8, "4": 8 } },
       "movement": {
         "isMobile": true,
         "terrains": ["plain", "forest", "mountain"],
@@ -162,7 +162,7 @@
       "name": "Merchant",
       "description": "",
       "victoryPoints": { "byBoardCount": [] },
-      "supply": { "byPlayerCount": { "2": 0, "3": 0, "4": 0 } },
+      "supply": { "byPlayerCount": { "2": 6, "3": 6, "4": 6 } },
       "movement": {
         "isMobile": true,
         "terrains": ["water", "plain", "forest", "mountain"],
@@ -214,7 +214,7 @@
       "name": "Mountaineer",
       "description": "",
       "victoryPoints": { "byBoardCount": [] },
-      "supply": { "byPlayerCount": { "2": 0, "3": 0, "4": 0 } },
+      "supply": { "byPlayerCount": { "2": 3, "3": 3, "4": 3 } },
       "movement": {
         "isMobile": true,
         "terrains": ["water", "plain", "forest", "mountain", "glacier"],
@@ -255,7 +255,7 @@
       "name": "Ship",
       "description": "",
       "victoryPoints": { "byBoardCount": [] },
-      "supply": { "byPlayerCount": { "2": 0, "3": 0, "4": 0 } },
+      "supply": { "byPlayerCount": { "2": 5, "3": 5, "4": 5 } },
       "movement": {
         "isMobile": true,
         "terrains": ["water"],
