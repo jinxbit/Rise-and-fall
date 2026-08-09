@@ -43,9 +43,10 @@ decisions get made.
       `src/engine/cliffs.ts`). Terrain *movement* rules beyond that
       (pathing, move costs) still need `MOVE_UNIT` itself (section 2).
 - [ ] Specify turn structure and any per-phase rules (draw, action limits,
-      combat resolution, etc.) — mostly done (`src/engine/round.ts`), but
-      see `todo.md` #4/#5 for two new rules (elimination, multi-card
-      decline) still needing design decisions before they can be built.
+      combat resolution, etc.) — mostly done (`src/engine/round.ts`,
+      including player elimination — see `todo.md` #4). Still open: the
+      multi-card decline rule (`todo.md` #5), blocked on achievement-claim
+      tracking, same as the win-condition wiring above.
 - [ ] Capture all of the above as the source of truth the engine work in
       section 2 implements against (update `src/content/*.json` +
       schemas, and/or a rules reference doc).

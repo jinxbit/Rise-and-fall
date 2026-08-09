@@ -1,5 +1,6 @@
 import type { Action } from './actions'
 import { moveCard } from './cards'
+import { eliminatePlayersWithNoCardToDecline } from './elimination'
 import { appendLog } from './log'
 import { beginActionsPhase, beginPostActionsPhase, beginPurchasePhase, finishRound } from './round'
 import type { GameState } from './types'
@@ -140,6 +141,9 @@ function applyMoveToDecline(state: GameState, playerId: string, cardId: string):
   let nextState: GameState = { ...state, players, pendingPlayerIds: state.pendingPlayerIds.slice(1) }
   nextState = { ...nextState, log: appendLog(nextState, playerId, `Player ${playerId} moved a card into decline`) }
   nextState = { ...nextState, activePlayerId: nextState.pendingPlayerIds[0] ?? null }
+  // Whoever's up next might themselves have nothing to decline — cascades
+  // via eliminatePlayersWithNoCardToDecline until someone valid is found.
+  nextState = eliminatePlayersWithNoCardToDecline(nextState)
 
   if (nextState.pendingPlayerIds.length === 0) {
     nextState = beginPurchasePhase(nextState)

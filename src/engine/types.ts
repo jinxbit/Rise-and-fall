@@ -112,6 +112,13 @@ export interface Player {
   discardCardIds: string[]
   supplyCardIds: string[]
   declineCardIds: string[]
+  /**
+   * True once eliminated: had to play a card (select-cards phase) or give
+   * one up (decline phase) with none available. Eliminated players are
+   * removed from the board and turn order for the rest of the game and
+   * excluded from winning (see src/engine/elimination.ts).
+   */
+  eliminated: boolean
 }
 
 /**

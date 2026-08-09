@@ -1,16 +1,24 @@
 import { isDeclineTriggered } from './decline'
+import { eliminatePlayersWithNoCardToDecline, eliminatePlayersWithNoCardToPlay } from './elimination'
 import { appendLog } from './log'
 import type { GameState } from './types'
 
-/** Round step 1: every player simultaneously picks a card; nobody is "active". */
+/**
+ * Round step 1: every player simultaneously picks a card; nobody is
+ * "active". Also applies the elimination rule: any player with an empty
+ * hand has no card to choose, so they're eliminated on the spot rather
+ * than left unable to submit a valid CHOOSE_CARD.
+ */
 export function beginSelectCardsPhase(state: GameState): GameState {
-  return {
+  const started: GameState = {
     ...state,
     roundPhase: 'selectCards',
     chosenCardIdByPlayerId: Object.fromEntries(state.players.map((p) => [p.id, null])),
     pendingPlayerIds: [...state.turnOrder],
     activePlayerId: null,
   }
+  const afterEliminations = eliminatePlayersWithNoCardToPlay(started)
+  return afterEliminations.pendingPlayerIds.length === 0 ? beginActionsPhase(afterEliminations) : afterEliminations
 }
 
 /** Round step 2: resolve each player's chosen card, in turn order. */
@@ -23,14 +31,21 @@ export function beginActionsPhase(state: GameState): GameState {
   }
 }
 
-/** Round step 3: every player moves one card from hand/discard to decline, in turn order. */
+/**
+ * Round step 3: every player moves one card from hand/discard to decline,
+ * in turn order. Also applies the elimination rule: the active player is
+ * eliminated (and the next one checked in turn) for as long as whoever's
+ * up has nothing to decline (hand and discard both empty).
+ */
 export function beginDeclinePhase(state: GameState): GameState {
-  return {
+  const started: GameState = {
     ...state,
     roundPhase: 'decline',
     pendingPlayerIds: [...state.turnOrder],
     activePlayerId: state.turnOrder[0] ?? null,
   }
+  const afterEliminations = eliminatePlayersWithNoCardToDecline(started)
+  return afterEliminations.pendingPlayerIds.length === 0 ? beginPurchasePhase(afterEliminations) : afterEliminations
 }
 
 /** Round step 4: every player may buy one card back from decline, or pass, in turn order. */
