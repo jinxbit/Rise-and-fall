@@ -22,8 +22,8 @@ Round step 4 lets a player buy a card back from decline, at a gold cost
 "determined by the number of achievements achieved by players." `PURCHASE_CARD`
 (`src/engine/applyAction.ts`) is stubbed as `NOT_IMPLEMENTED` pending this.
 
-Needs: the achievement list and the cost formula that derives gold cost from
-achievements.
+Needs: ~~the achievement list~~ (now in `src/content/achievements.json`) and
+the cost formula that derives gold cost from achievements.
 
 ## 3. Game-end / win condition
 
@@ -32,4 +32,9 @@ Round step 6 checks whether the game has ended. `finishRound()`
 win-condition check is a marked no-op (`GameState.winnerPlayerId` stays
 `null` forever).
 
-Needs: the actual win/end condition.
+The end *trigger* is now known: `src/content/achievements.json`'s
+`gameLength` (default 4) counts total achievements claimed across all
+players; once that many have been claimed, the round in progress finishes
+fully and then the game ends. Still needed: how the winner is actually
+determined at that point — full victory-point scoring, since achievements
+are a placeholder `1` VP each pending the rest of the VP rules.

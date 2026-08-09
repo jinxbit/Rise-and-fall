@@ -1,0 +1,68 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://rise-and-fall.local/achievements.schema.json",
+  "title": "Rise & Fall achievement definitions",
+  "description": "The achievement pool and the game-length setting that counts them. Each achievement is tied to one unit type and can be claimed by exactly one player for the whole game — the first player to simultaneously control their full per-player supply of that unit type claims it; it is then unavailable to every other player, even if they later also reach full supply.",
+  "type": "object",
+  "required": ["gameLength", "achievements"],
+  "additionalProperties": false,
+  "properties": {
+    "gameLength": { "$ref": "#/definitions/gameLength" },
+    "achievements": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/achievement" }
+    }
+  },
+  "definitions": {
+    "gameLength": {
+      "type": "object",
+      "description": "Players agree on a target at game start: how many achievements (summed across all players — not per player) must be claimed before the game ends. Once the target is reached, the round in progress finishes fully and then the game ends.",
+      "required": ["default", "min", "max"],
+      "additionalProperties": false,
+      "properties": {
+        "default": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The standard game length in achievements, chosen if players don't pick a custom value."
+        },
+        "min": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Lowest game length players may choose."
+        },
+        "max": {
+          "type": "integer",
+          "description": "Highest game length players may choose. Equal to the total number of achievements, since each can only ever be claimed once."
+        }
+      }
+    },
+    "achievement": {
+      "type": "object",
+      "required": ["id", "name", "unitId", "description", "victoryPoints"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Stable identifier, kebab-case."
+        },
+        "name": {
+          "type": "string",
+          "description": "Display name."
+        },
+        "unitId": {
+          "type": "string",
+          "description": "The unit type (matches an id in units.json) this achievement's supply condition is based on."
+        },
+        "description": {
+          "type": "string",
+          "description": "What earns the achievement, written from scratch."
+        },
+        "victoryPoints": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Victory points awarded to the claiming player. Placeholder value of 1 for every achievement until VP scoring is finalized."
+        }
+      }
+    }
+  }
+}

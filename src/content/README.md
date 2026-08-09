@@ -51,6 +51,29 @@ The 5 terrain types (water, plain, forest, mountain, glacier) plus:
     keyed by module id, additive on top of `byPlayerCount`. Empty until you
     have modules to define.
 
+## `achievements.json` (validated by `achievements.schema.json`)
+
+The achievement pool that drives both game length and (per `todo.md` #2)
+the purchase-phase gold-cost formula:
+
+- `gameLength` — players agree on a target at game start: how many
+  achievements, summed across all players (not per player), must be claimed
+  before the game ends. `default` is the standard game (4); `min`/`max`
+  bound what players may pick instead. `max` is 6 because each of the 6
+  achievements can only ever be claimed once, by one player.
+- `achievements` — one entry per unit type (`unitId` matches `units.json`).
+  A player claims an achievement the first time they simultaneously control
+  their full per-player `supply` of that unit type (see `units.json`). Once
+  claimed, that achievement is gone for the rest of the game — no other
+  player can claim it, even if they also reach full supply later.
+- `victoryPoints` is a placeholder `1` for every achievement until the real
+  VP scoring rules are given.
+
+Once the target in `gameLength` is reached (by any combination of players),
+the round in progress finishes fully and then the game ends — this is not
+yet wired into `finishRound()` in `src/engine/round.ts` (see `todo.md` #3),
+since full win-condition/VP scoring still needs the rest of the VP rules.
+
 ## Note on the engine's `Terrain` type
 
 `src/engine/types.ts` still has the placeholder terrain union from the
