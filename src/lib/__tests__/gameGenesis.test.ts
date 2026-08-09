@@ -1,0 +1,88 @@
+import { describe, expect, it } from 'vitest'
+import { applyAction } from '../../engine/applyAction'
+import { replayActions } from '../../engine/replay'
+import { buildGenesisState } from '../gameGenesis'
+import type { GameRow, PlayerRow } from '../dbTypes'
+
+function makeGame(overrides: Partial<GameRow> = {}): GameRow {
+  return {
+    id: 'game_1',
+    room_code: 'ABCDE',
+    play_mode: 'hotseat',
+    status: 'lobby',
+    min_players: 2,
+    max_players: 4,
+    created_by: 'auth_1',
+    created_at: '',
+    updated_at: '',
+    map_template_id: null,
+    ...overrides,
+  }
+}
+
+function makePlayers(): PlayerRow[] {
+  return [
+    { id: 'p1', game_id: 'game_1', user_id: 'auth_1', display_name: 'Alice', avatar_url: null, seat_index: 0, color: '#ef4444', is_active: true, joined_at: '' },
+    { id: 'p2', game_id: 'game_1', user_id: 'auth_2', display_name: 'Bob', avatar_url: null, seat_index: 1, color: '#3b82f6', is_active: true, joined_at: '' },
+  ]
+}
+
+/** Strips wall-clock timestamps before a deep-equality comparison — buildGenesisState stamps real time via appendLog, so two independently-built genesis states are never byte-identical there even when every game-logic field matches. */
+function stripTimestamps(entries: { timestamp: string }[]) {
+  return entries.map((e) => ({ ...e, timestamp: '' }))
+}
+
+describe('buildGenesisState', () => {
+  it('is deterministic: the same game/players always rebuild the same genesis', () => {
+    const game = makeGame()
+    const players = makePlayers()
+
+    const first = buildGenesisState(game, players)
+    const second = buildGenesisState(game, players)
+
+    expect({ ...first, log: stripTimestamps(first.log) }).toEqual({ ...second, log: stripTimestamps(second.log) })
+  })
+
+  it('without a map template, starts interactive board setup (tiles still to be placed)', () => {
+    const genesis = buildGenesisState(makeGame({ map_template_id: null }), makePlayers())
+
+    expect(genesis.status).toBe('boardSetup')
+    expect(genesis.boardSetup?.tileTierQueue.length).toBeGreaterThan(0)
+    expect(genesis.actionHistory).toEqual([])
+  })
+
+  it('with a map template, skips straight to unit placement on the preset board', () => {
+    const genesis = buildGenesisState(makeGame({ map_template_id: 'classic' }), makePlayers())
+
+    expect(genesis.status).toBe('boardSetup')
+    expect(genesis.boardSetup?.tileTierQueue).toEqual([])
+    expect(Object.keys(genesis.board.tiles).length).toBeGreaterThan(50)
+    expect(genesis.actionHistory).toEqual([])
+  })
+
+  it('throws for an unknown map template id', () => {
+    expect(() => buildGenesisState(makeGame({ map_template_id: 'not-a-real-template' }), makePlayers())).toThrow(/Unknown map template/)
+  })
+
+  it('preserves seat order as turn order', () => {
+    const genesis = buildGenesisState(makeGame(), makePlayers())
+    expect(genesis.turnOrder).toEqual(['p1', 'p2'])
+  })
+
+  it('undo mechanism: replaying genesis + history.slice(0, -1) reconstructs the pre-action state', () => {
+    // GamePage.tsx's handleUndo does exactly this: rebuild genesis (since
+    // it isn't stored) and replay every logged action except the last one.
+    const genesis = buildGenesisState(makeGame({ map_template_id: 'classic' }), makePlayers())
+
+    const step1 = applyAction(genesis, { type: 'PLACE_UNIT', playerId: 'p1', unitKind: 'city', coord: { q: 0, r: 0 } })
+    if (!step1.ok) throw new Error(step1.error)
+    expect(step1.state.units).toHaveLength(1)
+
+    const rebuiltGenesis = buildGenesisState(makeGame({ map_template_id: 'classic' }), makePlayers())
+    const undone = replayActions(rebuiltGenesis, step1.state.actionHistory.slice(0, -1))
+
+    expect(undone.units).toHaveLength(0)
+    expect(undone.actionHistory).toEqual([])
+    expect(undone.board).toEqual(rebuiltGenesis.board)
+  })
+})

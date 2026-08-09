@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
-import { listMapTemplates, resolveBoardGenerationContent, resolveMapTemplateBoard, resolveResourceBank, resolveUnitLimits } from '../content/resolveContent'
-import { createEmptyBoard } from '../engine/board'
-import { createNewGame, startGame, startGameWithPresetBoard } from '../engine/createGame'
+import { listMapTemplates } from '../content/resolveContent'
+import { buildGenesisState } from '../lib/gameGenesis'
 import {
   getGameByRoomCode,
   getGameState,
@@ -97,29 +96,7 @@ export function LobbyPage() {
       // to 'active' just to move everyone out of the lobby screen.
       const existingState = await getGameState(game.id)
       if (!existingState) {
-        const lobbyState = createNewGame({
-          gameId: game.id,
-          playMode: game.play_mode,
-          board: createEmptyBoard('hex'),
-          players: players.map((p) => ({
-            id: p.id,
-            authUserId: p.user_id,
-            displayName: p.display_name,
-            color: p.color,
-          })),
-          resourceBank: resolveResourceBank(players.length),
-          unitLimits: resolveUnitLimits(players.length),
-        })
-
-        let boardSetupState
-        if (game.map_template_id) {
-          const presetBoard = resolveMapTemplateBoard(game.map_template_id)
-          if (!presetBoard) throw new Error(`Unknown map template: ${game.map_template_id}`)
-          boardSetupState = startGameWithPresetBoard(lobbyState, presetBoard)
-        } else {
-          boardSetupState = startGame(lobbyState, resolveBoardGenerationContent(players.length))
-        }
-        await insertGameState(game.id, boardSetupState)
+        await insertGameState(game.id, buildGenesisState(game, players))
       }
       await setGameStatus(game.id, 'active')
     } catch (err) {

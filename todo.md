@@ -638,3 +638,44 @@ Not click-tested in a browser — same sandbox limitation as all prior UI
 work here (no Supabase credentials/Docker) — the radial-menu spacing at
 high option counts is especially worth a visual check on a real
 deployment.
+
+## 14. Undo button — any player, any time — built on the existing action history
+
+Requested: now that `GameState.actionHistory` exists (#11), let any player
+undo the most recent action, at any time. The engine's event-sourcing
+design made this cheap: "step back one action" is just `replayActions`
+(`replay.ts`) over `actionHistory.slice(0, -1)` instead of the full
+history — no separate undo stack needed.
+
+The one missing piece was genesis: `replayActions` needs a starting
+`GameState` to replay onto, but genesis was never persisted anywhere
+(only the current, already-folded state lives in the `game_state` row).
+Fixed by making genesis *reconstructible* instead of stored: new
+`src/lib/gameGenesis.ts`'s `buildGenesisState(game, players)` rebuilds it
+deterministically from the `games` row + seated players (seat order is
+fixed at creation, so it's always the same original turn order) —
+exactly the logic `LobbyPage.tsx`'s `handleStart()` already had inline,
+now factored out and reused by both call sites (`handleStart()` was
+simplified to a single `buildGenesisState()` call in the process).
+
+`GamePage.tsx`'s new "Undo last action" button: disabled when there's
+nothing to undo (`actionHistory` empty) or the user isn't seated;
+otherwise rebuilds genesis, replays history minus the last entry,
+appends one *display-log-only* note ("Player X undid the last action:
+Player Y <what>") so the log doesn't just silently lose an entry with no
+explanation — deliberately not itself a logged action (doesn't re-enter
+`actionHistory`), so an undo can't recursively undo itself. Writes back
+through the same `writeGameState`/optimistic-`version` path as every
+other action, so a race with someone else acting first is handled the
+same way (refetch + retry prompt).
+
+No new engine code at all — this is entirely `replayActions` (already
+tested in #11) plus the new genesis-rebuilding helper, which got its own
+test file (`src/lib/__tests__/gameGenesis.test.ts`): determinism (same
+inputs -> byte-identical genesis, modulo timestamps), the interactive-vs-
+preset-map branch, an unknown-template-id throw, seat-order-as-turn-order,
+and an end-to-end undo check (place a unit, rebuild genesis fresh, replay
+the trimmed history, confirm the unit's gone and the board matches
+genesis exactly). 243 tests total (was 237); `tsc -b`/`oxlint`/
+`npm run build` all clean. Not click-tested in a browser — same sandbox
+limitation as all prior UI work here.

@@ -5,10 +5,23 @@ import { RoundView } from '../components/RoundView'
 import { resolveAchievementContent, resolveBoardGenerationContent, resolveUnitContent } from '../content/resolveContent'
 import type { Action, UnitActionAssignment } from '../engine/actions'
 import { applyAction } from '../engine/applyAction'
+import { appendLog } from '../engine/log'
+import { replayActions } from '../engine/replay'
 import type { GameState as EngineGameState, Coordinate } from '../engine/types'
 import { useAuth } from '../hooks/useAuth'
 import type { GameRow, PlayerRow } from '../lib/dbTypes'
+import { buildGenesisState } from '../lib/gameGenesis'
 import { getGameByRoomCode, getGameState, listPlayers, subscribeToGameState, subscribeToPlayers, writeGameState } from '../lib/gameApi'
+
+const ACTION_DESCRIPTION: Record<Action['type'], string> = {
+  PLACE_TILE: 'placing a tile',
+  PLACE_UNIT: 'placing a starting unit',
+  CHOOSE_CARD: 'choosing a card',
+  RESOLVE_UNIT_ACTION: 'resolving an action',
+  MOVE_TO_DECLINE: 'moving a card to decline',
+  PURCHASE_CARD: 'purchasing a card',
+  PASS_PURCHASE: 'passing on purchasing',
+}
 
 export function GamePage() {
   const { roomCode } = useParams<{ roomCode: string }>()
@@ -20,6 +33,7 @@ export function GamePage() {
   const [version, setVersion] = useState<number | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [showStateJson, setShowStateJson] = useState(false)
+  const [undoing, setUndoing] = useState(false)
 
   useEffect(() => {
     if (!roomCode) return
@@ -86,6 +100,55 @@ export function GamePage() {
     setVersion(version + 1)
   }
 
+  /**
+   * Undo: any player, at any time, can roll the game back one action.
+   * Genesis isn't stored anywhere (see GameState.actionHistory's doc
+   * comment) — it's deterministically rebuilt from the game's row + seated
+   * players (buildGenesisState, same logic LobbyPage.tsx used to start the
+   * game) and every logged action except the last one is replayed on top of
+   * it (replayActions), which is exactly what event sourcing buys us here:
+   * "step back one action" needs no separate undo stack, just a shorter
+   * replay. Logs a note about what got undone (not itself a logged action —
+   * it doesn't re-enter actionHistory, so it can't itself be undone).
+   */
+  async function handleUndo() {
+    if (!game || !gameState || version === null || gameState.actionHistory.length === 0 || !me) return
+    setUndoing(true)
+    try {
+      const genesis = buildGenesisState(game, players)
+      const undoneEntry = gameState.actionHistory[gameState.actionHistory.length - 1]
+      const previousHistory = gameState.actionHistory.slice(0, -1)
+      let undoneState = replayActions(genesis, previousHistory, unitContent, achievementContent, boardGenerationContent)
+      undoneState = {
+        ...undoneState,
+        log: appendLog(
+          undoneState,
+          me.id,
+          `Player ${me.id} undid the last action: Player ${undoneEntry.action.playerId} ${ACTION_DESCRIPTION[undoneEntry.action.type]}`,
+        ),
+      }
+
+      const wrote = await writeGameState(game.id, undoneState, version)
+      if (!wrote) {
+        const fresh = await getGameState(game.id)
+        if (fresh) {
+          setGameState(fresh.state)
+          setVersion(fresh.version)
+        }
+        setActionError('Someone else acted first — the board refreshed, please try again.')
+        return
+      }
+
+      setActionError(null)
+      setGameState(undoneState)
+      setVersion(version + 1)
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to undo')
+    } finally {
+      setUndoing(false)
+    }
+  }
+
   if (authLoading) return <div className="p-8 text-neutral-400">Loading…</div>
   if (!session) return <div className="p-8 text-neutral-400">Sign in from the home page first.</div>
   if (!game) return <div className="p-8 text-neutral-400">Looking for room {roomCode}…</div>
@@ -105,6 +168,15 @@ export function GamePage() {
               </li>
             ))}
           </ul>
+          <button
+            type="button"
+            disabled={!me || undoing || !gameState || gameState.actionHistory.length === 0}
+            onClick={() => void handleUndo()}
+            title="Undo the last action — any player can do this, at any time."
+            className="rounded-md border border-neutral-700 px-3 py-1 text-sm hover:border-neutral-500 disabled:opacity-50"
+          >
+            {undoing ? 'Undoing…' : 'Undo last action'}
+          </button>
           <button
             type="button"
             disabled={!gameState}
