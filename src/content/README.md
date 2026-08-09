@@ -113,6 +113,43 @@ is wired into `finishRound()` yet (see `todo.md` #3), since `GameState`
 doesn't track claimed achievements at all yet, and real board generation
 still doesn't exist for the terrain-control piece.
 
+## `resources.json` (validated by `resources.schema.json`)
+
+The 3 resource types (gold, wood, stone):
+
+- `playerCap` — the max a single player can hold at once. `5` for Wood and
+  Stone; `null` for Gold, which is uncapped per player.
+- `globalSupply.byPlayerCount` — the shared bank's total supply of this
+  resource for a game with that many players — the hard cap on how much of
+  it can exist across every player's holdings combined at once. Wood and
+  Stone are `5 per player` (`10`/`15`/`20` for 2/3/4 players); Gold doesn't
+  scale that simply, so it's an explicit table instead (`522`/`722`/`922`).
+
+`Player.resources` / `GameState.resourceBank` (`src/engine/types.ts`) hold
+the live numbers during a game — both are the same `Resources` shape, since
+a resource only ever moves from one to the other. `gainResource()`/
+`spendResource()` in `src/engine/resources.ts` are the only way that should
+happen: `gainResource` caps a transfer from the bank into a player's
+holding at both `playerCap` and whatever's left in the bank (the
+un-transferred remainder just stays in the bank rather than being lost —
+the rules don't say gains beyond the cap vanish); `spendResource` moves the
+other way and refuses (returns `null`) if the player doesn't have enough.
+`createNewGame`'s `resourceBank` param should be `globalSupply.
+byPlayerCount` looked up for however many players are in the game — the
+engine doesn't import `resources.json` itself (see `UNIT_KINDS` in
+`src/engine/cards.ts`), so the caller resolves it; it defaults to an empty
+bank (all `0`) if omitted.
+
+An eliminated player's resources are returned to the bank automatically —
+see `eliminatePlayer()` in `src/engine/elimination.ts` and `todo.md` #4.
+
+Not yet wired in: nothing actually calls `gainResource`/`spendResource`
+yet, since no unit action is implemented in `applyAction.ts` (every
+`RESOLVE_UNIT_ACTION` currently just moves the played card to discard
+without executing the unit's chosen effect) — that's where an action like
+City's "Generate Income" or a paid `create`/`transform` action's `cost`
+(both in `units.json`) will eventually call these.
+
 ## Note on the engine's `Terrain` type
 
 `src/engine/types.ts` still has the placeholder terrain union from the

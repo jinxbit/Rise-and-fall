@@ -1,5 +1,5 @@
 import { appendLog } from './log'
-import type { GameState } from './types'
+import type { GameState, Resources } from './types'
 
 /**
  * Rule: a player is eliminated if they have to play a card — choosing one
@@ -7,25 +7,29 @@ import type { GameState } from './types'
  * have none available. They're removed from the board and turn order for
  * the rest of the game, and excluded from winning (callers of
  * determineWinners in ./victoryPoints.ts should pass only non-eliminated
- * player ids). Achievements they've already claimed are NOT revoked.
- *
- * "Return all gold and resources" is part of the ruling too, but gold/
- * resources aren't tracked on `Player` yet — nothing to zero until that
- * exists (see todo.md).
+ * player ids). Achievements they've already claimed are NOT revoked. All
+ * of their gold/wood/stone is returned to the shared bank.
  */
 export function eliminatePlayer(state: GameState, playerId: string): GameState {
   const playerIndex = state.players.findIndex((p) => p.id === playerId)
   if (playerIndex === -1 || state.players[playerIndex].eliminated) return state
 
+  const eliminated = state.players[playerIndex]
   const players = [...state.players]
-  players[playerIndex] = { ...players[playerIndex], eliminated: true }
+  players[playerIndex] = { ...eliminated, eliminated: true, resources: { gold: 0, wood: 0, stone: 0 } }
+
+  const resourceBank: Resources = {
+    gold: state.resourceBank.gold + eliminated.resources.gold,
+    wood: state.resourceBank.wood + eliminated.resources.wood,
+    stone: state.resourceBank.stone + eliminated.resources.stone,
+  }
 
   const units = state.units.filter((u) => u.ownerId !== playerId)
   const turnOrder = state.turnOrder.filter((id) => id !== playerId)
   const pendingPlayerIds = state.pendingPlayerIds.filter((id) => id !== playerId)
   const activePlayerId = state.roundPhase === 'selectCards' ? null : (pendingPlayerIds[0] ?? null)
 
-  let nextState: GameState = { ...state, players, units, turnOrder, pendingPlayerIds, activePlayerId }
+  let nextState: GameState = { ...state, players, units, turnOrder, pendingPlayerIds, activePlayerId, resourceBank }
   nextState = {
     ...nextState,
     log: appendLog(nextState, playerId, `Player ${playerId} was eliminated — no card available to play`),

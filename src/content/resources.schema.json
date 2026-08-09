@@ -1,0 +1,51 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://rise-and-fall.local/resources.schema.json",
+  "title": "Rise & Fall resource definitions",
+  "description": "The 3 resource types (gold, wood, stone), each player's personal holding cap, and the shared global supply players draw from, keyed by player count.",
+  "type": "object",
+  "required": ["resources"],
+  "additionalProperties": false,
+  "properties": {
+    "resources": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/resource" }
+    }
+  },
+  "definitions": {
+    "resource": {
+      "type": "object",
+      "required": ["id", "name", "playerCap", "globalSupply"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "enum": ["gold", "wood", "stone"]
+        },
+        "name": { "type": "string" },
+        "playerCap": {
+          "description": "Max a single player can hold at once. null for Gold, which is unlimited per player.",
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "globalSupply": {
+          "type": "object",
+          "description": "The shared bank's total supply of this resource, keyed by player count — the hard cap on how much of it can exist across all players' holdings combined at once.",
+          "required": ["byPlayerCount"],
+          "additionalProperties": false,
+          "properties": {
+            "byPlayerCount": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "2": { "type": "integer", "minimum": 0 },
+                "3": { "type": "integer", "minimum": 0 },
+                "4": { "type": "integer", "minimum": 0 }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

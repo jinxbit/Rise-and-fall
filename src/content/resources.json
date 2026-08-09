@@ -1,0 +1,29 @@
+{
+  "$schema": "./resources.schema.json",
+  "resources": [
+    {
+      "id": "gold",
+      "name": "Gold",
+      "playerCap": null,
+      "globalSupply": {
+        "byPlayerCount": { "2": 522, "3": 722, "4": 922 }
+      }
+    },
+    {
+      "id": "wood",
+      "name": "Wood",
+      "playerCap": 5,
+      "globalSupply": {
+        "byPlayerCount": { "2": 10, "3": 15, "4": 20 }
+      }
+    },
+    {
+      "id": "stone",
+      "name": "Stone",
+      "playerCap": 5,
+      "globalSupply": {
+        "byPlayerCount": { "2": 10, "3": 15, "4": 20 }
+      }
+    }
+  ]
+}

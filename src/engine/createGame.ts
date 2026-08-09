@@ -1,7 +1,7 @@
 import { getTile, setTile } from './board'
 import { createPlayerCards, syncCardZonesWithBoard } from './cards'
 import { beginSelectCardsPhase } from './round'
-import type { Board, Card, Coordinate, GameState, PlayMode, Player, Unit } from './types'
+import type { Board, Card, Coordinate, GameState, PlayMode, Player, Resources, Unit } from './types'
 
 export interface PlayerSeed {
   id: string
@@ -10,16 +10,25 @@ export interface PlayerSeed {
   color: string
 }
 
+const EMPTY_RESOURCES: Resources = { gold: 0, wood: 0, stone: 0 }
+
 /**
  * Builds a fresh lobby-status game: board is set but no units are placed
  * yet. Each player's six unit cards (one per unit kind) start in supply per
  * rule 5 — nobody has any units on the board yet.
+ *
+ * `resourceBank` should be content/resources.json's `globalSupply.
+ * byPlayerCount` looked up for `players.length` — the engine stays
+ * content-agnostic (see UNIT_KINDS in ./cards.ts), so the caller resolves
+ * it. Optional and defaults to an empty bank so existing callers/tests that
+ * don't touch resources aren't forced to pass it.
  */
 export function createNewGame(params: {
   gameId: string
   playMode: PlayMode
   board: Board
   players: PlayerSeed[]
+  resourceBank?: Resources
 }): GameState {
   const cards: Record<string, Card> = {}
   const players: Player[] = params.players.map((seed) => {
@@ -38,6 +47,7 @@ export function createNewGame(params: {
       supplyCardIds: playerCards.map((c) => c.id),
       declineCardIds: [],
       eliminated: false,
+      resources: { ...EMPTY_RESOURCES },
     }
   })
 
@@ -57,6 +67,7 @@ export function createNewGame(params: {
     players,
     units: [],
     cards,
+    resourceBank: params.resourceBank ?? { ...EMPTY_RESOURCES },
     log: [],
     winnerPlayerIds: [],
   }

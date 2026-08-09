@@ -100,6 +100,18 @@ export interface Card {
   effectId: string
 }
 
+/**
+ * A holding of the 3 resource types (content/resources.json). Used both for
+ * a single player's personal stock (Player.resources) and for the shared
+ * bank everyone draws from (GameState.resourceBank) — same shape, since a
+ * resource only ever moves from one to the other.
+ */
+export interface Resources {
+  gold: number
+  wood: number
+  stone: number
+}
+
 export interface Player {
   id: string
   /** Supabase auth user id / Discord identity, when known. */
@@ -116,9 +128,19 @@ export interface Player {
    * True once eliminated: had to play a card (select-cards phase) or give
    * one up (decline phase) with none available. Eliminated players are
    * removed from the board and turn order for the rest of the game and
-   * excluded from winning (see src/engine/elimination.ts).
+   * excluded from winning (see src/engine/elimination.ts). Their resources
+   * are returned to the bank at that point (resources.wood/stone/gold all
+   * reset to 0 — see eliminatePlayer()).
    */
   eliminated: boolean
+  /**
+   * A player's own resource holdings. Wood/Stone are capped at
+   * content/resources.json's `playerCap` (5); Gold is uncapped for a player
+   * (playerCap: null) — only the shared bank below limits it. Enforced by
+   * gainResource()/spendResource() in src/engine/resources.ts, not by this
+   * type — nothing stops a raw object literal from violating the cap.
+   */
+  resources: Resources
 }
 
 /**
@@ -170,6 +192,13 @@ export interface GameState {
   players: Player[]
   units: Unit[]
   cards: Record<string, Card>
+  /**
+   * The shared bank's remaining resources — starts at content/resources.json's
+   * `globalSupply.byPlayerCount` for however many players are in this game
+   * (see createNewGame's `resourceBank` param) and moves opposite a
+   * player's `resources` on every gain/spend (src/engine/resources.ts).
+   */
+  resourceBank: Resources
   log: GameEvent[]
   /**
    * The winner(s) once the game ends: whoever has the most total VP

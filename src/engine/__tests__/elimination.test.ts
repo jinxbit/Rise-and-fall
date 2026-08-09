@@ -19,6 +19,7 @@ function makePlayer(id: string, overrides: Partial<Player> = {}): Player {
     supplyCardIds: [],
     declineCardIds: [],
     eliminated: false,
+    resources: { gold: 0, wood: 0, stone: 0 },
     ...overrides,
   }
 }
@@ -49,6 +50,7 @@ function makeState(overrides: Partial<GameState> = {}): GameState {
     players: [],
     units: [],
     cards: {},
+    resourceBank: { gold: 0, wood: 0, stone: 0 },
     log: [],
     winnerPlayerIds: [],
     ...overrides,
@@ -73,6 +75,27 @@ describe('eliminatePlayer', () => {
     expect(next.turnOrder).toEqual(['p2'])
     expect(next.pendingPlayerIds).toEqual(['p2'])
     expect(next.activePlayerId).toBe('p2')
+  })
+
+  it('returns the eliminated player\'s resources to the bank and zeroes their own holding', () => {
+    const state = makeState({
+      roundPhase: 'decline',
+      turnOrder: ['p1', 'p2'],
+      pendingPlayerIds: ['p1', 'p2'],
+      activePlayerId: 'p1',
+      players: [
+        makePlayer('p1', { resources: { gold: 40, wood: 3, stone: 5 } }),
+        makePlayer('p2', { resources: { gold: 10, wood: 1, stone: 0 } }),
+      ],
+      resourceBank: { gold: 100, wood: 4, stone: 2 },
+    })
+
+    const next = eliminatePlayer(state, 'p1')
+
+    expect(next.players.find((p) => p.id === 'p1')?.resources).toEqual({ gold: 0, wood: 0, stone: 0 })
+    expect(next.resourceBank).toEqual({ gold: 140, wood: 7, stone: 7 })
+    // p2's own holding is untouched.
+    expect(next.players.find((p) => p.id === 'p2')?.resources).toEqual({ gold: 10, wood: 1, stone: 0 })
   })
 
   it('leaves activePlayerId null during the select-cards phase, which has no single active player', () => {

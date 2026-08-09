@@ -60,30 +60,25 @@ unbuilt, see `PROJECT_PLAN.md` section 2) and the real VP numbers
 (`units.json`/`terrain.json`/`achievements.json` are still placeholder
 values).
 
-## 4. Player elimination — done, except gold/resources
+## 4. Player elimination — done
 
 Rule: if a player has to play a card — choosing one in the select-cards
 phase, or giving one up in the decline phase — and has none available
 (empty hand for select-cards; empty hand *and* discard for decline),
 they're eliminated: removed from the board and turn order for the rest of
-the game, and excluded from winning. Achievements they've already claimed
-are NOT revoked.
+the game, excluded from winning, all their gold/wood/stone returned to the
+bank. Achievements they've already claimed are NOT revoked.
 
 Implemented in `src/engine/elimination.ts` (`eliminatePlayer`,
 `eliminatePlayersWithNoCardToPlay`, `eliminatePlayersWithNoCardToDecline`),
 wired into `beginSelectCardsPhase`/`beginDeclinePhase`
 (`src/engine/round.ts`) and cascading after each `MOVE_TO_DECLINE`
-(`src/engine/applyAction.ts`). `Player.eliminated: boolean` added to
-`src/engine/types.ts`. Tested, including end-to-end via `applyAction`.
+(`src/engine/applyAction.ts`). `Player.eliminated: boolean` and
+`Player.resources`/`GameState.resourceBank` (see `src/content/resources.
+json`) added to `src/engine/types.ts`. Tested, including end-to-end via
+`applyAction` and the resource-return.
 
-Not done: the ruling also says an eliminated player's gold and resources
-are returned. `Player` doesn't track gold/resources at all yet (no
-resource economy exists in the engine — units.json's action costs are
-still just content data, nothing spends/holds gold in `GameState`), so
-there's nothing to return. Once resource tracking is added to `Player`,
-`eliminatePlayer` needs to zero it out.
-
-Also not done: `determineWinners` (`src/engine/victoryPoints.ts`) already
+Still relevant: `determineWinners` (`src/engine/victoryPoints.ts`) already
 takes an explicit `playerIds` list rather than deriving it from the VP map,
 specifically so callers can pass only non-eliminated players once
 win-condition checking is wired into `finishRound()` (see #3) —
