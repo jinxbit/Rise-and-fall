@@ -170,7 +170,8 @@ rest still act. There is no standalone `MOVE_UNIT` action type — see
 
 ## 7. Board generation — rules settled, implementation still open
 
-Rule: the first phase of a game builds the map, in three parts.
+Rule: the first phase of a game builds the map, then places starting
+units, in four parts.
 
 1. Seed the board with `content/terrain.json`'s water `initial` shapeGroup
    (the 8-hex "hourglass", rows of 3-2-3) — one tile per player. For 2
@@ -187,7 +188,9 @@ Rule: the first phase of a game builds the map, in three parts.
    mountain (3-hex triangle), then glacier (2-hex domino) — fully
    exhausting each tier's `limits.byPlayerCount` supply before the next
    tier starts. Quantities: 12/10/8/6/2 (2p), 15/14/11/8/3 (3p),
-   19/17/15/11/4 (4p), following that same hierarchy order.
+   19/17/15/11/4 (4p), following that same hierarchy order. There's no
+   concept of a player's own territory — any player may place their tile
+   anywhere on the board that's legal, not just near their own stuff.
 3. Placement rule: a tile may only be placed where every hex it covers is
    *currently* the one terrain type directly below it in the hierarchy
    (`placesOn` — e.g. every hex a Plain tile covers must currently be
@@ -197,16 +200,41 @@ Rule: the first phase of a game builds the map, in three parts.
    can only ever claim part of the area the tier beneath it covers, so
    the map's usable area narrows as it rises in elevation, visibly
    matching the existing `level` 0-4 elevation/cliff system.
+4. No-space rule: if a tile can't legally be placed anywhere (not enough
+   contiguous space of the correct lower tier), one or more already-placed
+   tiles must be *moved* elsewhere (re-placed following the same rule 3)
+   to open up room — using the fewest tiles moved that makes the pending
+   placement legal. ASSUMPTION, not yet confirmed: only a tile with
+   nothing currently placed on top of any of its hexes is eligible to be
+   moved (can't lift a tile buried under a higher tier without first
+   moving whatever's on top, which would need to count toward the total).
+5. Once every tile is placed, a new starting player is chosen. Starting
+   with them, in turn order, each player places one of their three
+   starting units — one City, one Nomad, one Ship, in their own color,
+   choosing which of the three to place each turn (so this repeats around
+   the table until everyone has placed all three). City and Nomad may be
+   placed anywhere except Glacier; Ship only on Water. Placing a unit
+   moves its matching card into the owning player's hand — already handled
+   generically by the existing `syncCardZonesWithBoard()` rule 5/6 logic
+   (`src/engine/cards.ts`), no new logic needed for that part. Once every
+   player has placed all three units, round 1 begins for real.
 
 All of this is recorded in `src/content/terrain.json` (shapes + per-tier
 quantities) and `src/content/README.md`'s "Board generation" section, but
 none of it is implemented in code yet — there's no `generateBoard()` (or
-similar) in `src/engine/`, and `createGame.ts`'s `startGame()` still places
-placeholder units on a couple of hardcoded tiles rather than running this
-procedure. See `PROJECT_PLAN.md` section 2's board generation item. Open
-questions once implementation starts: how a player *chooses* where to
-place a tile (free choice among all legal spots, presumably), what happens
-if no legal placement exists for the tile a player must place, and
-whether rotation-only (no reflection) placement needs a canonical-shape
-rotation helper in the engine (`legalMoveDestinations`-style pure
-function) before board generation can be written.
+similar) in `src/engine/`. It will fully replace `createGame.ts`'s
+`startGame()`, which currently places one hardcoded, non-real unit trio
+(kinds literally named `'settlement'`/`'mobile-unit'`/`'ship'`, not the
+real `'city'`/`'nomad'`/`'ship'`) per player, all at one shared
+coordinate, rather than running any of this. See `PROJECT_PLAN.md`
+section 2's board generation item.
+
+Open questions once implementation starts: the topmost-tile-only
+assumption in #4 above; whether "least tiles moved" ties (multiple
+minimal-size rearrangements) need a tiebreak rule or are just player
+choice; how the new starting player in #5 is actually chosen; what
+happens if a player somehow has no legal spot for a unit they must place
+(mirrors the same open question for tiles); and whether rotation-only (no
+reflection) tile placement needs a canonical-shape rotation helper in the
+engine (`legalMoveDestinations`-style pure function) before any of this
+can be written.

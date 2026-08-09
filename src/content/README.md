@@ -126,37 +126,67 @@ The 5 terrain types (water, plain, forest, mountain, glacier) plus:
     keyed by module id, additive on top of `byPlayerCount`. Empty until you
     have modules to define.
 
-### Board generation (phase 1 of a round — rules settled, not yet implemented in code)
+### Board generation (phase 1 — rules settled, not yet implemented in code)
 
-Per ruling, the very first phase of a game builds the map:
+Per ruling, the very first phase of a game builds the map, then places
+starting units.
 
-1. **Seed the board** with the `initial` water shapeGroup's hourglass
-   tiles — one per player. For 2 players, the two hourglasses are placed
-   adjacent, connected along one tile's `{q:2,r:0}`/`{q:1,r:1}`/`{q:1,r:2}`
-   edge (in that tile's own local coordinates) to the second tile's
-   mirror-image edge, offset by `(dq:2, dr:1)` — i.e. the second tile is
-   *not* at the same "height" as the first; it interlocks one row lower.
-   For 3 players, three hourglasses chain together the same way (each new
-   tile connected to the previous one via the same `(dq:2, dr:1)` offset).
-   For 4 players, it's two separate 2-player pairs (not one chain of 4).
-2. **Then, in player turn order, each player places one tile per turn**,
-   working through the terrain hierarchy in order — first every remaining
-   water tile (the `expansion` flower shapes) is placed, then every plain
-   tile, then forest, then mountain, then glacier — fully exhausting one
-   tier's supply (per `limits.byPlayerCount` above) before the next tier
-   begins.
-3. **Placement rule:** a tile may only be placed where every hex it covers
-   is *currently* the one terrain type immediately below it in the
-   hierarchy (`placesOn` — e.g. every hex a Plain tile covers must
-   currently be Water). Covering a mix of terrains, or any hex with no
-   tile at all yet (a "hole"), is illegal. Placing the tile converts every
-   hex it covers to the new terrain. This is why the pool shrinks tier by
-   tier: each tier can only ever claim part of the area the tier below it
-   covered, so the map narrows in area as it rises in elevation — visibly
-   matching the `level` 0-4 elevation/cliff system above.
+**1a. Seed the board** with the `initial` water shapeGroup's hourglass
+tiles — one per player. For 2 players, the two hourglasses are placed
+adjacent, connected along one tile's `{q:2,r:0}`/`{q:1,r:1}`/`{q:1,r:2}`
+edge (in that tile's own local coordinates) to the second tile's
+mirror-image edge, offset by `(dq:2, dr:1)` — i.e. the second tile is
+*not* at the same "height" as the first; it interlocks one row lower.
+For 3 players, three hourglasses chain together the same way (each new
+tile connected to the previous one via the same `(dq:2, dr:1)` offset).
+For 4 players, it's two separate 2-player pairs (not one chain of 4).
+
+**1b. Then, in player turn order, each player places one tile per turn**,
+working through the terrain hierarchy in order — first every remaining
+water tile (the `expansion` flower shapes) is placed, then every plain
+tile, then forest, then mountain, then glacier — fully exhausting one
+tier's supply (per `limits.byPlayerCount` above) before the next tier
+begins. There's no concept of a player's own territory — any player may
+place their tile anywhere on the board that's legal, not just near their
+own units/tiles.
+
+**Placement rule:** a tile may only be placed where every hex it covers
+is *currently* the one terrain type immediately below it in the
+hierarchy (`placesOn` — e.g. every hex a Plain tile covers must
+currently be Water). Covering a mix of terrains, or any hex with no
+tile at all yet (a "hole"), is illegal. Placing the tile converts every
+hex it covers to the new terrain. This is why the pool shrinks tier by
+tier: each tier can only ever claim part of the area the tier below it
+covered, so the map narrows in area as it rises in elevation — visibly
+matching the `level` 0-4 elevation/cliff system above.
+
+**No-space rule:** if a tile can't legally be placed anywhere because
+there isn't enough contiguous space of the correct lower tier, one or
+more already-placed tiles must be *moved* (picked up and placed again
+elsewhere, following the same placement rule) to open up room — using
+the fewest possible tiles moved to make the pending placement legal.
+ASSUMPTION, not yet confirmed: only a tile with nothing currently placed
+on top of any of its hexes can be moved (you can't lift a tile buried
+under a higher tier without first moving what's on top of it, which
+would need to count toward the total moved).
+
+**1c. Unit placement.** Once every tile is placed, a new starting player
+is chosen. Starting with them, in turn order, each player places one of
+their three starting units — one City, one Nomad, one Ship, in their own
+color — choosing which of the three to place each turn (so this repeats
+around the table until everyone has placed all three). City and Nomad
+may be placed anywhere except Glacier; Ship only on Water. Once a player
+has placed a unit, its matching card enters their hand automatically
+(the existing rule 5/6 card-zone-sync logic, `syncCardZonesWithBoard` in
+`src/engine/cards.ts`, already handles this generically — no new engine
+logic needed for that part). Once every player has placed all three
+units, the game begins for real (round 1's select-cards phase).
 
 None of this is implemented yet — see `PROJECT_PLAN.md` section 2's board
-generation item and `todo.md`.
+generation item and `todo.md` #7. It'll fully replace `createGame.ts`'s
+`startGame()`, which currently places one hardcoded, non-real
+(`'settlement'`/`'mobile-unit'`/`'ship'`) unit trio per player at a single
+shared coordinate rather than running any of this.
 
 ## `achievements.json` (validated by `achievements.schema.json`)
 
