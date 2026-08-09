@@ -14,11 +14,12 @@ export type GameStatus = 'lobby' | 'active' | 'completed'
 export type BoardShape = 'hex' | 'square'
 
 /**
- * Terrain a tile can have. `cliff` is passable only by units whose
- * `canTraverseCliffs` trait is true — everything else treats it like land
- * for adjacency purposes but cannot end a move there.
+ * Terrain a tile can have (content/terrain.json). Cliffs are not a terrain
+ * type — they're a per-edge property derived from two hexes' elevation
+ * `level` (see src/engine/cliffs.ts), which every unit can cross except
+ * those whose `movement.canCrossCliffs` is true (units.json).
  */
-export type Terrain = 'land' | 'water' | 'cliff'
+export type Terrain = 'water' | 'plain' | 'forest' | 'mountain' | 'glacier'
 
 /**
  * Axial-ish grid coordinate shared by both hex and square boards. For square
@@ -49,11 +50,23 @@ export interface Board {
   tiles: Record<string, Tile>
 }
 
-/** A unit's movement/traversal capabilities. */
+/**
+ * A unit's movement/traversal capabilities, mirroring content/units.json's
+ * `movement` object.
+ */
 export interface UnitMovement {
-  domains: Terrain[]
-  canTraverseCliffs: boolean
-  range: number
+  /** False for static units (City, Temple) — they occupy a tile but never move. */
+  isMobile: boolean
+  /** Terrain ids this unit may move onto. Empty for immobile units. */
+  terrains: Terrain[]
+  /** Whether this unit ignores cliff edges, which otherwise block movement/adjacency for every unit. */
+  canCrossCliffs: boolean
+  /** Max hexes this unit can move in a single move action. Undefined where not yet decided for a unit. */
+  moveDistance?: number
+  /** Which units this unit's movement path is blocked by. Undefined where not yet decided for a unit. */
+  blockedByUnits?: 'none' | 'enemy' | 'all'
+  /** Unit kind ids this unit may end its move on top of, as an exception to the normal unoccupied-hex rule. */
+  canEndMoveOnUnitTypes?: string[]
 }
 
 /**

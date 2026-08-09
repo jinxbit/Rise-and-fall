@@ -31,9 +31,13 @@ One entry per unit type. `id` matches the engine's `Unit.kind` field
 - `actions` — the list of actions this unit's card can trigger. A card is
   associated with exactly one unit type; playing it lets the player pick
   one action from this list and apply it to every unit of that type they
-  control. Each action has an open-ended `effect` field — put whatever
-  notes/parameters make sense (move distance, resource yield, etc.) until
-  the exact rule text is locked in.
+  control. Each action has an `effect` field — its shape is now typed
+  precisely per `actionType` (`create`/`transform`/`convert`/`income`/
+  `produce`/`trade-resource`/`trade`) in `src/engine/unitContent.ts`'s
+  `UnitActionEffect`, and implemented in `src/engine/unitActions.ts`. See
+  `UnitActions.md` at the repo root for the full per-action checklist and
+  the handful of open rules questions the implementation rested a
+  documented assumption on.
 
 Pre-filled with the six unit kinds (city, temple, nomad, merchant, ship,
 mountaineer). `description` and `victoryPoints.byBoardCount` are still
@@ -148,17 +152,17 @@ bank (all `0`) if omitted.
 An eliminated player's resources are returned to the bank automatically —
 see `eliminatePlayer()` in `src/engine/elimination.ts` and `todo.md` #4.
 
-Not yet wired in: nothing actually calls `gainResource`/`spendResource`
-yet, since no unit action is implemented in `applyAction.ts` (every
-`RESOLVE_UNIT_ACTION` currently just moves the played card to discard
-without executing the unit's chosen effect) — that's where an action like
-City's "Generate Income" or a paid `create`/`transform` action's `cost`
-(both in `units.json`) will eventually call these.
+`gainResource`/`spendResource` are called from every unit action that
+produces or costs a resource (`income`/`produce`/`trade`/`trade-resource`,
+and `create`/`transform`/`convert`'s `cost`) — see `src/engine/unitActions.
+ts` and `UnitActions.md` at the repo root.
 
-## Note on the engine's `Terrain` type
+## Note on the engine's `Terrain`/`UnitMovement` types (resolved)
 
-`src/engine/types.ts` still has the placeholder terrain union from the
-first milestone (`'land' | 'water' | 'cliff'`). It needs updating to the 5
-types here (and cliffs reworked as a per-unit `canCrossCliffs` capability
-rather than a terrain type) once board generation is built — flagged so it
-doesn't get missed, not changed yet since these content files were the ask.
+`src/engine/types.ts`'s `Terrain` was a 3-value placeholder from the first
+milestone (`'land' | 'water' | 'cliff'`) — updated to the real 5 types here.
+`UnitMovement` was likewise a simplified placeholder (`domains`/`range`) —
+updated to mirror `units.json`'s `movement` object (`isMobile`/`terrains`/
+`canCrossCliffs`/`moveDistance`/`blockedByUnits`/`canEndMoveOnUnitTypes`).
+Both needed to be real before unit actions (create/transform) could stamp
+new units with accurate movement profiles — see `src/engine/unitActions.ts`.

@@ -13,7 +13,7 @@ function placeholderBoard() {
   for (let q = -3; q <= 3; q++) {
     for (let r = -3; r <= 3; r++) {
       if (Math.abs(q + r) > 3) continue
-      const terrain = Math.abs(q) === 3 || Math.abs(r) === 3 ? 'water' : 'land'
+      const terrain = Math.abs(q) === 3 || Math.abs(r) === 3 ? 'water' : 'plain'
       board = setTile(board, { q, r }, terrain)
     }
   }

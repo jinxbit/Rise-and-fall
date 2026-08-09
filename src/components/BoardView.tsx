@@ -23,9 +23,11 @@ export function BoardView(props: { board: Board }) {
   const minR = Math.min(...rs)
 
   const TERRAIN_COLOR: Record<string, string> = {
-    land: 'bg-emerald-800',
     water: 'bg-sky-800',
-    cliff: 'bg-stone-600',
+    plain: 'bg-lime-800',
+    forest: 'bg-emerald-800',
+    mountain: 'bg-stone-600',
+    glacier: 'bg-cyan-100',
   }
 
   return (

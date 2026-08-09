@@ -10,7 +10,7 @@ function unitAt(ownerId: string, kind: string, coord: Coordinate = { q: 0, r: 0 
     ownerId,
     kind,
     coord,
-    movement: { domains: [], canTraverseCliffs: false, range: 0 },
+    movement: { isMobile: false, terrains: [], canCrossCliffs: false },
     traits: [],
   }
 }

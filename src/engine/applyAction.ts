@@ -1,9 +1,12 @@
-import type { Action } from './actions'
+import type { Action, UnitActionTarget } from './actions'
 import { moveCard } from './cards'
 import { eliminatePlayersWithNoCardToDecline } from './elimination'
 import { appendLog } from './log'
 import { beginActionsPhase, beginPostActionsPhase, beginPurchasePhase, finishRound } from './round'
 import type { GameState } from './types'
+import { EMPTY_UNIT_CONTENT } from './unitContent'
+import type { UnitContent } from './unitContent'
+import { applyUnitActionEffect } from './unitActions'
 
 export type ActionResult =
   | { ok: true; state: GameState }
@@ -15,8 +18,15 @@ export type ActionResult =
  * run — UI and network layers must treat GameState as opaque and always
  * route changes through here so every client (live/async/hotseat) enforces
  * identical rules.
+ *
+ * `unitContent` (content/units.json's actions/movement, content/terrain.
+ * json's levels, content/resources.json's caps — resolved by the caller,
+ * see UnitContent in ./unitContent.ts) is only needed to resolve
+ * RESOLVE_UNIT_ACTION; every other action ignores it. Optional and
+ * defaults to empty so callers that don't touch unit actions aren't forced
+ * to pass it.
  */
-export function applyAction(state: GameState, action: Action): ActionResult {
+export function applyAction(state: GameState, action: Action, unitContent: UnitContent = EMPTY_UNIT_CONTENT): ActionResult {
   if (state.status !== 'active') {
     return { ok: false, error: `Game is not active (status: ${state.status})` }
   }
@@ -27,7 +37,7 @@ export function applyAction(state: GameState, action: Action): ActionResult {
     case 'CHOOSE_CARD':
       return applyChooseCard(state, action.playerId, action.cardId)
     case 'RESOLVE_UNIT_ACTION':
-      return applyResolveUnitAction(state, action.playerId)
+      return applyResolveUnitAction(state, action.playerId, action.actionId, action.targets ?? {}, unitContent)
     case 'MOVE_TO_DECLINE':
       return applyMoveToDecline(state, action.playerId, action.cardId)
     case 'PURCHASE_CARD':
@@ -77,8 +87,19 @@ function applyChooseCard(state: GameState, playerId: string, cardId: string): Ac
   return { ok: true, state: nextState }
 }
 
-/** Round step 2 (rules 3 & 4): in turn order, resolve each player's chosen card into discard. */
-function applyResolveUnitAction(state: GameState, playerId: string): ActionResult {
+/**
+ * Round step 2 (rules 3 & 4): in turn order, resolve each player's chosen
+ * card — apply the chosen unit action to every unit of that kind they
+ * control (see applyUnitActionEffect in ./unitActions.ts) — then move the
+ * card into discard.
+ */
+function applyResolveUnitAction(
+  state: GameState,
+  playerId: string,
+  actionId: string,
+  targets: Record<string, UnitActionTarget>,
+  unitContent: UnitContent,
+): ActionResult {
   if (state.roundPhase !== 'actions') {
     return { ok: false, error: 'Not in the action-resolution phase' }
   }
@@ -90,7 +111,6 @@ function applyResolveUnitAction(state: GameState, playerId: string): ActionResul
   if (playerIndex === -1) {
     return { ok: false, error: `Unknown player: ${playerId}` }
   }
-  const player = state.players[playerIndex]
   const cardId = state.chosenCardIdByPlayerId[playerId]
   if (!cardId) {
     return { ok: false, error: 'Player has no chosen card to resolve' }
@@ -99,15 +119,26 @@ function applyResolveUnitAction(state: GameState, playerId: string): ActionResul
   if (!card) {
     return { ok: false, error: `Unknown card: ${cardId}` }
   }
+  const unitAction = unitContent.actionsByKind[card.kind]?.find((a) => a.id === actionId)
+  if (!unitAction) {
+    return { ok: false, error: `Unknown action '${actionId}' for kind '${card.kind}'` }
+  }
 
-  // Rule 3 then 4: hand -> currently played -> discard.
+  let nextState = applyUnitActionEffect(state, playerId, card.kind, unitAction, targets, unitContent)
+
+  // Rule 3 then 4: hand -> currently played -> discard. Re-look-up the
+  // player, since applyUnitActionEffect may have changed their resources
+  // (or, via card-zone sync, other zones) above.
+  const player = nextState.players.find((p) => p.id === playerId)
+  if (!player) {
+    return { ok: false, error: `Unknown player: ${playerId}` }
+  }
   let nextPlayer = moveCard(player, cardId, 'currentlyPlayed')
   nextPlayer = moveCard(nextPlayer, cardId, 'discard')
-  const players = [...state.players]
-  players[playerIndex] = nextPlayer
+  const players = nextState.players.map((p) => (p.id === playerId ? nextPlayer : p))
 
-  let nextState: GameState = { ...state, players, pendingPlayerIds: state.pendingPlayerIds.slice(1) }
-  nextState = { ...nextState, log: appendLog(nextState, playerId, `Player ${playerId} played ${card.name}`) }
+  nextState = { ...nextState, players, pendingPlayerIds: nextState.pendingPlayerIds.slice(1) }
+  nextState = { ...nextState, log: appendLog(nextState, playerId, `Player ${playerId} played ${card.name} (${unitAction.name})`) }
   nextState = { ...nextState, activePlayerId: nextState.pendingPlayerIds[0] ?? null }
 
   if (nextState.pendingPlayerIds.length === 0) {

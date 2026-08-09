@@ -10,7 +10,7 @@ function makeUnit(ownerId: string, kind: string, id: string): Unit {
     ownerId,
     kind,
     coord: { q: 0, r: 0 },
-    movement: { domains: [], canTraverseCliffs: false, range: 0 },
+    movement: { isMobile: false, terrains: [], canCrossCliffs: false },
     traits: [],
   }
 }

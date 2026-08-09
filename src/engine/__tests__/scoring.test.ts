@@ -3,26 +3,10 @@ import { createEmptyBoard, setTile } from '../board'
 import { calculateTerrainControlVP } from '../scoring'
 import type { Board, Coordinate, Terrain, Unit } from '../types'
 
-// Only uses the engine's current placeholder Terrain values ('water' /
-// 'land' / 'cliff') deliberately — calculateTerrainControlVP is terrain-id
-// agnostic, so these tests don't need to wait on that type's rework to the
-// real 5 terrain types from content/terrain.json.
 function boardOf(cells: Array<[number, number, Terrain]>): Board {
   let board = createEmptyBoard('hex')
   for (const [q, r, terrain] of cells) {
     board = setTile(board, { q, r }, terrain)
-  }
-  return board
-}
-
-// The scoresAs merge (Glacier -> Mountain) only makes sense with real
-// terrain ids, which the placeholder Terrain type above doesn't include —
-// casts through it for these cases only. Still exercises the same
-// terrain-id-agnostic code path as boardOf.
-function realTerrainBoardOf(cells: Array<[number, number, string]>): Board {
-  let board = createEmptyBoard('hex')
-  for (const [q, r, terrain] of cells) {
-    board = setTile(board, { q, r }, terrain as Terrain)
   }
   return board
 }
@@ -35,7 +19,7 @@ function unitAt(ownerId: string, coord: Coordinate): Unit {
     ownerId,
     kind: 'test-kind',
     coord,
-    movement: { domains: [], canTraverseCliffs: false, range: 0 },
+    movement: { isMobile: false, terrains: [], canCrossCliffs: false },
     traits: [],
   }
 }
@@ -58,12 +42,12 @@ describe('calculateTerrainControlVP', () => {
 
   it('scores nothing when no player has a clear majority', () => {
     const board = boardOf([
-      [0, 0, 'land'],
-      [1, 0, 'land'],
+      [0, 0, 'mountain'],
+      [1, 0, 'mountain'],
     ])
     const units = [unitAt('p1', { q: 0, r: 0 }), unitAt('p2', { q: 1, r: 0 })]
 
-    const vp = calculateTerrainControlVP(board, units, { land: 5 })
+    const vp = calculateTerrainControlVP(board, units, { mountain: 5 })
 
     expect(vp).toEqual({})
   })
@@ -94,31 +78,31 @@ describe('calculateTerrainControlVP', () => {
     const board = boardOf([
       [0, 0, 'water'],
       [1, 0, 'water'],
-      [2, 0, 'land'],
+      [2, 0, 'plain'],
     ])
     const units = [unitAt('p1', { q: 0, r: 0 }), unitAt('p1', { q: 1, r: 0 }), unitAt('p2', { q: 2, r: 0 })]
 
-    const vp = calculateTerrainControlVP(board, units, { water: 2, land: 3 })
+    const vp = calculateTerrainControlVP(board, units, { water: 2, plain: 3 })
 
     expect(vp).toEqual({ p1: 4, p2: 3 })
   })
 
   it('treats a terrain id missing from terrainVictoryPoints as worth 0', () => {
-    const board = boardOf([[0, 0, 'cliff']])
+    const board = boardOf([[0, 0, 'forest']])
     const units = [unitAt('p1', { q: 0, r: 0 })]
 
     const vp = calculateTerrainControlVP(board, units, { water: 2 })
 
     // p1 has a clear majority (sole owner), it's just worth nothing since
-    // 'cliff' has no entry in terrainVictoryPoints.
+    // 'forest' has no entry in terrainVictoryPoints.
     expect(vp).toEqual({ p1: 0 })
   })
 
   it("counts stacked units individually toward their owner's regional total", () => {
-    const board = boardOf([[0, 0, 'land']])
+    const board = boardOf([[0, 0, 'plain']])
     const units = [unitAt('p1', { q: 0, r: 0 }), unitAt('p1', { q: 0, r: 0 }), unitAt('p2', { q: 0, r: 0 })]
 
-    const vp = calculateTerrainControlVP(board, units, { land: 4 })
+    const vp = calculateTerrainControlVP(board, units, { plain: 4 })
 
     expect(vp).toEqual({ p1: 4 })
   })
@@ -127,11 +111,11 @@ describe('calculateTerrainControlVP', () => {
     const board = boardOf([
       [0, 0, 'water'],
       [1, 0, 'water'],
-      [10, 10, 'land'],
+      [10, 10, 'forest'],
     ])
     const units = [unitAt('p1', { q: 0, r: 0 }), unitAt('p1', { q: 1, r: 0 }), unitAt('p1', { q: 10, r: 10 })]
 
-    const vp = calculateTerrainControlVP(board, units, { water: 2, land: 3 })
+    const vp = calculateTerrainControlVP(board, units, { water: 2, forest: 3 })
 
     expect(vp).toEqual({ p1: 7 })
   })
@@ -143,7 +127,7 @@ describe('calculateTerrainControlVP with terrainScoresAs (Glacier -> Mountain)',
   it('merges a glacier hex into an adjacent mountain region instead of breaking it', () => {
     // (0,0) mountain - (1,0) glacier - (2,0) mountain: without the merge,
     // the glacier hex would split this into two 1-hex mountain regions.
-    const board = realTerrainBoardOf([
+    const board = boardOf([
       [0, 0, 'mountain'],
       [1, 0, 'glacier'],
       [2, 0, 'mountain'],
@@ -156,7 +140,7 @@ describe('calculateTerrainControlVP with terrainScoresAs (Glacier -> Mountain)',
   })
 
   it('does not score a glacier-only region on its own — it scores as mountain', () => {
-    const board = realTerrainBoardOf([
+    const board = boardOf([
       [0, 0, 'glacier'],
       [1, 0, 'glacier'],
     ])
@@ -169,7 +153,7 @@ describe('calculateTerrainControlVP with terrainScoresAs (Glacier -> Mountain)',
   })
 
   it('counts glacier and mountain units together toward the merged region majority', () => {
-    const board = realTerrainBoardOf([
+    const board = boardOf([
       [0, 0, 'mountain'],
       [1, 0, 'glacier'],
     ])
@@ -183,7 +167,7 @@ describe('calculateTerrainControlVP with terrainScoresAs (Glacier -> Mountain)',
   })
 
   it('without terrainScoresAs, glacier and mountain stay separate regions (default identity)', () => {
-    const board = realTerrainBoardOf([
+    const board = boardOf([
       [0, 0, 'mountain'],
       [1, 0, 'glacier'],
     ])

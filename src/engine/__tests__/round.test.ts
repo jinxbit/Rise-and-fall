@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { applyAction } from '../applyAction'
 import { createEmptyBoard } from '../board'
-import { cardIdFor, moveCard } from '../cards'
+import { cardIdFor, moveCard, UNIT_KINDS } from '../cards'
 import { createNewGame } from '../createGame'
 import { getUnitLimit } from '../decline'
 import type { GameState, Unit } from '../types'
+import type { UnitContent } from '../unitContent'
 
 function makeUnit(ownerId: string, kind: string, id: string): Unit {
   return {
@@ -12,12 +13,33 @@ function makeUnit(ownerId: string, kind: string, id: string): Unit {
     ownerId,
     kind,
     coord: { q: 0, r: 0 },
-    movement: { domains: [], canTraverseCliffs: false, range: 0 },
+    movement: { isMobile: false, terrains: [], canCrossCliffs: false },
     traits: [],
   }
 }
 
-/** An active game with p1/p2 each holding their full six-card hand, to drive the round loop directly. */
+// Just enough content to let RESOLVE_UNIT_ACTION resolve a City's card in
+// these round-flow tests — the effect itself (income with no terrain set)
+// is a harmless no-op here, since these tests are about phase/turn
+// sequencing, not action outcomes (see unitActions.test.ts for those).
+const testUnitContent: UnitContent = {
+  actionsByKind: {
+    city: [{ id: 'generate-income', name: 'Generate Income', description: '', effect: { actionType: 'income', goldByTerrain: {} } }],
+  },
+  movementByKind: {},
+  terrainLevels: {},
+  resourceCaps: {},
+  unitSupplyCaps: {},
+}
+
+/**
+ * An active game with p1/p2 each holding their full six-card hand, to
+ * drive the round loop directly. Seeds one real unit per non-City kind for
+ * each player (well away from {0,0}, where individual tests place their
+ * own City units) so syncCardZonesWithBoard — now run after every resolved
+ * action — has a real unit backing each of those cards and leaves them in
+ * hand; City is deliberately left to each test to set up (or not).
+ */
 function makeActiveGameWithFullHands(): GameState {
   const state = createNewGame({
     gameId: 'game_1',
@@ -37,7 +59,18 @@ function makeActiveGameWithFullHands(): GameState {
     return next
   })
 
-  return { ...state, status: 'active', players }
+  const units: Unit[] = state.players.flatMap((player, playerIndex) =>
+    UNIT_KINDS.filter((kind) => kind !== 'city').map((kind, kindIndex) => ({
+      id: `${player.id}_seed_${kind}`,
+      ownerId: player.id,
+      kind,
+      coord: { q: 100 + kindIndex, r: 100 + playerIndex },
+      movement: { isMobile: false, terrains: [], canCrossCliffs: false },
+      traits: [],
+    })),
+  )
+
+  return { ...state, status: 'active', players, units }
 }
 
 describe('round flow', () => {
@@ -54,9 +87,9 @@ describe('round flow', () => {
     expect(result.state.roundPhase).toBe('actions')
     expect(result.state.activePlayerId).toBe('p1')
 
-    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1' })
+    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', actionId: 'generate-income' }, testUnitContent)
     if (!result.ok) throw new Error('setup failed')
-    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2' })
+    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2', actionId: 'generate-income' }, testUnitContent)
     expect(result.ok).toBe(true)
     if (!result.ok) return
     // No units are anywhere near the placeholder limit, so decline is skipped.
@@ -78,17 +111,18 @@ describe('round flow', () => {
 
   it('inserts a decline phase when a player reaches their unit limit, then returns to purchase', () => {
     const unitLimits = { city: 2 }
-    const units: Unit[] = Array.from({ length: unitLimits.city }, (_, i) => makeUnit('p1', 'city', `p1_city_${i}`))
-    const state = { ...makeActiveGameWithFullHands(), units, unitLimits }
+    const cityUnits: Unit[] = Array.from({ length: unitLimits.city }, (_, i) => makeUnit('p1', 'city', `p1_city_${i}`))
+    const base = makeActiveGameWithFullHands()
+    const state = { ...base, units: [...base.units, ...cityUnits], unitLimits }
     expect(getUnitLimit(state, 'city')).toBe(2)
 
     let result = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') })
     if (!result.ok) throw new Error('setup failed')
     result = applyAction(result.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') })
     if (!result.ok) throw new Error('setup failed')
-    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1' })
+    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', actionId: 'generate-income' }, testUnitContent)
     if (!result.ok) throw new Error('setup failed')
-    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2' })
+    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2', actionId: 'generate-income' }, testUnitContent)
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.state.roundPhase).toBe('decline')
@@ -109,16 +143,17 @@ describe('round flow', () => {
 
   it('rejects moving a card to decline that is not in hand or discard', () => {
     const unitLimits = { city: 2 }
-    const units: Unit[] = Array.from({ length: unitLimits.city }, (_, i) => makeUnit('p1', 'city', `p1_city_${i}`))
-    const state = { ...makeActiveGameWithFullHands(), units, unitLimits }
+    const cityUnits: Unit[] = Array.from({ length: unitLimits.city }, (_, i) => makeUnit('p1', 'city', `p1_city_${i}`))
+    const base = makeActiveGameWithFullHands()
+    const state = { ...base, units: [...base.units, ...cityUnits], unitLimits }
 
     let result = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') })
     if (!result.ok) throw new Error('setup failed')
     result = applyAction(result.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') })
     if (!result.ok) throw new Error('setup failed')
-    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1' })
+    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', actionId: 'generate-income' }, testUnitContent)
     if (!result.ok) throw new Error('setup failed')
-    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2' })
+    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2', actionId: 'generate-income' }, testUnitContent)
     if (!result.ok) throw new Error('setup failed')
     expect(result.state.roundPhase).toBe('decline')
 
@@ -138,9 +173,9 @@ describe('round flow', () => {
     if (!result.ok) throw new Error('setup failed')
     result = applyAction(result.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') })
     if (!result.ok) throw new Error('setup failed')
-    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1' })
+    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', actionId: 'generate-income' }, testUnitContent)
     if (!result.ok) throw new Error('setup failed')
-    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2' })
+    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2', actionId: 'generate-income' }, testUnitContent)
     if (!result.ok) throw new Error('setup failed')
     expect(result.state.roundPhase).toBe('purchase')
 
@@ -167,9 +202,9 @@ describe('round flow', () => {
     if (!result.ok) throw new Error('setup failed')
     result = applyAction(result.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') })
     if (!result.ok) throw new Error('setup failed')
-    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1' })
+    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', actionId: 'generate-income' }, testUnitContent)
     if (!result.ok) throw new Error('setup failed')
-    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2' })
+    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2', actionId: 'generate-income' }, testUnitContent)
     if (!result.ok) throw new Error('setup failed')
     expect(result.state.roundPhase).toBe('purchase')
 
@@ -192,9 +227,9 @@ describe('round flow', () => {
     if (!result.ok) throw new Error('setup failed')
     result = applyAction(result.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') })
     if (!result.ok) throw new Error('setup failed')
-    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1' })
+    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', actionId: 'generate-income' }, testUnitContent)
     if (!result.ok) throw new Error('setup failed')
-    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2' })
+    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2', actionId: 'generate-income' }, testUnitContent)
     if (!result.ok) throw new Error('setup failed')
     result = applyAction(result.state, { type: 'PASS_PURCHASE', playerId: 'p1' })
     if (!result.ok) throw new Error('setup failed')

@@ -30,7 +30,7 @@ function makeUnit(ownerId: string, kind = 'city', id = `${ownerId}_${kind}`): Un
     ownerId,
     kind,
     coord: { q: 0, r: 0 },
-    movement: { domains: [], canTraverseCliffs: false, range: 0 },
+    movement: { isMobile: false, terrains: [], canCrossCliffs: false },
     traits: [],
   }
 }

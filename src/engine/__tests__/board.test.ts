@@ -3,8 +3,8 @@ import { createEmptyBoard, getTile, neighborCoords, setTile } from '../board'
 
 describe('board', () => {
   it('sets and retrieves a tile by coordinate', () => {
-    const board = setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'land')
-    expect(getTile(board, { q: 0, r: 0 })?.terrain).toBe('land')
+    const board = setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'plain')
+    expect(getTile(board, { q: 0, r: 0 })?.terrain).toBe('plain')
   })
 
   it('returns undefined for an unset tile', () => {

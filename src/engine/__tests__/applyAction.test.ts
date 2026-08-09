@@ -87,7 +87,7 @@ describe('applyAction', () => {
   })
 
   it('rejects RESOLVE_UNIT_ACTION outside the actions phase', () => {
-    const result = applyAction(state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1' })
+    const result = applyAction(state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', actionId: 'generate-income' })
     expect(result.ok).toBe(false)
   })
 
@@ -97,7 +97,7 @@ describe('applyAction', () => {
     const p2Choice = applyAction(p1Choice.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'ship') })
     if (!p2Choice.ok) throw new Error('setup failed')
 
-    const result = applyAction(p2Choice.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2' })
+    const result = applyAction(p2Choice.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2', actionId: 'generate-income' })
     expect(result.ok).toBe(false)
   })
 

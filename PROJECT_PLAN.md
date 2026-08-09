@@ -55,14 +55,24 @@ decisions get made.
 
 - [ ] Implement `MOVE_UNIT` in `applyAction()`, including terrain/cliff
       movement restrictions.
-- [ ] Implement `PLAY_CARD` and each card's effect.
-- [ ] Implement remaining unit actions (attack, transform, trade, etc.
-      per unit kind).
+- [x] Implement each unit's actions (all 19, across the 6 kinds — create/
+      transform/convert/income/produce/trade/trade-resource). `RESOLVE_
+      UNIT_ACTION` now carries `actionId` + per-unit `targets` and applies
+      the chosen action to every unit of that kind the player controls, via
+      `applyUnitActionEffect()` in `src/engine/unitActions.ts`. 4 of the 19
+      rest on a documented assumption — see `UnitActions.md`'s open
+      questions at the repo root.
+- [x] Real per-unit-kind unit limits, board-count/terrain-control/
+      achievement VP scoring, elimination, and resource tracking are all
+      implemented (see `todo.md`) — what's left in this section is
+      specifically `MOVE_UNIT`, win-condition wiring, and board generation.
 - [ ] Implement win-condition checking and game-end handling.
 - [ ] Implement board generation/drafting at game start; wire it into
       `startGame()`.
-- [ ] Expand the unit test suite in `src/engine/__tests__/` to cover
-      every action and edge case as it's implemented.
+- [x] Expand the unit test suite in `src/engine/__tests__/` to cover
+      every action and edge case as it's implemented — 129 tests, including
+      a pass against the real `content/*.json` files, not just synthetic
+      fixtures.
 
 ## 3. Build the real game UI
 

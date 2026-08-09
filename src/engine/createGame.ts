@@ -104,7 +104,7 @@ export function startGame(state: GameState, startingPositions: Record<string, Co
       throw new Error(`No starting position given for player ${player.id}`)
     }
     if (!getTile(board, coord)) {
-      board = setTile(board, coord, 'land')
+      board = setTile(board, coord, 'plain')
     }
 
     units.push(
@@ -113,7 +113,7 @@ export function startGame(state: GameState, startingPositions: Record<string, Co
         ownerId: player.id,
         kind: 'settlement',
         coord,
-        movement: { domains: [], canTraverseCliffs: false, range: 0 },
+        movement: { isMobile: false, terrains: [], canCrossCliffs: false },
         traits: ['settlement'],
       },
       {
@@ -121,7 +121,7 @@ export function startGame(state: GameState, startingPositions: Record<string, Co
         ownerId: player.id,
         kind: 'mobile-unit',
         coord,
-        movement: { domains: ['land'], canTraverseCliffs: false, range: 1 },
+        movement: { isMobile: true, terrains: ['plain'], canCrossCliffs: false, moveDistance: 1 },
         traits: ['mobile'],
       },
       {
@@ -129,7 +129,7 @@ export function startGame(state: GameState, startingPositions: Record<string, Co
         ownerId: player.id,
         kind: 'ship',
         coord,
-        movement: { domains: ['water'], canTraverseCliffs: false, range: 1 },
+        movement: { isMobile: true, terrains: ['water'], canCrossCliffs: false, moveDistance: 1 },
         traits: ['ship'],
       },
     )

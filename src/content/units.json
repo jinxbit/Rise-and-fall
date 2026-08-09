@@ -19,7 +19,7 @@
           "description": "Create a Nomad on an adjacent hex. Cannot target a hex across a cliff edge.",
           "effect": {
             "actionType": "create",
-            "targetUnit": "Nomad",
+            "targetUnit": "nomad",
             "targetHex": { "location": "adj", "crossCliff": false },
             "cost": { "gold": 0, "wood": 0, "stone": 0 }
           }
@@ -30,7 +30,7 @@
           "description": "Create a Merchant on an adjacent hex. Cannot target a hex across a cliff edge.",
           "effect": {
             "actionType": "create",
-            "targetUnit": "Merchant",
+            "targetUnit": "merchant",
             "targetHex": { "location": "adj", "crossCliff": false },
             "cost": { "gold": 2, "wood": 0, "stone": 0 }
           }
@@ -41,7 +41,7 @@
           "description": "Create a Mountaineer on an adjacent hex. Cannot target a hex across a cliff edge.",
           "effect": {
             "actionType": "create",
-            "targetUnit": "Mountaineer",
+            "targetUnit": "mountaineer",
             "targetHex": { "location": "adj", "crossCliff": false },
             "cost": { "gold": 1, "wood": 0, "stone": 0 }
           }
@@ -125,7 +125,7 @@
           "description": "Transform into a Ship on an adjacent water hex.",
           "effect": {
             "actionType": "transform",
-            "targetUnit": "Ship",
+            "targetUnit": "ship",
             "targetHex": { "terrainType": ["water"], "location": "adj" },
             "destroySelf": true,
             "cost": { "gold": 0, "wood": 1, "stone": 0 }
@@ -137,7 +137,7 @@
           "description": "Transform into a City in its own space. Only on Plain or Forest.",
           "effect": {
             "actionType": "transform",
-            "targetUnit": "City",
+            "targetUnit": "city",
             "targetHex": { "terrainType": ["plain", "forest"], "location": "self" },
             "destroySelf": true,
             "cost": { "gold": 0, "wood": 1, "stone": 1 }
@@ -149,7 +149,7 @@
           "description": "Transform into a Temple in its own space. Only on Plain or Mountain.",
           "effect": {
             "actionType": "transform",
-            "targetUnit": "Temple",
+            "targetUnit": "temple",
             "targetHex": { "terrainType": ["plain", "mountain"], "location": "self" },
             "destroySelf": true,
             "cost": { "gold": 0, "wood": 0, "stone": 2 }
@@ -201,7 +201,7 @@
           "description": "Transform into a Ship on an adjacent water hex.",
           "effect": {
             "actionType": "transform",
-            "targetUnit": "Ship",
+            "targetUnit": "ship",
             "targetHex": { "terrainType": ["water"], "location": "adj" },
             "destroySelf": true,
             "cost": { "gold": 0, "wood": 2, "stone": 0 }
@@ -242,7 +242,7 @@
           "description": "Transform into a City in its own space. Only on Forest or Mountain.",
           "effect": {
             "actionType": "transform",
-            "targetUnit": "City",
+            "targetUnit": "city",
             "targetHex": { "terrainType": ["forest", "mountain"], "location": "self" },
             "destroySelf": true,
             "cost": { "gold": 0, "wood": 2, "stone": 0 }
@@ -268,8 +268,8 @@
           "description": "",
           "effect": {
             "actionType": "transform",
-            "targetUnit": "Nomad",
-            "targetHex": { "terrainType": ["Plain"], "location": "adj" },
+            "targetUnit": "nomad",
+            "targetHex": { "terrainType": ["plain"], "location": "adj" },
             "destroySelf": true,
             "cost": { "gold": 0, "wood": 0, "stone": 0 }
           }
@@ -280,20 +280,20 @@
           "description": "",
           "effect": {
             "actionType": "transform",
-            "targetUnit": "City",
-            "targetHex": { "terrainType": ["Plain"], "location": "adj" },
+            "targetUnit": "city",
+            "targetHex": { "terrainType": ["plain"], "location": "adj" },
             "destroySelf": true,
             "cost": { "gold": 0, "wood": 0, "stone": 1 }
           }
         },
         {
           "id": "transform-to-merchant",
-          "name": "Transform to merchant",
+          "name": "Transform to Merchant",
           "description": "",
           "effect": {
             "actionType": "transform",
-            "targetUnit": "Merchant",
-            "targetHex": { "terrainType": ["Plain"], "location": "adj" },
+            "targetUnit": "merchant",
+            "targetHex": { "terrainType": ["plain"], "location": "adj" },
             "destroySelf": true,
             "cost": { "gold": 5, "wood": 0, "stone": 0 }
           }

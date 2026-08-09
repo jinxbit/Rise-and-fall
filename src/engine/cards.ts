@@ -86,8 +86,13 @@ export function moveCard(player: Player, cardId: string, toZone: CardZone): Play
 /**
  * Implements rules 5 & 6: a card sits in supply whenever its owner has no
  * unit of that kind on the board, and moves to hand the moment they get
- * their first one. Cards in decline are exempt (rule 7) — they only leave
- * decline once bought. Call this after anything that changes `state.units`.
+ * their first one. Only actively moves cards between `supply` and `hand` —
+ * `decline` is exempt (rule 7, only leaves once bought), and `discard`/
+ * `currentlyPlayed` are left alone too: a card there is mid-round-cycle
+ * (played this round, or resolving right now) regardless of whether its
+ * owner currently has a unit of that kind, and only the round-end recycle
+ * (`finishRound` in ./round.ts) or the next play should move it. Call this
+ * after anything that changes `state.units`.
  */
 export function syncCardZonesWithBoard(state: GameState): GameState {
   const messages: string[] = []
@@ -99,7 +104,7 @@ export function syncCardZonesWithBoard(state: GameState): GameState {
       if (!state.cards[id]) continue
 
       const zone = findCardZone(nextPlayer, id)
-      if (zone === 'decline') continue
+      if (zone === 'decline' || zone === 'discard' || zone === 'currentlyPlayed') continue
 
       const hasUnitOnBoard = state.units.some((u) => u.ownerId === player.id && u.kind === kind)
 
