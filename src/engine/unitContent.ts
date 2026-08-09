@@ -72,6 +72,17 @@ export interface TradeEffect {
   goldPerCity: number
 }
 
+/**
+ * A normal action like any other, with no exceptions: each unit of the
+ * activated kind moves to its own target hex (RESOLVE_UNIT_ACTION's
+ * `targets`, same per-unit-target shape as create/transform/convert),
+ * independently. See applyMove() in ./unitActions.ts and
+ * legalMoveDestinations() in ./movement.ts.
+ */
+export interface MoveEffect {
+  actionType: 'move'
+}
+
 export type UnitActionEffect =
   | CreateEffect
   | TransformEffect
@@ -80,6 +91,7 @@ export type UnitActionEffect =
   | ProduceEffect
   | TradeResourceEffect
   | TradeEffect
+  | MoveEffect
 
 export interface UnitAction {
   id: string

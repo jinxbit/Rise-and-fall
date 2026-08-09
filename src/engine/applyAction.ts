@@ -35,7 +35,7 @@ export function applyAction(state: GameState, action: Action, unitContent: UnitC
     case 'CHOOSE_CARD':
       return applyChooseCard(state, action.playerId, action.cardId)
     case 'RESOLVE_UNIT_ACTION':
-      return applyResolveUnitAction(state, action.playerId, action.actionId, action.targets ?? {}, action.moveTargets ?? {}, unitContent)
+      return applyResolveUnitAction(state, action.playerId, action.actionId, action.targets ?? {}, unitContent)
     case 'MOVE_TO_DECLINE':
       return applyMoveToDecline(state, action.playerId, action.cardId)
     case 'PURCHASE_CARD':
@@ -88,16 +88,14 @@ function applyChooseCard(state: GameState, playerId: string, cardId: string): Ac
 /**
  * Round step 2 (rules 3 & 4): in turn order, resolve each player's chosen
  * card — apply the chosen unit action to every unit of that kind they
- * control (see applyUnitActionEffect in ./unitActions.ts), except any unit
- * named in `moveTargets`, which spends its action moving instead — then
- * move the card into discard.
+ * control (see applyUnitActionEffect in ./unitActions.ts) — then move the
+ * card into discard.
  */
 function applyResolveUnitAction(
   state: GameState,
   playerId: string,
   actionId: string,
   targets: Record<string, Coordinate>,
-  moveTargets: Record<string, Coordinate>,
   unitContent: UnitContent,
 ): ActionResult {
   if (state.roundPhase !== 'actions') {
@@ -124,7 +122,7 @@ function applyResolveUnitAction(
     return { ok: false, error: `Unknown action '${actionId}' for kind '${card.kind}'` }
   }
 
-  let nextState = applyUnitActionEffect(state, playerId, card.kind, unitAction, targets, unitContent, moveTargets)
+  let nextState = applyUnitActionEffect(state, playerId, card.kind, unitAction, targets, unitContent)
 
   // Rule 3 then 4: hand -> currently played -> discard. Re-look-up the
   // player, since applyUnitActionEffect may have changed their resources

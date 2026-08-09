@@ -154,6 +154,12 @@
             "destroySelf": true,
             "cost": { "gold": 0, "wood": 0, "stone": 2 }
           }
+        },
+        {
+          "id": "move",
+          "name": "Move",
+          "description": "Move to a legal hex per this unit's movement profile.",
+          "effect": { "actionType": "move" }
         }
       ]
     },
@@ -243,6 +249,12 @@
             "destroySelf": true,
             "cost": { "gold": 0, "wood": 2, "stone": 0 }
           }
+        },
+        {
+          "id": "move",
+          "name": "Move",
+          "description": "Move to a legal hex per this unit's movement profile.",
+          "effect": { "actionType": "move" }
         }
       ]
     },
@@ -284,6 +296,12 @@
             "destroySelf": true,
             "cost": { "gold": 0, "wood": 2, "stone": 0 }
           }
+        },
+        {
+          "id": "move",
+          "name": "Move",
+          "description": "Move to a legal hex per this unit's movement profile.",
+          "effect": { "actionType": "move" }
         }
       ]
     },
@@ -345,6 +363,12 @@
             "actionType": "trade",
             "goldPerCity": 5
           }
+        },
+        {
+          "id": "move",
+          "name": "Move",
+          "description": "Move to a legal hex per this unit's movement profile.",
+          "effect": { "actionType": "move" }
         }
       ]
     }

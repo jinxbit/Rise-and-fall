@@ -101,7 +101,7 @@
         },
         "actions": {
           "type": "array",
-          "description": "The actions this unit's card can trigger. Exactly one is chosen each time the card is played, and it applies simultaneously to every unit of this type the playing player controls. Independent of which action is chosen, any individual unit of this type may instead spend its action moving (see movement.* above) rather than performing the chosen action — this is not one of the listed actions here, it's an option available whenever the kind is activated.",
+          "description": "The actions this unit's card can trigger. Exactly one is chosen each time the card is played, and it applies simultaneously to every unit of this type the playing player controls — including 'move' (present on every mobile unit kind), a normal action like any other where each acting unit moves to its own target hex per movement.* above.",
           "items": { "$ref": "#/definitions/action" }
         }
       }

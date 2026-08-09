@@ -102,25 +102,23 @@ many cards each player must decline.
 
 ## 6. Movement timing/frequency — done
 
-Resolved: movement is NOT a listed action of its own, and not an exception
-to the "applies to every unit" rule either. When a unit kind is activated
-(its card played during the `actions` phase, one action chosen from its
-list — create/transform/income/etc.), any individual unit of that kind may
-instead spend its action moving rather than performing the chosen action.
-Only units of the activated kind can move that turn. Every unit not opting
-to move still performs the chosen action as normal, just like before.
+Resolved: movement is a normal action, with no exceptions. Every mobile
+unit kind's card has a `move` action in its `actions` list, chosen and
+resolved through `RESOLVE_UNIT_ACTION` exactly like create/transform/
+income/etc. — same per-unit `targets` shape, same "applies independently to
+every acting unit" semantics. Only units of the kind matching the card
+played can move that turn (a Ship card activation can't move a Nomad).
 
-Implemented via `RESOLVE_UNIT_ACTION`'s new `moveTargets` param (unit id →
-destination, `src/engine/actions.ts`), threaded through to
-`applyUnitActionEffect()`'s per-unit loop in `src/engine/unitActions.ts`:
-a unit named in `moveTargets` calls `applyMoveInstead()` and skips the
-chosen action entirely (an illegal destination is a total no-op — it
-neither moves nor falls through to the action); every other unit runs the
-chosen action's effect as before. Legal destinations come from
-`legalMoveDestinations()` (`src/engine/movement.ts`), a BFS respecting
-terrain restrictions, cliff-crossing, and the pass-through
-(`blockedByUnits`) vs. land-on (`canEndMoveOnUnitTypes`) distinction, plus
-Ship's "infinite range, but can't leave its water region" rule
-(`moveDistance: "unlimited"`, bounded implicitly by `terrains: ["water"]`).
-There is no standalone `MOVE_UNIT` action type, and no `move` entry in any
-unit kind's `actions` list — see `UnitActions.md`'s resolved questions #5.
+Implemented as a `move` action entry on every mobile unit kind in
+`units.json` (`MoveEffect` in `src/engine/unitContent.ts`), handled by
+`applyMove()` — just another case in `applyUnitActionEffect()`'s per-unit
+switch in `src/engine/unitActions.ts`, no special-casing needed. Each
+acting unit moves to its own target hex (`targets[unit.id]`); a unit with
+no target, or an illegal one (per `legalMoveDestinations()`,
+`src/engine/movement.ts` — a BFS respecting terrain restrictions,
+cliff-crossing, and the pass-through (`blockedByUnits`) vs. land-on
+(`canEndMoveOnUnitTypes`) distinction, plus Ship's "infinite range, but
+can't leave its water region" rule via `moveDistance: "unlimited"` bounded
+implicitly by `terrains: ["water"]`), simply does nothing that turn — the
+rest still act. There is no standalone `MOVE_UNIT` action type — see
+`UnitActions.md`'s resolved questions #5.

@@ -265,19 +265,19 @@ function applyTradeResource(
 }
 
 /**
- * Per ruling: movement isn't a listed action of its own — it's an option
- * available to any unit whenever its kind is activated (its card is
- * played). Instead of performing whatever action was chosen for the round,
- * a unit may spend its action moving to `destination`. An illegal
- * destination (per legalMoveDestinations, ./movement.ts — e.g. an immobile
- * kind like City/Temple, or a destination outside its movement profile) is
- * a no-op: the unit neither moves nor falls through to the chosen action.
+ * A normal targeted action like any other (create/transform/convert): each
+ * acting unit moves to its own `targetCoord`, independently. A unit with no
+ * target supplied, or whose target isn't among its legalMoveDestinations
+ * (./movement.ts — e.g. an immobile kind like City/Temple, or outside its
+ * movement profile), simply does nothing this turn.
  */
-function applyMoveInstead(state: GameState, unit: Unit, destination: Coordinate, content: UnitContent): GameState {
-  const legalDestinations = legalMoveDestinations(state, unit, unit.movement, content.terrainLevels)
-  if (!legalDestinations.some((c) => coordKey(c) === coordKey(destination))) return state
+function applyMove(state: GameState, unit: Unit, targetCoord: Coordinate | undefined, content: UnitContent): GameState {
+  if (!targetCoord) return state
 
-  const units = state.units.map((u) => (u.id === unit.id ? { ...u, coord: destination } : u))
+  const legalDestinations = legalMoveDestinations(state, unit, unit.movement, content.terrainLevels)
+  if (!legalDestinations.some((c) => coordKey(c) === coordKey(targetCoord))) return state
+
+  const units = state.units.map((u) => (u.id === unit.id ? { ...u, coord: targetCoord } : u))
   return { ...state, units }
 }
 
@@ -286,10 +286,7 @@ function applyMoveInstead(state: GameState, unit: Unit, destination: Coordinate,
 /**
  * Rule: playing a card lets the player choose one action, and it applies
  * simultaneously to every unit of that kind they control — not a single
- * unit — EXCEPT that any individual unit may instead spend its action
- * moving (see applyMoveInstead above): `moveTargets`, keyed by unit id,
- * names which acting units do that instead of the chosen action this turn.
- * A unit with no legal target (or no target supplied, for a targeted
+ * unit. A unit with no legal target (or no target supplied, for a targeted
  * action) simply does nothing; the others still act independently, each
  * paying/gaining its own share.
  */
@@ -300,18 +297,11 @@ export function applyUnitActionEffect(
   action: UnitAction,
   targets: Record<string, Coordinate>,
   content: UnitContent,
-  moveTargets: Record<string, Coordinate> = {},
 ): GameState {
   const actingUnits = state.units.filter((u) => u.ownerId === playerId && u.kind === kind)
   let nextState = state
 
   for (const unit of actingUnits) {
-    const moveDestination = moveTargets[unit.id]
-    if (moveDestination) {
-      nextState = applyMoveInstead(nextState, unit, moveDestination, content)
-      continue
-    }
-
     const target = targets[unit.id]
     const effect = action.effect
     switch (effect.actionType) {
@@ -335,6 +325,9 @@ export function applyUnitActionEffect(
         break
       case 'trade-resource':
         nextState = applyTradeResource(nextState, playerId, effect, content.resourceCaps)
+        break
+      case 'move':
+        nextState = applyMove(nextState, unit, target, content)
         break
     }
   }
