@@ -2,6 +2,7 @@ import { getTile } from './board'
 import { applyTilePlacement, isLegalTilePlacement, placedShapeCells, seedStartingWaterTiles } from './boardGeneration'
 import type { BoardGenerationContent, TileTierContent } from './boardGenerationContent'
 import { syncCardZonesWithBoard } from './cards'
+import { nextSequenceId } from './idSequence'
 import { appendLog } from './log'
 import { beginSelectCardsPhase } from './round'
 import type { ActionResult, BoardSetupState, Coordinate, GameState, Terrain, Unit } from './types'
@@ -125,12 +126,6 @@ export function placeTile(
   return { ok: true, state: nextState }
 }
 
-let startingUnitCounter = 0
-function nextStartingUnitId(): string {
-  startingUnitCounter += 1
-  return `starting_unit_${startingUnitCounter}`
-}
-
 /**
  * Per ruling: City and Nomad may go anywhere except Glacier; Ship only on
  * Water. Also requires the hex to be currently unoccupied — not an
@@ -168,8 +163,9 @@ export function placeUnit(state: GameState, playerId: string, unitKind: string, 
     return { ok: false, error: 'Illegal starting unit placement' }
   }
 
+  const { id, idSequence } = nextSequenceId(state, 'starting_unit')
   const newUnit: Unit = {
-    id: nextStartingUnitId(),
+    id,
     ownerId: playerId,
     kind: unitKind,
     coord,
@@ -183,7 +179,7 @@ export function placeUnit(state: GameState, playerId: string, unitKind: string, 
   }
   const nextBoardSetup: BoardSetupState = { ...boardSetup, unitsRemainingByPlayerId, unitPlacerIndex: boardSetup.unitPlacerIndex + 1 }
 
-  let nextState: GameState = { ...state, units, boardSetup: nextBoardSetup }
+  let nextState: GameState = { ...state, units, boardSetup: nextBoardSetup, idSequence }
   nextState = syncCardZonesWithBoard(nextState)
   nextState = { ...nextState, log: appendLog(nextState, playerId, `Player ${playerId} placed a starting ${unitKind}`) }
 

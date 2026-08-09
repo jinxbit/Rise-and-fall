@@ -1,6 +1,7 @@
 import { getTile, neighborCoords } from './board'
 import { syncCardZonesWithBoard } from './cards'
 import { isCliffBetweenTerrains } from './cliffs'
+import { nextSequenceId } from './idSequence'
 import { legalMoveDestinations } from './movement'
 import { gainResource, spendResource } from './resources'
 import type {
@@ -97,12 +98,6 @@ export function hasReachedSupplyCap(state: GameState, playerId: string, kind: st
   return count >= cap
 }
 
-let createdUnitCounter = 0
-function nextCreatedUnitId(): string {
-  createdUnitCounter += 1
-  return `created_unit_${createdUnitCounter}`
-}
-
 // --- per-actionType handlers, one acting unit at a time ---------------------
 
 function applyIncome(
@@ -179,8 +174,9 @@ function applyCreate(state: GameState, playerId: string, unit: Unit, effect: Cre
   const afterCost = tryPayCost(state, playerId, effect.cost)
   if (!afterCost) return state
 
+  const { id, idSequence } = nextSequenceId(afterCost, 'created_unit')
   const newUnit: Unit = {
-    id: nextCreatedUnitId(),
+    id,
     ownerId: playerId,
     kind: effect.targetUnit,
     coord: targetCoord,
@@ -188,7 +184,7 @@ function applyCreate(state: GameState, playerId: string, unit: Unit, effect: Cre
     traits: [],
   }
 
-  return { ...afterCost, units: [...afterCost.units, newUnit] }
+  return { ...afterCost, idSequence, units: [...afterCost.units, newUnit] }
 }
 
 /** Per ruling: like create, an 'adj'-location transform can never cross a cliff. */
@@ -210,8 +206,9 @@ function applyTransform(state: GameState, playerId: string, unit: Unit, effect: 
   const afterCost = tryPayCost(state, playerId, effect.cost)
   if (!afterCost) return state
 
+  const { id, idSequence } = nextSequenceId(afterCost, 'created_unit')
   const newUnit: Unit = {
-    id: nextCreatedUnitId(),
+    id,
     ownerId: playerId,
     kind: effect.targetUnit,
     coord: resolvedTargetCoord,
@@ -220,7 +217,7 @@ function applyTransform(state: GameState, playerId: string, unit: Unit, effect: 
   }
 
   const units = effect.destroySelf ? afterCost.units.filter((u) => u.id !== unit.id) : afterCost.units
-  return { ...afterCost, units: [...units, newUnit] }
+  return { ...afterCost, idSequence, units: [...units, newUnit] }
 }
 
 /** Per ruling: convert can never cross a cliff either (same rule as create/transform). */

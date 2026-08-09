@@ -370,3 +370,50 @@ just player choice; how the new starting player for unit placement is
 actually chosen (currently just reuses `turnOrder[0]`, unconfirmed); and
 what happens if a player somehow has no legal spot for a unit they must
 place (mirrors the same open question for tiles).
+
+## 8. Unit/event id generation was a cross-client collision bug — fixed
+
+Reported from real 2-player testing: a Ship's "Transform to City" made an
+unrelated City belonging to the *other* player vanish. Root cause:
+`src/engine/unitActions.ts`'s `applyCreate`/`applyTransform` and
+`src/engine/boardSetup.ts`'s `placeUnit` each generated new unit ids from
+a **module-level counter** (`let createdUnitCounter = 0`, etc.), and
+`src/engine/log.ts` did the same for log event ids. That's fine in a
+single process, but this app has no server applying actions — every
+player's browser tab runs the engine independently and writes its result
+straight to the shared `game_state` row (see `src/lib/gameApi.ts`). Each
+tab's counter starts at 0 independently, so the first unit *any* two
+players each create/transform in their own tab both get
+`created_unit_1`. Once both ids land in the same shared `units` array, a
+later `destroySelf` transform's `afterCost.units.filter(u => u.id !==
+unit.id)` matches *both* same-id units and removes them both — exactly
+the reported symptom, and a page refresh alone (which resets the
+module's counter to 0) made it easy to hit even sooner than two separate
+players would.
+
+Fix: id generation no longer touches any module-level variable. A new
+`idSequence: number` field on `GameState` (start at 0 in
+`createNewGame()`) is threaded through every unit-creating call site via
+`src/engine/idSequence.ts`'s `nextSequenceId(state, prefix)`, which reads
+`state.idSequence`, returns `{id, idSequence}`, and the caller includes
+the bumped `idSequence` in the `GameState` it returns — same deterministic-
+reducer pattern as everything else in the engine, just no longer capable
+of drifting between two independent clients, since it's part of the very
+state both clients already agree on via the `version`-guarded write.
+Deliberately *not* `state.units.length`-based: a `destroySelf` transform
+keeps `units.length` flat (one removed, one added), which would have
+silently reused an id on the very next create. Log event ids
+(`log.ts`'s `appendLog`) switched to `state.log.length`-derived ids
+instead — safe there since the log is genuinely append-only, so no
+separate counter field was needed for it.
+
+Regression coverage: `unitActions.test.ts` gained a test asserting the
+new unit's id comes from a nonzero starting `idSequence` (not a fresh-
+process counter), and a second asserting a `destroySelf` transform
+followed by another transform never reuses the removed unit's id despite
+`units.length` staying constant across the first one. 222 tests total
+(was 220); `tsc -b`/`oxlint`/`npm run build` all clean. Not re-verified
+against a live 2-player session — same sandbox limitation as the rest of
+the UI work (no Supabase credentials/Docker here) — worth specifically
+re-testing the exact reported scenario (Ship → Transform to City) on a
+real deployment.

@@ -77,6 +77,7 @@ export function createNewGame(params: {
     claimedByAchievementId: {},
     achievementsClaimedThisRound: 0,
     boardSetup: null,
+    idSequence: 0,
   }
 }
 

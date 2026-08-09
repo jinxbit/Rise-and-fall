@@ -62,6 +62,7 @@ function makeState(overrides: Partial<GameState> = {}): GameState {
     claimedByAchievementId: {},
     achievementsClaimedThisRound: 0,
     boardSetup: null,
+    idSequence: 0,
     ...overrides,
   }
 }
@@ -278,6 +279,28 @@ describe('applyUnitActionEffect — create', () => {
 
     expect(next.units.some((u) => u.kind === 'nomad' && u.ownerId === 'p1' && u.coord.q === 1 && u.coord.r === 0)).toBe(true)
     expect(next.players.find((p) => p.id === 'p1')!.resources.gold).toBe(3)
+  })
+
+  it("derives the new unit's id from state.idSequence (not a hidden module counter) and advances it by one", () => {
+    const board = boardOf([
+      [0, 0, 'plain'],
+      [1, 0, 'plain'],
+    ])
+    // A nonzero starting idSequence simulates picking up a game already in
+    // progress — proves the id comes from state, not a counter that would
+    // restart at 0 in a fresh process (see idSequence.ts).
+    const state = makeState({
+      board,
+      idSequence: 41,
+      players: [makePlayer('p1', { resources: { gold: 5, wood: 0, stone: 0 } }), makePlayer('p2')],
+      units: [makeUnit('p1', 'city', { q: 0, r: 0 })],
+    })
+    const city = state.units[0]
+
+    const next = applyUnitActionEffect(state, 'p1', 'city', action, { [city.id]: { q: 1, r: 0 } }, content)
+
+    expect(next.idSequence).toBe(42)
+    expect(next.units.find((u) => u.kind === 'nomad')?.id).toBe('created_unit_42')
   })
 
   it('does nothing when no target was supplied for the unit', () => {
@@ -520,6 +543,38 @@ describe('applyUnitActionEffect — transform', () => {
     const next = applyUnitActionEffect(state, 'p1', 'nomad', action, { [state.units[0].id]: { q: 1, r: 0 } }, crossingContent)
 
     expect(next.units[0].kind).toBe('nomad')
+  })
+
+  it("a destroySelf transform (net-zero units.length change) never reuses the removed unit's id for the next created unit", () => {
+    const action: UnitAction = {
+      id: 'transform-to-ship',
+      name: 'Transform to Ship',
+      description: '',
+      effect: { actionType: 'transform', targetUnit: 'ship', targetHex: { terrainType: ['water'], location: 'adj' }, destroySelf: true, cost: {} },
+    }
+    const board = boardOf([
+      [0, 0, 'plain'],
+      [1, 0, 'water'],
+      [2, 0, 'plain'],
+      [3, 0, 'water'],
+    ])
+    const nomadA = makeUnit('p1', 'nomad', { q: 0, r: 0 })
+    const state = makeState({ board, units: [nomadA] })
+
+    // nomadA -> ship: units.length stays 1 (one removed, one added), which
+    // would trip up an id scheme derived from units.length — idSequence
+    // must still advance regardless (see idSequence.ts).
+    const afterTransform = applyUnitActionEffect(state, 'p1', 'nomad', action, { [nomadA.id]: { q: 1, r: 0 } }, content)
+    expect(afterTransform.units).toHaveLength(1)
+    const shipId = afterTransform.units[0].id
+
+    const nomadB = makeUnit('p1', 'nomad', { q: 2, r: 0 })
+    const secondState = { ...afterTransform, units: [...afterTransform.units, nomadB] }
+    const afterSecondTransform = applyUnitActionEffect(secondState, 'p1', 'nomad', action, { [nomadB.id]: { q: 3, r: 0 } }, content)
+
+    const secondShip = afterSecondTransform.units.find((u) => u.kind === 'ship' && u.id !== shipId)
+    expect(secondShip).toBeDefined()
+    expect(secondShip!.id).not.toBe(shipId)
   })
 })
 

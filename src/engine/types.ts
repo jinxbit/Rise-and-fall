@@ -297,6 +297,17 @@ export interface GameState {
    * (`status: 'active'`); only meaningful while `status: 'boardSetup'`.
    */
   boardSetup: BoardSetupState | null
+  /**
+   * Monotonic counter for generating unique unit ids (src/engine/
+   * idSequence.ts's nextSequenceId) — kept in GameState itself, not a
+   * module-level variable, since the engine runs independently in each
+   * player's browser tab and a process-local counter would restart at 0
+   * per client and collide the moment two clients each create a unit off
+   * their own copy of the shared state. Starts at 0, increments by 1 each
+   * time a unit is created (PLACE_UNIT, RESOLVE_UNIT_ACTION's create/
+   * transform).
+   */
+  idSequence: number
 }
 
 /**
