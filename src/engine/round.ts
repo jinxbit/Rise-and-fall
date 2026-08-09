@@ -1,13 +1,18 @@
+import type { AchievementContent } from './achievementContent'
+import { EMPTY_ACHIEVEMENT_CONTENT } from './achievementContent'
 import { isDeclineTriggered } from './decline'
 import { eliminatePlayersWithNoCardToDecline, eliminatePlayersWithNoCardToPlay } from './elimination'
 import { appendLog } from './log'
+import { calculateTerrainControlVP } from './scoring'
 import type { GameState } from './types'
+import { calculateAchievementVP, calculateBoardCountVP, determineWinners, sumVP } from './victoryPoints'
 
 /**
  * Round step 1: every player simultaneously picks a card; nobody is
  * "active". Also applies the elimination rule: any player with an empty
  * hand has no card to choose, so they're eliminated on the spot rather
- * than left unable to submit a valid CHOOSE_CARD.
+ * than left unable to submit a valid CHOOSE_CARD. Resets
+ * achievementsClaimedThisRound for the new round (see beginDeclinePhase).
  */
 export function beginSelectCardsPhase(state: GameState): GameState {
   const started: GameState = {
@@ -16,6 +21,7 @@ export function beginSelectCardsPhase(state: GameState): GameState {
     chosenCardIdByPlayerId: Object.fromEntries(state.players.map((p) => [p.id, null])),
     pendingPlayerIds: [...state.turnOrder],
     activePlayerId: null,
+    achievementsClaimedThisRound: 0,
   }
   const afterEliminations = eliminatePlayersWithNoCardToPlay(started)
   return afterEliminations.pendingPlayerIds.length === 0 ? beginActionsPhase(afterEliminations) : afterEliminations
@@ -32,16 +38,28 @@ export function beginActionsPhase(state: GameState): GameState {
 }
 
 /**
- * Round step 3: every player moves one card from hand/discard to decline,
- * in turn order. Also applies the elimination rule: the active player is
- * eliminated (and the next one checked in turn) for as long as whoever's
- * up has nothing to decline (hand and discard both empty).
+ * Round step 3: every player moves one or more cards from hand/discard to
+ * decline, in turn order. Also applies the elimination rule: the active
+ * player is eliminated (and the next one checked in turn) for as long as
+ * whoever's up has nothing to decline (hand and discard both empty).
+ *
+ * Per ruling, a player must decline more than one card if more than one
+ * achievement was claimed *during the round now ending* — every pending
+ * player owes `max(1, achievementsClaimedThisRound)` cards this phase, not
+ * just the player(s) who claimed them. ASSUMPTION (the rules don't spell
+ * out the exact mechanics): each player declines all of their required
+ * cards consecutively before the turn passes to the next player — modeled
+ * by repeating their id in `pendingPlayerIds` that many times, so the
+ * existing one-card-per-MOVE_TO_DECLINE logic (applyMoveToDecline in
+ * ./applyAction.ts) needs no changes; it just keeps popping the same id
+ * off the front until they've supplied enough cards.
  */
 export function beginDeclinePhase(state: GameState): GameState {
+  const cardsPerPlayer = Math.max(1, state.achievementsClaimedThisRound)
   const started: GameState = {
     ...state,
     roundPhase: 'decline',
-    pendingPlayerIds: [...state.turnOrder],
+    pendingPlayerIds: state.turnOrder.flatMap((id) => Array<string>(cardsPerPlayer).fill(id)),
     activePlayerId: state.turnOrder[0] ?? null,
   }
   const afterEliminations = eliminatePlayersWithNoCardToDecline(started)
@@ -66,11 +84,13 @@ export function beginPostActionsPhase(state: GameState): GameState {
 /**
  * Round steps 5 & 6, run automatically once the purchase phase finishes:
  * recycle any empty hand from discard, hand "first player" to the next
- * player if that happened, then start the next round. The game-end check
- * (step 6) isn't specified yet, so the round always continues past it —
- * flagged below for where it plugs in.
+ * player if that happened, then either end the game (step 6, once
+ * `achievementContent.gameLength` total achievements have been claimed) or
+ * start the next round. `achievementContent` defaults to
+ * EMPTY_ACHIEVEMENT_CONTENT (gameLength: Infinity), so a caller that
+ * doesn't supply it gets the old always-continue behavior.
  */
-export function finishRound(state: GameState): GameState {
+export function finishRound(state: GameState, achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT): GameState {
   let anyRecycled = false
   const players = state.players.map((player) => {
     if (player.handCardIds.length === 0 && player.discardCardIds.length > 0) {
@@ -97,16 +117,31 @@ export function finishRound(state: GameState): GameState {
     }
   }
 
-  // Round step 6, game-end half: the rule is now known — once
-  // content/achievements.json's gameLength target has been claimed
-  // (summed across all players), the round in progress finishes fully and
-  // then whoever has the most total VP wins (achievements + board-count +
-  // terrain-control, see src/engine/victoryPoints.ts) with no tiebreaker.
-  // Still a no-op here because GameState doesn't track claimed achievements
-  // yet, so the trigger can't be checked live. Once it does, check it here
-  // and — if met — return
-  // { ...nextState, status: 'completed', winnerPlayerIds: determineWinners(...) }
-  // instead of starting the next round below.
+  // Round step 6, game-end: once achievementContent.gameLength total
+  // achievements have been claimed (summed across all players), the round
+  // in progress (which just finished, above) ends the game — whoever has
+  // the most total VP wins (achievements + board-count + terrain-control),
+  // with no tiebreaker (a tie is a shared win).
+  const totalAchievementsClaimed = Object.keys(nextState.claimedByAchievementId).length
+  if (totalAchievementsClaimed >= achievementContent.gameLength) {
+    const totalVP = sumVP(
+      calculateAchievementVP(nextState.claimedByAchievementId, achievementContent.achievementVictoryPoints),
+      calculateBoardCountVP(nextState.units, achievementContent.unitBoardCountVP),
+      calculateTerrainControlVP(nextState.board, nextState.units, achievementContent.terrainVictoryPoints, achievementContent.terrainScoresAs),
+    )
+    const activePlayerIds = nextState.players.filter((p) => !p.eliminated).map((p) => p.id)
+    const winnerPlayerIds = determineWinners(activePlayerIds, totalVP)
+
+    nextState = { ...nextState, status: 'completed', winnerPlayerIds }
+    return {
+      ...nextState,
+      log: appendLog(
+        nextState,
+        null,
+        `Game ends — ${totalAchievementsClaimed} achievements claimed. Winner(s): ${winnerPlayerIds.join(', ') || 'none'}`,
+      ),
+    }
+  }
 
   nextState = { ...nextState, turn: nextState.turn + 1 }
   nextState = { ...nextState, log: appendLog(nextState, null, `Round ${nextState.turn} begins`) }

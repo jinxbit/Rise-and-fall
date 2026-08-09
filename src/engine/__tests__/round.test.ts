@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import type { AchievementContent } from '../achievementContent'
+import { EMPTY_ACHIEVEMENT_CONTENT } from '../achievementContent'
 import { applyAction } from '../applyAction'
 import { createEmptyBoard } from '../board'
 import { cardIdFor, moveCard, UNIT_KINDS } from '../cards'
@@ -167,7 +169,43 @@ describe('round flow', () => {
     expect(result.ok).toBe(false)
   })
 
-  it('leaves PURCHASE_CARD as not-yet-implemented, since the gold cost depends on achievements', () => {
+  it('purchases a card back from decline, paying gold that scales with achievements claimed so far', () => {
+    let state = makeActiveGameWithFullHands()
+    const p1Index = state.players.findIndex((p) => p.id === 'p1')
+    let p1 = { ...state.players[p1Index], resources: { gold: 100, wood: 0, stone: 0 } }
+    p1 = moveCard(p1, cardIdFor('p1', 'temple'), 'decline')
+    const players = [...state.players]
+    players[p1Index] = p1
+    state = { ...state, players, claimedByAchievementId: { 'city-mastery': 'p2' } }
+
+    let result = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') })
+    if (!result.ok) throw new Error('setup failed')
+    result = applyAction(result.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') })
+    if (!result.ok) throw new Error('setup failed')
+    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', actionId: 'generate-income' }, testUnitContent)
+    if (!result.ok) throw new Error('setup failed')
+    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2', actionId: 'generate-income' }, testUnitContent)
+    if (!result.ok) throw new Error('setup failed')
+    expect(result.state.roundPhase).toBe('purchase')
+
+    const achievementContent: AchievementContent = { ...EMPTY_ACHIEVEMENT_CONTENT, purchaseCostTable: [5, 10, 20] }
+    const purchase = applyAction(
+      result.state,
+      { type: 'PURCHASE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'temple') },
+      testUnitContent,
+      achievementContent,
+    )
+    expect(purchase.ok).toBe(true)
+    if (!purchase.ok) return
+
+    // 1 achievement already claimed -> costTable[0] = 5 gold.
+    const p1After = purchase.state.players.find((p) => p.id === 'p1')!
+    expect(p1After.resources.gold).toBe(95)
+    expect(p1After.declineCardIds).not.toContain(cardIdFor('p1', 'temple'))
+    expect(p1After.handCardIds).toContain(cardIdFor('p1', 'temple'))
+  })
+
+  it('rejects PURCHASE_CARD for a card not in that player\'s decline', () => {
     const state = makeActiveGameWithFullHands()
     let result = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') })
     if (!result.ok) throw new Error('setup failed')
@@ -179,11 +217,146 @@ describe('round flow', () => {
     if (!result.ok) throw new Error('setup failed')
     expect(result.state.roundPhase).toBe('purchase')
 
-    const purchase = applyAction(result.state, { type: 'PURCHASE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') })
+    const purchase = applyAction(result.state, { type: 'PURCHASE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'temple') })
     expect(purchase.ok).toBe(false)
     if (!purchase.ok) {
-      expect(purchase.error).toContain('NOT_IMPLEMENTED')
+      expect(purchase.error).toContain('decline')
     }
+  })
+
+  it('rejects PURCHASE_CARD when the player cannot afford the cost', () => {
+    let state = makeActiveGameWithFullHands()
+    const p1Index = state.players.findIndex((p) => p.id === 'p1')
+    let p1 = { ...state.players[p1Index], resources: { gold: 0, wood: 0, stone: 0 } }
+    p1 = moveCard(p1, cardIdFor('p1', 'temple'), 'decline')
+    const players = [...state.players]
+    players[p1Index] = p1
+    // 1 achievement already claimed, so the cost table is actually priced (not the free "0 claimed" case).
+    state = { ...state, players, claimedByAchievementId: { 'city-mastery': 'p2' } }
+
+    let result = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') })
+    if (!result.ok) throw new Error('setup failed')
+    result = applyAction(result.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') })
+    if (!result.ok) throw new Error('setup failed')
+    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', actionId: 'generate-income' }, testUnitContent)
+    if (!result.ok) throw new Error('setup failed')
+    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2', actionId: 'generate-income' }, testUnitContent)
+    if (!result.ok) throw new Error('setup failed')
+    expect(result.state.roundPhase).toBe('purchase')
+
+    const achievementContent: AchievementContent = { ...EMPTY_ACHIEVEMENT_CONTENT, purchaseCostTable: [5] }
+    const purchase = applyAction(
+      result.state,
+      { type: 'PURCHASE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'temple') },
+      testUnitContent,
+      achievementContent,
+    )
+    expect(purchase.ok).toBe(false)
+    if (!purchase.ok) {
+      expect(purchase.error).toContain('Not enough gold')
+    }
+  })
+
+  it('requires each player to decline achievementsClaimedThisRound cards (min 1) before advancing', () => {
+    const unitLimits = { city: 2 }
+    const cityUnits: Unit[] = Array.from({ length: unitLimits.city }, (_, i) => makeUnit('p1', 'city', `p1_city_${i}`))
+    const base = makeActiveGameWithFullHands()
+    const state = { ...base, units: [...base.units, ...cityUnits], unitLimits, achievementsClaimedThisRound: 2 }
+
+    let result = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') })
+    if (!result.ok) throw new Error('setup failed')
+    result = applyAction(result.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') })
+    if (!result.ok) throw new Error('setup failed')
+    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', actionId: 'generate-income' }, testUnitContent)
+    if (!result.ok) throw new Error('setup failed')
+    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2', actionId: 'generate-income' }, testUnitContent)
+    if (!result.ok) throw new Error('setup failed')
+    expect(result.state.roundPhase).toBe('decline')
+    // 2 achievements claimed this round -> each player owes 2 cards, so p1's id appears twice up front.
+    expect(result.state.pendingPlayerIds).toEqual(['p1', 'p1', 'p2', 'p2'])
+
+    result = applyAction(result.state, { type: 'MOVE_TO_DECLINE', playerId: 'p1', cardId: cardIdFor('p1', 'temple') })
+    if (!result.ok) throw new Error('setup failed')
+    // Still p1's turn — they owe a second card before p2 gets a turn.
+    expect(result.state.roundPhase).toBe('decline')
+    expect(result.state.activePlayerId).toBe('p1')
+    expect(result.state.pendingPlayerIds).toEqual(['p1', 'p2', 'p2'])
+
+    result = applyAction(result.state, { type: 'MOVE_TO_DECLINE', playerId: 'p1', cardId: cardIdFor('p1', 'nomad') })
+    if (!result.ok) throw new Error('setup failed')
+    expect(result.state.activePlayerId).toBe('p2')
+    expect(result.state.pendingPlayerIds).toEqual(['p2', 'p2'])
+
+    result = applyAction(result.state, { type: 'MOVE_TO_DECLINE', playerId: 'p2', cardId: cardIdFor('p2', 'temple') })
+    if (!result.ok) throw new Error('setup failed')
+    result = applyAction(result.state, { type: 'MOVE_TO_DECLINE', playerId: 'p2', cardId: cardIdFor('p2', 'nomad') })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(result.state.roundPhase).toBe('purchase')
+    const p1After = result.state.players.find((p) => p.id === 'p1')!
+    expect(p1After.declineCardIds).toEqual(expect.arrayContaining([cardIdFor('p1', 'temple'), cardIdFor('p1', 'nomad')]))
+  })
+
+  it('ends the game once gameLength achievements are claimed, crowning the highest-VP player(s)', () => {
+    let state = makeActiveGameWithFullHands()
+    state = {
+      ...state,
+      claimedByAchievementId: { 'city-mastery': 'p1', 'temple-mastery': 'p1', 'nomad-mastery': 'p2' },
+    }
+
+    let result = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') })
+    if (!result.ok) throw new Error('setup failed')
+    result = applyAction(result.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') })
+    if (!result.ok) throw new Error('setup failed')
+    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', actionId: 'generate-income' }, testUnitContent)
+    if (!result.ok) throw new Error('setup failed')
+    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2', actionId: 'generate-income' }, testUnitContent)
+    if (!result.ok) throw new Error('setup failed')
+    expect(result.state.roundPhase).toBe('purchase')
+
+    const achievementContent: AchievementContent = {
+      ...EMPTY_ACHIEVEMENT_CONTENT,
+      gameLength: 3,
+      achievementVictoryPoints: { 'city-mastery': 1, 'temple-mastery': 1, 'nomad-mastery': 1 },
+    }
+
+    result = applyAction(result.state, { type: 'PASS_PURCHASE', playerId: 'p1' }, testUnitContent, achievementContent)
+    if (!result.ok) throw new Error('setup failed')
+    result = applyAction(result.state, { type: 'PASS_PURCHASE', playerId: 'p2' }, testUnitContent, achievementContent)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(result.state.status).toBe('completed')
+    // p1 has 2 achievement VP (city + temple mastery) vs. p2's 1 (nomad mastery) -> p1 wins outright.
+    expect(result.state.winnerPlayerIds).toEqual(['p1'])
+    // The game-ending round never restarts select-cards.
+    expect(result.state.roundPhase).toBe('purchase')
+  })
+
+  it('does not end the game below gameLength, even with achievements already claimed', () => {
+    let state = makeActiveGameWithFullHands()
+    state = { ...state, claimedByAchievementId: { 'city-mastery': 'p1' } }
+
+    let result = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') })
+    if (!result.ok) throw new Error('setup failed')
+    result = applyAction(result.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') })
+    if (!result.ok) throw new Error('setup failed')
+    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', actionId: 'generate-income' }, testUnitContent)
+    if (!result.ok) throw new Error('setup failed')
+    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2', actionId: 'generate-income' }, testUnitContent)
+    if (!result.ok) throw new Error('setup failed')
+
+    const achievementContent: AchievementContent = { ...EMPTY_ACHIEVEMENT_CONTENT, gameLength: 4 }
+    result = applyAction(result.state, { type: 'PASS_PURCHASE', playerId: 'p1' }, testUnitContent, achievementContent)
+    if (!result.ok) throw new Error('setup failed')
+    result = applyAction(result.state, { type: 'PASS_PURCHASE', playerId: 'p2' }, testUnitContent, achievementContent)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(result.state.status).toBe('active')
+    expect(result.state.roundPhase).toBe('selectCards')
+    expect(result.state.turn).toBe(1)
   })
 
   it('recycles an emptied hand and hands first-player to the next player at round end (rules 10 & 11)', () => {

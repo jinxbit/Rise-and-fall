@@ -232,4 +232,21 @@ export interface GameState {
    * more than one player id on a tie. Empty until the game ends.
    */
   winnerPlayerIds: string[]
+  /**
+   * achievement id -> the player id who claimed it (content/achievements.
+   * json). An achievement can only ever be claimed once, by one player, for
+   * the whole game — permanent even if that player later drops below the
+   * qualifying threshold or is eliminated (src/engine/elimination.ts).
+   * Empty until claimed. Populated by updateAchievementClaims() in
+   * src/engine/achievements.ts.
+   */
+  claimedByAchievementId: Record<string, string>
+  /**
+   * How many achievements were newly claimed during the CURRENT round so
+   * far — reset to 0 at the start of every round (beginSelectCardsPhase in
+   * src/engine/round.ts). Drives the decline phase's per-player card count:
+   * each pending player must move max(1, achievementsClaimedThisRound)
+   * cards to decline (see beginDeclinePhase).
+   */
+  achievementsClaimedThisRound: number
 }

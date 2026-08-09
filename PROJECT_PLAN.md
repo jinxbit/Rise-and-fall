@@ -50,11 +50,11 @@ decisions get made.
       `movement.terrains`/`canCrossCliffs`/`blockedByUnits`/
       `canEndMoveOnUnitTypes` in `content/units.json`; see the `move` action
       in section 2.
-- [ ] Specify turn structure and any per-phase rules (draw, action limits,
-      combat resolution, etc.) — mostly done (`src/engine/round.ts`,
-      including player elimination — see `todo.md` #4). Still open: the
-      multi-card decline rule (`todo.md` #5), blocked on achievement-claim
-      tracking, same as the win-condition wiring above.
+- [x] Specify turn structure and any per-phase rules (draw, action limits,
+      combat resolution, etc.) — `src/engine/round.ts`, including player
+      elimination (`todo.md` #4) and multi-card decline (`todo.md` #5, once
+      blocked on achievement-claim tracking, now resolved alongside the
+      win-condition wiring below).
 - [ ] Capture all of the above as the source of truth the engine work in
       section 2 implements against (update `src/content/*.json` +
       schemas, and/or a rules reference doc).
@@ -89,14 +89,28 @@ decisions get made.
       confirming — all now resolved, see `UnitActions.md`'s "Resolved
       questions" at the repo root.
 - [x] Real per-unit-kind unit limits, board-count/terrain-control/
-      achievement VP scoring, elimination, resource tracking, and movement
-      are all implemented (see `todo.md`) — what's left in this section is
-      win-condition wiring and board generation.
-- [ ] Implement win-condition checking and game-end handling.
+      achievement VP scoring, elimination, resource tracking, movement, and
+      win-condition/purchase/multi-decline wiring are all implemented (see
+      `todo.md`) — what's left in this section is real board generation.
+- [x] Implement win-condition checking and game-end handling. Achievement
+      claims are now tracked (`GameState.claimedByAchievementId`, populated
+      by `updateAchievementClaims()` in `src/engine/achievements.ts` after
+      every `RESOLVE_UNIT_ACTION`) — `finishRound()` (`src/engine/round.ts`)
+      checks the total against `achievementContent.gameLength` and, once
+      met, sums all three VP sources (`sumVP` in
+      `src/engine/victoryPoints.ts`) and sets `status: 'completed'` +
+      `winnerPlayerIds` instead of starting the next round. Also unblocked
+      `PURCHASE_CARD` (`applyPurchaseCard` in `src/engine/applyAction.ts`,
+      cost via `calculatePurchaseCost()`) and multi-card decline
+      (`beginDeclinePhase` now sizes each player's required decline count
+      off `achievementsClaimedThisRound`) — see `todo.md` #2/#3/#5. The VP
+      *numbers* are still placeholder and there's no real board yet, so a
+      finished game today is decided almost entirely by achievement VP —
+      the win-condition logic itself is complete and tested.
 - [ ] Implement board generation/drafting at game start; wire it into
       `startGame()`.
 - [x] Expand the unit test suite in `src/engine/__tests__/` to cover
-      every action and edge case as it's implemented — 148 tests, including
+      every action and edge case as it's implemented — 162 tests, including
       a pass against the real `content/*.json` files, not just synthetic
       fixtures.
 

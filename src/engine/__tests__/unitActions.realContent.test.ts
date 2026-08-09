@@ -97,6 +97,8 @@ describe('real content/units.json + terrain.json + resources.json', () => {
       unitLimits: {},
       log: [],
       winnerPlayerIds: [],
+      claimedByAchievementId: {},
+      achievementsClaimedThisRound: 0,
     }
 
     const action = findAction('city', 'generate-income', content)
@@ -126,6 +128,8 @@ describe('real content/units.json + terrain.json + resources.json', () => {
       unitLimits: {},
       log: [],
       winnerPlayerIds: [],
+      claimedByAchievementId: {},
+      achievementsClaimedThisRound: 0,
     }
 
     const action = findAction('nomad', 'transform-to-city', content)
@@ -157,6 +161,8 @@ describe('real content/units.json + terrain.json + resources.json', () => {
       unitLimits: {},
       log: [],
       winnerPlayerIds: [],
+      claimedByAchievementId: {},
+      achievementsClaimedThisRound: 0,
     }
 
     const action = findAction('ship', 'transform-to-nomad', content)
@@ -197,6 +203,8 @@ describe('real content/units.json + terrain.json + resources.json', () => {
       unitLimits: {},
       log: [],
       winnerPlayerIds: [],
+      claimedByAchievementId: {},
+      achievementsClaimedThisRound: 0,
     }
 
     const action = findAction('ship', 'move', content)

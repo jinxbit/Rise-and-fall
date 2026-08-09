@@ -74,6 +74,8 @@ export function createNewGame(params: {
     unitLimits: params.unitLimits ?? {},
     log: [],
     winnerPlayerIds: [],
+    claimedByAchievementId: {},
+    achievementsClaimedThisRound: 0,
   }
 }
 

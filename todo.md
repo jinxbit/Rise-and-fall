@@ -20,49 +20,71 @@ from `units.json`, same pattern as `resourceBank`. Defaults to `{}` (no
 limits) if omitted, so existing callers/tests are unaffected. Tested in
 `src/engine/__tests__/decline.test.ts`.
 
-## 2. Purchase-phase cost formula
+## 2. Purchase-phase cost formula — done
 
 Round step 4 lets a player buy a card back from decline, at a gold cost
-"determined by the number of achievements achieved by players." `PURCHASE_CARD`
-(`src/engine/applyAction.ts`) is stubbed as `NOT_IMPLEMENTED` pending this.
+"determined by the number of achievements achieved by players." The
+formula was already implemented (`calculatePurchaseCost()` in
+`src/engine/purchaseCost.ts`, reading `content/achievements.json`'s
+`purchaseCost.byAchievementCount`) — what blocked `PURCHASE_CARD` itself was
+that `GameState` didn't track claimed achievements, so "achievements
+claimed so far" had nothing to read.
 
-~~Needs: the achievement list~~ (now in `src/content/achievements.json`) and
-~~the cost formula~~ (now `src/content/achievements.json`'s
-`purchaseCost.byAchievementCount`, implemented as `calculatePurchaseCost()`
-in `src/engine/purchaseCost.ts`, tested).
+Resolved by adding achievement-claim tracking: `GameState.
+claimedByAchievementId: Record<string, string>` (achievement id -> claiming
+player id) and `GameState.achievementsClaimedThisRound: number` (see #5)
+in `src/engine/types.ts`, populated by `updateAchievementClaims()`
+(`src/engine/achievements.ts`) — for each achievement not yet claimed,
+checks whether any non-eliminated player now holds their full per-player
+supply of the tied unit kind (reuses `UnitContent.unitSupplyCaps`, the same
+values already used elsewhere — no new content needed for the cap itself),
+and the first to qualify claims it, permanently. Called from
+`applyResolveUnitAction` (`src/engine/applyAction.ts`) after every
+`RESOLVE_UNIT_ACTION`, since create/convert/a destroySelf transform are the
+only things that can change a player's unit count for a kind.
 
-Still blocks `PURCHASE_CARD` itself: the formula needs "achievements
-claimed so far," and `GameState` doesn't track claimed achievements at all
-yet (see #4 below) — nothing detects or records when a player reaches full
-supply of a unit type. Needs: an achievement-claim tracking field on
-`GameState` and the detection logic that populates it (hook into wherever
-units are created/destroyed).
+`PURCHASE_CARD` is now `applyPurchaseCard()` in `src/engine/applyAction.ts`:
+validates the card is in that player's `decline`, computes the cost from
+`Object.keys(state.claimedByAchievementId).length`, spends the gold (bank
+gains it back, same as any other cost), and moves the card to `hand`
+(re-synced to `supply` instead if the player currently has no unit of that
+kind — same rule 5/6 logic every other card move already respects). New
+`AchievementContent` bundle (`src/engine/achievementContent.ts`, mirroring
+`UnitContent`'s pattern) threads `purchaseCostTable` (and the other
+achievement/VP content — see #3) through `applyAction()`'s new optional
+`achievementContent` param. Tested in `src/engine/__tests__/round.test.ts`.
 
-## 3. Game-end / win condition
+## 3. Game-end / win condition — done
 
 Round step 6 checks whether the game has ended. `finishRound()`
-(`src/engine/round.ts`) currently always continues to the next round — the
-win-condition check is a marked no-op (`GameState.winnerPlayerIds` stays
-`[]` forever).
+(`src/engine/round.ts`) now checks it for real: once
+`achievementContent.gameLength` total achievements have been claimed
+(`Object.keys(state.claimedByAchievementId).length`, see #2), the round in
+progress (which just finished) ends the game — `sumVP()` combines
+`calculateAchievementVP`/`calculateBoardCountVP`/`calculateTerrainControlVP`
+and `determineWinners()` picks whoever has the most total VP among
+non-eliminated players (no tiebreaker — a tie is a shared win), setting
+`status: 'completed'` and `winnerPlayerIds`. `finishRound()` takes a new
+optional `achievementContent: AchievementContent` param (default
+`EMPTY_ACHIEVEMENT_CONTENT`, `gameLength: Infinity`, so a caller that
+doesn't supply it keeps the old always-continue behavior).
 
-The rule is now fully known: the end *trigger* is
-`src/content/achievements.json`'s `gameLength` (default 4) — total
-achievements claimed across all players; once that many have been claimed,
-the round in progress finishes fully and then the game ends. The winner is
-whoever has the most **total** VP (achievement + board-count +
-terrain-control, summed), **with no tiebreaker** — a tie is a shared win.
-All of this is implemented as pure, synthetic-data-tested functions
-(`calculateAchievementVP`/`calculateBoardCountVP`/`sumVP`/
-`determineWinners` in `src/engine/victoryPoints.ts`,
-`calculateTerrainControlVP` in `src/engine/scoring.ts`) — `GameState.
-winnerPlayerIds: string[]` (renamed from the old singular
-`winnerPlayerId` to allow ties) is ready to receive the result.
+`AchievementContent` (`src/engine/achievementContent.ts`) bundles
+everything the win check needs: `gameLength`, `achievementVictoryPoints`,
+plus `unitBoardCountVP`/`terrainVictoryPoints`/`terrainScoresAs` for the
+other two VP sources — resolved by the caller from `content/achievements.
+json`/`units.json`/`terrain.json`, same content-agnostic convention as
+`UnitContent`.
 
-Still blocks wiring into `finishRound()`: same achievement-tracking gap as
-#2, plus `calculateTerrainControlVP` needs a real generated board (still
-unbuilt, see `PROJECT_PLAN.md` section 2) and the real VP numbers
-(`units.json`/`terrain.json`/`achievements.json` are still placeholder
-values).
+Still a real caveat, not blocking but worth flagging: `calculateBoardCountVP`
+and `calculateTerrainControlVP` will only ever score their placeholder/empty
+inputs meaningfully once the real per-unit/per-terrain VP numbers are filled
+in and real board generation exists (`PROJECT_PLAN.md` section 2/3) — the
+win-condition *logic* is complete and tested, but until then a finished game
+is decided almost entirely by achievement VP. Tested end-to-end in
+`src/engine/__tests__/round.test.ts` (game ends at the target, doesn't end
+below it, ties/VP summing) and via `src/engine/__tests__/achievements.test.ts`
+for the claim-detection piece.
 
 ## 4. Player elimination — done
 
@@ -82,23 +104,36 @@ wired into `beginSelectCardsPhase`/`beginDeclinePhase`
 json`) added to `src/engine/types.ts`. Tested, including end-to-end via
 `applyAction` and the resource-return.
 
-Still relevant: `determineWinners` (`src/engine/victoryPoints.ts`) already
-takes an explicit `playerIds` list rather than deriving it from the VP map,
-specifically so callers can pass only non-eliminated players once
-win-condition checking is wired into `finishRound()` (see #3) —
+`determineWinners`'s explicit `playerIds` param (`src/engine/victoryPoints.ts`)
+— taken rather than deriving player ids from the VP map — is exactly what
+let `finishRound()` (see #3) pass only non-eliminated players:
 `state.players.filter(p => !p.eliminated).map(p => p.id)`.
 
-## 5. Multi-card decline
+## 5. Multi-card decline — done
 
-New rule: when the decline phase triggers, a player may need to decline
-more than one card — specifically, if more than 1 achievement was claimed
-*during that round*. `beginDeclinePhase`/`applyMoveToDecline`
-(`src/engine/round.ts`/`applyAction.ts`) currently always process exactly
-one card per player.
+Rule: when the decline phase triggers, a player may need to decline more
+than one card — specifically, if more than 1 achievement was claimed
+*during that round*. This was blocked on the same gap as #2/#3 (nothing
+tracked achievement claims), now resolved by `GameState.
+achievementsClaimedThisRound: number` — incremented by
+`updateAchievementClaims()` (see #2) every time an achievement is newly
+claimed, and reset to 0 at the start of every round
+(`beginSelectCardsPhase`, `src/engine/round.ts`).
 
-Blocked on the same gap as #2/#3: nothing tracks achievement claims yet, so
-there's no way to count "how many were claimed this round" to know how
-many cards each player must decline.
+`beginDeclinePhase` now computes `cardsPerPlayer = Math.max(1,
+achievementsClaimedThisRound)` — every pending player owes that many cards
+this phase, not just whoever claimed the achievement(s). ASSUMPTION (the
+rules don't spell out the exact mechanics, flagged in `beginDeclinePhase`'s
+doc comment): each player declines all of their required cards
+consecutively before the turn passes to the next player, modeled by
+repeating their id in `pendingPlayerIds` that many times — so
+`applyMoveToDecline` (`src/engine/applyAction.ts`) needed zero changes, it
+just keeps popping the same id off the front until they've supplied enough
+cards, and the existing elimination cascade
+(`eliminatePlayersWithNoCardToDecline`) already handles a player running
+out of cards partway through their required count (eliminated, same as
+running out on the first card). Tested end-to-end in
+`src/engine/__tests__/round.test.ts`.
 
 ## 6. Movement timing/frequency — done
 

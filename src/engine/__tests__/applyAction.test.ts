@@ -101,11 +101,11 @@ describe('applyAction', () => {
     expect(result.ok).toBe(false)
   })
 
-  it('returns NOT_IMPLEMENTED for actions not yet built', () => {
+  it('rejects PURCHASE_CARD outside the purchase phase', () => {
     const result = applyAction(state, { type: 'PURCHASE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') })
     expect(result.ok).toBe(false)
     if (!result.ok) {
-      expect(result.error).toContain('NOT_IMPLEMENTED')
+      expect(result.error).toContain('purchase phase')
     }
   })
 

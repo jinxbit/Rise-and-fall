@@ -146,11 +146,27 @@ above) + terrain-control VP (`terrain.json`, above) all added together, with
 **no tiebreaker** (a tie stands as a shared win). The three VP sources and
 the winner-determination itself are implemented as pure functions in
 `src/engine/victoryPoints.ts` (`calculateAchievementVP`,
-`calculateBoardCountVP`, `sumVP`, `determineWinners`) and tested against
-synthetic data, the same way `calculateTerrainControlVP` was — none of this
-is wired into `finishRound()` yet (see `todo.md` #3), since `GameState`
-doesn't track claimed achievements at all yet, and real board generation
-still doesn't exist for the terrain-control piece.
+`calculateBoardCountVP`, `sumVP`, `determineWinners`) and are now wired into
+`finishRound()` (`src/engine/round.ts`, see `todo.md` #3): `GameState.
+claimedByAchievementId` tracks claims live, via `updateAchievementClaims()`
+in `src/engine/achievements.ts` — called after every `RESOLVE_UNIT_ACTION`,
+since create/convert/a destroySelf transform are the only things that can
+change how many of a kind a player controls. All the achievement/VP-curve
+content this needs is bundled as `AchievementContent`
+(`src/engine/achievementContent.ts`, same content-agnostic pattern as
+`UnitContent`) and threaded through `applyAction()`'s optional
+`achievementContent` param. Caveat: `calculateBoardCountVP`/
+`calculateTerrainControlVP` still only have placeholder VP numbers and no
+real generated board to run against, so a finished game today is decided
+almost entirely by achievement VP — the win-condition wiring itself is
+complete and tested.
+
+Claiming an achievement also drives the decline phase's multi-card rule: a
+player must decline more than one card if more than one achievement was
+claimed during that round. `GameState.achievementsClaimedThisRound` counts
+this (reset to 0 at the start of every round), and `beginDeclinePhase`
+(`src/engine/round.ts`) sizes every pending player's required decline count
+off it (`max(1, achievementsClaimedThisRound)`).
 
 ## `resources.json` (validated by `resources.schema.json`)
 
