@@ -133,12 +133,16 @@ decisions get made.
             order (a wrapping index, since tile pools don't divide evenly
             by player count), advancing tiers, and auto-transitioning
             tiles -> units -> `active` + round 1.
+      - [x] `createGame.ts`'s `startGame()` is wired to the real
+            procedure — it validates `lobby` status then delegates
+            straight to `beginBoardSetup()` (status becomes
+            `boardSetup`, not `active`); the old hardcoded placeholder
+            unit trio is gone from production code.
       - [ ] Not yet built: rule 4's no-space/move-tiles search
             (`placeTile()` currently just rejects an illegal placement
-            outright), and wiring any of this into `createGame.ts`'s
-            `startGame()` — nothing calls `beginBoardSetup()` yet, so
-            `startGame()` still places its old hardcoded, non-real unit
-            trio. No UI either.
+            outright). No UI either — `LobbyPage.tsx`'s "start game"
+            button still flips the Supabase row's status directly,
+            bypassing the engine entirely.
 - [x] Expand the unit test suite in `src/engine/__tests__/` to cover
       every action and edge case as it's implemented — 208 tests, including
       a pass against the real `content/*.json` files, not just synthetic

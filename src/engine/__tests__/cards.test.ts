@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createEmptyBoard } from '../board'
+import type { BoardGenerationContent } from '../boardGenerationContent'
 import { cardIdFor, findCardZone, moveCard, syncCardZonesWithBoard, UNIT_KINDS } from '../cards'
 import { createNewGame, startGame } from '../createGame'
 import type { GameState, Unit } from '../types'
@@ -74,11 +75,17 @@ describe('syncCardZonesWithBoard (rules 5 & 6)', () => {
     expect(findCardZone(p1, cardIdFor('p1', 'city'))).toBe('decline')
   })
 
-  it('startGame puts starting-unit cards in hand via rule 6', () => {
+  it('startGame does not itself put any cards in hand — units go down later, during board setup', () => {
+    // Real rule 6 (card enters hand once a unit of that kind is placed) is
+    // exercised via placeUnit() in boardSetup.test.ts, once the interactive
+    // placement phase actually places a unit — startGame() only kicks that
+    // phase off (status: 'boardSetup'), it doesn't place anything itself.
     const lobby = makeLobbyGame()
-    const state = startGame(lobby, { p1: { q: 0, r: 0 }, p2: { q: 5, r: 0 } })
+    const content: BoardGenerationContent = { startingWaterShapeCells: [], tiers: [] }
+    const state = startGame(lobby, content)
     const p1 = state.players.find((p) => p.id === 'p1')!
-    // The scaffold's starting units include a 'ship', one of the six kinds.
-    expect(findCardZone(p1, cardIdFor('p1', 'ship'))).toBe('hand')
+    for (const kind of UNIT_KINDS) {
+      expect(findCardZone(p1, cardIdFor('p1', kind))).toBe('supply')
+    }
   })
 })

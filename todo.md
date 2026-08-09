@@ -287,20 +287,34 @@ transitions, all the placement-legality rejections, and a small pass
 against real `content/terrain.json` shapes) plus two dispatch tests in
 `applyAction.test.ts`.
 
+**`createGame.ts`'s `startGame()` is now wired to the real procedure** —
+it calls `beginBoardSetup()` directly (`status` becomes `'boardSetup'`,
+not `'active'`; round 1 only starts once every player has placed all
+three starting units via `PLACE_UNIT`). Its signature changed from
+`startGame(state, startingPositions: Record<string, Coordinate>)` to
+`startGame(state, boardGenerationContent: BoardGenerationContent)` — there's
+no per-player starting coordinate in the real rules, units go anywhere
+legal. The old hardcoded, non-real unit trio (kinds literally named
+`'settlement'`/`'mobile-unit'`/`'ship'`) is gone from production code
+entirely; where a test needed a quick fully-active game purely to
+exercise round mechanics (not board setup itself), that placeholder logic
+moved to a local, unexported test fixture
+(`src/engine/__tests__/applyAction.test.ts`'s `makeActiveGame()`) rather
+than living in `createGame.ts` — `round.test.ts`/`elimination.test.ts`/
+`decline.test.ts` already had their own similar local fixtures and never
+called `startGame()` at all, so they're unaffected.
+
 **Still not implemented:**
 - Rule 4's no-space/move-tiles search — `placeTile()` currently just
   rejects an illegal placement outright; it doesn't detect "no legal
   placement exists anywhere" and prompt for a minimal tile rearrangement.
-- Wiring any of this up for real: `createGame.ts`'s `startGame()` still
-  places one hardcoded, non-real unit trio (kinds literally named
-  `'settlement'`/`'mobile-unit'`/`'ship'`, not the real
-  `'city'`/`'nomad'`/`'ship'`) per player at one shared coordinate,
-  completely bypassing `beginBoardSetup()` — nothing currently calls it.
-  See `PROJECT_PLAN.md` section 2's board generation item.
 - No UI, obviously — the click/rotate/confirm interaction was designed
   to be client-side-only (preview locally with the pure
   `placedShapeCells()`/`isLegalTilePlacement()`, submit once on confirm),
-  but there's no client for it yet.
+  but there's no client for it yet. `LobbyPage.tsx`'s "start game" button
+  still just flips the Supabase row's status directly, bypassing the
+  engine (and therefore `startGame()`) entirely — that's a separate,
+  UI-layer gap, not an engine one.
 
 Open questions once further work starts: whether "least tiles moved"
 ties (multiple minimal-size rearrangements) need a tiebreak rule or are

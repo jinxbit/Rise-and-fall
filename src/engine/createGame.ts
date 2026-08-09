@@ -1,7 +1,7 @@
-import { getTile, setTile } from './board'
-import { createPlayerCards, syncCardZonesWithBoard } from './cards'
-import { beginSelectCardsPhase } from './round'
-import type { Board, Card, Coordinate, GameState, PlayMode, Player, Resources, Unit } from './types'
+import { beginBoardSetup } from './boardSetup'
+import type { BoardGenerationContent } from './boardGenerationContent'
+import { createPlayerCards } from './cards'
+import type { Board, Card, GameState, PlayMode, Player, Resources } from './types'
 
 export interface PlayerSeed {
   id: string
@@ -80,84 +80,18 @@ export function createNewGame(params: {
   }
 }
 
-let unitCounter = 0
-function nextUnitId(): string {
-  unitCounter += 1
-  return `unit_${unitCounter}`
-}
-
 /**
- * Places each player's starting tribe (one settlement, one mobile unit, one
- * ship) at their drafted starting coordinate and moves the game to active.
- * The exact stat block for each starting unit is a placeholder pending the
- * full rules — traits/movement here are enough to exercise board placement
- * and turn order, not final balance.
- *
- * TEMPORARY: the real rules are now known (see src/content/README.md's
- * "Board generation" section and todo.md #7) and partly implemented —
- * beginBoardSetup()/placeTile()/placeUnit() in ./boardSetup.ts run the
- * real board+starting-unit-placement procedure via PLACE_TILE/PLACE_UNIT
- * actions. This function still exists because nothing calls those yet;
- * it'll be replaced by `beginBoardSetup(state, boardGenerationContent)`
- * (skipping the `startingPositions` param entirely — there's no
- * per-player starting coordinate in the real rules, units go anywhere
- * legal) once a caller is ready to drive the real interactive phase
- * instead of this shortcut.
+ * Starts a lobby-status game: kicks off the real board-setup procedure
+ * (src/engine/boardSetup.ts's beginBoardSetup — seed the starting water
+ * tiles, then the interactive PLACE_TILE/PLACE_UNIT actions take it from
+ * there). `status` becomes `'boardSetup'`, not `'active'` — the round
+ * cycle only begins once every player has placed all three starting units
+ * (see PROJECT_PLAN.md section 2 / todo.md #7 for what board setup covers
+ * and what's still open, namely the no-space/move-tiles rule).
  */
-export function startGame(state: GameState, startingPositions: Record<string, Coordinate>): GameState {
+export function startGame(state: GameState, boardGenerationContent: BoardGenerationContent): GameState {
   if (state.status !== 'lobby') {
     throw new Error(`Cannot start a game with status ${state.status}`)
   }
-
-  let board = state.board
-  const units: Unit[] = [...state.units]
-
-  for (const player of state.players) {
-    const coord = startingPositions[player.id]
-    if (!coord) {
-      throw new Error(`No starting position given for player ${player.id}`)
-    }
-    if (!getTile(board, coord)) {
-      board = setTile(board, coord, 'plain')
-    }
-
-    units.push(
-      {
-        id: nextUnitId(),
-        ownerId: player.id,
-        kind: 'settlement',
-        coord,
-        movement: { isMobile: false, terrains: [], canCrossCliffs: false },
-        traits: ['settlement'],
-      },
-      {
-        id: nextUnitId(),
-        ownerId: player.id,
-        kind: 'mobile-unit',
-        coord,
-        movement: { isMobile: true, terrains: ['plain'], canCrossCliffs: false, moveDistance: 1 },
-        traits: ['mobile'],
-      },
-      {
-        id: nextUnitId(),
-        ownerId: player.id,
-        kind: 'ship',
-        coord,
-        movement: { isMobile: true, terrains: ['water'], canCrossCliffs: false, moveDistance: 1 },
-        traits: ['ship'],
-      },
-    )
-  }
-
-  const nextState: GameState = {
-    ...state,
-    board,
-    units,
-    status: 'active',
-  }
-
-  // Rule 6: a player's card enters their hand the moment they get their
-  // first unit of that kind on the board — apply that for the starting units.
-  // Then kick off round 1's select-cards phase.
-  return beginSelectCardsPhase(syncCardZonesWithBoard(nextState))
+  return beginBoardSetup(state, boardGenerationContent)
 }

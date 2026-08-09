@@ -2,10 +2,27 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { applyAction } from '../applyAction'
 import { createEmptyBoard, setTile } from '../board'
 import type { BoardGenerationContent } from '../boardGenerationContent'
-import { cardIdFor } from '../cards'
+import { EMPTY_BOARD_GENERATION_CONTENT } from '../boardGenerationContent'
+import { cardIdFor, syncCardZonesWithBoard } from '../cards'
 import { createNewGame, startGame } from '../createGame'
-import type { GameState } from '../types'
+import { beginSelectCardsPhase } from '../round'
+import type { Coordinate, GameState, Unit } from '../types'
 
+let placeholderUnitCounter = 0
+function nextPlaceholderUnitId(): string {
+  placeholderUnitCounter += 1
+  return `test_unit_${placeholderUnitCounter}`
+}
+
+/**
+ * A quick, self-contained way to get an active game for testing round
+ * mechanics (CHOOSE_CARD, RESOLVE_UNIT_ACTION, etc.) — places units
+ * directly rather than driving through the real board-setup flow (tested
+ * on its own in boardSetup.test.ts). This is NOT what startGame() does
+ * anymore — see the 'createNewGame / startGame' describe block below for
+ * that — it's purely a test fixture for the describe('applyAction', ...)
+ * block underneath, which cares about round mechanics, not board setup.
+ */
 function makeActiveGame(): GameState {
   const lobby = createNewGame({
     gameId: 'game_1',
@@ -17,10 +34,42 @@ function makeActiveGame(): GameState {
     ],
   })
 
-  return startGame(lobby, {
-    p1: { q: 0, r: 0 },
-    p2: { q: 5, r: 0 },
-  })
+  const startingPositions: Record<string, Coordinate> = { p1: { q: 0, r: 0 }, p2: { q: 5, r: 0 } }
+  let board = lobby.board
+  const units: Unit[] = []
+  for (const player of lobby.players) {
+    const coord = startingPositions[player.id]
+    board = setTile(board, coord, 'plain')
+    units.push(
+      {
+        id: nextPlaceholderUnitId(),
+        ownerId: player.id,
+        kind: 'settlement',
+        coord,
+        movement: { isMobile: false, terrains: [], canCrossCliffs: false },
+        traits: ['settlement'],
+      },
+      {
+        id: nextPlaceholderUnitId(),
+        ownerId: player.id,
+        kind: 'mobile-unit',
+        coord,
+        movement: { isMobile: true, terrains: ['plain'], canCrossCliffs: false, moveDistance: 1 },
+        traits: ['mobile'],
+      },
+      {
+        id: nextPlaceholderUnitId(),
+        ownerId: player.id,
+        kind: 'ship',
+        coord,
+        movement: { isMobile: true, terrains: ['water'], canCrossCliffs: false, moveDistance: 1 },
+        traits: ['ship'],
+      },
+    )
+  }
+
+  const active: GameState = { ...lobby, board, units, status: 'active' }
+  return beginSelectCardsPhase(syncCardZonesWithBoard(active))
 }
 
 describe('createNewGame / startGame', () => {
@@ -35,19 +84,34 @@ describe('createNewGame / startGame', () => {
     expect(lobby.units).toHaveLength(0)
   })
 
-  it('places a settlement, mobile unit, and ship per player on start', () => {
-    const state = makeActiveGame()
-    expect(state.status).toBe('active')
-    expect(state.units).toHaveLength(6)
-    expect(state.units.filter((u) => u.ownerId === 'p1')).toHaveLength(3)
+  it('delegates to the real board-setup procedure (beginBoardSetup)', () => {
+    const lobby = createNewGame({
+      gameId: 'game_1',
+      playMode: 'hotseat',
+      board: createEmptyBoard('hex'),
+      players: [
+        { id: 'p1', authUserId: 'auth_1', displayName: 'Alice', color: 'red' },
+        { id: 'p2', authUserId: 'auth_2', displayName: 'Bob', color: 'blue' },
+      ],
+    })
+    const content: BoardGenerationContent = { startingWaterShapeCells: [{ q: 0, r: 0 }, { q: 1, r: 0 }], tiers: [] }
+
+    const state = startGame(lobby, content)
+
+    expect(state.status).toBe('boardSetup')
+    // 2 players -> one interlocked pair of the shape seeded onto the board.
+    expect(Object.keys(state.board.tiles)).toHaveLength(4)
   })
 
-  it('starts round 1 in the select-cards phase with every player pending', () => {
-    const state = makeActiveGame()
-    expect(state.turn).toBe(0)
-    expect(state.roundPhase).toBe('selectCards')
-    expect(state.activePlayerId).toBeNull()
-    expect(state.pendingPlayerIds).toEqual(['p1', 'p2'])
+  it('throws when starting a game that is not in the lobby', () => {
+    const lobby = createNewGame({
+      gameId: 'game_1',
+      playMode: 'hotseat',
+      board: createEmptyBoard('hex'),
+      players: [{ id: 'p1', authUserId: 'auth_1', displayName: 'Alice', color: 'red' }],
+    })
+    const active: GameState = { ...lobby, status: 'active' }
+    expect(() => startGame(active, EMPTY_BOARD_GENERATION_CONTENT)).toThrow()
   })
 })
 

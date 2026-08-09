@@ -190,14 +190,15 @@ too, in `src/engine/boardSetup.ts`: a new `GameStatus` (`'boardSetup'`,
 between `lobby` and `active`) and `GameState.boardSetup` track progress,
 and new `PLACE_TILE`/`PLACE_UNIT` actions (resolved by
 `placeTile()`/`placeUnit()`) handle validation and turn-cycling, with
-`beginBoardSetup()` as the `lobby` -> `boardSetup` entry point. See
-`todo.md` #7 for the full breakdown of what's covered and what's still
-open (mainly: the no-space/move-tiles search, and actually wiring
-`beginBoardSetup()` into `createGame.ts`'s `startGame()`, which still
-places its old hardcoded, non-real
-(`'settlement'`/`'mobile-unit'`/`'ship'`) unit trio per player at a single
-shared coordinate instead — nothing calls the real procedure yet). See
-`PROJECT_PLAN.md` section 2's board generation item.
+`beginBoardSetup()` as the `lobby` -> `boardSetup` entry point, and
+`createGame.ts`'s `startGame()` is wired to it directly (the old
+hardcoded, non-real (`'settlement'`/`'mobile-unit'`/`'ship'`) unit trio
+placeholder is gone from production code). See `todo.md` #7 for the full
+breakdown of what's covered and what's still open (mainly: the
+no-space/move-tiles search, and the UI — `LobbyPage.tsx`'s "start game"
+button still flips the Supabase row's status directly, bypassing the
+engine entirely). See `PROJECT_PLAN.md` section 2's board generation
+item.
 
 ## `achievements.json` (validated by `achievements.schema.json`)
 
