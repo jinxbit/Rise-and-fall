@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import type { UnitActionAssignment } from '../engine/actions'
 import { legalConvertTargets, legalCreateTargets, legalTransformTargets } from '../engine/actionTargeting'
 import { legalMoveDestinations } from '../engine/movement'
 import { calculatePurchaseCost } from '../engine/purchaseCost'
@@ -28,14 +29,21 @@ function actionNeedsTargeting(effect: UnitAction['effect']): boolean {
   return false
 }
 
-interface ActionTargetingState {
-  /** Per-unit: which action this unit will perform. A unit missing here does nothing when resolved. */
-  actionIdByUnitId: Record<string, string>
-  targetsByUnitId: Record<string, Coordinate>
-  activeUnitId: string | null
+/**
+ * `idle`: nothing selected. `menu`: a unit was clicked — its action
+ * options are showing as a radial menu around it on the board. `targeting`:
+ * an action needing a target hex was picked from that menu — the next
+ * legal-hex click on the board completes the assignment.
+ */
+type ActionUiMode = { kind: 'idle' } | { kind: 'menu'; unitId: string } | { kind: 'targeting'; unitId: string; actionId: string }
+
+interface ActionsUiState {
+  /** Ordered, already-confirmed per-unit assignments — resolution order matches this order exactly (see applyResolveUnitAction in ../engine/applyAction.ts). */
+  assignments: UnitActionAssignment[]
+  mode: ActionUiMode
 }
 
-const EMPTY_TARGETING: ActionTargetingState = { actionIdByUnitId: {}, targetsByUnitId: {}, activeUnitId: null }
+const EMPTY_ACTIONS_UI: ActionsUiState = { assignments: [], mode: { kind: 'idle' } }
 
 function PhaseBanner({ state }: { state: GameState }) {
   const phaseLabel: Record<RoundPhase, string> = {
@@ -142,11 +150,11 @@ function ActionsPanel(props: {
   players: PlayerRow[]
   myPlayerId: string | null
   unitContent: UnitContent
-  targeting: ActionTargetingState
-  setTargeting: (updater: (t: ActionTargetingState) => ActionTargetingState) => void
-  onResolveUnitAction: (actionIdByUnitId: Record<string, string>, targets: Record<string, Coordinate>) => void
+  assignments: UnitActionAssignment[]
+  onUndo: () => void
+  onResolve: () => void
 }) {
-  const { state, players, myPlayerId, unitContent, targeting, setTargeting, onResolveUnitAction } = props
+  const { state, players, myPlayerId, unitContent, assignments, onUndo, onResolve } = props
   const activePlayerId = state.pendingPlayerIds[0] ?? null
   const isMyTurn = activePlayerId !== null && activePlayerId === myPlayerId
 
@@ -160,84 +168,51 @@ function ActionsPanel(props: {
 
   const actingUnits = state.units.filter((u) => u.ownerId === myPlayerId && u.kind === card.kind)
   const actions = unitContent.actionsByKind[card.kind] ?? []
-
-  function chooseUnitAction(unitId: string, actionId: string) {
-    setTargeting((t) => ({
-      ...t,
-      actionIdByUnitId: { ...t.actionIdByUnitId, [unitId]: actionId },
-      targetsByUnitId: Object.fromEntries(Object.entries(t.targetsByUnitId).filter(([id]) => id !== unitId)),
-      activeUnitId: null,
-    }))
-  }
+  const remaining = actingUnits.filter((u) => !assignments.some((a) => a.unitId === u.id))
 
   return (
     <div className="flex flex-col gap-3 text-sm">
       <p className="font-medium text-indigo-400">
-        Your turn — playing {capitalize(card.kind)}. Each unit may perform a different action; a unit left alone
-        does nothing this round.
+        Your turn — playing {capitalize(card.kind)}. Click a highlighted unit on the board to choose its action; a
+        unit left alone does nothing this round.
       </p>
 
       {actingUnits.length === 0 && <p className="text-neutral-500">No units of this kind to act.</p>}
+      {actingUnits.length > 0 && remaining.length === 0 && (
+        <p className="text-neutral-500">Every unit has an action assigned.</p>
+      )}
 
-      <ul className="flex flex-col gap-2">
-        {actingUnits.map((unit) => {
-          const chosenActionId = targeting.actionIdByUnitId[unit.id] ?? null
-          const chosenAction = actions.find((a) => a.id === chosenActionId) ?? null
-          const targetingRequired = chosenAction ? actionNeedsTargeting(chosenAction.effect) : false
-          const target = targeting.targetsByUnitId[unit.id]
+      {assignments.length > 0 && (
+        <ol className="flex flex-col gap-1 text-xs text-neutral-400">
+          <span className="text-neutral-500">Resolves in this order:</span>
+          {assignments.map((a, i) => {
+            const unit = state.units.find((u) => u.id === a.unitId)
+            const action = actions.find((x) => x.id === a.actionId)
+            return (
+              <li key={`${a.unitId}-${i}`}>
+                {i + 1}. {unit ? `${capitalize(unit.kind)} at (${unit.coord.q},${unit.coord.r})` : a.unitId} →{' '}
+                <span className="text-neutral-200">{action?.name ?? a.actionId}</span>
+                {a.target && (
+                  <span>
+                    {' '}
+                    → target ({a.target.q},{a.target.r})
+                  </span>
+                )}
+              </li>
+            )
+          })}
+        </ol>
+      )}
 
-          return (
-            <li key={unit.id} className="flex flex-col gap-1 rounded-md border border-neutral-800 p-2">
-              <span className="text-neutral-400">
-                {capitalize(unit.kind)} at ({unit.coord.q},{unit.coord.r})
-              </span>
-              <div className="flex flex-wrap gap-1">
-                {actions.map((action) => (
-                  <button
-                    key={action.id}
-                    title={action.description}
-                    onClick={() => chooseUnitAction(unit.id, action.id)}
-                    className={`rounded-md border px-2 py-0.5 text-xs ${
-                      chosenActionId === action.id
-                        ? 'border-indigo-500 bg-indigo-600/20 text-indigo-300'
-                        : 'border-neutral-700 hover:border-neutral-500'
-                    }`}
-                  >
-                    {action.name}
-                  </button>
-                ))}
-                {actions.length === 0 && <span className="text-neutral-500">No actions available.</span>}
-              </div>
-
-              {chosenAction && targetingRequired && (
-                <div className="flex items-center gap-2 text-xs">
-                  {target ? (
-                    <span className="text-emerald-400">
-                      target ({target.q},{target.r})
-                    </span>
-                  ) : (
-                    <span className="text-neutral-500">no target</span>
-                  )}
-                  <button
-                    onClick={() => setTargeting((t) => ({ ...t, activeUnitId: unit.id }))}
-                    className={`rounded-md border px-2 py-0.5 ${
-                      targeting.activeUnitId === unit.id ? 'border-indigo-500 text-indigo-300' : 'border-neutral-700 hover:border-neutral-500'
-                    }`}
-                  >
-                    {target ? 'Change target' : 'Pick target'}
-                  </button>
-                </div>
-              )}
-            </li>
-          )
-        })}
-      </ul>
-
-      <div>
+      <div className="flex gap-2">
         <button
-          onClick={() => onResolveUnitAction(targeting.actionIdByUnitId, targeting.targetsByUnitId)}
-          className="rounded-md bg-indigo-600 px-3 py-1 font-medium text-white hover:bg-indigo-500"
+          disabled={assignments.length === 0}
+          onClick={onUndo}
+          className="rounded-md border border-neutral-700 px-3 py-1 hover:border-neutral-500 disabled:opacity-40"
         >
+          Undo last
+        </button>
+        <button onClick={onResolve} className="rounded-md bg-indigo-600 px-3 py-1 font-medium text-white hover:bg-indigo-500">
           Resolve actions
         </button>
       </div>
@@ -337,17 +312,17 @@ export function RoundView(props: {
   unitContent: UnitContent
   achievementContent: AchievementContent
   onChooseCard: (cardId: string) => void
-  onResolveUnitAction: (actionIdByUnitId: Record<string, string>, targets: Record<string, Coordinate>) => void
+  onResolveUnitAction: (unitActions: UnitActionAssignment[]) => void
   onMoveToDecline: (cardId: string) => void
   onPurchaseCard: (cardId: string) => void
   onPassPurchase: () => void
 }) {
   const { state, players, myPlayerId, unitContent, achievementContent } = props
-  const [targeting, setTargeting] = useState<ActionTargetingState>(EMPTY_TARGETING)
+  const [ui, setUi] = useState<ActionsUiState>(EMPTY_ACTIONS_UI)
 
   const turnKey = `${state.turn}:${state.roundPhase}:${state.pendingPlayerIds[0] ?? ''}`
   useEffect(() => {
-    setTargeting(EMPTY_TARGETING)
+    setUi(EMPTY_ACTIONS_UI)
   }, [turnKey])
 
   const isMyActionTurn = state.roundPhase === 'actions' && state.pendingPlayerIds[0] === myPlayerId
@@ -355,41 +330,80 @@ export function RoundView(props: {
   const myCard = myChosenCardId ? state.cards[myChosenCardId] : null
   const myActingUnits =
     isMyActionTurn && myCard && myPlayerId ? state.units.filter((u) => u.ownerId === myPlayerId && u.kind === myCard.kind) : []
-  const activeUnit = targeting.activeUnitId ? (myActingUnits.find((u) => u.id === targeting.activeUnitId) ?? null) : null
-  const activeUnitActionId = activeUnit ? (targeting.actionIdByUnitId[activeUnit.id] ?? null) : null
-  const activeUnitAction =
-    activeUnitActionId && myCard ? ((unitContent.actionsByKind[myCard.kind] ?? []).find((a) => a.id === activeUnitActionId) ?? null) : null
+  const actionsForKind = myCard ? (unitContent.actionsByKind[myCard.kind] ?? []) : []
+  const availableUnits = myActingUnits.filter((u) => !ui.assignments.some((a) => a.unitId === u.id))
+
+  const menuUnitId = ui.mode.kind === 'menu' ? ui.mode.unitId : null
+  const menuUnit = menuUnitId ? (myActingUnits.find((u) => u.id === menuUnitId) ?? null) : null
+  const targetingUnitId = ui.mode.kind === 'targeting' ? ui.mode.unitId : null
+  const targetingActionId = ui.mode.kind === 'targeting' ? ui.mode.actionId : null
+  const targetingUnit = targetingUnitId ? (myActingUnits.find((u) => u.id === targetingUnitId) ?? null) : null
+  const targetingAction = targetingActionId ? (actionsForKind.find((a) => a.id === targetingActionId) ?? null) : null
 
   let legalTargets: Coordinate[] = []
-  if (activeUnit && activeUnitAction && myPlayerId) {
-    const effect = activeUnitAction.effect
+  if (targetingUnit && targetingAction && myPlayerId) {
+    const effect = targetingAction.effect
     if (effect.actionType === 'create') {
-      legalTargets = legalCreateTargets(state, myPlayerId, activeUnit, effect, unitContent)
+      legalTargets = legalCreateTargets(state, myPlayerId, targetingUnit, effect, unitContent)
     } else if (effect.actionType === 'transform' && effect.targetHex.location === 'adj') {
-      legalTargets = legalTransformTargets(state, myPlayerId, activeUnit, effect, unitContent)
+      legalTargets = legalTransformTargets(state, myPlayerId, targetingUnit, effect, unitContent)
     } else if (effect.actionType === 'convert') {
-      legalTargets = legalConvertTargets(state, myPlayerId, activeUnit, effect, unitContent)
+      legalTargets = legalConvertTargets(state, myPlayerId, targetingUnit, effect, unitContent)
     } else if (effect.actionType === 'move') {
-      legalTargets = legalMoveDestinations(state, activeUnit, activeUnit.movement, unitContent.terrainLevels)
+      legalTargets = legalMoveDestinations(state, targetingUnit, targetingUnit.movement, unitContent.terrainLevels)
     }
   }
 
-  const ghostCells: GhostCell[] = [
-    ...legalTargets.map((coord) => ({ coord, legal: true })),
-    ...Object.values(targeting.targetsByUnitId).map((coord) => ({ coord, legal: true })),
-  ]
-
-  function handleBoardClick(coord: Coordinate) {
-    if (!activeUnit) return
-    if (!legalTargets.some((c) => c.q === coord.q && c.r === coord.r)) return
-    setTargeting((t) => ({ ...t, targetsByUnitId: { ...t.targetsByUnitId, [activeUnit.id]: coord }, activeUnitId: null }))
+  function selectAction(actionId: string) {
+    if (!menuUnit) return
+    const action = actionsForKind.find((a) => a.id === actionId)
+    if (!action) return
+    if (actionNeedsTargeting(action.effect)) {
+      setUi((prev) => ({ ...prev, mode: { kind: 'targeting', unitId: menuUnit.id, actionId } }))
+    } else {
+      setUi((prev) => ({ assignments: [...prev.assignments, { unitId: menuUnit.id, actionId }], mode: { kind: 'idle' } }))
+    }
   }
 
+  function handleBoardClick(coord: Coordinate) {
+    if (targetingUnit && targetingAction && legalTargets.some((c) => c.q === coord.q && c.r === coord.r)) {
+      setUi((prev) => ({
+        assignments: [...prev.assignments, { unitId: targetingUnit.id, actionId: targetingAction.id, target: coord }],
+        mode: { kind: 'idle' },
+      }))
+      return
+    }
+    const clickedUnit = availableUnits.find((u) => u.coord.q === coord.q && u.coord.r === coord.r)
+    if (clickedUnit) {
+      setUi((prev) => {
+        if (prev.mode.kind === 'menu' && prev.mode.unitId === clickedUnit.id) return { ...prev, mode: { kind: 'idle' } }
+        return { ...prev, mode: { kind: 'menu', unitId: clickedUnit.id } }
+      })
+      return
+    }
+    setUi((prev) => ({ ...prev, mode: { kind: 'idle' } }))
+  }
+
+  function undoLast() {
+    setUi((prev) => ({ ...prev, assignments: prev.assignments.slice(0, -1) }))
+  }
+
+  const availableUnitIds = new Set(availableUnits.map((u) => u.id))
   const units: UnitMarker[] = state.units.map((u) => ({
     coord: u.coord,
     color: players.find((p) => p.id === u.ownerId)?.color ?? '#a3a3a3',
     label: u.kind.slice(0, 1).toUpperCase(),
+    highlighted: isMyActionTurn && availableUnitIds.has(u.id),
   }))
+
+  const ghostCells: GhostCell[] = legalTargets.map((coord) => ({ coord, legal: true }))
+  const actionMenu = menuUnit
+    ? {
+        coord: menuUnit.coord,
+        options: actionsForKind.map((a) => ({ id: a.id, label: a.name.slice(0, 2).toUpperCase(), title: a.name })),
+        onSelect: selectAction,
+      }
+    : undefined
 
   return (
     <div className="flex flex-col gap-4">
@@ -406,9 +420,9 @@ export function RoundView(props: {
           players={players}
           myPlayerId={myPlayerId}
           unitContent={unitContent}
-          targeting={targeting}
-          setTargeting={setTargeting}
-          onResolveUnitAction={props.onResolveUnitAction}
+          assignments={ui.assignments}
+          onUndo={undoLast}
+          onResolve={() => props.onResolveUnitAction(ui.assignments)}
         />
       )}
       {state.roundPhase === 'decline' && (
@@ -425,7 +439,14 @@ export function RoundView(props: {
         />
       )}
 
-      <HexBoard board={state.board} units={units} ghostCells={ghostCells} interactive={!!activeUnit} onHexClick={handleBoardClick} />
+      <HexBoard
+        board={state.board}
+        units={units}
+        ghostCells={ghostCells}
+        actionMenu={actionMenu}
+        interactive={isMyActionTurn}
+        onHexClick={isMyActionTurn ? handleBoardClick : undefined}
+      />
 
       <LogPanel state={state} />
     </div>

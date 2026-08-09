@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom'
 import { BoardSetupView } from '../components/BoardSetupView'
 import { RoundView } from '../components/RoundView'
 import { resolveAchievementContent, resolveBoardGenerationContent, resolveUnitContent } from '../content/resolveContent'
-import type { Action } from '../engine/actions'
+import type { Action, UnitActionAssignment } from '../engine/actions'
 import { applyAction } from '../engine/applyAction'
 import type { GameState as EngineGameState, Coordinate } from '../engine/types'
 import { useAuth } from '../hooks/useAuth'
@@ -144,9 +144,9 @@ export function GamePage() {
             if (!me) return
             void submitAction({ type: 'CHOOSE_CARD', playerId: me.id, cardId })
           }}
-          onResolveUnitAction={(actionIdByUnitId, targets) => {
+          onResolveUnitAction={(unitActions: UnitActionAssignment[]) => {
             if (!me) return
-            void submitAction({ type: 'RESOLVE_UNIT_ACTION', playerId: me.id, actionIdByUnitId, targets })
+            void submitAction({ type: 'RESOLVE_UNIT_ACTION', playerId: me.id, unitActions })
           }}
           onMoveToDecline={(cardId) => {
             if (!me) return

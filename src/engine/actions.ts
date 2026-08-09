@@ -44,24 +44,27 @@ export interface ChooseCardAction {
   cardId: string
 }
 
+/** One acting unit's chosen action (an id from content/units.json's actions[] for the played card's kind) and, if that action needs one, its target hex. */
+export interface UnitActionAssignment {
+  unitId: string
+  actionId: string
+  target?: Coordinate
+}
+
 export interface ResolveUnitActionAction {
   type: 'RESOLVE_UNIT_ACTION'
   playerId: string
   /**
-   * Per-unit: which of the chosen card's unit-kind actions each acting unit
-   * performs (an id from content/units.json's actions[] for that kind) —
-   * each unit of the kind may perform a different action. A unit missing an
-   * entry here (or given an id that isn't one of that kind's actions)
-   * simply does nothing this turn.
+   * Ordered per-unit action assignments — resolved one at a time, in this
+   * exact order, each against the state as it stands after every earlier
+   * one in the list (not batched by action id). This is what lets one
+   * unit's effect be visible to a later unit's action in the same
+   * submission — e.g. a Nomad producing a resource, then a second Nomad
+   * spending it to convert — matching whatever order the player actually
+   * assigned them in. A unit not listed here (or given an id that isn't
+   * one of the kind's actions) simply does nothing this round.
    */
-  actionIdByUnitId: Record<string, string>
-  /**
-   * Per-unit target hex, keyed by acting unit id, for whichever of its
-   * chosen action needs one (create, an 'adj'-location transform, convert,
-   * move). Omitted entirely for a unit whose action needs no target
-   * (income/produce/trade/trade-resource, and a 'self'-location transform).
-   */
-  targets?: Record<string, Coordinate>
+  unitActions: UnitActionAssignment[]
 }
 
 export interface MoveToDeclineAction {

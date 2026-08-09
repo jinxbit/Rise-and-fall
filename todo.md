@@ -451,3 +451,60 @@ rejected on Water even when content's `terrainType` mistakenly allows
 it, and the UI-facing legal-targets functions excluding/including Water
 the same way. 228 tests total (was 222); `tsc -b`/`oxlint`/
 `npm run build` all clean. Not re-verified against a live session.
+
+## 10. Action-choice UX overhaul + a real sequencing bug it exposed
+
+Requested: make picking a unit's action contextual (highlight units that
+can still act, click one to get a radial menu of its actions right at
+the unit), and add an undo for in-progress choices during the actions
+phase. Doing this surfaced a real correctness bug along the way: one
+unit's action could change state (e.g. a Nomad producing a resource)
+that a *different* unit's action in the *same* submission should be
+able to spend (e.g. a second Nomad converting to a City using it) — but
+`applyResolveUnitAction` (`src/engine/applyAction.ts`) grouped units by
+action id and resolved each group as a batch, so which group ran first
+depended on `Map` insertion order of whichever action id was
+encountered first in `Object.entries()`, not the order the player
+actually intended.
+
+**Engine:** `RESOLVE_UNIT_ACTION`'s payload changed from
+`actionIdByUnitId: Record<string,string>` + a separate `targets` map to
+an ORDERED array, `unitActions: UnitActionAssignment[]`
+(`{unitId, actionId, target?}` — see `src/engine/actions.ts`).
+`applyResolveUnitAction` now resolves each assignment fully, one unit at
+a time, in exactly that order — calling `applyUnitActionEffect`
+(unchanged signature, already supported restricting to one unit id from
+the previous per-unit-action fix) once per assignment against the
+continuously-updating state. A unit not listed still simply does
+nothing. This is what actually fixes the bug: resolution order is now
+explicit and player-controlled instead of implicit grouping order.
+
+**UI (`src/components/RoundView.tsx` + `HexBoard.tsx`):** during the
+actions phase, units that can still act (mine, of the played card's
+kind, not yet assigned) get a pulsing amber ring (`UnitMarker.
+highlighted`, new). Clicking one opens a radial menu of its actions
+drawn directly in the SVG around that hex (`HexBoard`'s new
+`actionMenu` prop — a ring of clickable circles + connecting lines,
+positioned via the same axial-to-pixel math the board already uses, so
+it stays correctly placed regardless of zoom/viewBox scaling). Picking
+an action either appends the assignment immediately (no-target actions)
+or switches to target-picking mode reusing the existing legal-target
+ghost-cell highlighting; the *order* assignments land in the list is
+exactly the order the player clicked things — which is also the
+resolution order sent to the engine. `ActionsPanel` shows that list
+live ("resolves in this order: 1. City at (0,0) → Generate Income;
+2. ..."), plus an "Undo last" button (pops the last assignment,
+returning that unit to available/highlighted) and "Resolve actions"
+(submits the array as-is — nothing is sent to the engine until this
+click, so undo is pure local UI state, not an engine-level rollback).
+
+Regression coverage: two new tests in `applyAction.test.ts` build a
+2-Nomad scenario (one produces wood, one spends wood transforming to a
+City) and assert it succeeds in the produce-then-spend order and fails
+(silently no-ops, stays a Nomad) in the reverse order — proving
+resolution order is real and player-controlled, not incidental. 230
+tests total (was 228); `tsc -b`/`oxlint`/`npm run build` all clean. Not
+click-tested in a browser — same sandbox limitation as all prior UI
+work here (no Supabase credentials/Docker) — the radial-menu
+positioning and highlight styling especially are worth a visual check
+on a real deployment.

@@ -41,21 +41,42 @@ export interface UnitMarker {
   coord: Coordinate
   color: string
   label: string
+  /** Draws a bright ring around the unit — e.g. "this unit can still act this turn, click it." */
+  highlighted?: boolean
+}
+
+export interface ActionMenuOption {
+  id: string
+  /** Short label drawn inside the option's circle (a couple characters). */
+  label: string
+  /** Full name shown as a native SVG tooltip on hover. */
+  title?: string
+}
+
+export interface ActionMenu {
+  /** The hex the menu radiates out from — normally the unit that was clicked. */
+  coord: Coordinate
+  options: ActionMenuOption[]
+  onSelect: (optionId: string) => void
 }
 
 /**
- * Renders a Board as an SVG hex grid, with optional extras for the
- * board-setup interaction: `extraCoords` are untiled hexes that should still
- * be visible/clickable (e.g. empty space a water tile could go), `ghostCells`
- * overlay a translucent green/red preview of a pending placement, and
- * `units` draw simple colored markers. `onHexClick` fires with the axial
- * coordinate of whichever hex (tiled or not) was clicked.
+ * Renders a Board as an SVG hex grid, with optional extras for interactive
+ * phases: `extraCoords` are untiled hexes that should still be visible/
+ * clickable (e.g. empty space a water tile could go), `ghostCells` overlay a
+ * translucent green/red preview of a pending placement/target, `units` draw
+ * simple colored markers (optionally `highlighted`), and `actionMenu` draws
+ * a ring of clickable action options radiating out from one hex (see
+ * RoundView.tsx's per-unit action picker). `onHexClick` fires with the
+ * axial coordinate of whichever base hex (tiled or not) was clicked —
+ * action-menu options have their own `onSelect` and don't trigger it.
  */
 export function HexBoard(props: {
   board: Board
   extraCoords?: Coordinate[]
   ghostCells?: GhostCell[]
   units?: UnitMarker[]
+  actionMenu?: ActionMenu
   selectedCoord?: Coordinate | null
   interactive?: boolean
   onHexClick?: (coord: Coordinate) => void
@@ -79,12 +100,20 @@ export function HexBoard(props: {
 
   const pixels = coords.map((coord) => ({ coord, ...axialToPixel(coord, size) }))
   const pad = size * 1.5
-  const minX = Math.min(...pixels.map((p) => p.x)) - pad
-  const maxX = Math.max(...pixels.map((p) => p.x)) + pad
-  const minY = Math.min(...pixels.map((p) => p.y)) - pad
-  const maxY = Math.max(...pixels.map((p) => p.y)) + pad
+  const boundsPoints = [...pixels.map((p) => ({ x: p.x, y: p.y }))]
+  if (props.actionMenu) {
+    const { x, y } = axialToPixel(props.actionMenu.coord, size)
+    const menuPad = size * 3.5
+    boundsPoints.push({ x: x - menuPad, y: y - menuPad }, { x: x + menuPad, y: y + menuPad })
+  }
+  const minX = Math.min(...boundsPoints.map((p) => p.x)) - pad
+  const maxX = Math.max(...boundsPoints.map((p) => p.x)) + pad
+  const minY = Math.min(...boundsPoints.map((p) => p.y)) - pad
+  const maxY = Math.max(...boundsPoints.map((p) => p.y)) + pad
 
   const ghostByKey = new Map((props.ghostCells ?? []).map((g) => [coordKey(g.coord), g]))
+
+  const actionMenuCenter = props.actionMenu ? axialToPixel(props.actionMenu.coord, size) : null
 
   return (
     <svg
@@ -124,6 +153,11 @@ export function HexBoard(props: {
         const { x, y } = axialToPixel(unit.coord, size)
         return (
           <g key={i} pointerEvents="none">
+            {unit.highlighted && (
+              <circle cx={x} cy={y} r={size * 0.55} fill="none" stroke="#fbbf24" strokeWidth={2}>
+                <animate attributeName="opacity" values="1;0.35;1" dur="1.4s" repeatCount="indefinite" />
+              </circle>
+            )}
             <circle cx={x} cy={y} r={size * 0.4} fill={unit.color} stroke="#000" strokeWidth={1} />
             <text x={x} y={y} textAnchor="middle" dominantBaseline="central" fontSize={size * 0.4} fill="#000">
               {unit.label}
@@ -131,6 +165,27 @@ export function HexBoard(props: {
           </g>
         )
       })}
+      {props.actionMenu && actionMenuCenter && (
+        <g>
+          {props.actionMenu.options.map((option, i) => {
+            const count = props.actionMenu!.options.length
+            const angle = (Math.PI / 180) * ((360 / count) * i - 90)
+            const radius = size * 2.2
+            const ox = actionMenuCenter.x + radius * Math.cos(angle)
+            const oy = actionMenuCenter.y + radius * Math.sin(angle)
+            return (
+              <g key={option.id} className="cursor-pointer" onClick={() => props.actionMenu?.onSelect(option.id)}>
+                {option.title && <title>{option.title}</title>}
+                <line x1={actionMenuCenter.x} y1={actionMenuCenter.y} x2={ox} y2={oy} stroke="#71717a" strokeWidth={1} />
+                <circle cx={ox} cy={oy} r={size * 0.6} fill="#1e1b4b" stroke="#818cf8" strokeWidth={2} className="hover:fill-indigo-900" />
+                <text x={ox} y={oy} textAnchor="middle" dominantBaseline="central" fontSize={size * 0.42} fill="#e0e7ff" pointerEvents="none">
+                  {option.label}
+                </text>
+              </g>
+            )
+          })}
+        </g>
+      )}
     </svg>
   )
 }

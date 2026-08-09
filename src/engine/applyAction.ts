@@ -1,4 +1,4 @@
-import type { Action } from './actions'
+import type { Action, UnitActionAssignment } from './actions'
 import type { AchievementContent } from './achievementContent'
 import { EMPTY_ACHIEVEMENT_CONTENT } from './achievementContent'
 import { updateAchievementClaims } from './achievements'
@@ -11,7 +11,7 @@ import { beginActionsPhase, beginPostActionsPhase, beginPurchasePhase, finishRou
 import { EMPTY_BOARD_GENERATION_CONTENT } from './boardGenerationContent'
 import type { BoardGenerationContent } from './boardGenerationContent'
 import { placeTile, placeUnit } from './boardSetup'
-import type { ActionResult, Coordinate, GameState } from './types'
+import type { ActionResult, GameState } from './types'
 import { EMPTY_UNIT_CONTENT } from './unitContent'
 import type { UnitContent } from './unitContent'
 import { applyUnitActionEffect } from './unitActions'
@@ -65,7 +65,7 @@ export function applyAction(
     case 'CHOOSE_CARD':
       return applyChooseCard(state, action.playerId, action.cardId)
     case 'RESOLVE_UNIT_ACTION':
-      return applyResolveUnitAction(state, action.playerId, action.actionIdByUnitId, action.targets ?? {}, unitContent, achievementContent)
+      return applyResolveUnitAction(state, action.playerId, action.unitActions, unitContent, achievementContent)
     case 'MOVE_TO_DECLINE':
       return applyMoveToDecline(state, action.playerId, action.cardId)
     case 'PURCHASE_CARD':
@@ -116,19 +116,22 @@ function applyChooseCard(state: GameState, playerId: string, cardId: string): Ac
 
 /**
  * Round step 2 (rules 3 & 4): in turn order, resolve each player's chosen
- * card — each of that unit kind's units performs whichever action
- * `actionIdByUnitId` assigns it (they need not all match — see
- * applyUnitActionEffect in ./unitActions.ts, called once per distinct
- * action id with just the units that chose it) — then move the card into
- * discard. Also checks for newly-claimed achievements afterward (see
- * updateAchievementClaims in ./achievements.ts), since create/convert/a
- * destroySelf transform can change how many of a kind a player controls.
+ * card. `unitActions` is an ORDERED list of per-unit action assignments —
+ * each is resolved fully, one unit at a time, before the next begins (see
+ * applyUnitActionEffect in ./unitActions.ts, called once per assignment
+ * restricted to just that one unit id) — not batched by action id. This
+ * matters: it's what lets one unit's effect (e.g. a Nomad producing a
+ * resource) be visible to a later unit's action in the same submission
+ * (e.g. a second Nomad spending it to convert to a City), in whatever
+ * order the player actually assigned them. Also checks for newly-claimed
+ * achievements afterward (see updateAchievementClaims in
+ * ./achievements.ts), since create/convert/a destroySelf transform can
+ * change how many of a kind a player controls.
  */
 function applyResolveUnitAction(
   state: GameState,
   playerId: string,
-  actionIdByUnitId: Record<string, string>,
-  targets: Record<string, Coordinate>,
+  unitActions: UnitActionAssignment[],
   unitContent: UnitContent,
   achievementContent: AchievementContent,
 ): ActionResult {
@@ -153,20 +156,14 @@ function applyResolveUnitAction(
   }
   const actionsForKind = unitContent.actionsByKind[card.kind] ?? []
 
-  const unitIdsByActionId = new Map<string, string[]>()
-  for (const [unitId, actionId] of Object.entries(actionIdByUnitId)) {
-    if (!actionsForKind.some((a) => a.id === actionId)) continue
-    const ids = unitIdsByActionId.get(actionId) ?? []
-    ids.push(unitId)
-    unitIdsByActionId.set(actionId, ids)
-  }
-
   let nextState: GameState = state
   const resolvedActionNames: string[] = []
-  for (const [actionId, unitIds] of unitIdsByActionId) {
-    const unitAction = actionsForKind.find((a) => a.id === actionId)!
-    nextState = applyUnitActionEffect(nextState, playerId, card.kind, unitAction, targets, unitContent, unitIds)
-    resolvedActionNames.push(unitAction.name)
+  for (const assignment of unitActions) {
+    const unitAction = actionsForKind.find((a) => a.id === assignment.actionId)
+    if (!unitAction) continue
+    const targets = assignment.target ? { [assignment.unitId]: assignment.target } : {}
+    nextState = applyUnitActionEffect(nextState, playerId, card.kind, unitAction, targets, unitContent, [assignment.unitId])
+    if (!resolvedActionNames.includes(unitAction.name)) resolvedActionNames.push(unitAction.name)
   }
 
   // Rule 3 then 4: hand -> currently played -> discard. Re-look-up the

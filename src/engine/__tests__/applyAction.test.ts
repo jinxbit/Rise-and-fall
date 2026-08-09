@@ -153,7 +153,7 @@ describe('applyAction', () => {
   })
 
   it('rejects RESOLVE_UNIT_ACTION outside the actions phase', () => {
-    const result = applyAction(state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', actionIdByUnitId: {} })
+    const result = applyAction(state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [] })
     expect(result.ok).toBe(false)
   })
 
@@ -163,7 +163,7 @@ describe('applyAction', () => {
     const p2Choice = applyAction(p1Choice.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'ship') })
     if (!p2Choice.ok) throw new Error('setup failed')
 
-    const result = applyAction(p2Choice.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2', actionIdByUnitId: {} })
+    const result = applyAction(p2Choice.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2', unitActions: [] })
     expect(result.ok).toBe(false)
   })
 
@@ -254,8 +254,10 @@ describe('applyResolveUnitAction — different units of the same kind may choose
       {
         type: 'RESOLVE_UNIT_ACTION',
         playerId: 'p1',
-        actionIdByUnitId: { city_a: 'generate-income', city_b: 'create-nomad' },
-        targets: { city_b: { q: 6, r: 0 } },
+        unitActions: [
+          { unitId: 'city_a', actionId: 'generate-income' },
+          { unitId: 'city_b', actionId: 'create-nomad', target: { q: 6, r: 0 } },
+        ],
       },
       testUnitContent,
     )
@@ -274,7 +276,7 @@ describe('applyResolveUnitAction — different units of the same kind may choose
 
     const result = applyAction(
       state,
-      { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', actionIdByUnitId: { city_a: 'generate-income' } },
+      { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [{ unitId: 'city_a', actionId: 'generate-income' }] },
       testUnitContent,
     )
 
@@ -282,6 +284,102 @@ describe('applyResolveUnitAction — different units of the same kind may choose
     if (!result.ok) return
     expect(result.state.players.find((p) => p.id === 'p1')!.resources.gold).toBe(3)
     expect(result.state.units).toHaveLength(2)
+  })
+})
+
+describe('applyResolveUnitAction — unit actions resolve in order, one at a time', () => {
+  const nomadContent: UnitContent = {
+    actionsByKind: {
+      nomad: [
+        {
+          id: 'produce-resource',
+          name: 'Produce Resource',
+          description: '',
+          effect: { actionType: 'produce', resourceByTerrain: { forest: { wood: 1 } } },
+        },
+        {
+          id: 'transform-to-city',
+          name: 'Transform to City',
+          description: '',
+          effect: { actionType: 'transform', targetUnit: 'city', targetHex: { terrainType: ['plain', 'forest'], location: 'self' }, destroySelf: true, cost: { wood: 1 } },
+        },
+      ],
+    },
+    movementByKind: {},
+    terrainLevels: { water: 0, plain: 1, forest: 2, mountain: 3, glacier: 4 },
+    resourceCaps: { gold: null, wood: 5, stone: 5 },
+    unitSupplyCaps: {},
+  }
+
+  function makeTwoNomadsState(): GameState {
+    const board = setTile(setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'forest'), { q: 5, r: 0 }, 'plain')
+    const nomadA: Unit = { id: 'nomad_a', ownerId: 'p1', kind: 'nomad', coord: { q: 0, r: 0 }, movement: { isMobile: true, terrains: [], canCrossCliffs: false }, traits: [] }
+    const nomadB: Unit = { id: 'nomad_b', ownerId: 'p1', kind: 'nomad', coord: { q: 5, r: 0 }, movement: { isMobile: true, terrains: [], canCrossCliffs: false }, traits: [] }
+    const lobby = createNewGame({
+      gameId: 'game_3',
+      playMode: 'hotseat',
+      board,
+      players: [
+        { id: 'p1', authUserId: null, displayName: 'Alice', color: 'red' },
+        { id: 'p2', authUserId: null, displayName: 'Bob', color: 'blue' },
+      ],
+      resourceBank: { gold: 100, wood: 100, stone: 100 },
+    })
+    const active: GameState = { ...lobby, board, units: [nomadA, nomadB], status: 'active' }
+    const selecting = beginSelectCardsPhase(syncCardZonesWithBoard(active))
+    const chosen = applyAction(selecting, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'nomad') })
+    if (!chosen.ok) throw new Error('setup failed')
+    return chosen.state
+  }
+
+  it("a unit spending a resource sees an EARLIER unit's gain in the same submission", () => {
+    const state = makeTwoNomadsState()
+    expect(state.players.find((p) => p.id === 'p1')!.resources.wood).toBe(0)
+
+    const result = applyAction(
+      state,
+      {
+        type: 'RESOLVE_UNIT_ACTION',
+        playerId: 'p1',
+        unitActions: [
+          { unitId: 'nomad_a', actionId: 'produce-resource' },
+          { unitId: 'nomad_b', actionId: 'transform-to-city' },
+        ],
+      },
+      nomadContent,
+    )
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    // transform-to-city is destroySelf, so nomad_b's id is gone — a new
+    // City stands in its place instead.
+    expect(result.state.units.some((u) => u.id === 'nomad_b')).toBe(false)
+    expect(result.state.units.some((u) => u.kind === 'city' && u.coord.q === 5 && u.coord.r === 0)).toBe(true)
+    expect(result.state.players.find((p) => p.id === 'p1')!.resources.wood).toBe(0)
+  })
+
+  it("a unit spending a resource does NOT see a LATER unit's gain — order is exactly what was assigned", () => {
+    const state = makeTwoNomadsState()
+
+    const result = applyAction(
+      state,
+      {
+        type: 'RESOLVE_UNIT_ACTION',
+        playerId: 'p1',
+        unitActions: [
+          { unitId: 'nomad_b', actionId: 'transform-to-city' },
+          { unitId: 'nomad_a', actionId: 'produce-resource' },
+        ],
+      },
+      nomadContent,
+    )
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    // nomad_b had no wood yet when its transform ran — stays a nomad.
+    expect(result.state.units.find((u) => u.id === 'nomad_b')?.kind).toBe('nomad')
+    // nomad_a's production still ran afterward.
+    expect(result.state.players.find((p) => p.id === 'p1')!.resources.wood).toBe(1)
   })
 })
 
