@@ -9,15 +9,19 @@ target per unit of that kind (a unit with no legal target simply does
 nothing for that action; others still act, each paying/gaining
 independently).
 
-**Exception: `move`.** Movement is an action like any other — chosen by
-playing a mobile unit kind's card — but it does NOT apply to every unit of
-that kind at once. Choosing `move` acts on exactly one unit (whichever unit
-id is given as `targets`' single entry, mapped to its destination); no
-other unit of that kind does anything that turn. Only unit kinds of the
-card played can move — a Ship card's `move` action can only move a Ship,
-never a Nomad. See `applyMove()` in `src/engine/unitActions.ts` and
-`legalMoveDestinations()` in `src/engine/movement.ts` (the terrain/cliff/
-unit-blocking BFS that computes where a unit may legally move to).
+**Movement isn't a listed action.** Per ruling: when a unit kind is
+activated (its card is played and one of the actions below is chosen), any
+individual unit of that kind may instead spend its action moving, rather
+than performing the chosen action — this holds regardless of which action
+was chosen, so it's not one of the rows in the tables below. Resolved via
+`RESOLVE_UNIT_ACTION`'s `moveTargets` (unit id → destination); a unit named
+there ignores the chosen action entirely and just moves (or, if the
+destination isn't legal, does nothing at all — it doesn't fall through to
+the chosen action). Every other acting unit not named in `moveTargets`
+performs the chosen action as normal. See `applyMoveInstead()` in
+`src/engine/unitActions.ts` and `legalMoveDestinations()` in
+`src/engine/movement.ts` (the terrain/cliff/unit-blocking BFS that computes
+where a unit may legally move to).
 
 Architecture: `applyAction(state, action, unitContent)` — `unitContent`
 (`src/engine/unitContent.ts`) is resolved by the caller from
@@ -58,7 +62,6 @@ Status legend: ✅ implemented & tested
 | 8 | Transform to Ship | ✅ |
 | 9 | Transform to City | ✅ |
 | 10 | Transform to Temple | ✅ |
-| 23 | Move | ✅ |
 
 ## Merchant
 
@@ -76,7 +79,6 @@ per-unit choice), a straightforward 1-for-5 conversion each way.
 | 14 | Sell Stone | ✅ |
 | 15 | Generate Income | ✅ |
 | 16 | Transform to Ship | ✅ |
-| 24 | Move | ✅ |
 
 ## Mountaineer
 
@@ -84,7 +86,6 @@ per-unit choice), a straightforward 1-for-5 conversion each way.
 |---|--------|--------|
 | 17 | Produce Resource | ✅ |
 | 18 | Transform to City | ✅ |
-| 25 | Move | ✅ |
 
 ## Ship
 
@@ -94,12 +95,13 @@ per-unit choice), a straightforward 1-for-5 conversion each way.
 | 20 | Transform to City | ✅ | |
 | 21 | Transform to Merchant | ✅ | |
 | 22 | Trade | ✅ | flat rate per adjacent City, any owner (no own/enemy split) |
-| 26 | Move | ✅ | water-only, `moveDistance: "unlimited"` bounded by its connected water region, crosses (but can't land on) other players' units |
 
-**26/26 implemented and tested** — 149 tests across `unitActions.test.ts`
-(synthetic fixtures), `unitActions.realContent.test.ts` (against the real
-`units.json`/`terrain.json`/`resources.json`), and `movement.test.ts`
-(the `legalMoveDestinations` BFS in isolation).
+**22/22 implemented and tested**, plus movement (available to any unit of
+an activated mobile kind, in place of the chosen action — see above) — 148
+tests across `unitActions.test.ts` (synthetic fixtures),
+`unitActions.realContent.test.ts` (against the real `units.json`/
+`terrain.json`/`resources.json`), and `movement.test.ts` (the
+`legalMoveDestinations` BFS in isolation).
 
 ## Resolved questions
 
@@ -120,8 +122,9 @@ All four open questions from the first implementation pass are resolved:
 4. **Create + supply cap** — confirmed: create always respects the target
    kind's supply cap (`units.json`'s `supply.byPlayerCount`); a City can't
    create a Nomad if the player already holds their full Nomad supply.
-5. **When/how a unit may move** — movement is an action, just like every
-   other one: chosen by playing a mobile unit kind's card, once per turn.
-   The only units that can move are of the kind matching the card played.
-   Unlike every other action, choosing `move` acts on exactly one unit, not
-   every unit of that kind. See `applyMove()` in `src/engine/unitActions.ts`.
+5. **When/how a unit may move** — movement is NOT a listed action of its
+   own. When a unit kind is activated (its card played, one action chosen
+   for the round), any individual unit of that kind may instead spend its
+   action moving rather than performing the chosen action. Only units of
+   the activated kind can move that turn (a Ship card activation can't move
+   a Nomad). See `applyMoveInstead()` in `src/engine/unitActions.ts`.

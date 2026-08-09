@@ -108,12 +108,6 @@
       },
       "actions": [
         {
-          "id": "move",
-          "name": "Move",
-          "description": "Move this Nomad. Unlike this unit's other actions, only this one Nomad acts — no other Nomad does anything this turn.",
-          "effect": { "actionType": "move" }
-        },
-        {
           "id": "produce-resource",
           "name": "Produce Resource",
           "description": "Produce a resource based on the terrain the Nomad occupies: 1 wood in Forest, 1 stone in Mountain.",
@@ -178,12 +172,6 @@
         "canEndMoveOnUnitTypes": ["city"]
       },
       "actions": [
-        {
-          "id": "move",
-          "name": "Move",
-          "description": "Move this Merchant. Unlike this unit's other actions, only this one Merchant acts — no other Merchant does anything this turn.",
-          "effect": { "actionType": "move" }
-        },
         {
           "id": "buy-wood",
           "name": "Buy Wood",
@@ -273,12 +261,6 @@
       },
       "actions": [
         {
-          "id": "move",
-          "name": "Move",
-          "description": "Move this Mountaineer. Unlike this unit's other actions, only this one Mountaineer acts — no other Mountaineer does anything this turn.",
-          "effect": { "actionType": "move" }
-        },
-        {
           "id": "produce-resource",
           "name": "Produce Resource",
           "description": "Produce a resource based on the terrain the Mountaineer occupies: 1 wood in Forest, 1 stone in Mountain, 1 stone in Glacier.",
@@ -319,12 +301,6 @@
         "blockedByUnits": "none"
       },
       "actions": [
-        {
-          "id": "move",
-          "name": "Move",
-          "description": "Move this Ship. Unlike this unit's other actions, only this one Ship acts — no other Ship does anything this turn.",
-          "effect": { "actionType": "move" }
-        },
         {
           "id": "transform-to-nomad",
           "name": "Transform to Nomad",

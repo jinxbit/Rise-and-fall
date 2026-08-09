@@ -2,8 +2,9 @@ import type { Coordinate } from './types'
 
 // The action set matches the round sequence in ./round.ts: CHOOSE_CARD
 // (phase 1, simultaneous), RESOLVE_UNIT_ACTION (phase 2, turn order —
-// movement is one of the actions resolved here, via a unit kind's 'move'
-// effect; see applyMove in ./unitActions.ts, not a standalone action type),
+// movement isn't a standalone action type; it's an option any acting unit
+// may take instead of the chosen action, via RESOLVE_UNIT_ACTION's
+// `moveTargets`, see applyMoveInstead in ./unitActions.ts),
 // MOVE_TO_DECLINE (phase 3, turn order, only reachable when triggered),
 // PURCHASE_CARD / PASS_PURCHASE (phase 4, turn order). Recycle-check and
 // round-end are automatic engine bookkeeping, not player actions.
@@ -28,6 +29,14 @@ export interface ResolveUnitActionAction {
    * transform).
    */
   targets?: Record<string, Coordinate>
+  /**
+   * Per-unit destination, keyed by acting unit id, for units that spend
+   * their action moving instead of performing `actionId` this turn — any
+   * unit of the activated kind may do this, regardless of which action was
+   * chosen. A unit named here ignores `targets`/the chosen action entirely
+   * and just moves (or, if the destination isn't legal, does nothing).
+   */
+  moveTargets?: Record<string, Coordinate>
 }
 
 export interface MoveToDeclineAction {

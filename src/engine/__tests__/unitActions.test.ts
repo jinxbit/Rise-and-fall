@@ -642,71 +642,69 @@ describe('applyUnitActionEffect — trade-resource (Merchant)', () => {
   })
 })
 
-describe('applyUnitActionEffect — move', () => {
-  const action: UnitAction = { id: 'move', name: 'Move', description: '', effect: { actionType: 'move' } }
+describe('applyUnitActionEffect — moving instead of the chosen action', () => {
+  // Movement isn't a listed action of its own — any acting unit may spend
+  // its action moving instead of performing whatever action was chosen for
+  // the round. Exercised here against a real chosen action (Produce
+  // Resource) via the `moveTargets` param.
+  const produce: UnitAction = {
+    id: 'produce-resource',
+    name: 'Produce Resource',
+    description: '',
+    effect: { actionType: 'produce', resourceByTerrain: { forest: { wood: 1 } } },
+  }
 
-  it('moves only the targeted unit to a legal destination', () => {
+  it('a unit named in moveTargets moves instead of performing the chosen action', () => {
     const board = boardOf([
-      [0, 0, 'plain'],
-      [1, 0, 'plain'],
+      [0, 0, 'forest'],
+      [1, 0, 'forest'],
     ])
-    const mover = makeUnit('p1', 'nomad', { q: 0, r: 0 }, { terrains: ['plain'], moveDistance: 1, blockedByUnits: 'all' })
+    const mover = makeUnit('p1', 'nomad', { q: 0, r: 0 }, { terrains: ['plain', 'forest'], moveDistance: 1, blockedByUnits: 'all' })
     const state = makeState({ board, units: [mover] })
 
-    const next = applyUnitActionEffect(state, 'p1', 'nomad', action, { [mover.id]: { q: 1, r: 0 } }, emptyContent)
+    const next = applyUnitActionEffect(state, 'p1', 'nomad', produce, {}, emptyContent, { [mover.id]: { q: 1, r: 0 } })
 
     expect(next.units.find((u) => u.id === mover.id)?.coord).toEqual({ q: 1, r: 0 })
+    expect(next.players.find((p) => p.id === 'p1')!.resources.wood).toBe(0)
   })
 
-  it('does not move any other unit of the same kind, unlike every other action', () => {
+  it('a unit not named in moveTargets still performs the chosen action normally', () => {
     const board = boardOf([
-      [0, 0, 'plain'],
-      [1, 0, 'plain'],
-      [5, 5, 'plain'],
-      [6, 5, 'plain'],
+      [0, 0, 'forest'],
+      [1, 0, 'forest'],
+      [5, 5, 'forest'],
     ])
-    const mover = makeUnit('p1', 'nomad', { q: 0, r: 0 }, { terrains: ['plain'], moveDistance: 1, blockedByUnits: 'all' })
-    const bystander = makeUnit('p1', 'nomad', { q: 5, r: 5 }, { terrains: ['plain'], moveDistance: 1, blockedByUnits: 'all' })
-    const state = makeState({ board, units: [mover, bystander] })
+    const mover = makeUnit('p1', 'nomad', { q: 0, r: 0 }, { terrains: ['plain', 'forest'], moveDistance: 1, blockedByUnits: 'all' })
+    const producer = makeUnit('p1', 'nomad', { q: 5, r: 5 }, { terrains: ['plain', 'forest'], moveDistance: 1, blockedByUnits: 'all' })
+    const state = makeState({ board, units: [mover, producer] })
 
-    const next = applyUnitActionEffect(state, 'p1', 'nomad', action, { [mover.id]: { q: 1, r: 0 } }, emptyContent)
+    const next = applyUnitActionEffect(state, 'p1', 'nomad', produce, {}, emptyContent, { [mover.id]: { q: 1, r: 0 } })
 
-    expect(next.units.find((u) => u.id === bystander.id)?.coord).toEqual({ q: 5, r: 5 })
+    expect(next.units.find((u) => u.id === producer.id)?.coord).toEqual({ q: 5, r: 5 })
+    expect(next.players.find((p) => p.id === 'p1')!.resources.wood).toBe(1)
   })
 
-  it('is a no-op for an illegal destination', () => {
+  it('is a no-op (neither moves nor performs the chosen action) for an illegal destination', () => {
     const board = boardOf([
-      [0, 0, 'plain'],
+      [0, 0, 'forest'],
       [1, 0, 'water'],
     ])
-    const mover = makeUnit('p1', 'nomad', { q: 0, r: 0 }, { terrains: ['plain'], moveDistance: 1, blockedByUnits: 'all' })
+    const mover = makeUnit('p1', 'nomad', { q: 0, r: 0 }, { terrains: ['plain', 'forest'], moveDistance: 1, blockedByUnits: 'all' })
     const state = makeState({ board, units: [mover] })
 
-    const next = applyUnitActionEffect(state, 'p1', 'nomad', action, { [mover.id]: { q: 1, r: 0 } }, emptyContent)
+    const next = applyUnitActionEffect(state, 'p1', 'nomad', produce, {}, emptyContent, { [mover.id]: { q: 1, r: 0 } })
 
     expect(next.units.find((u) => u.id === mover.id)?.coord).toEqual({ q: 0, r: 0 })
+    expect(next.players.find((p) => p.id === 'p1')!.resources.wood).toBe(0)
   })
 
-  it('is a no-op when no target is supplied', () => {
-    const board = boardOf([[0, 0, 'plain']])
-    const mover = makeUnit('p1', 'nomad', { q: 0, r: 0 }, { terrains: ['plain'], moveDistance: 1, blockedByUnits: 'all' })
-    const state = makeState({ board, units: [mover] })
+  it('moveTargets defaults to empty, so every unit performs the chosen action as normal', () => {
+    const board = boardOf([[0, 0, 'forest']])
+    const producer = makeUnit('p1', 'nomad', { q: 0, r: 0 }, { terrains: ['plain', 'forest'], moveDistance: 1, blockedByUnits: 'all' })
+    const state = makeState({ board, units: [producer] })
 
-    const next = applyUnitActionEffect(state, 'p1', 'nomad', action, {}, emptyContent)
+    const next = applyUnitActionEffect(state, 'p1', 'nomad', produce, {}, emptyContent)
 
-    expect(next.units.find((u) => u.id === mover.id)?.coord).toEqual({ q: 0, r: 0 })
-  })
-
-  it("is a no-op for a target keyed to a unit of a different kind or owner", () => {
-    const board = boardOf([
-      [0, 0, 'plain'],
-      [1, 0, 'plain'],
-    ])
-    const otherOwner = makeUnit('p2', 'nomad', { q: 0, r: 0 }, { terrains: ['plain'], moveDistance: 1, blockedByUnits: 'all' })
-    const state = makeState({ board, units: [otherOwner] })
-
-    const next = applyUnitActionEffect(state, 'p1', 'nomad', action, { [otherOwner.id]: { q: 1, r: 0 } }, emptyContent)
-
-    expect(next.units.find((u) => u.id === otherOwner.id)?.coord).toEqual({ q: 0, r: 0 })
+    expect(next.players.find((p) => p.id === 'p1')!.resources.wood).toBe(1)
   })
 })

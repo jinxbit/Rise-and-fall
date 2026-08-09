@@ -102,22 +102,25 @@ many cards each player must decline.
 
 ## 6. Movement timing/frequency — done
 
-Resolved: movement is an action, just like every other unit action — chosen
-by playing a mobile unit kind's card during the `actions` phase, same as
-create/transform/income/etc. Only units of the kind matching the card
-played can move. Unlike every other action, choosing `move` acts on exactly
-one unit (whichever unit id is given in `RESOLVE_UNIT_ACTION`'s `targets`),
-not every unit of that kind — no other unit acts that turn.
+Resolved: movement is NOT a listed action of its own, and not an exception
+to the "applies to every unit" rule either. When a unit kind is activated
+(its card played during the `actions` phase, one action chosen from its
+list — create/transform/income/etc.), any individual unit of that kind may
+instead spend its action moving rather than performing the chosen action.
+Only units of the activated kind can move that turn. Every unit not opting
+to move still performs the chosen action as normal, just like before.
 
-Implemented as a `move` action entry on every mobile unit kind in
-`units.json` (`MoveEffect` in `src/engine/unitContent.ts`), handled by
-`applyMove()` in `src/engine/unitActions.ts` — a special case in
-`applyUnitActionEffect()`'s dispatcher, since every other action loops over
-every owned unit of the kind. Legal destinations come from
+Implemented via `RESOLVE_UNIT_ACTION`'s new `moveTargets` param (unit id →
+destination, `src/engine/actions.ts`), threaded through to
+`applyUnitActionEffect()`'s per-unit loop in `src/engine/unitActions.ts`:
+a unit named in `moveTargets` calls `applyMoveInstead()` and skips the
+chosen action entirely (an illegal destination is a total no-op — it
+neither moves nor falls through to the action); every other unit runs the
+chosen action's effect as before. Legal destinations come from
 `legalMoveDestinations()` (`src/engine/movement.ts`), a BFS respecting
 terrain restrictions, cliff-crossing, and the pass-through
 (`blockedByUnits`) vs. land-on (`canEndMoveOnUnitTypes`) distinction, plus
 Ship's "infinite range, but can't leave its water region" rule
 (`moveDistance: "unlimited"`, bounded implicitly by `terrains: ["water"]`).
-There is no longer a standalone `MOVE_UNIT` action type — see
-`UnitActions.md`'s resolved questions #5.
+There is no standalone `MOVE_UNIT` action type, and no `move` entry in any
+unit kind's `actions` list — see `UnitActions.md`'s resolved questions #5.

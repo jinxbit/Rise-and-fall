@@ -23,13 +23,14 @@ One entry per unit type. `id` matches the engine's `Unit.kind` field
   can move onto.
 - `movement.canCrossCliffs` — whether this unit ignores cliff edges, which
   otherwise block movement/adjacency for every other unit.
-- `movement.moveDistance` — max hexes a unit can move in one `move` action
-  (see below), or the string `"unlimited"` for a unit with no distance cap
-  (only Ship today). `"unlimited"` doesn't mean "move anywhere" — a unit's
-  move is still restricted to `movement.terrains`, so Ship's unbounded
-  search naturally stops at the edge of its connected water region and
-  can't reach a disconnected body of water, satisfying "movement allowance
-  is infinity, but it can't move out of its water region."
+- `movement.moveDistance` — max hexes a unit can move when it spends its
+  action moving (see below), or the string `"unlimited"` for a unit with no
+  distance cap (only Ship today). `"unlimited"` doesn't mean "move
+  anywhere" — a unit's move is still restricted to `movement.terrains`, so
+  Ship's unbounded search naturally stops at the edge of its connected
+  water region and can't reach a disconnected body of water, satisfying
+  "movement allowance is infinity, but it can't move out of its water
+  region."
 - `movement.blockedByUnits` — whether another unit's presence stops this
   unit from moving *through* a hex at all: `"none"` (never blocked — e.g.
   Ship, which "can cross other player units"), `"enemy"` (blocked only by
@@ -43,15 +44,16 @@ One entry per unit type. `id` matches the engine's `Unit.kind` field
   stack on top of it, since it has no `canEndMoveOnUnitTypes` entry.
   Implemented as `legalMoveDestinations()` in `src/engine/movement.ts`
   (a breadth-first search from the unit's hex).
-- **Movement is an action, not a separate mechanic.** Per ruling: every
-  mobile unit kind's card includes a `move` action (`actionType: 'move'`),
-  resolved through `RESOLVE_UNIT_ACTION` exactly like create/transform/
-  income/etc. — the only units that can move in a turn are of the kind
-  matching the card played. Unlike every other action, `move` doesn't apply
-  to every unit of the kind at once: it acts on exactly the one unit named
-  in `targets` (unit id → destination), and no other unit of that kind does
-  anything that turn. See `applyMove()` in `src/engine/unitActions.ts` and
-  `UnitActions.md`'s resolved questions #5.
+- **Movement is not a listed action.** Per ruling: when a unit kind is
+  activated (its card played, one action chosen from its `actions` list —
+  see below), any individual unit of that kind may instead spend its action
+  moving, rather than performing the chosen action — this holds regardless
+  of which action was chosen, so `move` is never one of the entries in
+  `actions`. Resolved through `RESOLVE_UNIT_ACTION`'s `moveTargets` param
+  (unit id → destination): a unit named there ignores the chosen action
+  entirely and just moves; every other acting unit performs the chosen
+  action as normal. See `applyMoveInstead()` in `src/engine/unitActions.ts`
+  and `UnitActions.md`'s resolved questions #5.
 - `victoryPoints.byBoardCount` — the board-control VP scoring curve: index 0
   is the score for having exactly 1 of this unit on the board, index 1 for
   2, etc. (e.g. `[1, 2, 3, 4]` scores 1/2/3/4 units as 1/2/3/4 points). 0
@@ -60,10 +62,10 @@ One entry per unit type. `id` matches the engine's `Unit.kind` field
 - `actions` — the list of actions this unit's card can trigger. A card is
   associated with exactly one unit type; playing it lets the player pick
   one action from this list and apply it to every unit of that type they
-  control — except `move` (see above), which applies to exactly one unit.
-  Each action has an `effect` field — its shape is now typed precisely per
-  `actionType` (`create`/`transform`/`convert`/`income`/`produce`/
-  `trade-resource`/`trade`/`move`) in `src/engine/unitContent.ts`'s
+  control (independent of that, any individual unit may move instead — see
+  above). Each action has an `effect` field — its shape is now typed
+  precisely per `actionType` (`create`/`transform`/`convert`/`income`/
+  `produce`/`trade-resource`/`trade`) in `src/engine/unitContent.ts`'s
   `UnitActionEffect`, and implemented in `src/engine/unitActions.ts`. See
   `UnitActions.md` at the repo root for the full per-action checklist and
   its "Resolved questions" section for the rules questions the

@@ -74,7 +74,7 @@ describe('real content/units.json + terrain.json + resources.json', () => {
         seenTypes.add(action.effect.actionType)
       }
     }
-    expect([...seenTypes].sort()).toEqual(['convert', 'create', 'income', 'move', 'produce', 'trade', 'trade-resource', 'transform'])
+    expect([...seenTypes].sort()).toEqual(['convert', 'create', 'income', 'produce', 'trade', 'trade-resource', 'transform'])
   })
 
   it("City's Generate Income pays out per the real goldByTerrain table", () => {
@@ -166,7 +166,7 @@ describe('real content/units.json + terrain.json + resources.json', () => {
     expect(next.units[0]).toMatchObject({ kind: 'nomad', coord: { q: 1, r: 0 } })
   })
 
-  it("Ship's Move (real moveDistance: 'unlimited', blockedByUnits: 'none') can reach across its water region but not onto a non-water hex", () => {
+  it("a Ship spends its action moving instead of Trade (real moveDistance: 'unlimited', blockedByUnits: 'none'), reaching across its water region but not onto a non-water hex", () => {
     let board = createEmptyBoard('hex')
     for (const [q, r] of [
       [0, 0],
@@ -177,8 +177,10 @@ describe('real content/units.json + terrain.json + resources.json', () => {
       board = setTile(board, { q, r }, 'water')
     }
     board = setTile(board, { q: 4, r: 0 }, 'plain')
+    board = setTile(board, { q: -1, r: 0 }, 'plain')
 
     const ship: Unit = { id: 'u1', ownerId: 'p1', kind: 'ship', coord: { q: 0, r: 0 }, movement: content.movementByKind.ship, traits: [] }
+    const city: Unit = { id: 'u2', ownerId: 'p1', kind: 'city', coord: { q: -1, r: 0 }, movement: content.movementByKind.city, traits: [] }
     const state: GameState = {
       gameId: 'g',
       playMode: 'hotseat',
@@ -191,7 +193,7 @@ describe('real content/units.json + terrain.json + resources.json', () => {
       turnOrder: ['p1'],
       board,
       players: [makePlayer('p1')],
-      units: [ship],
+      units: [ship, city],
       cards: {},
       resourceBank: { gold: 1000, wood: 1000, stone: 1000 },
       unitLimits: {},
@@ -199,12 +201,21 @@ describe('real content/units.json + terrain.json + resources.json', () => {
       winnerPlayerIds: [],
     }
 
-    const action = findAction('ship', 'move', content)
+    const trade = findAction('ship', 'trade', content)
 
-    const toFarWater = applyUnitActionEffect(state, 'p1', 'ship', action, { [ship.id]: { q: 3, r: 0 } }, content)
-    expect(toFarWater.units[0].coord).toEqual({ q: 3, r: 0 })
+    // Moves instead of trading: reaches the far end of its water region, gains no gold.
+    const toFarWater = applyUnitActionEffect(state, 'p1', 'ship', trade, {}, content, { [ship.id]: { q: 3, r: 0 } })
+    expect(toFarWater.units.find((u) => u.id === ship.id)?.coord).toEqual({ q: 3, r: 0 })
+    expect(toFarWater.players[0].resources.gold).toBe(0)
 
-    const toPlain = applyUnitActionEffect(state, 'p1', 'ship', action, { [ship.id]: { q: 4, r: 0 } }, content)
-    expect(toPlain.units[0].coord).toEqual({ q: 0, r: 0 })
+    // An illegal destination (non-water) is a total no-op: doesn't move, doesn't fall through to Trade either.
+    const illegalMove = applyUnitActionEffect(state, 'p1', 'ship', trade, {}, content, { [ship.id]: { q: 4, r: 0 } })
+    expect(illegalMove.units.find((u) => u.id === ship.id)?.coord).toEqual({ q: 0, r: 0 })
+    expect(illegalMove.players[0].resources.gold).toBe(0)
+
+    // With no moveTargets at all, the Ship performs the chosen action (Trade) as normal.
+    const traded = applyUnitActionEffect(state, 'p1', 'ship', trade, {}, content)
+    expect(traded.units.find((u) => u.id === ship.id)?.coord).toEqual({ q: 0, r: 0 })
+    expect(traded.players[0].resources.gold).toBe(5)
   })
 })

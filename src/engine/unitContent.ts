@@ -72,17 +72,6 @@ export interface TradeEffect {
   goldPerCity: number
 }
 
-/**
- * Per ruling: movement is an action like any other (chosen by playing the
- * card, one action per turn), but unlike every other action it does NOT
- * apply to every unit of the kind at once — only the single unit named in
- * RESOLVE_UNIT_ACTION's `targets` moves; no other unit of that kind acts
- * this turn. See applyMove() in ./unitActions.ts.
- */
-export interface MoveEffect {
-  actionType: 'move'
-}
-
 export type UnitActionEffect =
   | CreateEffect
   | TransformEffect
@@ -91,7 +80,6 @@ export type UnitActionEffect =
   | ProduceEffect
   | TradeResourceEffect
   | TradeEffect
-  | MoveEffect
 
 export interface UnitAction {
   id: string
