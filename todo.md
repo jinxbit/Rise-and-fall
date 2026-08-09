@@ -417,3 +417,37 @@ against a live 2-player session — same sandbox limitation as the rest of
 the UI work (no Supabase credentials/Docker here) — worth specifically
 re-testing the exact reported scenario (Ship → Transform to City) on a
 real deployment.
+
+## 9. No unit may be created on Water except Ships — fixed
+
+Reported from real testing: a City's "Create Nomad" action let the Nomad
+land on a Water hex. Root cause: `CreateEffect` (`create-nomad`/
+`create-merchant`/`create-mountaineer` in `content/units.json`) has no
+`targetHex.terrainType` field at all — unlike `TransformEffect`, whose
+target terrain content already restricts correctly — so
+`applyCreate` in `src/engine/unitActions.ts` never checked the target
+hex's terrain, only adjacency/occupancy/cliffs/supply cap.
+
+Fix: a new `isWaterCreationAllowed(targetUnit, terrain)` predicate in
+`unitActions.ts` — true unless `terrain === 'water'` and `targetUnit !==
+'ship'` — is checked in both `applyCreate` (closing the actual gap) and
+`applyTransform` (defense-in-depth on top of its existing `terrainType`
+check, so a future content mistake listing `'water'` for a non-Ship
+`targetUnit` still can't slip through). Exported and reused by
+`src/engine/actionTargeting.ts`'s `legalCreateTargets`/
+`legalTransformTargets` so the UI's target-highlighting can't offer
+Water as legal either. **Scope note:** this is specifically about the
+`create`/`transform` unit-creation mechanic during the round cycle — it
+does *not* touch `src/engine/boardSetup.ts`'s starting-unit placement,
+which has its own already-confirmed separate ruling ("City and Nomad
+anywhere except Glacier, Ship only on Water" — i.e. City/Nomad on Water
+*is* legal there). Worth confirming that reading is right if it turns
+out not to be.
+
+Added 6 regression tests (2 each in `unitActions.test.ts`'s create/
+transform blocks, 3 in `actionTargeting.test.ts`) covering: a plain
+create rejected on Water, a Ship create allowed on Water, a transform
+rejected on Water even when content's `terrainType` mistakenly allows
+it, and the UI-facing legal-targets functions excluding/including Water
+the same way. 228 tests total (was 222); `tsc -b`/`oxlint`/
+`npm run build` all clean. Not re-verified against a live session.

@@ -281,6 +281,43 @@ describe('applyUnitActionEffect — create', () => {
     expect(next.players.find((p) => p.id === 'p1')!.resources.gold).toBe(3)
   })
 
+  it('never creates a non-Ship unit on a Water hex, even though the action itself has no terrain restriction', () => {
+    const board = boardOf([
+      [0, 0, 'plain'],
+      [1, 0, 'water'],
+    ])
+    const state = makeState({
+      board,
+      players: [makePlayer('p1', { resources: { gold: 5, wood: 0, stone: 0 } }), makePlayer('p2')],
+      units: [makeUnit('p1', 'city', { q: 0, r: 0 })],
+    })
+    const city = state.units[0]
+
+    const next = applyUnitActionEffect(state, 'p1', 'city', action, { [city.id]: { q: 1, r: 0 } }, content)
+
+    expect(next.units).toHaveLength(1)
+    expect(next.players.find((p) => p.id === 'p1')!.resources.gold).toBe(5)
+  })
+
+  it('does allow creating a Ship on a Water hex', () => {
+    const shipAction: UnitAction = {
+      id: 'create-ship',
+      name: 'Create Ship',
+      description: '',
+      effect: { actionType: 'create', targetUnit: 'ship', targetHex: { location: 'adj' }, cost: {} },
+    }
+    const board = boardOf([
+      [0, 0, 'plain'],
+      [1, 0, 'water'],
+    ])
+    const state = makeState({ board, units: [makeUnit('p1', 'city', { q: 0, r: 0 })] })
+    const city = state.units[0]
+
+    const next = applyUnitActionEffect(state, 'p1', 'city', shipAction, { [city.id]: { q: 1, r: 0 } }, content)
+
+    expect(next.units.some((u) => u.kind === 'ship' && u.coord.q === 1 && u.coord.r === 0)).toBe(true)
+  })
+
   it("derives the new unit's id from state.idSequence (not a hidden module counter) and advances it by one", () => {
     const board = boardOf([
       [0, 0, 'plain'],
@@ -575,6 +612,29 @@ describe('applyUnitActionEffect — transform', () => {
     const secondShip = afterSecondTransform.units.find((u) => u.kind === 'ship' && u.id !== shipId)
     expect(secondShip).toBeDefined()
     expect(secondShip!.id).not.toBe(shipId)
+  })
+
+  it('never transforms into a non-Ship unit on Water, even if the action content mistakenly allows the terrain', () => {
+    const action: UnitAction = {
+      id: 'transform-to-city-on-water',
+      name: 'Transform to City (bad content)',
+      description: '',
+      // A real units.json action would never list 'water' here for a
+      // non-Ship targetUnit — this simulates a future content mistake to
+      // prove the engine still refuses it (see isWaterCreationAllowed).
+      effect: { actionType: 'transform', targetUnit: 'city', targetHex: { terrainType: ['water'], location: 'adj' }, destroySelf: true, cost: {} },
+    }
+    const board = boardOf([
+      [0, 0, 'plain'],
+      [1, 0, 'water'],
+    ])
+    const state = makeState({ board, units: [makeUnit('p1', 'nomad', { q: 0, r: 0 })] })
+    const nomad = state.units[0]
+
+    const next = applyUnitActionEffect(state, 'p1', 'nomad', action, { [nomad.id]: { q: 1, r: 0 } }, content)
+
+    expect(next.units).toHaveLength(1)
+    expect(next.units[0].kind).toBe('nomad')
   })
 })
 

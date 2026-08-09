@@ -16,7 +16,7 @@ import type {
   UnitAction,
   UnitContent,
 } from './unitContent'
-import type { Coordinate, GameState, Resources, Unit } from './types'
+import type { Coordinate, GameState, Resources, Terrain, Unit } from './types'
 import { coordKey } from './types'
 
 // --- board/adjacency helpers -----------------------------------------------
@@ -98,6 +98,19 @@ export function hasReachedSupplyCap(state: GameState, playerId: string, kind: st
   return count >= cap
 }
 
+/**
+ * Per ruling: no unit kind may be created/transformed into existence on
+ * Water except a Ship — regardless of that kind's own movement profile (a
+ * Merchant can travel onto Water once it exists, but can't be *built*
+ * there). Applied as a hard engine-level guarantee in both applyCreate and
+ * applyTransform below, on top of whatever terrain restriction the action's
+ * own content already specifies, so a future content mistake can't
+ * reintroduce this.
+ */
+export function isWaterCreationAllowed(targetUnit: string, terrain: Terrain): boolean {
+  return terrain !== 'water' || targetUnit === 'ship'
+}
+
 // --- per-actionType handlers, one acting unit at a time ---------------------
 
 function applyIncome(
@@ -162,11 +175,13 @@ function applyTrade(
   return creditResource(state, playerId, 'gold', cityCount * effect.goldPerCity, resourceCaps)
 }
 
-/** Per ruling: creation can never cross a cliff, and always respects the target kind's supply cap. */
+/** Per ruling: creation can never cross a cliff, always respects the target kind's supply cap, and can never target Water unless the created kind is a Ship (see isWaterCreationAllowed). */
 function applyCreate(state: GameState, playerId: string, unit: Unit, effect: CreateEffect, targetCoord: Coordinate | undefined, content: UnitContent): GameState {
   if (!targetCoord) return state
   if (!isAdjacent(state, unit.coord, targetCoord)) return state
-  if (!getTile(state.board, targetCoord)) return state
+  const targetTile = getTile(state.board, targetCoord)
+  if (!targetTile) return state
+  if (!isWaterCreationAllowed(effect.targetUnit, targetTile.terrain)) return state
   if (unitsAt(state, targetCoord).length > 0) return state
   if (crossesCliff(state, unit.coord, targetCoord, content.terrainLevels)) return state
   if (hasReachedSupplyCap(state, playerId, effect.targetUnit, content.unitSupplyCaps)) return state
@@ -194,6 +209,7 @@ function applyTransform(state: GameState, playerId: string, unit: Unit, effect: 
 
   const targetTile = getTile(state.board, resolvedTargetCoord)
   if (!targetTile || !effect.targetHex.terrainType.includes(targetTile.terrain)) return state
+  if (!isWaterCreationAllowed(effect.targetUnit, targetTile.terrain)) return state
 
   if (effect.targetHex.location === 'adj') {
     if (!isAdjacent(state, unit.coord, resolvedTargetCoord)) return state

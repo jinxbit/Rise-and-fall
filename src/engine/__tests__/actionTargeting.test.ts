@@ -124,6 +124,23 @@ describe('legalCreateTargets', () => {
 
     expect(legalCreateTargets(state, 'p1', unit, effect, content)).toEqual([])
   })
+
+  it('excludes a Water hex for a non-Ship target unit', () => {
+    const board = boardOf([[0, 0, 'plain'], [1, 0, 'water'], [1, -1, 'plain']])
+    const unit = makeUnit('p1', 'city', { q: 0, r: 0 })
+    const state = makeState({ board, units: [unit], players: [makePlayer('p1', { resources: { gold: 5, wood: 0, stone: 0 } })] })
+
+    expect(legalCreateTargets(state, 'p1', unit, effect, emptyContent)).toEqual([{ q: 1, r: -1 }])
+  })
+
+  it('includes a Water hex when the target unit is a Ship', () => {
+    const shipEffect: CreateEffect = { actionType: 'create', targetUnit: 'ship', targetHex: { location: 'adj' }, cost: {} }
+    const board = boardOf([[0, 0, 'plain'], [1, 0, 'water']])
+    const unit = makeUnit('p1', 'city', { q: 0, r: 0 })
+    const state = makeState({ board, units: [unit], players: [makePlayer('p1')] })
+
+    expect(legalCreateTargets(state, 'p1', unit, shipEffect, emptyContent)).toEqual([{ q: 1, r: 0 }])
+  })
 })
 
 describe('legalTransformTargets', () => {
@@ -160,6 +177,21 @@ describe('legalTransformTargets', () => {
     const unit = makeUnit('p1', 'nomad', { q: 0, r: 0 })
     const state = makeState({ board, units: [unit], players: [makePlayer('p1')] })
     expect(legalTransformTargets(state, 'p1', unit, effect, emptyContent)).toEqual([{ q: 1, r: 0 }])
+  })
+
+  it('excludes Water for a non-Ship target unit even if the content terrainType mistakenly allows it', () => {
+    const effect: TransformEffect = {
+      actionType: 'transform',
+      targetUnit: 'city',
+      targetHex: { terrainType: ['water'], location: 'adj' },
+      destroySelf: true,
+      cost: {},
+    }
+    const board = boardOf([[0, 0, 'plain'], [1, 0, 'water']])
+    const unit = makeUnit('p1', 'nomad', { q: 0, r: 0 })
+    const state = makeState({ board, units: [unit], players: [makePlayer('p1')] })
+
+    expect(legalTransformTargets(state, 'p1', unit, effect, emptyContent)).toEqual([])
   })
 })
 

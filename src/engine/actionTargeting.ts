@@ -1,5 +1,5 @@
 import { getTile, neighborCoords } from './board'
-import { canAffordCost, crossesCliff, hasReachedSupplyCap, unitsAt } from './unitActions'
+import { canAffordCost, crossesCliff, hasReachedSupplyCap, isWaterCreationAllowed, unitsAt } from './unitActions'
 import type { ConvertEffect, CreateEffect, TransformEffect, UnitContent } from './unitContent'
 import type { Coordinate, GameState, Unit } from './types'
 
@@ -10,8 +10,8 @@ import type { Coordinate, GameState, Unit } from './types'
  * to highlight legal targets before a player commits to one (see
  * RESOLVE_UNIT_ACTION's `targets`), without duplicating the rules
  * themselves: this and unitActions.ts both call the same exported
- * isAdjacent/crossesCliff/unitsAt/hasReachedSupplyCap/canAffordCost
- * predicates. `move`'s targeting reuses legalMoveDestinations from
+ * isAdjacent/crossesCliff/unitsAt/hasReachedSupplyCap/canAffordCost/
+ * isWaterCreationAllowed predicates. `move`'s targeting reuses legalMoveDestinations from
  * ./movement.ts directly, and no-target/self-location effects need no
  * targeting UI at all, so neither is duplicated here.
  */
@@ -22,7 +22,9 @@ export function legalCreateTargets(state: GameState, playerId: string, unit: Uni
   if (hasReachedSupplyCap(state, playerId, effect.targetUnit, content.unitSupplyCaps)) return []
 
   return neighborCoords(state.board, unit.coord).filter((coord) => {
-    if (!getTile(state.board, coord)) return false
+    const tile = getTile(state.board, coord)
+    if (!tile) return false
+    if (!isWaterCreationAllowed(effect.targetUnit, tile.terrain)) return false
     if (unitsAt(state, coord).length > 0) return false
     if (crossesCliff(state, unit.coord, coord, content.terrainLevels)) return false
     return true
@@ -36,12 +38,14 @@ export function legalTransformTargets(state: GameState, playerId: string, unit: 
 
   if (effect.targetHex.location === 'self') {
     const tile = getTile(state.board, unit.coord)
-    return tile && effect.targetHex.terrainType.includes(tile.terrain) ? [unit.coord] : []
+    if (!tile || !effect.targetHex.terrainType.includes(tile.terrain)) return []
+    return isWaterCreationAllowed(effect.targetUnit, tile.terrain) ? [unit.coord] : []
   }
 
   return neighborCoords(state.board, unit.coord).filter((coord) => {
     const tile = getTile(state.board, coord)
     if (!tile || !effect.targetHex.terrainType.includes(tile.terrain)) return false
+    if (!isWaterCreationAllowed(effect.targetUnit, tile.terrain)) return false
     if (unitsAt(state, coord).length > 0) return false
     if (crossesCliff(state, unit.coord, coord, content.terrainLevels)) return false
     return true
