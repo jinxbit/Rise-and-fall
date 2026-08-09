@@ -1,9 +1,9 @@
-import type { Action, UnitActionTarget } from './actions'
+import type { Action } from './actions'
 import { moveCard } from './cards'
 import { eliminatePlayersWithNoCardToDecline } from './elimination'
 import { appendLog } from './log'
 import { beginActionsPhase, beginPostActionsPhase, beginPurchasePhase, finishRound } from './round'
-import type { GameState } from './types'
+import type { Coordinate, GameState } from './types'
 import { EMPTY_UNIT_CONTENT } from './unitContent'
 import type { UnitContent } from './unitContent'
 import { applyUnitActionEffect } from './unitActions'
@@ -97,7 +97,7 @@ function applyResolveUnitAction(
   state: GameState,
   playerId: string,
   actionId: string,
-  targets: Record<string, UnitActionTarget>,
+  targets: Record<string, Coordinate>,
   unitContent: UnitContent,
 ): ActionResult {
   if (state.roundPhase !== 'actions') {

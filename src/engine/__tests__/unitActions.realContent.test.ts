@@ -157,7 +157,7 @@ describe('real content/units.json + terrain.json + resources.json', () => {
     }
 
     const action = findAction('ship', 'transform-to-nomad', content)
-    const next = applyUnitActionEffect(state, 'p1', 'ship', action, { [ship.id]: { coord: { q: 1, r: 0 } } }, content)
+    const next = applyUnitActionEffect(state, 'p1', 'ship', action, { [ship.id]: { q: 1, r: 0 } }, content)
 
     expect(next.units).toHaveLength(1)
     expect(next.units[0]).toMatchObject({ kind: 'nomad', coord: { q: 1, r: 0 } })

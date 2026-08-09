@@ -1,4 +1,3 @@
-import type { UnitActionTarget } from './actions'
 import { getTile, neighborCoords } from './board'
 import { syncCardZonesWithBoard } from './cards'
 import { isCliffBetweenTerrains } from './cliffs'
@@ -150,12 +149,7 @@ function applyProduce(
   return nextState
 }
 
-/**
- * OPEN QUESTION (UnitActions.md): Ship's "Trade" effect has no own/enemy
- * split, unlike Merchant's "Generate Income" which explicitly charges
- * different rates. Implemented literally as written — goldPerCity per
- * adjacent City regardless of owner — pending confirmation.
- */
+/** Per ruling: no own/enemy split — goldPerCity per adjacent City regardless of owner. */
 function applyTrade(
   state: GameState,
   playerId: string,
@@ -167,13 +161,13 @@ function applyTrade(
   return creditResource(state, playerId, 'gold', cityCount * effect.goldPerCity, resourceCaps)
 }
 
-function applyCreate(state: GameState, playerId: string, unit: Unit, effect: CreateEffect, target: UnitActionTarget | undefined, content: UnitContent): GameState {
-  const targetCoord = target?.coord
+/** Per ruling: creation can never cross a cliff, and always respects the target kind's supply cap. */
+function applyCreate(state: GameState, playerId: string, unit: Unit, effect: CreateEffect, targetCoord: Coordinate | undefined, content: UnitContent): GameState {
   if (!targetCoord) return state
   if (!isAdjacent(state, unit.coord, targetCoord)) return state
   if (!getTile(state.board, targetCoord)) return state
   if (unitsAt(state, targetCoord).length > 0) return state
-  if (!effect.targetHex.crossCliff && crossesCliff(state, unit.coord, targetCoord, content.terrainLevels)) return state
+  if (crossesCliff(state, unit.coord, targetCoord, content.terrainLevels)) return state
   if (hasReachedSupplyCap(state, playerId, effect.targetUnit, content.unitSupplyCaps)) return state
 
   const afterCost = tryPayCost(state, playerId, effect.cost)
@@ -191,25 +185,18 @@ function applyCreate(state: GameState, playerId: string, unit: Unit, effect: Cre
   return { ...afterCost, units: [...afterCost.units, newUnit] }
 }
 
-/**
- * OPEN QUESTION (UnitActions.md): create's effect has an explicit
- * targetHex.crossCliff override; transform's doesn't. Defaults here to the
- * acting unit's own movement.canCrossCliffs — pending confirmation this
- * matches intent rather than transforms simply never crossing cliffs (or
- * always being allowed to).
- */
-function applyTransform(state: GameState, playerId: string, unit: Unit, effect: TransformEffect, target: UnitActionTarget | undefined, content: UnitContent): GameState {
-  const targetCoord = effect.targetHex.location === 'self' ? unit.coord : target?.coord
-  if (!targetCoord) return state
+/** Per ruling: like create, an 'adj'-location transform can never cross a cliff. */
+function applyTransform(state: GameState, playerId: string, unit: Unit, effect: TransformEffect, targetCoord: Coordinate | undefined, content: UnitContent): GameState {
+  const resolvedTargetCoord = effect.targetHex.location === 'self' ? unit.coord : targetCoord
+  if (!resolvedTargetCoord) return state
 
-  const targetTile = getTile(state.board, targetCoord)
+  const targetTile = getTile(state.board, resolvedTargetCoord)
   if (!targetTile || !effect.targetHex.terrainType.includes(targetTile.terrain)) return state
 
   if (effect.targetHex.location === 'adj') {
-    if (!isAdjacent(state, unit.coord, targetCoord)) return state
-    if (unitsAt(state, targetCoord).length > 0) return state
-    const actingMovement = content.movementByKind[unit.kind]
-    if (!actingMovement?.canCrossCliffs && crossesCliff(state, unit.coord, targetCoord, content.terrainLevels)) return state
+    if (!isAdjacent(state, unit.coord, resolvedTargetCoord)) return state
+    if (unitsAt(state, resolvedTargetCoord).length > 0) return state
+    if (crossesCliff(state, unit.coord, resolvedTargetCoord, content.terrainLevels)) return state
   }
 
   if (hasReachedSupplyCap(state, playerId, effect.targetUnit, content.unitSupplyCaps)) return state
@@ -221,7 +208,7 @@ function applyTransform(state: GameState, playerId: string, unit: Unit, effect: 
     id: nextCreatedUnitId(),
     ownerId: playerId,
     kind: effect.targetUnit,
-    coord: targetCoord,
+    coord: resolvedTargetCoord,
     movement: content.movementByKind[effect.targetUnit] ?? { isMobile: false, terrains: [], canCrossCliffs: false },
     traits: [],
   }
@@ -230,13 +217,11 @@ function applyTransform(state: GameState, playerId: string, unit: Unit, effect: 
   return { ...afterCost, units: [...units, newUnit] }
 }
 
-function applyConvert(state: GameState, playerId: string, unit: Unit, effect: ConvertEffect, target: UnitActionTarget | undefined, content: UnitContent): GameState {
-  const targetCoord = target?.coord
+/** Per ruling: convert can never cross a cliff either (same rule as create/transform). */
+function applyConvert(state: GameState, playerId: string, unit: Unit, effect: ConvertEffect, targetCoord: Coordinate | undefined, content: UnitContent): GameState {
   if (!targetCoord) return state
   if (!isAdjacent(state, unit.coord, targetCoord)) return state
-
-  const actingMovement = content.movementByKind[unit.kind]
-  if (!actingMovement?.canCrossCliffs && crossesCliff(state, unit.coord, targetCoord, content.terrainLevels)) return state
+  if (crossesCliff(state, unit.coord, targetCoord, content.terrainLevels)) return state
 
   const targetUnit = unitsAt(state, targetCoord).find((u) => u.ownerId !== playerId)
   if (!targetUnit) return state
@@ -250,37 +235,14 @@ function applyConvert(state: GameState, playerId: string, unit: Unit, effect: Co
   return { ...afterCost, units }
 }
 
-/**
- * OPEN QUESTION (UnitActions.md): the rules don't say how each acting
- * Merchant picks which resource to trade and whether to buy or sell.
- * Implemented as an independent per-unit choice via `target.resource`/
- * `target.mode` — a unit with neither set does nothing. Gold isn't a
- * tradeable resource here (only Wood/Stone, traded for Gold).
- */
+/** Per ruling: despite the name, not a real trade — Merchant just generates flat gold, no target needed. */
 function applyTradeResource(
   state: GameState,
   playerId: string,
-  target: UnitActionTarget | undefined,
   effect: TradeResourceEffect,
   resourceCaps: Partial<Record<keyof Resources, number | null>>,
 ): GameState {
-  const resource = target?.resource
-  const mode = target?.mode
-  if (!resource || !mode || resource === 'gold' || !effect.modes.includes(mode)) return state
-
-  const player = state.players.find((p) => p.id === playerId)
-  if (!player) return state
-  const goldAmount = effect.goldPerResource * effect.resourceAmount
-
-  if (mode === 'sell') {
-    const sold = spendResource(player.resources, state.resourceBank, resource, effect.resourceAmount)
-    if (!sold) return state
-    return creditResource(updatePlayerResources(state, playerId, sold.resources, sold.bank), playerId, 'gold', goldAmount, resourceCaps)
-  }
-
-  const paid = spendResource(player.resources, state.resourceBank, 'gold', goldAmount)
-  if (!paid) return state
-  return creditResource(updatePlayerResources(state, playerId, paid.resources, paid.bank), playerId, resource, effect.resourceAmount, resourceCaps)
+  return creditResource(state, playerId, 'gold', effect.gold, resourceCaps)
 }
 
 // --- dispatcher --------------------------------------------------------------
@@ -297,7 +259,7 @@ export function applyUnitActionEffect(
   playerId: string,
   kind: string,
   action: UnitAction,
-  targets: Record<string, UnitActionTarget>,
+  targets: Record<string, Coordinate>,
   content: UnitContent,
 ): GameState {
   const actingUnits = state.units.filter((u) => u.ownerId === playerId && u.kind === kind)
@@ -326,7 +288,7 @@ export function applyUnitActionEffect(
         nextState = applyConvert(nextState, playerId, unit, effect, target, content)
         break
       case 'trade-resource':
-        nextState = applyTradeResource(nextState, playerId, target, effect, content.resourceCaps)
+        nextState = applyTradeResource(nextState, playerId, effect, content.resourceCaps)
         break
     }
   }

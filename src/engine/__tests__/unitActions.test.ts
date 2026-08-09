@@ -252,7 +252,7 @@ describe('applyUnitActionEffect — create', () => {
     id: 'create-nomad',
     name: 'Create Nomad',
     description: '',
-    effect: { actionType: 'create', targetUnit: 'nomad', targetHex: { location: 'adj', crossCliff: false }, cost: { gold: 2 } },
+    effect: { actionType: 'create', targetUnit: 'nomad', targetHex: { location: 'adj' }, cost: { gold: 2 } },
   }
   const content: UnitContent = {
     ...emptyContent,
@@ -271,7 +271,7 @@ describe('applyUnitActionEffect — create', () => {
     })
     const city = state.units[0]
 
-    const next = applyUnitActionEffect(state, 'p1', 'city', action, { [city.id]: { coord: { q: 1, r: 0 } } }, content)
+    const next = applyUnitActionEffect(state, 'p1', 'city', action, { [city.id]: { q: 1, r: 0 } }, content)
 
     expect(next.units.some((u) => u.kind === 'nomad' && u.ownerId === 'p1' && u.coord.q === 1 && u.coord.r === 0)).toBe(true)
     expect(next.players.find((p) => p.id === 'p1')!.resources.gold).toBe(3)
@@ -294,7 +294,7 @@ describe('applyUnitActionEffect — create', () => {
     const state = makeState({ board, units: [makeUnit('p1', 'city', { q: 0, r: 0 })] })
     const city = state.units[0]
 
-    const next = applyUnitActionEffect(state, 'p1', 'city', action, { [city.id]: { coord: { q: 5, r: 5 } } }, content)
+    const next = applyUnitActionEffect(state, 'p1', 'city', action, { [city.id]: { q: 5, r: 5 } }, content)
 
     expect(next.units).toHaveLength(1)
   })
@@ -310,12 +310,12 @@ describe('applyUnitActionEffect — create', () => {
     })
     const city = state.units[0]
 
-    const next = applyUnitActionEffect(state, 'p1', 'city', action, { [city.id]: { coord: { q: 1, r: 0 } } }, content)
+    const next = applyUnitActionEffect(state, 'p1', 'city', action, { [city.id]: { q: 1, r: 0 } }, content)
 
     expect(next.units).toHaveLength(2)
   })
 
-  it('skips when the target is across a cliff edge and crossCliff is false', () => {
+  it('skips when the target is across a cliff edge — creation can never cross a cliff', () => {
     const board = boardOf([
       [0, 0, 'water'], // level 0
       [1, 0, 'mountain'], // level 3 — diff 3, a cliff
@@ -327,16 +327,12 @@ describe('applyUnitActionEffect — create', () => {
     })
     const city = state.units[0]
 
-    const next = applyUnitActionEffect(state, 'p1', 'city', action, { [city.id]: { coord: { q: 1, r: 0 } } }, content)
+    const next = applyUnitActionEffect(state, 'p1', 'city', action, { [city.id]: { q: 1, r: 0 } }, content)
 
     expect(next.units).toHaveLength(1)
   })
 
-  it('allows crossing a cliff when the action explicitly permits it', () => {
-    const crossCliffAction: UnitAction = {
-      ...action,
-      effect: { actionType: 'create', targetUnit: 'nomad', targetHex: { location: 'adj', crossCliff: true }, cost: { gold: 2 } },
-    }
+  it('still blocks a cliff even for an acting unit that can normally cross cliffs (Mountaineer)', () => {
     const board = boardOf([
       [0, 0, 'water'],
       [1, 0, 'mountain'],
@@ -344,13 +340,17 @@ describe('applyUnitActionEffect — create', () => {
     const state = makeState({
       board,
       players: [makePlayer('p1', { resources: { gold: 5, wood: 0, stone: 0 } }), makePlayer('p2')],
-      units: [makeUnit('p1', 'city', { q: 0, r: 0 })],
+      units: [makeUnit('p1', 'mountaineer', { q: 0, r: 0 }, { canCrossCliffs: true })],
     })
-    const city = state.units[0]
+    const mountaineer = state.units[0]
+    const mountaineerContent: UnitContent = {
+      ...content,
+      movementByKind: { ...content.movementByKind, mountaineer: { isMobile: true, terrains: [], canCrossCliffs: true } },
+    }
 
-    const next = applyUnitActionEffect(state, 'p1', 'city', crossCliffAction, { [city.id]: { coord: { q: 1, r: 0 } } }, content)
+    const next = applyUnitActionEffect(state, 'p1', 'mountaineer', action, { [mountaineer.id]: { q: 1, r: 0 } }, mountaineerContent)
 
-    expect(next.units.some((u) => u.kind === 'nomad')).toBe(true)
+    expect(next.units).toHaveLength(1)
   })
 
   it('skips when the player cannot afford the cost', () => {
@@ -365,7 +365,7 @@ describe('applyUnitActionEffect — create', () => {
     })
     const city = state.units[0]
 
-    const next = applyUnitActionEffect(state, 'p1', 'city', action, { [city.id]: { coord: { q: 1, r: 0 } } }, content)
+    const next = applyUnitActionEffect(state, 'p1', 'city', action, { [city.id]: { q: 1, r: 0 } }, content)
 
     expect(next.units).toHaveLength(1)
   })
@@ -383,7 +383,7 @@ describe('applyUnitActionEffect — create', () => {
     const city = state.units[0]
     const cappedContent: UnitContent = { ...content, unitSupplyCaps: { nomad: 1 } }
 
-    const next = applyUnitActionEffect(state, 'p1', 'city', action, { [city.id]: { coord: { q: 1, r: 0 } } }, cappedContent)
+    const next = applyUnitActionEffect(state, 'p1', 'city', action, { [city.id]: { q: 1, r: 0 } }, cappedContent)
 
     expect(next.units).toHaveLength(2)
   })
@@ -401,7 +401,7 @@ describe('applyUnitActionEffect — create', () => {
     })
     const [cityA] = state.units
 
-    const next = applyUnitActionEffect(state, 'p1', 'city', action, { [cityA.id]: { coord: { q: 1, r: 0 } } }, content)
+    const next = applyUnitActionEffect(state, 'p1', 'city', action, { [cityA.id]: { q: 1, r: 0 } }, content)
 
     expect(next.units.filter((u) => u.kind === 'nomad')).toHaveLength(1)
     expect(next.players.find((p) => p.id === 'p1')!.resources.gold).toBe(8)
@@ -475,7 +475,7 @@ describe('applyUnitActionEffect — transform', () => {
     })
     const nomad = state.units[0]
 
-    const next = applyUnitActionEffect(state, 'p1', 'nomad', action, { [nomad.id]: { coord: { q: 1, r: 0 } } }, content)
+    const next = applyUnitActionEffect(state, 'p1', 'nomad', action, { [nomad.id]: { q: 1, r: 0 } }, content)
 
     expect(next.units).toHaveLength(1)
     expect(next.units[0]).toMatchObject({ kind: 'ship', coord: { q: 1, r: 0 } })
@@ -495,12 +495,12 @@ describe('applyUnitActionEffect — transform', () => {
     const state = makeState({ board, units: [makeUnit('p1', 'nomad', { q: 0, r: 0 })] })
     const nomad = state.units[0]
 
-    const next = applyUnitActionEffect(state, 'p1', 'nomad', action, { [nomad.id]: { coord: { q: 1, r: 0 } } }, content)
+    const next = applyUnitActionEffect(state, 'p1', 'nomad', action, { [nomad.id]: { q: 1, r: 0 } }, content)
 
     expect(next.units[0].kind).toBe('nomad')
   })
 
-  it('adjacent-location: blocked by a cliff unless the acting unit can cross cliffs', () => {
+  it('adjacent-location: always blocked by a cliff, even for an acting unit that can normally cross cliffs', () => {
     const action: UnitAction = {
       id: 'transform-to-ship',
       name: 'Transform to Ship',
@@ -511,16 +511,12 @@ describe('applyUnitActionEffect — transform', () => {
       [0, 0, 'mountain'], // level 3
       [1, 0, 'water'], // level 0 — diff 3, a cliff
     ])
-    const noncrossing = makeState({ board, units: [makeUnit('p1', 'nomad', { q: 0, r: 0 }, { canCrossCliffs: false })] })
-    const target = { [noncrossing.units[0].id]: { coord: { q: 1, r: 0 } } }
-
-    const blocked = applyUnitActionEffect(noncrossing, 'p1', 'nomad', action, target, content)
-    expect(blocked.units[0].kind).toBe('nomad')
-
     const crossingContent: UnitContent = { ...content, movementByKind: { ...content.movementByKind, nomad: { ...content.movementByKind.nomad, canCrossCliffs: true } } }
-    const crossing = makeState({ board, units: [makeUnit('p1', 'nomad', { q: 0, r: 0 })] })
-    const allowed = applyUnitActionEffect(crossing, 'p1', 'nomad', action, { [crossing.units[0].id]: { coord: { q: 1, r: 0 } } }, crossingContent)
-    expect(allowed.units[0].kind).toBe('ship')
+    const state = makeState({ board, units: [makeUnit('p1', 'nomad', { q: 0, r: 0 }, { canCrossCliffs: true })] })
+
+    const next = applyUnitActionEffect(state, 'p1', 'nomad', action, { [state.units[0].id]: { q: 1, r: 0 } }, crossingContent)
+
+    expect(next.units[0].kind).toBe('nomad')
   })
 })
 
@@ -547,7 +543,7 @@ describe('applyUnitActionEffect — convert (Temple)', () => {
     const state = makeState({ board, units: [makeUnit('p1', 'temple', { q: 0, r: 0 }), makeUnit('p2', 'nomad', { q: 1, r: 0 })] })
     const [temple, enemyUnit] = state.units
 
-    const next = applyUnitActionEffect(state, 'p1', 'temple', action, { [temple.id]: { coord: enemyUnit.coord } }, content)
+    const next = applyUnitActionEffect(state, 'p1', 'temple', action, { [temple.id]: enemyUnit.coord }, content)
 
     expect(next.units.find((u) => u.id === enemyUnit.id)!.ownerId).toBe('p1')
   })
@@ -560,7 +556,7 @@ describe('applyUnitActionEffect — convert (Temple)', () => {
     const state = makeState({ board, units: [makeUnit('p1', 'temple', { q: 0, r: 0 }), makeUnit('p1', 'nomad', { q: 1, r: 0 })] })
     const [temple, ownUnit] = state.units
 
-    const next = applyUnitActionEffect(state, 'p1', 'temple', action, { [temple.id]: { coord: ownUnit.coord } }, content)
+    const next = applyUnitActionEffect(state, 'p1', 'temple', action, { [temple.id]: ownUnit.coord }, content)
 
     expect(next.units.find((u) => u.kind === 'nomad')!.ownerId).toBe('p1')
   })
@@ -573,51 +569,37 @@ describe('applyUnitActionEffect — convert (Temple)', () => {
     const state = makeState({ board, units: [makeUnit('p1', 'temple', { q: 0, r: 0 }), makeUnit('p2', 'temple', { q: 1, r: 0 })] })
     const [temple, enemyTemple] = state.units
 
-    const next = applyUnitActionEffect(state, 'p1', 'temple', action, { [temple.id]: { coord: enemyTemple.coord } }, content)
+    const next = applyUnitActionEffect(state, 'p1', 'temple', action, { [temple.id]: enemyTemple.coord }, content)
 
     expect(next.units.find((u) => u.id === enemyTemple.id)!.ownerId).toBe('p2')
   })
 })
 
-describe('applyUnitActionEffect — trade-resource (Merchant, open question)', () => {
+describe('applyUnitActionEffect — trade-resource (Merchant)', () => {
+  // Per ruling: despite the name ("Buy/Sell Resource"), there's no actual
+  // trade — the Merchant just generates flat gold income, no target needed.
   const action: UnitAction = {
     id: 'trade-resource',
     name: 'Buy/Sell Resource',
     description: '',
-    effect: { actionType: 'trade-resource', resourceAmount: 1, goldPerResource: 5, modes: ['buy', 'sell'] },
+    effect: { actionType: 'trade-resource', gold: 5 },
   }
 
-  it('sells a resource for gold, per unit', () => {
-    const state = makeState({
-      players: [makePlayer('p1', { resources: { gold: 0, wood: 1, stone: 0 } }), makePlayer('p2')],
-      units: [makeUnit('p1', 'merchant', { q: 0, r: 0 })],
-    })
-    const merchant = state.units[0]
-
-    const next = applyUnitActionEffect(state, 'p1', 'merchant', action, { [merchant.id]: { resource: 'wood', mode: 'sell' } }, emptyContent)
-
-    const p1 = next.players.find((p) => p.id === 'p1')!
-    expect(p1.resources).toEqual({ gold: 5, wood: 0, stone: 0 })
-  })
-
-  it('buys a resource with gold, per unit', () => {
-    const state = makeState({
-      players: [makePlayer('p1', { resources: { gold: 5, wood: 0, stone: 0 } }), makePlayer('p2')],
-      units: [makeUnit('p1', 'merchant', { q: 0, r: 0 })],
-    })
-    const merchant = state.units[0]
-
-    const next = applyUnitActionEffect(state, 'p1', 'merchant', action, { [merchant.id]: { resource: 'stone', mode: 'buy' } }, emptyContent)
-
-    const p1 = next.players.find((p) => p.id === 'p1')!
-    expect(p1.resources).toEqual({ gold: 0, wood: 0, stone: 1 })
-  })
-
-  it('does nothing without a resource/mode choice', () => {
+  it('generates flat gold income, no target needed', () => {
     const state = makeState({ units: [makeUnit('p1', 'merchant', { q: 0, r: 0 })] })
 
     const next = applyUnitActionEffect(state, 'p1', 'merchant', action, {}, emptyContent)
 
-    expect(next.players.find((p) => p.id === 'p1')!.resources).toEqual({ gold: 0, wood: 0, stone: 0 })
+    expect(goldOf(next, 'p1')).toBe(5)
+  })
+
+  it('applies independently to every Merchant the player owns', () => {
+    const state = makeState({
+      units: [makeUnit('p1', 'merchant', { q: 0, r: 0 }), makeUnit('p1', 'merchant', { q: 5, r: 5 })],
+    })
+
+    const next = applyUnitActionEffect(state, 'p1', 'merchant', action, {}, emptyContent)
+
+    expect(goldOf(next, 'p1')).toBe(10)
   })
 })

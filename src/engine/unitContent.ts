@@ -19,7 +19,7 @@ export interface CreateEffect {
   actionType: 'create'
   /** Unit kind id to create — matches Unit.kind / a units.json id. */
   targetUnit: string
-  targetHex: { location: 'adj'; crossCliff: boolean }
+  targetHex: { location: 'adj' }
   cost: ActionCost
 }
 
@@ -52,11 +52,14 @@ export interface ProduceEffect {
   resourceByTerrain: Record<string, Partial<Record<keyof Resources, number>>>
 }
 
+/**
+ * Despite the name ("Buy/Sell Resource" in units.json), this isn't a real
+ * trade — per ruling, Merchant "just generates income": flat gold, no
+ * resource involved, no target needed.
+ */
 export interface TradeResourceEffect {
   actionType: 'trade-resource'
-  resourceAmount: number
-  goldPerResource: number
-  modes: Array<'buy' | 'sell'>
+  gold: number
 }
 
 export interface TradeEffect {

@@ -20,7 +20,7 @@
           "effect": {
             "actionType": "create",
             "targetUnit": "nomad",
-            "targetHex": { "location": "adj", "crossCliff": false },
+            "targetHex": { "location": "adj" },
             "cost": { "gold": 0, "wood": 0, "stone": 0 }
           }
         },
@@ -31,7 +31,7 @@
           "effect": {
             "actionType": "create",
             "targetUnit": "merchant",
-            "targetHex": { "location": "adj", "crossCliff": false },
+            "targetHex": { "location": "adj" },
             "cost": { "gold": 2, "wood": 0, "stone": 0 }
           }
         },
@@ -42,7 +42,7 @@
           "effect": {
             "actionType": "create",
             "targetUnit": "mountaineer",
-            "targetHex": { "location": "adj", "crossCliff": false },
+            "targetHex": { "location": "adj" },
             "cost": { "gold": 1, "wood": 0, "stone": 0 }
           }
         },
@@ -175,12 +175,10 @@
         {
           "id": "trade-resource",
           "name": "Buy/Sell Resource",
-          "description": "Buy or sell a single resource for 5 gold.",
+          "description": "Generate 5 gold.",
           "effect": {
             "actionType": "trade-resource",
-            "resourceAmount": 1,
-            "goldPerResource": 5,
-            "modes": ["buy", "sell"]
+            "gold": 5
           }
         },
         {
