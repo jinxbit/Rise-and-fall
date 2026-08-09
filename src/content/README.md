@@ -18,6 +18,11 @@ One entry per unit type. `id` matches the engine's `Unit.kind` field
   can move onto.
 - `movement.canCrossCliffs` — whether this unit ignores cliff edges, which
   otherwise block movement/adjacency for every other unit.
+- `victoryPoints.byBoardCount` — the board-control VP scoring curve: index 0
+  is the score for having exactly 1 of this unit on the board, index 1 for
+  2, etc. (e.g. `[1, 2, 3, 4]` scores 1/2/3/4 units as 1/2/3/4 points). 0
+  units always scores 0; a count past the array's length scores the last
+  entry. Empty until the real curve is decided.
 - `actions` — the list of actions this unit's card can trigger. A card is
   associated with exactly one unit type; playing it lets the player pick
   one action from this list and apply it to every unit of that type they
@@ -36,6 +41,12 @@ The 5 terrain types (water, plain, forest, mountain, glacier) plus:
 - `placesOn` — which terrain type(s) this one may be placed on top of during
   board setup (e.g. `plain.placesOn = ["water"]`). `null` only for water,
   the base terrain.
+- `victoryPoints` — VP per hex for territory control: at game end, each
+  contiguous region of same-terrain hexes is checked for unit majority: the
+  player with more units on hexes in that region than any other player
+  scores this value times the region's hex count (e.g. a 5-hex water region
+  at `victoryPoints: 1` scores 5). A region with no clear majority scores
+  nothing, for anyone. Placeholder `0` until the real value is decided.
 - `shapeGroups` — distinct tile pools for that terrain type. Every terrain
   type has a single `standard` group except water, which has `initial`
   (placed at game setup) and `expansion` (placed later by players) — two

@@ -15,7 +15,7 @@
   "definitions": {
     "unit": {
       "type": "object",
-      "required": ["id", "name", "description", "supply", "movement", "actions"],
+      "required": ["id", "name", "description", "supply", "movement", "actions", "victoryPoints"],
       "additionalProperties": false,
       "properties": {
         "id": {
@@ -29,6 +29,19 @@
         "description": {
           "type": "string",
           "description": "Flavor/rules text, written from scratch (no reproduced rulebook text)."
+        },
+        "victoryPoints": {
+          "type": "object",
+          "description": "How many victory points a player scores for controlling units of this type on the board, based on how many they currently have.",
+          "required": ["byBoardCount"],
+          "additionalProperties": false,
+          "properties": {
+            "byBoardCount": {
+              "type": "array",
+              "description": "byBoardCount[i] is the VP score for having exactly i+1 of this unit on the board (1-indexed: index 0 = 1 unit, index 1 = 2 units, etc.) — e.g. [1, 2, 3, 4] scores 1 unit as 1pt, 2 units as 2pts, 3 as 3pts, 4 as 4pts. A count of 0 always scores 0. A count beyond the array's length scores the last entry's value (uses the highest defined tier). Empty until the real scoring curve is decided.",
+              "items": { "type": "number", "minimum": 0 }
+            }
+          }
         },
         "supply": {
           "type": "object",

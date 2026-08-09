@@ -15,7 +15,7 @@
   "definitions": {
     "terrainType": {
       "type": "object",
-      "required": ["id", "name", "placesOn", "shapeGroups"],
+      "required": ["id", "name", "placesOn", "victoryPoints", "shapeGroups"],
       "additionalProperties": false,
       "properties": {
         "id": {
@@ -27,6 +27,11 @@
           "description": "Terrain type id(s) this type may be placed on top of during board setup. null only for water, the base terrain.",
           "type": ["array", "null"],
           "items": { "type": "string" }
+        },
+        "victoryPoints": {
+          "type": "number",
+          "minimum": 0,
+          "description": "VP per hex awarded for territory control of a contiguous region of this terrain type at game end: the player with a unit majority in the region scores this value times the region's hex count (a region with no clear majority scores nothing, for anyone). Placeholder 0 until the real value is decided."
         },
         "shapeGroups": {
           "type": "array",

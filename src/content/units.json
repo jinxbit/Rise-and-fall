@@ -5,6 +5,7 @@
       "id": "city",
       "name": "City",
       "description": "",
+      "victoryPoints": { "byBoardCount": [] },
       "supply": { "byPlayerCount": { "2": 0, "3": 0, "4": 0 } },
       "movement": {
         "isMobile": false,
@@ -60,6 +61,7 @@
       "id": "temple",
       "name": "Temple",
       "description": "",
+      "victoryPoints": { "byBoardCount": [] },
       "supply": { "byPlayerCount": { "2": 0, "3": 0, "4": 0 } },
       "movement": {
         "isMobile": false,
@@ -95,6 +97,7 @@
       "id": "nomad",
       "name": "Nomad",
       "description": "",
+      "victoryPoints": { "byBoardCount": [] },
       "supply": { "byPlayerCount": { "2": 0, "3": 0, "4": 0 } },
       "movement": {
         "isMobile": true,
@@ -158,6 +161,7 @@
       "id": "merchant",
       "name": "Merchant",
       "description": "",
+      "victoryPoints": { "byBoardCount": [] },
       "supply": { "byPlayerCount": { "2": 0, "3": 0, "4": 0 } },
       "movement": {
         "isMobile": true,
@@ -209,6 +213,7 @@
       "id": "mountaineer",
       "name": "Mountaineer",
       "description": "",
+      "victoryPoints": { "byBoardCount": [] },
       "supply": { "byPlayerCount": { "2": 0, "3": 0, "4": 0 } },
       "movement": {
         "isMobile": true,
@@ -249,6 +254,7 @@
       "id": "ship",
       "name": "Ship",
       "description": "",
+      "victoryPoints": { "byBoardCount": [] },
       "supply": { "byPlayerCount": { "2": 0, "3": 0, "4": 0 } },
       "movement": {
         "isMobile": true,

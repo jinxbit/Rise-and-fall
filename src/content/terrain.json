@@ -5,6 +5,7 @@
       "id": "water",
       "name": "Water",
       "placesOn": null,
+      "victoryPoints": 0,
       "shapeGroups": [
         {
           "id": "initial",
@@ -30,6 +31,7 @@
       "id": "plain",
       "name": "Plain",
       "placesOn": ["water"],
+      "victoryPoints": 0,
       "shapeGroups": [
         {
           "id": "standard",
@@ -46,6 +48,7 @@
       "id": "forest",
       "name": "Forest",
       "placesOn": ["plain"],
+      "victoryPoints": 0,
       "shapeGroups": [
         {
           "id": "standard",
@@ -62,6 +65,7 @@
       "id": "mountain",
       "name": "Mountain",
       "placesOn": ["forest"],
+      "victoryPoints": 0,
       "shapeGroups": [
         {
           "id": "standard",
@@ -78,6 +82,7 @@
       "id": "glacier",
       "name": "Glacier",
       "placesOn": ["mountain"],
+      "victoryPoints": 0,
       "shapeGroups": [
         {
           "id": "standard",
