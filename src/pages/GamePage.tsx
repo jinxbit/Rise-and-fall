@@ -19,6 +19,7 @@ export function GamePage() {
   const [gameState, setGameState] = useState<EngineGameState | null>(null)
   const [version, setVersion] = useState<number | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [showStateJson, setShowStateJson] = useState(false)
 
   useEffect(() => {
     if (!roomCode) return
@@ -95,15 +96,31 @@ export function GamePage() {
     <div className="mx-auto flex max-w-4xl flex-col gap-6 p-8">
       <header className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Room {game.room_code}</h1>
-        <ul className="flex gap-3 text-sm text-neutral-400">
-          {players.map((p) => (
-            <li key={p.id} className="flex items-center gap-1">
-              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: p.color }} />
-              {p.display_name}
-            </li>
-          ))}
-        </ul>
+        <div className="flex items-center gap-4">
+          <ul className="flex gap-3 text-sm text-neutral-400">
+            {players.map((p) => (
+              <li key={p.id} className="flex items-center gap-1">
+                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: p.color }} />
+                {p.display_name}
+              </li>
+            ))}
+          </ul>
+          <button
+            type="button"
+            disabled={!gameState}
+            onClick={() => setShowStateJson((v) => !v)}
+            className="rounded-md border border-neutral-700 px-3 py-1 text-sm hover:border-neutral-500 disabled:opacity-50"
+          >
+            {showStateJson ? 'Hide' : 'Show'} game state JSON
+          </button>
+        </div>
       </header>
+
+      {showStateJson && gameState && (
+        <pre className="max-h-96 overflow-auto rounded-md border border-neutral-800 bg-neutral-900 p-4 text-xs text-neutral-300">
+          {JSON.stringify(gameState, null, 2)}
+        </pre>
+      )}
 
       {actionError && <div className="rounded-md bg-red-500/10 p-3 text-sm text-red-400">{actionError}</div>}
 
