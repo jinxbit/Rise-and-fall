@@ -20,12 +20,12 @@ import { coordKey } from './types'
 
 // --- board/adjacency helpers -----------------------------------------------
 
-function unitsAt(state: GameState, coord: Coordinate): Unit[] {
+export function unitsAt(state: GameState, coord: Coordinate): Unit[] {
   const key = coordKey(coord)
   return state.units.filter((u) => coordKey(u.coord) === key)
 }
 
-function isAdjacent(state: GameState, a: Coordinate, b: Coordinate): boolean {
+export function isAdjacent(state: GameState, a: Coordinate, b: Coordinate): boolean {
   const key = coordKey(b)
   return neighborCoords(state.board, a).some((c) => coordKey(c) === key)
 }
@@ -35,7 +35,7 @@ function adjacentUnits(state: GameState, coord: Coordinate): Unit[] {
   return state.units.filter((u) => neighborKeys.has(coordKey(u.coord)))
 }
 
-function crossesCliff(state: GameState, from: Coordinate, to: Coordinate, terrainLevels: Record<string, number>): boolean {
+export function crossesCliff(state: GameState, from: Coordinate, to: Coordinate, terrainLevels: Record<string, number>): boolean {
   const fromTile = getTile(state.board, from)
   const toTile = getTile(state.board, to)
   if (!fromTile || !toTile) return false
@@ -85,7 +85,12 @@ function tryPayCost(state: GameState, playerId: string, cost: ActionCost): GameS
   return updatePlayerResources(state, playerId, resources, bank)
 }
 
-function hasReachedSupplyCap(state: GameState, playerId: string, kind: string, unitSupplyCaps: Record<string, number>): boolean {
+/** Read-only affordability check (no state change) — used by UI to preview legal targets before submitting. */
+export function canAffordCost(resources: Resources, cost: ActionCost): boolean {
+  return (cost.gold ?? 0) <= resources.gold && (cost.wood ?? 0) <= resources.wood && (cost.stone ?? 0) <= resources.stone
+}
+
+export function hasReachedSupplyCap(state: GameState, playerId: string, kind: string, unitSupplyCaps: Record<string, number>): boolean {
   const cap = unitSupplyCaps[kind]
   if (cap === undefined) return false
   const count = state.units.filter((u) => u.ownerId === playerId && u.kind === kind).length

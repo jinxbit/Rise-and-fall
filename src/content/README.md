@@ -207,11 +207,15 @@ status lives only in the `game_state` row); `GamePage.tsx` renders the
 new `BoardSetupView`/`HexBoard` components (a real pointy-top axial SVG
 hex grid, click/rotate/confirm tile placement, click-to-place starting
 units) instead of the old fake `BoardView.tsx` grid, which is deleted.
+Once board setup finishes, `GamePage.tsx` switches to
+`src/components/RoundView.tsx` for the round cycle itself
+(select-cards/actions/decline/purchase), reading achievement content via
+`resolveContent.ts`'s new `resolveAchievementContent()`.
 
 See `todo.md` #7 for the full breakdown of what's covered and what's
-still open (mainly: the no-space/move-tiles search, the round cycle's
-UI, and that this hasn't been click-tested end-to-end against a live
-Supabase project yet). See `PROJECT_PLAN.md` section 2's board
+still open (mainly: the no-space/move-tiles search, and that none of
+this UI has been click-tested end-to-end against a live Supabase
+project yet). See `PROJECT_PLAN.md` section 2's board
 generation item.
 
 ## `achievements.json` (validated by `achievements.schema.json`)

@@ -329,18 +329,40 @@ Docker to stand one up, so the actual click-through (join a lobby with
 2+ browser tabs, start, place tiles/units in turn) still needs a manual
 pass against a real deployment.
 
+**The round cycle now has a UI too**, beyond just board setup:
+`src/components/RoundView.tsx` renders once `GameState.status` is
+`'active'` — phase banner, per-player resource/hand-count strip, claimed
+achievements, an event-log tail, and a phase-specific panel:
+`selectCards` (pick a card from hand), `actions` (pick one of the chosen
+card's unit-kind actions, then — for `create`/`convert`/an `adj`-location
+`transform`/`move` — assign a target hex per acting unit by clicking the
+board, reusing a shared `HexBoard`), `decline` (move a card from hand/
+discard to decline, once per card owed), `purchase` (buy a card back
+from decline for gold, or pass). A `'completed'` status shows a winner
+banner. Legal-target highlighting for the `actions` phase is driven by a
+new `src/engine/actionTargeting.ts` (`legalCreateTargets`/
+`legalTransformTargets`/`legalConvertTargets`, tested in
+`actionTargeting.test.ts`) built from small predicates now exported from
+`unitActions.ts` (`isAdjacent`/`crossesCliff`/`unitsAt`/
+`hasReachedSupplyCap`, plus a new read-only `canAffordCost`) — the same
+predicates `applyUnitActionEffect` itself uses, so the UI's preview can't
+drift from what the engine actually allows; `move` targeting reuses
+`legalMoveDestinations` directly. `resolveContent.ts` gained
+`resolveAchievementContent()` to complete the content-resolver set.
+
 **Still not implemented:**
 - Rule 4's no-space/move-tiles search — `placeTile()` currently just
   rejects an illegal placement outright; it doesn't detect "no legal
   placement exists anywhere" and prompt for a minimal tile rearrangement.
-- The round cycle itself (`selectCards`/`actions`/`decline`/`purchase`)
-  has no UI yet — once board setup finishes, `GamePage.tsx` falls back to
-  a read-only board view with no way to actually play a round.
 - Tile placement in the UI is confined to a padded rectangle around the
   board's current extent (`BoardSetupView.tsx`'s `paddedEmptyCoords`),
   not the fully unconstrained "anywhere on an infinite empty board" the
   engine allows — a deliberate scope cut (an infinite pan/zoom canvas
   felt like overkill for a first pass), not a rules gap.
+- None of this UI (board setup or round cycle) has been click-tested
+  end-to-end against a live Supabase project — this sandbox has no
+  Supabase credentials or working Docker to stand one up locally, so
+  only `tsc -b`/`oxlint`/`vitest`/`npm run build` have verified it.
 
 Open questions once further work starts: whether "least tiles moved"
 ties (multiple minimal-size rearrangements) need a tiebreak rule or are

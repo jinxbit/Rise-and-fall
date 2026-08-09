@@ -6,9 +6,11 @@
 // resolving actions) goes through here instead of reaching into
 // content/*.json itself.
 
+import achievementsJson from './achievements.json'
 import resourcesJson from './resources.json'
 import terrainJson from './terrain.json'
 import unitsJson from './units.json'
+import type { AchievementContent } from '../engine/achievementContent'
 import type { BoardGenerationContent, TileTierContent } from '../engine/boardGenerationContent'
 import type { UnitAction, UnitContent } from '../engine/unitContent'
 import type { Resources, Terrain, UnitMovement } from '../engine/types'
@@ -79,4 +81,35 @@ export function resolveUnitLimits(playerCount: number): Record<string, number> {
     limits[unit.id] = unit.supply.byPlayerCount[key as keyof typeof unit.supply.byPlayerCount] ?? 0
   }
   return limits
+}
+
+export function resolveAchievementContent(): AchievementContent {
+  const unitKindByAchievementId: Record<string, string> = {}
+  const achievementVictoryPoints: Record<string, number> = {}
+  for (const achievement of achievementsJson.achievements) {
+    unitKindByAchievementId[achievement.id] = achievement.unitId
+    achievementVictoryPoints[achievement.id] = achievement.victoryPoints
+  }
+
+  const unitBoardCountVP: Record<string, number[]> = {}
+  for (const unit of unitsJson.units) {
+    unitBoardCountVP[unit.id] = unit.victoryPoints.byBoardCount
+  }
+
+  const terrainVictoryPoints: Record<string, number> = {}
+  const terrainScoresAs: Record<string, string> = {}
+  for (const terrainType of terrainJson.terrainTypes) {
+    terrainVictoryPoints[terrainType.id] = terrainType.victoryPoints
+    terrainScoresAs[terrainType.id] = terrainType.scoresAs
+  }
+
+  return {
+    unitKindByAchievementId,
+    achievementVictoryPoints,
+    purchaseCostTable: achievementsJson.purchaseCost.byAchievementCount,
+    gameLength: achievementsJson.gameLength.default,
+    unitBoardCountVP,
+    terrainVictoryPoints,
+    terrainScoresAs,
+  }
 }

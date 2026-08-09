@@ -146,14 +146,17 @@ decisions get made.
             SVG hex grid. Not yet verified end-to-end against a live
             Supabase project (no credentials/Docker in the build
             sandbox) — typecheck/lint/tests/build all pass.
+      - [x] The round cycle also has a UI now: `src/components/RoundView.tsx`
+            renders once `GameState.status` is `'active'` — select-cards,
+            actions (with per-unit target selection on the board, driven
+            by a new `src/engine/actionTargeting.ts`), decline, and
+            purchase, plus a `'completed'` winner banner. Also not yet
+            click-tested end-to-end against a live Supabase project.
       - [ ] Not yet built: rule 4's no-space/move-tiles search
             (`placeTile()` currently just rejects an illegal placement
-            outright), and any UI for the round cycle itself
-            (`selectCards`/`actions`/`decline`/`purchase`) — once board
-            setup finishes, `GamePage.tsx` falls back to a read-only
-            board view.
+            outright).
 - [x] Expand the unit test suite in `src/engine/__tests__/` to cover
-      every action and edge case as it's implemented — 208 tests, including
+      every action and edge case as it's implemented — 218 tests, including
       a pass against the real `content/*.json` files, not just synthetic
       fixtures.
 

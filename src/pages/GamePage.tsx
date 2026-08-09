@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { BoardSetupView } from '../components/BoardSetupView'
-import { HexBoard } from '../components/HexBoard'
-import { resolveBoardGenerationContent, resolveUnitContent } from '../content/resolveContent'
+import { RoundView } from '../components/RoundView'
+import { resolveAchievementContent, resolveBoardGenerationContent, resolveUnitContent } from '../content/resolveContent'
 import type { Action } from '../engine/actions'
 import { applyAction } from '../engine/applyAction'
 import type { GameState as EngineGameState, Coordinate } from '../engine/types'
@@ -58,11 +58,12 @@ export function GamePage() {
 
   const boardGenerationContent = useMemo(() => resolveBoardGenerationContent(players.length), [players.length])
   const unitContent = useMemo(() => resolveUnitContent(players.length), [players.length])
+  const achievementContent = useMemo(() => resolveAchievementContent(), [])
 
   async function submitAction(action: Action) {
     if (!game || !gameState || version === null) return
 
-    const result = applyAction(gameState, action, unitContent, undefined, boardGenerationContent)
+    const result = applyAction(gameState, action, unitContent, achievementContent, boardGenerationContent)
     if (!result.ok) {
       setActionError(result.error)
       return
@@ -125,21 +126,41 @@ export function GamePage() {
         />
       )}
 
-      {gameState && gameState.status !== 'boardSetup' && (
-        <div className="flex flex-col gap-3">
-          <p className="rounded-md border border-dashed border-neutral-700 p-3 text-sm text-neutral-500">
-            Board setup is complete. Round-by-round play (card selection, unit actions) doesn&apos;t have UI yet —
-            this is a read-only view of the board.
-          </p>
-          <HexBoard
-            board={gameState.board}
-            units={gameState.units.map((u) => ({
-              coord: u.coord,
-              color: players.find((p) => p.id === u.ownerId)?.color ?? '#a3a3a3',
-              label: u.kind.slice(0, 1).toUpperCase(),
-            }))}
-          />
+      {gameState?.status === 'completed' && (
+        <div className="rounded-md border border-amber-700/50 bg-amber-500/10 p-4 text-amber-300">
+          <p className="text-lg font-semibold">Game over</p>
+          <p>Winner{gameState.winnerPlayerIds.length > 1 ? 's' : ''}: {gameState.winnerPlayerIds.map((id) => players.find((p) => p.id === id)?.display_name ?? id).join(', ') || 'none'}</p>
         </div>
+      )}
+
+      {gameState?.status === 'active' && (
+        <RoundView
+          state={gameState}
+          players={players}
+          myPlayerId={me?.id ?? null}
+          unitContent={unitContent}
+          achievementContent={achievementContent}
+          onChooseCard={(cardId) => {
+            if (!me) return
+            void submitAction({ type: 'CHOOSE_CARD', playerId: me.id, cardId })
+          }}
+          onResolveUnitAction={(actionId, targets) => {
+            if (!me) return
+            void submitAction({ type: 'RESOLVE_UNIT_ACTION', playerId: me.id, actionId, targets })
+          }}
+          onMoveToDecline={(cardId) => {
+            if (!me) return
+            void submitAction({ type: 'MOVE_TO_DECLINE', playerId: me.id, cardId })
+          }}
+          onPurchaseCard={(cardId) => {
+            if (!me) return
+            void submitAction({ type: 'PURCHASE_CARD', playerId: me.id, cardId })
+          }}
+          onPassPurchase={() => {
+            if (!me) return
+            void submitAction({ type: 'PASS_PURCHASE', playerId: me.id })
+          }}
+        />
       )}
     </div>
   )
