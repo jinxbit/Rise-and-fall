@@ -2,12 +2,18 @@
 
 Tracks implementation of every action in `src/content/units.json` against
 `src/engine/unitActions.ts`. Per the units ruleset: playing a card lets the
-player choose **one** of that unit kind's actions, and it applies
-**simultaneously to every unit of that kind the player controls** — not a
-single unit. Where an action needs a target hex, the player supplies one
-target per unit of that kind (a unit with no legal target simply does
-nothing for that action; others still act, each paying/gaining
-independently).
+player choose an action **independently for each unit of that kind they
+control** — different units of the same kind may perform different actions
+the same round; a unit given no action simply does nothing. Where a chosen
+action needs a target hex, the player supplies one per acting unit
+(`RESOLVE_UNIT_ACTION`'s `targets`, keyed by unit id — a unit with no legal
+target, or none supplied, simply does nothing for that action; others still
+act, each paying/gaining independently). `applyResolveUnitAction`
+(`src/engine/applyAction.ts`) groups units by which action id they were
+each assigned and calls `applyUnitActionEffect`
+(`src/engine/unitActions.ts`) once per group — a single shared action
+across all of a kind's units, the old assumption, is now just the
+degenerate case where every unit happens to be assigned the same one.
 
 **Movement is a normal action, no exceptions.** Every mobile unit kind's
 card includes a `move` action alongside its others (see the tables below).
@@ -64,9 +70,10 @@ Status legend: ✅ implemented & tested
 
 Split "Buy/Sell Resource" into 4 concrete actions (Buy/Sell × Wood/Stone),
 matching how City already splits "Create" per unit type rather than one
-generic action with a parameter — each of the 4 applies uniformly to every
-Merchant the player owns (`resource`/`mode` are fixed on the action, not a
-per-unit choice), a straightforward 1-for-5 conversion each way.
+generic action with a parameter — `resource`/`mode` are fixed per action
+definition, not a resolve-time input, so whichever Merchants a player
+assigns to (say) "Buy Wood" all perform that same fixed 1-for-5 conversion;
+a straightforward 1-for-5 conversion each way.
 
 | # | Action | Status |
 |---|--------|--------|

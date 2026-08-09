@@ -29,12 +29,13 @@ function actionNeedsTargeting(effect: UnitAction['effect']): boolean {
 }
 
 interface ActionTargetingState {
-  actionId: string | null
+  /** Per-unit: which action this unit will perform. A unit missing here does nothing when resolved. */
+  actionIdByUnitId: Record<string, string>
   targetsByUnitId: Record<string, Coordinate>
   activeUnitId: string | null
 }
 
-const EMPTY_TARGETING: ActionTargetingState = { actionId: null, targetsByUnitId: {}, activeUnitId: null }
+const EMPTY_TARGETING: ActionTargetingState = { actionIdByUnitId: {}, targetsByUnitId: {}, activeUnitId: null }
 
 function PhaseBanner({ state }: { state: GameState }) {
   const phaseLabel: Record<RoundPhase, string> = {
@@ -143,7 +144,7 @@ function ActionsPanel(props: {
   unitContent: UnitContent
   targeting: ActionTargetingState
   setTargeting: (updater: (t: ActionTargetingState) => ActionTargetingState) => void
-  onResolveUnitAction: (actionId: string, targets: Record<string, Coordinate>) => void
+  onResolveUnitAction: (actionIdByUnitId: Record<string, string>, targets: Record<string, Coordinate>) => void
 }) {
   const { state, players, myPlayerId, unitContent, targeting, setTargeting, onResolveUnitAction } = props
   const activePlayerId = state.pendingPlayerIds[0] ?? null
@@ -159,85 +160,87 @@ function ActionsPanel(props: {
 
   const actingUnits = state.units.filter((u) => u.ownerId === myPlayerId && u.kind === card.kind)
   const actions = unitContent.actionsByKind[card.kind] ?? []
-  const chosenAction = actions.find((a) => a.id === targeting.actionId) ?? null
-  const targetingRequired = chosenAction ? actionNeedsTargeting(chosenAction.effect) : false
+
+  function chooseUnitAction(unitId: string, actionId: string) {
+    setTargeting((t) => ({
+      ...t,
+      actionIdByUnitId: { ...t.actionIdByUnitId, [unitId]: actionId },
+      targetsByUnitId: Object.fromEntries(Object.entries(t.targetsByUnitId).filter(([id]) => id !== unitId)),
+      activeUnitId: null,
+    }))
+  }
 
   return (
     <div className="flex flex-col gap-3 text-sm">
-      <p className="font-medium text-indigo-400">Your turn — playing {capitalize(card.kind)}.</p>
+      <p className="font-medium text-indigo-400">
+        Your turn — playing {capitalize(card.kind)}. Each unit may perform a different action; a unit left alone
+        does nothing this round.
+      </p>
 
-      {!chosenAction && (
-        <div className="flex flex-wrap gap-2">
-          {actions.map((action) => (
-            <button
-              key={action.id}
-              title={action.description}
-              onClick={() => setTargeting(() => ({ actionId: action.id, targetsByUnitId: {}, activeUnitId: null }))}
-              className="rounded-md border border-neutral-700 px-3 py-1 hover:border-neutral-500"
-            >
-              {action.name}
-            </button>
-          ))}
-          {actions.length === 0 && <p className="text-neutral-500">This unit kind has no actions.</p>}
-        </div>
-      )}
+      {actingUnits.length === 0 && <p className="text-neutral-500">No units of this kind to act.</p>}
 
-      {chosenAction && (
-        <div className="flex flex-col gap-2">
-          <p>
-            Resolving <span className="font-medium">{chosenAction.name}</span> for every {capitalize(card.kind)} you
-            control ({actingUnits.length}).
-          </p>
+      <ul className="flex flex-col gap-2">
+        {actingUnits.map((unit) => {
+          const chosenActionId = targeting.actionIdByUnitId[unit.id] ?? null
+          const chosenAction = actions.find((a) => a.id === chosenActionId) ?? null
+          const targetingRequired = chosenAction ? actionNeedsTargeting(chosenAction.effect) : false
+          const target = targeting.targetsByUnitId[unit.id]
 
-          {targetingRequired && (
-            <ul className="flex flex-col gap-1">
-              {actingUnits.map((unit) => {
-                const target = targeting.targetsByUnitId[unit.id]
-                return (
-                  <li key={unit.id} className="flex items-center gap-2">
-                    <span className="text-neutral-400">
-                      {capitalize(unit.kind)} at ({unit.coord.q},{unit.coord.r}):
+          return (
+            <li key={unit.id} className="flex flex-col gap-1 rounded-md border border-neutral-800 p-2">
+              <span className="text-neutral-400">
+                {capitalize(unit.kind)} at ({unit.coord.q},{unit.coord.r})
+              </span>
+              <div className="flex flex-wrap gap-1">
+                {actions.map((action) => (
+                  <button
+                    key={action.id}
+                    title={action.description}
+                    onClick={() => chooseUnitAction(unit.id, action.id)}
+                    className={`rounded-md border px-2 py-0.5 text-xs ${
+                      chosenActionId === action.id
+                        ? 'border-indigo-500 bg-indigo-600/20 text-indigo-300'
+                        : 'border-neutral-700 hover:border-neutral-500'
+                    }`}
+                  >
+                    {action.name}
+                  </button>
+                ))}
+                {actions.length === 0 && <span className="text-neutral-500">No actions available.</span>}
+              </div>
+
+              {chosenAction && targetingRequired && (
+                <div className="flex items-center gap-2 text-xs">
+                  {target ? (
+                    <span className="text-emerald-400">
+                      target ({target.q},{target.r})
                     </span>
-                    {target ? (
-                      <span className="text-emerald-400">
-                        target ({target.q},{target.r})
-                      </span>
-                    ) : (
-                      <span className="text-neutral-500">no target</span>
-                    )}
-                    <button
-                      onClick={() => setTargeting((t) => ({ ...t, activeUnitId: unit.id }))}
-                      className={`rounded-md border px-2 py-0.5 text-xs ${
-                        targeting.activeUnitId === unit.id
-                          ? 'border-indigo-500 text-indigo-300'
-                          : 'border-neutral-700 hover:border-neutral-500'
-                      }`}
-                    >
-                      {target ? 'Change target' : 'Pick target'}
-                    </button>
-                  </li>
-                )
-              })}
-              {actingUnits.length === 0 && <li className="text-neutral-500">No units of this kind to act.</li>}
-            </ul>
-          )}
+                  ) : (
+                    <span className="text-neutral-500">no target</span>
+                  )}
+                  <button
+                    onClick={() => setTargeting((t) => ({ ...t, activeUnitId: unit.id }))}
+                    className={`rounded-md border px-2 py-0.5 ${
+                      targeting.activeUnitId === unit.id ? 'border-indigo-500 text-indigo-300' : 'border-neutral-700 hover:border-neutral-500'
+                    }`}
+                  >
+                    {target ? 'Change target' : 'Pick target'}
+                  </button>
+                </div>
+              )}
+            </li>
+          )
+        })}
+      </ul>
 
-          <div className="flex gap-2">
-            <button
-              onClick={() => onResolveUnitAction(chosenAction.id, targeting.targetsByUnitId)}
-              className="rounded-md bg-indigo-600 px-3 py-1 font-medium text-white hover:bg-indigo-500"
-            >
-              Resolve action
-            </button>
-            <button
-              onClick={() => setTargeting(() => ({ actionId: null, targetsByUnitId: {}, activeUnitId: null }))}
-              className="text-neutral-500 underline hover:text-neutral-300"
-            >
-              Choose a different action
-            </button>
-          </div>
-        </div>
-      )}
+      <div>
+        <button
+          onClick={() => onResolveUnitAction(targeting.actionIdByUnitId, targeting.targetsByUnitId)}
+          className="rounded-md bg-indigo-600 px-3 py-1 font-medium text-white hover:bg-indigo-500"
+        >
+          Resolve actions
+        </button>
+      </div>
     </div>
   )
 }
@@ -334,7 +337,7 @@ export function RoundView(props: {
   unitContent: UnitContent
   achievementContent: AchievementContent
   onChooseCard: (cardId: string) => void
-  onResolveUnitAction: (actionId: string, targets: Record<string, Coordinate>) => void
+  onResolveUnitAction: (actionIdByUnitId: Record<string, string>, targets: Record<string, Coordinate>) => void
   onMoveToDecline: (cardId: string) => void
   onPurchaseCard: (cardId: string) => void
   onPassPurchase: () => void
@@ -353,12 +356,13 @@ export function RoundView(props: {
   const myActingUnits =
     isMyActionTurn && myCard && myPlayerId ? state.units.filter((u) => u.ownerId === myPlayerId && u.kind === myCard.kind) : []
   const activeUnit = targeting.activeUnitId ? (myActingUnits.find((u) => u.id === targeting.activeUnitId) ?? null) : null
-  const chosenAction =
-    isMyActionTurn && myCard ? ((unitContent.actionsByKind[myCard.kind] ?? []).find((a) => a.id === targeting.actionId) ?? null) : null
+  const activeUnitActionId = activeUnit ? (targeting.actionIdByUnitId[activeUnit.id] ?? null) : null
+  const activeUnitAction =
+    activeUnitActionId && myCard ? ((unitContent.actionsByKind[myCard.kind] ?? []).find((a) => a.id === activeUnitActionId) ?? null) : null
 
   let legalTargets: Coordinate[] = []
-  if (activeUnit && chosenAction && myPlayerId) {
-    const effect = chosenAction.effect
+  if (activeUnit && activeUnitAction && myPlayerId) {
+    const effect = activeUnitAction.effect
     if (effect.actionType === 'create') {
       legalTargets = legalCreateTargets(state, myPlayerId, activeUnit, effect, unitContent)
     } else if (effect.actionType === 'transform' && effect.targetHex.location === 'adj') {

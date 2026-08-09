@@ -47,15 +47,19 @@ export interface ChooseCardAction {
 export interface ResolveUnitActionAction {
   type: 'RESOLVE_UNIT_ACTION'
   playerId: string
-  /** Which of the chosen card's unit-kind actions to perform — an id from content/units.json's actions[]. */
-  actionId: string
   /**
-   * Per-unit target hex, keyed by acting unit id, for an action that needs
-   * one (create, an 'adj'-location transform, convert). A unit missing an
-   * entry here simply does nothing this turn — the action still applies to
-   * every other unit of the kind. Omitted entirely for actions that need no
-   * target (income/produce/trade/trade-resource, and a 'self'-location
-   * transform).
+   * Per-unit: which of the chosen card's unit-kind actions each acting unit
+   * performs (an id from content/units.json's actions[] for that kind) —
+   * each unit of the kind may perform a different action. A unit missing an
+   * entry here (or given an id that isn't one of that kind's actions)
+   * simply does nothing this turn.
+   */
+  actionIdByUnitId: Record<string, string>
+  /**
+   * Per-unit target hex, keyed by acting unit id, for whichever of its
+   * chosen action needs one (create, an 'adj'-location transform, convert,
+   * move). Omitted entirely for a unit whose action needs no target
+   * (income/produce/trade/trade-resource, and a 'self'-location transform).
    */
   targets?: Record<string, Coordinate>
 }

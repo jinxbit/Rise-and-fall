@@ -59,9 +59,10 @@ One entry per unit type. `id` matches the engine's `Unit.kind` field
   units always scores 0; a count past the array's length scores the last
   entry. Empty until the real curve is decided.
 - `actions` — the list of actions this unit's card can trigger. A card is
-  associated with exactly one unit type; playing it lets the player pick
-  one action from this list and apply it to every unit of that type they
-  control. Each action has an `effect` field — its shape is now typed
+  associated with exactly one unit type; playing it lets the player pick,
+  independently for each unit of that type they control, one action from
+  this list to perform — different units of the same type may perform
+  different actions the same round. Each action has an `effect` field — its shape is now typed
   precisely per `actionType` (`create`/`transform`/`convert`/`income`/
   `produce`/`trade-resource`/`trade`/`move`) in `src/engine/unitContent.ts`'s
   `UnitActionEffect`, and implemented in `src/engine/unitActions.ts`. See

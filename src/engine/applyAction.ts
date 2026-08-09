@@ -65,7 +65,7 @@ export function applyAction(
     case 'CHOOSE_CARD':
       return applyChooseCard(state, action.playerId, action.cardId)
     case 'RESOLVE_UNIT_ACTION':
-      return applyResolveUnitAction(state, action.playerId, action.actionId, action.targets ?? {}, unitContent, achievementContent)
+      return applyResolveUnitAction(state, action.playerId, action.actionIdByUnitId, action.targets ?? {}, unitContent, achievementContent)
     case 'MOVE_TO_DECLINE':
       return applyMoveToDecline(state, action.playerId, action.cardId)
     case 'PURCHASE_CARD':
@@ -116,16 +116,18 @@ function applyChooseCard(state: GameState, playerId: string, cardId: string): Ac
 
 /**
  * Round step 2 (rules 3 & 4): in turn order, resolve each player's chosen
- * card — apply the chosen unit action to every unit of that kind they
- * control (see applyUnitActionEffect in ./unitActions.ts) — then move the
- * card into discard. Also checks for newly-claimed achievements afterward
- * (see updateAchievementClaims in ./achievements.ts), since create/convert/
- * a destroySelf transform can change how many of a kind a player controls.
+ * card — each of that unit kind's units performs whichever action
+ * `actionIdByUnitId` assigns it (they need not all match — see
+ * applyUnitActionEffect in ./unitActions.ts, called once per distinct
+ * action id with just the units that chose it) — then move the card into
+ * discard. Also checks for newly-claimed achievements afterward (see
+ * updateAchievementClaims in ./achievements.ts), since create/convert/a
+ * destroySelf transform can change how many of a kind a player controls.
  */
 function applyResolveUnitAction(
   state: GameState,
   playerId: string,
-  actionId: string,
+  actionIdByUnitId: Record<string, string>,
   targets: Record<string, Coordinate>,
   unitContent: UnitContent,
   achievementContent: AchievementContent,
@@ -149,12 +151,23 @@ function applyResolveUnitAction(
   if (!card) {
     return { ok: false, error: `Unknown card: ${cardId}` }
   }
-  const unitAction = unitContent.actionsByKind[card.kind]?.find((a) => a.id === actionId)
-  if (!unitAction) {
-    return { ok: false, error: `Unknown action '${actionId}' for kind '${card.kind}'` }
+  const actionsForKind = unitContent.actionsByKind[card.kind] ?? []
+
+  const unitIdsByActionId = new Map<string, string[]>()
+  for (const [unitId, actionId] of Object.entries(actionIdByUnitId)) {
+    if (!actionsForKind.some((a) => a.id === actionId)) continue
+    const ids = unitIdsByActionId.get(actionId) ?? []
+    ids.push(unitId)
+    unitIdsByActionId.set(actionId, ids)
   }
 
-  let nextState = applyUnitActionEffect(state, playerId, card.kind, unitAction, targets, unitContent)
+  let nextState: GameState = state
+  const resolvedActionNames: string[] = []
+  for (const [actionId, unitIds] of unitIdsByActionId) {
+    const unitAction = actionsForKind.find((a) => a.id === actionId)!
+    nextState = applyUnitActionEffect(nextState, playerId, card.kind, unitAction, targets, unitContent, unitIds)
+    resolvedActionNames.push(unitAction.name)
+  }
 
   // Rule 3 then 4: hand -> currently played -> discard. Re-look-up the
   // player, since applyUnitActionEffect may have changed their resources
@@ -167,8 +180,9 @@ function applyResolveUnitAction(
   nextPlayer = moveCard(nextPlayer, cardId, 'discard')
   const players = nextState.players.map((p) => (p.id === playerId ? nextPlayer : p))
 
+  const actionSummary = resolvedActionNames.length > 0 ? ` (${resolvedActionNames.join(', ')})` : ''
   nextState = { ...nextState, players, pendingPlayerIds: nextState.pendingPlayerIds.slice(1) }
-  nextState = { ...nextState, log: appendLog(nextState, playerId, `Player ${playerId} played ${card.name} (${unitAction.name})`) }
+  nextState = { ...nextState, log: appendLog(nextState, playerId, `Player ${playerId} played ${card.name}${actionSummary}`) }
   nextState = { ...nextState, activePlayerId: nextState.pendingPlayerIds[0] ?? null }
   nextState = updateAchievementClaims(nextState, achievementContent, unitContent.unitSupplyCaps)
 

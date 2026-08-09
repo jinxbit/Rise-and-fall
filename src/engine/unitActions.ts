@@ -289,11 +289,18 @@ function applyMove(state: GameState, unit: Unit, targetCoord: Coordinate | undef
 // --- dispatcher --------------------------------------------------------------
 
 /**
- * Rule: playing a card lets the player choose one action, and it applies
- * simultaneously to every unit of that kind they control — not a single
- * unit. A unit with no legal target (or no target supplied, for a targeted
- * action) simply does nothing; the others still act independently, each
- * paying/gaining its own share.
+ * Rule: playing a card lets the player choose an action per unit of that
+ * kind — not one action shared by all of them; different units of the same
+ * kind may each perform a different action the same round (see
+ * applyResolveUnitAction in ./applyAction.ts, which groups units by their
+ * chosen action id and calls this once per group). `unitIds`, when given,
+ * restricts which of the player's units of this kind this call actually
+ * acts on; omitted (the default), every one of them acts — the shape a
+ * single shared action takes, kept as the default so callers that only
+ * ever use one action for the whole kind (most direct engine tests) don't
+ * need to pass it. A unit with no legal target (or no target supplied, for
+ * a targeted action) simply does nothing; the others still act
+ * independently, each paying/gaining its own share.
  */
 export function applyUnitActionEffect(
   state: GameState,
@@ -302,8 +309,12 @@ export function applyUnitActionEffect(
   action: UnitAction,
   targets: Record<string, Coordinate>,
   content: UnitContent,
+  unitIds?: string[],
 ): GameState {
-  const actingUnits = state.units.filter((u) => u.ownerId === playerId && u.kind === kind)
+  const eligibleUnitIds = unitIds ? new Set(unitIds) : null
+  const actingUnits = state.units.filter(
+    (u) => u.ownerId === playerId && u.kind === kind && (!eligibleUnitIds || eligibleUnitIds.has(u.id)),
+  )
   let nextState = state
 
   for (const unit of actingUnits) {

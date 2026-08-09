@@ -7,6 +7,7 @@ import { cardIdFor, syncCardZonesWithBoard } from '../cards'
 import { createNewGame, startGame } from '../createGame'
 import { beginSelectCardsPhase } from '../round'
 import type { Coordinate, GameState, Unit } from '../types'
+import type { UnitContent } from '../unitContent'
 
 let placeholderUnitCounter = 0
 function nextPlaceholderUnitId(): string {
@@ -152,7 +153,7 @@ describe('applyAction', () => {
   })
 
   it('rejects RESOLVE_UNIT_ACTION outside the actions phase', () => {
-    const result = applyAction(state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', actionId: 'generate-income' })
+    const result = applyAction(state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', actionIdByUnitId: {} })
     expect(result.ok).toBe(false)
   })
 
@@ -162,7 +163,7 @@ describe('applyAction', () => {
     const p2Choice = applyAction(p1Choice.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'ship') })
     if (!p2Choice.ok) throw new Error('setup failed')
 
-    const result = applyAction(p2Choice.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2', actionId: 'generate-income' })
+    const result = applyAction(p2Choice.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2', actionIdByUnitId: {} })
     expect(result.ok).toBe(false)
   })
 
@@ -184,6 +185,103 @@ describe('applyAction', () => {
     const lobbyState: GameState = { ...state, status: 'lobby' }
     const result = applyAction(lobbyState, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'ship') })
     expect(result.ok).toBe(false)
+  })
+})
+
+describe('applyResolveUnitAction — different units of the same kind may choose different actions', () => {
+  const testUnitContent: UnitContent = {
+    actionsByKind: {
+      city: [
+        { id: 'generate-income', name: 'Generate Income', description: '', effect: { actionType: 'income', goldByTerrain: { forest: 3 } } },
+        {
+          id: 'create-nomad',
+          name: 'Create Nomad',
+          description: '',
+          effect: { actionType: 'create', targetUnit: 'nomad', targetHex: { location: 'adj' }, cost: {} },
+        },
+      ],
+    },
+    movementByKind: { nomad: { isMobile: true, terrains: ['plain'], canCrossCliffs: false } },
+    terrainLevels: { water: 0, plain: 1, forest: 2, mountain: 3, glacier: 4 },
+    resourceCaps: { gold: null, wood: 5, stone: 5 },
+    unitSupplyCaps: {},
+  }
+
+  function makeTwoCitiesState(): GameState {
+    const board = setTile(setTile(setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'forest'), { q: 5, r: 0 }, 'plain'), { q: 6, r: 0 }, 'plain')
+    const cityA: Unit = {
+      id: 'city_a',
+      ownerId: 'p1',
+      kind: 'city',
+      coord: { q: 0, r: 0 },
+      movement: { isMobile: false, terrains: [], canCrossCliffs: false },
+      traits: [],
+    }
+    const cityB: Unit = {
+      id: 'city_b',
+      ownerId: 'p1',
+      kind: 'city',
+      coord: { q: 5, r: 0 },
+      movement: { isMobile: false, terrains: [], canCrossCliffs: false },
+      traits: [],
+    }
+    const lobby = createNewGame({
+      gameId: 'game_2',
+      playMode: 'hotseat',
+      board,
+      players: [
+        { id: 'p1', authUserId: null, displayName: 'Alice', color: 'red' },
+        { id: 'p2', authUserId: null, displayName: 'Bob', color: 'blue' },
+      ],
+      resourceBank: { gold: 100, wood: 100, stone: 100 },
+    })
+    // p2 has no units at all, so their hand is empty and beginSelectCardsPhase
+    // eliminates them immediately (rule: no card to choose) — leaving p1 the
+    // only pending player, which is all this test needs.
+    const active: GameState = { ...lobby, board, units: [cityA, cityB], status: 'active' }
+    const selecting = beginSelectCardsPhase(syncCardZonesWithBoard(active))
+    const chosen = applyAction(selecting, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') })
+    if (!chosen.ok) throw new Error('setup failed')
+    return chosen.state
+  }
+
+  it('resolves a different action per unit in a single RESOLVE_UNIT_ACTION', () => {
+    const state = makeTwoCitiesState()
+    expect(state.roundPhase).toBe('actions')
+
+    const result = applyAction(
+      state,
+      {
+        type: 'RESOLVE_UNIT_ACTION',
+        playerId: 'p1',
+        actionIdByUnitId: { city_a: 'generate-income', city_b: 'create-nomad' },
+        targets: { city_b: { q: 6, r: 0 } },
+      },
+      testUnitContent,
+    )
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    // city_a's income ran exactly once (not city_b's too, which has no income effect).
+    expect(result.state.players.find((p) => p.id === 'p1')!.resources.gold).toBe(3)
+    // city_b's create ran exactly once (not city_a's too, which wasn't given that action).
+    expect(result.state.units).toHaveLength(3)
+    expect(result.state.units.some((u) => u.kind === 'nomad' && u.coord.q === 6 && u.coord.r === 0)).toBe(true)
+  })
+
+  it('leaves a unit with no assigned action untouched', () => {
+    const state = makeTwoCitiesState()
+
+    const result = applyAction(
+      state,
+      { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', actionIdByUnitId: { city_a: 'generate-income' } },
+      testUnitContent,
+    )
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.state.players.find((p) => p.id === 'p1')!.resources.gold).toBe(3)
+    expect(result.state.units).toHaveLength(2)
   })
 })
 

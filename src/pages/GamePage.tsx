@@ -144,9 +144,9 @@ export function GamePage() {
             if (!me) return
             void submitAction({ type: 'CHOOSE_CARD', playerId: me.id, cardId })
           }}
-          onResolveUnitAction={(actionId, targets) => {
+          onResolveUnitAction={(actionIdByUnitId, targets) => {
             if (!me) return
-            void submitAction({ type: 'RESOLVE_UNIT_ACTION', playerId: me.id, actionId, targets })
+            void submitAction({ type: 'RESOLVE_UNIT_ACTION', playerId: me.id, actionIdByUnitId, targets })
           }}
           onMoveToDecline={(cardId) => {
             if (!me) return

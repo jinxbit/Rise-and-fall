@@ -156,7 +156,7 @@ decisions get made.
             (`placeTile()` currently just rejects an illegal placement
             outright).
 - [x] Expand the unit test suite in `src/engine/__tests__/` to cover
-      every action and edge case as it's implemented — 218 tests, including
+      every action and edge case as it's implemented — 220 tests, including
       a pass against the real `content/*.json` files, not just synthetic
       fixtures.
 
