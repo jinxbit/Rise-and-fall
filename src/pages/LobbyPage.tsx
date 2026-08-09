@@ -1,8 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
+import { resolveBoardGenerationContent, resolveResourceBank, resolveUnitLimits } from '../content/resolveContent'
+import { createEmptyBoard } from '../engine/board'
+import { createNewGame, startGame } from '../engine/createGame'
 import {
   getGameByRoomCode,
+  getGameState,
+  insertGameState,
   joinGame,
   listPlayers,
   setGameStatus,
@@ -83,9 +88,31 @@ export function LobbyPage() {
     if (!game) return
     setBusy(true)
     try {
-      // TODO: generate/draft the board and place starting tribes via the
-      // engine's startGame() before flipping status, once board generation
-      // is built. For now this just unblocks the lobby -> game transition.
+      // The `games` row's own status stays the coarse lobby/active/completed
+      // (see dbTypes.ts) — the engine's finer-grained status (boardSetup ->
+      // active) lives only in the game_state row's GameState.status, and
+      // GamePage branches its rendering on that instead. So starting a game
+      // means: build the real initial GameState (createNewGame + startGame,
+      // which kicks off board setup), persist it, then flip `games.status`
+      // to 'active' just to move everyone out of the lobby screen.
+      const existingState = await getGameState(game.id)
+      if (!existingState) {
+        const lobbyState = createNewGame({
+          gameId: game.id,
+          playMode: game.play_mode,
+          board: createEmptyBoard('hex'),
+          players: players.map((p) => ({
+            id: p.id,
+            authUserId: p.user_id,
+            displayName: p.display_name,
+            color: p.color,
+          })),
+          resourceBank: resolveResourceBank(players.length),
+          unitLimits: resolveUnitLimits(players.length),
+        })
+        const boardSetupState = startGame(lobbyState, resolveBoardGenerationContent(players.length))
+        await insertGameState(game.id, boardSetupState)
+      }
       await setGameStatus(game.id, 'active')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start game')

@@ -1,6 +1,6 @@
 import { supabase } from './supabase'
-import type { GameRow, PlayerRow } from './dbTypes'
-import type { PlayMode } from '../engine/types'
+import type { GameRow, GameStateRow, PlayerRow } from './dbTypes'
+import type { GameState as EngineGameState, PlayMode } from '../engine/types'
 
 const PLAYER_COLORS = ['#ef4444', '#3b82f6', '#22c55e', '#eab308']
 const ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789' // no 0/O/1/I
@@ -136,6 +136,67 @@ export function subscribeToGame(gameId: string, onChange: (game: GameRow) => voi
       'postgres_changes',
       { event: 'UPDATE', schema: 'public', table: 'games', filter: `id=eq.${gameId}` },
       (payload) => onChange(payload.new as GameRow),
+    )
+    .subscribe()
+
+  return () => {
+    supabase.removeChannel(channel)
+  }
+}
+
+export interface GameStateSnapshot {
+  state: EngineGameState
+  version: number
+}
+
+/**
+ * Writes the game's very first GameState row (see createNewGame/startGame in
+ * ../engine/createGame.ts). A no-op if a row already exists — LobbyPage
+ * checks first via getGameState, but this stays defensive in case "start
+ * game" is ever clicked twice in a race.
+ */
+export async function insertGameState(gameId: string, state: EngineGameState): Promise<void> {
+  const { error } = await supabase
+    .from('game_state')
+    .insert({ game_id: gameId, state, turn: state.turn, active_player_id: state.activePlayerId })
+  if (error && error.code !== '23505') throw error
+}
+
+export async function getGameState(gameId: string): Promise<GameStateSnapshot | null> {
+  const { data, error } = await supabase.from('game_state').select('state, version').eq('game_id', gameId).maybeSingle()
+  if (error) throw error
+  if (!data) return null
+  return { state: data.state as EngineGameState, version: data.version }
+}
+
+/**
+ * Writes a new GameState produced by applyAction(), guarded by the row's
+ * `version` (see 0001_init_schema.sql's game_state comment) so two clients
+ * racing to submit an action can't silently clobber each other — returns
+ * false (no rows updated) when `expectedVersion` is stale, in which case the
+ * caller should refetch via getGameState and let the player retry.
+ */
+export async function writeGameState(gameId: string, state: EngineGameState, expectedVersion: number): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('game_state')
+    .update({ state, turn: state.turn, active_player_id: state.activePlayerId, version: expectedVersion + 1 })
+    .eq('game_id', gameId)
+    .eq('version', expectedVersion)
+    .select('version')
+  if (error) throw error
+  return (data?.length ?? 0) > 0
+}
+
+export function subscribeToGameState(gameId: string, onChange: (snapshot: GameStateSnapshot) => void): () => void {
+  const channel = supabase
+    .channel(`game_state:${gameId}`)
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'game_state', filter: `game_id=eq.${gameId}` },
+      (payload) => {
+        const row = payload.new as GameStateRow
+        onChange({ state: row.state, version: row.version })
+      },
     )
     .subscribe()
 

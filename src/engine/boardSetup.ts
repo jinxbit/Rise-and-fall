@@ -138,7 +138,7 @@ function nextStartingUnitId(): string {
  * every other unit-placing effect in the engine already behaves (see
  * applyCreate/applyTransform in ./unitActions.ts).
  */
-function isLegalStartingUnitPlacement(board: GameState['board'], units: Unit[], unitKind: string, coord: Coordinate): boolean {
+export function isLegalStartingUnitPlacement(board: GameState['board'], units: Unit[], unitKind: string, coord: Coordinate): boolean {
   const tile = getTile(board, coord)
   if (!tile) return false
   if (units.some((u) => u.coord.q === coord.q && u.coord.r === coord.r)) return false

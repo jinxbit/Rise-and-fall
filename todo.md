@@ -304,17 +304,43 @@ than living in `createGame.ts` — `round.test.ts`/`elimination.test.ts`/
 `decline.test.ts` already had their own similar local fixtures and never
 called `startGame()` at all, so they're unaffected.
 
+**A first UI now exists** for board setup, per the click/rotate/confirm
+design: `src/pages/LobbyPage.tsx`'s "start game" now calls
+`createNewGame()`/`startGame()` for real (resolving
+`BoardGenerationContent`/resources/unit limits from `content/*.json` via
+the new `src/content/resolveContent.ts`) and persists the resulting
+`GameState` into the `game_state` table (new functions in
+`src/lib/gameApi.ts`: `insertGameState`/`getGameState`/`writeGameState`
+— the last guarded by the row's `version` column for optimistic
+concurrency — /`subscribeToGameState`). Note `games.status` itself stays
+the coarse `lobby`/`active`/`completed` from the original schema — no
+migration needed — the engine's finer `boardSetup`/`active` distinction
+lives only inside the `game_state` row, and `GamePage.tsx` branches its
+rendering on that. `src/pages/GamePage.tsx` now renders
+`src/components/BoardSetupView.tsx` (tile-tier and starting-unit
+sub-panels, turn-gated) over a new `src/components/HexBoard.tsx` (a real
+pointy-top axial SVG hex grid — clickable, with a translucent
+legal/illegal ghost-placement overlay) instead of the old fake
+`BoardView.tsx` grid, which is deleted. Verified via `npx tsc -b`,
+`npx oxlint src/`, `npx vitest run` (208 tests, none UI-specific), and
+`npm run build`; **not** verified end-to-end in a browser against a real
+Supabase project — this sandbox has no Supabase credentials or local
+Docker to stand one up, so the actual click-through (join a lobby with
+2+ browser tabs, start, place tiles/units in turn) still needs a manual
+pass against a real deployment.
+
 **Still not implemented:**
 - Rule 4's no-space/move-tiles search — `placeTile()` currently just
   rejects an illegal placement outright; it doesn't detect "no legal
   placement exists anywhere" and prompt for a minimal tile rearrangement.
-- No UI, obviously — the click/rotate/confirm interaction was designed
-  to be client-side-only (preview locally with the pure
-  `placedShapeCells()`/`isLegalTilePlacement()`, submit once on confirm),
-  but there's no client for it yet. `LobbyPage.tsx`'s "start game" button
-  still just flips the Supabase row's status directly, bypassing the
-  engine (and therefore `startGame()`) entirely — that's a separate,
-  UI-layer gap, not an engine one.
+- The round cycle itself (`selectCards`/`actions`/`decline`/`purchase`)
+  has no UI yet — once board setup finishes, `GamePage.tsx` falls back to
+  a read-only board view with no way to actually play a round.
+- Tile placement in the UI is confined to a padded rectangle around the
+  board's current extent (`BoardSetupView.tsx`'s `paddedEmptyCoords`),
+  not the fully unconstrained "anywhere on an infinite empty board" the
+  engine allows — a deliberate scope cut (an infinite pan/zoom canvas
+  felt like overkill for a first pass), not a rules gap.
 
 Open questions once further work starts: whether "least tiles moved"
 ties (multiple minimal-size rearrangements) need a tiebreak rule or are

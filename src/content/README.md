@@ -126,7 +126,7 @@ The 5 terrain types (water, plain, forest, mountain, glacier) plus:
     keyed by module id, additive on top of `byPlayerCount`. Empty until you
     have modules to define.
 
-### Board generation (phase 1 — rules settled, not yet implemented in code)
+### Board generation (phase 1 — rules settled, engine done, first UI in place)
 
 Per ruling, the very first phase of a game builds the map, then places
 starting units.
@@ -193,12 +193,26 @@ and new `PLACE_TILE`/`PLACE_UNIT` actions (resolved by
 `beginBoardSetup()` as the `lobby` -> `boardSetup` entry point, and
 `createGame.ts`'s `startGame()` is wired to it directly (the old
 hardcoded, non-real (`'settlement'`/`'mobile-unit'`/`'ship'`) unit trio
-placeholder is gone from production code). See `todo.md` #7 for the full
-breakdown of what's covered and what's still open (mainly: the
-no-space/move-tiles search, and the UI — `LobbyPage.tsx`'s "start game"
-button still flips the Supabase row's status directly, bypassing the
-engine entirely). See `PROJECT_PLAN.md` section 2's board generation
-item.
+placeholder is gone from production code).
+
+A first UI now drives this too: `src/content/resolveContent.ts` resolves
+the JSON content (this file included) into the engine's content-agnostic
+input types; `LobbyPage.tsx`'s "start game" calls
+`createNewGame()`/`startGame()` for real and persists the result into a
+new `game_state` Supabase table row (`src/lib/gameApi.ts`'s
+`insertGameState`/`getGameState`/`writeGameState`/`subscribeToGameState`
+— `games.status` itself stays the original coarse `lobby`/`active`/
+`completed`, no migration needed, since the engine's finer `boardSetup`
+status lives only in the `game_state` row); `GamePage.tsx` renders the
+new `BoardSetupView`/`HexBoard` components (a real pointy-top axial SVG
+hex grid, click/rotate/confirm tile placement, click-to-place starting
+units) instead of the old fake `BoardView.tsx` grid, which is deleted.
+
+See `todo.md` #7 for the full breakdown of what's covered and what's
+still open (mainly: the no-space/move-tiles search, the round cycle's
+UI, and that this hasn't been click-tested end-to-end against a live
+Supabase project yet). See `PROJECT_PLAN.md` section 2's board
+generation item.
 
 ## `achievements.json` (validated by `achievements.schema.json`)
 

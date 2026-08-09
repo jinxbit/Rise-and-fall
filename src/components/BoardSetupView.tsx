@@ -1,0 +1,228 @@
+import { useEffect, useState } from 'react'
+import { getTile } from '../engine/board'
+import { isLegalTilePlacement, placedShapeCells } from '../engine/boardGeneration'
+import type { BoardGenerationContent } from '../engine/boardGenerationContent'
+import { currentTilePlacerId, currentUnitPlacerId, isLegalStartingUnitPlacement } from '../engine/boardSetup'
+import type { Board, Coordinate, GameState } from '../engine/types'
+import type { PlayerRow } from '../lib/dbTypes'
+import type { GhostCell } from './HexBoard'
+import { HexBoard } from './HexBoard'
+
+const STARTING_UNIT_LABELS: Record<string, string> = { city: 'City', nomad: 'Nomad', ship: 'Ship' }
+
+function coordEquals(a: Coordinate | null, b: Coordinate): boolean {
+  return a !== null && a.q === b.q && a.r === b.r
+}
+
+/** Untiled hexes within `pad` of the board's current bounding box — clickable placement targets that aren't tiles yet (e.g. where the next water tile could go). */
+function paddedEmptyCoords(board: Board, pad: number): Coordinate[] {
+  const tiles = Object.values(board.tiles)
+  if (tiles.length === 0) return []
+  const qs = tiles.map((t) => t.coord.q)
+  const rs = tiles.map((t) => t.coord.r)
+  const minQ = Math.min(...qs) - pad
+  const maxQ = Math.max(...qs) + pad
+  const minR = Math.min(...rs) - pad
+  const maxR = Math.max(...rs) + pad
+
+  const coords: Coordinate[] = []
+  for (let q = minQ; q <= maxQ; q++) {
+    for (let r = minR; r <= maxR; r++) {
+      if (!getTile(board, { q, r })) coords.push({ q, r })
+    }
+  }
+  return coords
+}
+
+function playerName(players: PlayerRow[], playerId: string | null): string {
+  if (!playerId) return 'nobody'
+  return players.find((p) => p.id === playerId)?.display_name ?? playerId
+}
+
+function TilePlacementPanel(props: {
+  state: GameState
+  players: PlayerRow[]
+  myPlayerId: string | null
+  boardGenerationContent: BoardGenerationContent
+  onPlaceTile: (anchor: Coordinate, rotationSteps: number) => void
+}) {
+  const { state, players, myPlayerId, boardGenerationContent, onPlaceTile } = props
+  const boardSetup = state.boardSetup!
+  const tier = boardSetup.tileTierQueue[0]
+  const tierContent = boardGenerationContent.tiers.find((t) => t.terrain === tier)
+  const placerId = currentTilePlacerId(state)
+  const isMyTurn = placerId !== null && placerId === myPlayerId
+
+  const [anchor, setAnchor] = useState<Coordinate | null>(null)
+  const [rotation, setRotation] = useState(0)
+
+  // A new turn (mine or someone else's) starts fresh — clears any pending,
+  // unconfirmed choice left over from before.
+  useEffect(() => {
+    setAnchor(null)
+    setRotation(0)
+  }, [boardSetup.tilePlacerIndex, boardSetup.tileTierQueue.length])
+
+  if (!tierContent) {
+    return <p className="text-red-400">No board-generation content for tier &apos;{tier}&apos;.</p>
+  }
+
+  const placedCells = anchor ? placedShapeCells(tierContent.shapeCells, anchor, rotation) : []
+  const legal = anchor ? isLegalTilePlacement(state.board, placedCells, tierContent.placesOn) : false
+  const ghostCells: GhostCell[] = placedCells.map((coord) => ({ coord, legal }))
+  const extraCoords = paddedEmptyCoords(state.board, 4)
+
+  function handleHexClick(coord: Coordinate) {
+    if (!isMyTurn) return
+    if (coordEquals(anchor, coord)) {
+      setRotation((r) => (r + 1) % 6)
+    } else {
+      setAnchor(coord)
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-sm text-neutral-300">
+        Placing <span className="font-medium capitalize">{tier}</span> tiles — {boardSetup.tilesRemainingInTier}{' '}
+        left this tier.{' '}
+        {isMyTurn ? (
+          <span className="font-medium text-indigo-400">Your turn.</span>
+        ) : (
+          <span>Waiting for {playerName(players, placerId)}.</span>
+        )}
+      </p>
+
+      {isMyTurn && (
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="text-neutral-400">
+            {anchor ? 'Click the same hex again (or Rotate) to turn it, click elsewhere to move it.' : 'Click a hex to choose where to place the tile.'}
+          </span>
+          {anchor && (
+            <>
+              <button
+                onClick={() => setRotation((r) => (r + 1) % 6)}
+                className="rounded-md border border-neutral-700 px-3 py-1 hover:border-neutral-500"
+              >
+                Rotate
+              </button>
+              <button
+                disabled={!legal}
+                onClick={() => onPlaceTile(anchor, rotation)}
+                className="rounded-md bg-indigo-600 px-3 py-1 font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
+              >
+                Confirm placement
+              </button>
+              <button onClick={() => setAnchor(null)} className="text-neutral-500 underline hover:text-neutral-300">
+                Cancel
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      <HexBoard
+        board={state.board}
+        extraCoords={extraCoords}
+        ghostCells={ghostCells}
+        selectedCoord={anchor}
+        interactive={isMyTurn}
+        onHexClick={handleHexClick}
+      />
+    </div>
+  )
+}
+
+function UnitPlacementPanel(props: {
+  state: GameState
+  players: PlayerRow[]
+  myPlayerId: string | null
+  onPlaceUnit: (unitKind: string, coord: Coordinate) => void
+}) {
+  const { state, players, myPlayerId, onPlaceUnit } = props
+  const boardSetup = state.boardSetup!
+  const placerId = currentUnitPlacerId(state)
+  const isMyTurn = placerId !== null && placerId === myPlayerId
+  const remaining = boardSetup.unitsRemainingByPlayerId[placerId ?? ''] ?? []
+
+  const [selectedKind, setSelectedKind] = useState<string | null>(remaining[0] ?? null)
+
+  useEffect(() => {
+    setSelectedKind(remaining[0] ?? null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boardSetup.unitPlacerIndex])
+
+  const units = state.units.map((u) => ({
+    coord: u.coord,
+    color: players.find((p) => p.id === u.ownerId)?.color ?? '#a3a3a3',
+    label: u.kind.slice(0, 1).toUpperCase(),
+  }))
+
+  const ghostCells: GhostCell[] = selectedKind
+    ? Object.values(state.board.tiles)
+        .filter((tile) => isLegalStartingUnitPlacement(state.board, state.units, selectedKind, tile.coord))
+        .map((tile) => ({ coord: tile.coord, legal: true }))
+    : []
+
+  function handleHexClick(coord: Coordinate) {
+    if (!isMyTurn || !selectedKind) return
+    onPlaceUnit(selectedKind, coord)
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-sm text-neutral-300">
+        Placing starting units.{' '}
+        {isMyTurn ? (
+          <span className="font-medium text-indigo-400">Your turn.</span>
+        ) : (
+          <span>Waiting for {playerName(players, placerId)}.</span>
+        )}
+      </p>
+
+      {isMyTurn && (
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="text-neutral-400">Place a:</span>
+          {remaining.map((kind) => (
+            <button
+              key={kind}
+              onClick={() => setSelectedKind(kind)}
+              className={`rounded-md border px-3 py-1 ${
+                selectedKind === kind ? 'border-indigo-500 bg-indigo-600/20 text-indigo-300' : 'border-neutral-700 hover:border-neutral-500'
+              }`}
+            >
+              {STARTING_UNIT_LABELS[kind] ?? kind}
+            </button>
+          ))}
+          <span className="text-neutral-500">then click a highlighted hex.</span>
+        </div>
+      )}
+
+      <HexBoard board={state.board} ghostCells={ghostCells} units={units} interactive={isMyTurn} onHexClick={handleHexClick} />
+    </div>
+  )
+}
+
+export function BoardSetupView(props: {
+  state: GameState
+  players: PlayerRow[]
+  myPlayerId: string | null
+  boardGenerationContent: BoardGenerationContent
+  onPlaceTile: (anchor: Coordinate, rotationSteps: number) => void
+  onPlaceUnit: (unitKind: string, coord: Coordinate) => void
+}) {
+  const boardSetup = props.state.boardSetup
+  if (!boardSetup) return null
+
+  return boardSetup.tileTierQueue.length > 0 ? (
+    <TilePlacementPanel
+      state={props.state}
+      players={props.players}
+      myPlayerId={props.myPlayerId}
+      boardGenerationContent={props.boardGenerationContent}
+      onPlaceTile={props.onPlaceTile}
+    />
+  ) : (
+    <UnitPlacementPanel state={props.state} players={props.players} myPlayerId={props.myPlayerId} onPlaceUnit={props.onPlaceUnit} />
+  )
+}

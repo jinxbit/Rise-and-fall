@@ -138,11 +138,20 @@ decisions get made.
             straight to `beginBoardSetup()` (status becomes
             `boardSetup`, not `active`); the old hardcoded placeholder
             unit trio is gone from production code.
+      - [x] A first UI: `LobbyPage.tsx`'s "start game" now calls the real
+            `createNewGame()`/`startGame()` and persists the result to a
+            new `game_state` table row; `GamePage.tsx` renders the new
+            `BoardSetupView`/`HexBoard` components (click/rotate/confirm
+            tile placement, click-to-place starting units) over a real
+            SVG hex grid. Not yet verified end-to-end against a live
+            Supabase project (no credentials/Docker in the build
+            sandbox) — typecheck/lint/tests/build all pass.
       - [ ] Not yet built: rule 4's no-space/move-tiles search
             (`placeTile()` currently just rejects an illegal placement
-            outright). No UI either — `LobbyPage.tsx`'s "start game"
-            button still flips the Supabase row's status directly,
-            bypassing the engine entirely.
+            outright), and any UI for the round cycle itself
+            (`selectCards`/`actions`/`decline`/`purchase`) — once board
+            setup finishes, `GamePage.tsx` falls back to a read-only
+            board view.
 - [x] Expand the unit test suite in `src/engine/__tests__/` to cover
       every action and edge case as it's implemented — 208 tests, including
       a pass against the real `content/*.json` files, not just synthetic
