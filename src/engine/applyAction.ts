@@ -8,14 +8,15 @@ import { appendLog } from './log'
 import { calculatePurchaseCost } from './purchaseCost'
 import { spendResource } from './resources'
 import { beginActionsPhase, beginPostActionsPhase, beginPurchasePhase, finishRound } from './round'
-import type { Coordinate, GameState } from './types'
+import { EMPTY_BOARD_GENERATION_CONTENT } from './boardGenerationContent'
+import type { BoardGenerationContent } from './boardGenerationContent'
+import { placeTile, placeUnit } from './boardSetup'
+import type { ActionResult, Coordinate, GameState } from './types'
 import { EMPTY_UNIT_CONTENT } from './unitContent'
 import type { UnitContent } from './unitContent'
 import { applyUnitActionEffect } from './unitActions'
 
-export type ActionResult =
-  | { ok: true; state: GameState }
-  | { ok: false; error: string }
+export type { ActionResult } from './types'
 
 /**
  * Applies a single validated action to a game state, returning a new state.
@@ -26,21 +27,36 @@ export type ActionResult =
  *
  * `unitContent` (content/units.json's actions/movement, content/terrain.
  * json's levels, content/resources.json's caps — resolved by the caller,
- * see UnitContent in ./unitContent.ts) is only needed to resolve
- * RESOLVE_UNIT_ACTION; every other action ignores it. `achievementContent`
- * (content/achievements.json + the units/terrain VP curves — see
- * AchievementContent in ./achievementContent.ts) drives achievement-claim
- * detection (after RESOLVE_UNIT_ACTION), purchase cost (PURCHASE_CARD), and
- * the game-end/win check (once the purchase phase finishes). Both are
- * optional and default to empty so callers that don't touch this content
- * aren't forced to pass it.
+ * see UnitContent in ./unitContent.ts) is needed to resolve
+ * RESOLVE_UNIT_ACTION and PLACE_UNIT (for the new unit's movement
+ * profile). `achievementContent` (content/achievements.json + the units/
+ * terrain VP curves — see AchievementContent in ./achievementContent.ts)
+ * drives achievement-claim detection (after RESOLVE_UNIT_ACTION), purchase
+ * cost (PURCHASE_CARD), and the game-end/win check (once the purchase
+ * phase finishes). `boardGenerationContent` (content/terrain.json's tile
+ * shapes/placesOn/pool sizes — see BoardGenerationContent in
+ * ./boardGenerationContent.ts) drives PLACE_TILE. All three are optional
+ * and default to empty so callers that don't touch that content aren't
+ * forced to pass it.
+ *
+ * PLACE_TILE/PLACE_UNIT are handled before the status guard below, since
+ * they're the only actions valid during `status: 'boardSetup'` — every
+ * other action requires `status: 'active'`.
  */
 export function applyAction(
   state: GameState,
   action: Action,
   unitContent: UnitContent = EMPTY_UNIT_CONTENT,
   achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT,
+  boardGenerationContent: BoardGenerationContent = EMPTY_BOARD_GENERATION_CONTENT,
 ): ActionResult {
+  if (action.type === 'PLACE_TILE') {
+    return placeTile(state, action.playerId, action.anchor, action.rotationSteps, boardGenerationContent)
+  }
+  if (action.type === 'PLACE_UNIT') {
+    return placeUnit(state, action.playerId, action.unitKind, action.coord, unitContent)
+  }
+
   if (state.status !== 'active') {
     return { ok: false, error: `Game is not active (status: ${state.status})` }
   }

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { applyAction } from '../applyAction'
-import { createEmptyBoard } from '../board'
+import { createEmptyBoard, setTile } from '../board'
+import type { BoardGenerationContent } from '../boardGenerationContent'
 import { cardIdFor } from '../cards'
 import { createNewGame, startGame } from '../createGame'
 import type { GameState } from '../types'
@@ -119,5 +120,50 @@ describe('applyAction', () => {
     const lobbyState: GameState = { ...state, status: 'lobby' }
     const result = applyAction(lobbyState, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'ship') })
     expect(result.ok).toBe(false)
+  })
+})
+
+describe('applyAction — PLACE_TILE/PLACE_UNIT dispatch during boardSetup', () => {
+  function makeBoardSetupState(): GameState {
+    const lobby = createNewGame({
+      gameId: 'game_1',
+      playMode: 'hotseat',
+      board: setTile(setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'water'), { q: 1, r: 0 }, 'water'),
+      players: [
+        { id: 'p1', authUserId: 'auth_1', displayName: 'Alice', color: 'red' },
+        { id: 'p2', authUserId: 'auth_2', displayName: 'Bob', color: 'blue' },
+      ],
+    })
+    return {
+      ...lobby,
+      status: 'boardSetup',
+      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 1, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+    }
+  }
+
+  const boardGenerationContent: BoardGenerationContent = {
+    startingWaterShapeCells: [],
+    tiers: [{ terrain: 'plain', shapeCells: [{ q: 0, r: 0 }, { q: 1, r: 0 }], placesOn: ['water'], poolSize: 1 }],
+  }
+
+  it('routes PLACE_TILE through even though status is not "active"', () => {
+    const state = makeBoardSetupState()
+    const result = applyAction(
+      state,
+      { type: 'PLACE_TILE', playerId: 'p1', anchor: { q: 0, r: 0 }, rotationSteps: 0 },
+      undefined,
+      undefined,
+      boardGenerationContent,
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.state.boardSetup?.tileTierQueue).toEqual([])
+  })
+
+  it('rejects a normal round action (CHOOSE_CARD) during boardSetup status', () => {
+    const state = makeBoardSetupState()
+    const result = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') })
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toContain('not active')
   })
 })

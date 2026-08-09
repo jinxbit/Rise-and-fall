@@ -115,18 +115,32 @@ decisions get made.
       fully covers the tier directly below it, moving already-placed
       uncovered tiles if there's no space, then a unit-placement
       sub-phase) — see `src/content/README.md`'s "Board generation"
-      section and `todo.md` #7. The deterministic half is implemented:
-      `src/engine/boardGeneration.ts` has shape rotation
-      (`rotateShape`/`placedShapeCells`), placement legality/covering
-      (`isLegalTilePlacement`/`applyTilePlacement`), and the automatic
-      starting-water-tile seeding (`seedStartingWaterTiles`) — tested
-      against both synthetic shapes and the real `content/terrain.json`
-      hourglass. Not yet built: the actual interactive turn-by-turn tile/
-      unit placement (a new `RoundPhase`/`Action` pair and pool-tracking
-      state), the no-space/move-tiles search, and wiring any of it into
-      `startGame()`.
+      section and `todo.md` #7.
+      - [x] The deterministic half: `src/engine/boardGeneration.ts` has
+            shape rotation (`rotateShape`/`placedShapeCells`), placement
+            legality/covering (`isLegalTilePlacement`/`applyTilePlacement`),
+            and the automatic starting-water-tile seeding
+            (`seedStartingWaterTiles`).
+      - [x] The interactive placement phase: a new `GameStatus`
+            (`'boardSetup'`, sitting between `lobby` and `active`) and
+            `GameState.boardSetup` track progress; new `PLACE_TILE`/
+            `PLACE_UNIT` actions (`src/engine/actions.ts`,
+            dispatched from `applyAction()` ahead of its normal
+            `status: 'active'` guard) are implemented in
+            `src/engine/boardSetup.ts` — `beginBoardSetup()` for the
+            `lobby` -> `boardSetup` transition, `placeTile()`/
+            `placeUnit()` for the two actions themselves, cycling turn
+            order (a wrapping index, since tile pools don't divide evenly
+            by player count), advancing tiers, and auto-transitioning
+            tiles -> units -> `active` + round 1.
+      - [ ] Not yet built: rule 4's no-space/move-tiles search
+            (`placeTile()` currently just rejects an illegal placement
+            outright), and wiring any of this into `createGame.ts`'s
+            `startGame()` — nothing calls `beginBoardSetup()` yet, so
+            `startGame()` still places its old hardcoded, non-real unit
+            trio. No UI either.
 - [x] Expand the unit test suite in `src/engine/__tests__/` to cover
-      every action and edge case as it's implemented — 186 tests, including
+      every action and edge case as it's implemented — 208 tests, including
       a pass against the real `content/*.json` files, not just synthetic
       fixtures.
 

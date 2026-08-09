@@ -243,20 +243,68 @@ against the real `content/terrain.json` hourglass shape):
   sit in the 4-player case isn't specified by the rules — chosen to be
   comfortably non-overlapping, not derived from anything.
 
-**Still not implemented** — the genuinely interactive part, which is a
-much bigger piece of work: there's no new `RoundPhase`/`Action` for
-players to actually choose *where* to place each tile turn by turn (rule
-2), no pool-tracking state on `GameState` for "which tier, how many
-remain," no implementation of rule 4's no-space/move-tiles search, and no
-unit-placement phase (rule 5) either. `createGame.ts`'s `startGame()`
-still places one hardcoded, non-real unit trio (kinds literally named
-`'settlement'`/`'mobile-unit'`/`'ship'`, not the real
-`'city'`/`'nomad'`/`'ship'`) per player at one shared coordinate, rather
-than running any of this — it hasn't been wired up yet. See
-`PROJECT_PLAN.md` section 2's board generation item.
+**The interactive placement phase is now implemented too** (rules 2 and
+5 — a player actually choosing where to place each tile/unit, turn by
+turn). New `GameStatus` value `'boardSetup'` (`src/engine/types.ts`) sits
+between `'lobby'` and `'active'`: the round cycle
+(`selectCards`/`actions`/`decline`/`purchase`) doesn't start until it's
+done. New `GameState.boardSetup: BoardSetupState | null` tracks progress
+— `tileTierQueue`/`tilesRemainingInTier` for which tier is being placed
+and how much of its pool is left, `tilePlacerIndex` for whose turn (a
+plain wrapping index into `turnOrder`, not a draining queue, since tile
+pools don't divide evenly by player count), then
+`unitsRemainingByPlayerId`/`unitPlacerIndex` for the unit-placement
+sub-phase once tiles are done.
 
-Open questions once that work starts: whether "least tiles moved" ties
-(multiple minimal-size rearrangements) need a tiebreak rule or are just
-player choice; how the new starting player in #5 is actually chosen; and
+`src/engine/boardSetup.ts`:
+- `beginBoardSetup(state, content)` — the `lobby` -> `boardSetup`
+  transition: seeds the starting water tiles and starts the tile queue
+  at its first non-empty tier (skipping any with a 0 pool).
+- `placeTile()`/`placeUnit()` — the two new actions' full validation
+  (right status/sub-phase/turn, then legality via
+  `isLegalTilePlacement()`/the City-Nomad-not-on-Glacier,
+  Ship-only-on-Water, not-already-occupied rules) and application,
+  returning the same `ActionResult` shape as every other action handler
+  (moved to `src/engine/types.ts` so `boardSetup.ts` and `applyAction.ts`
+  can share it without an import cycle). Advances the turn-cycling index,
+  decrements the pool, skips to the next tier once one empties, and
+  transitions tiles -> units -> `status: 'active'` + round 1's
+  `beginSelectCardsPhase()` automatically as each stage completes.
+  Placing a unit re-syncs card zones (`syncCardZonesWithBoard()`), so its
+  card lands in hand automatically, same as everywhere else.
+- New `PlaceTileAction`/`PlaceUnitAction` (`src/engine/actions.ts`) are
+  dispatched from `applyAction()` *before* its normal
+  `status !== 'active'` guard, since they're the only two actions valid
+  during `boardSetup` — every other action still requires `active`.
+  `applyAction()` gained a third optional content param,
+  `boardGenerationContent: BoardGenerationContent`
+  (`src/engine/boardGenerationContent.ts` — tile shapes/`placesOn`/pool
+  sizes per tier, same content-agnostic pattern as `UnitContent`).
+
+Tested in `src/engine/__tests__/boardSetup.test.ts` (20 tests: turn
+cycling including an uneven pool, tier advancement, both sub-phase
+transitions, all the placement-legality rejections, and a small pass
+against real `content/terrain.json` shapes) plus two dispatch tests in
+`applyAction.test.ts`.
+
+**Still not implemented:**
+- Rule 4's no-space/move-tiles search — `placeTile()` currently just
+  rejects an illegal placement outright; it doesn't detect "no legal
+  placement exists anywhere" and prompt for a minimal tile rearrangement.
+- Wiring any of this up for real: `createGame.ts`'s `startGame()` still
+  places one hardcoded, non-real unit trio (kinds literally named
+  `'settlement'`/`'mobile-unit'`/`'ship'`, not the real
+  `'city'`/`'nomad'`/`'ship'`) per player at one shared coordinate,
+  completely bypassing `beginBoardSetup()` — nothing currently calls it.
+  See `PROJECT_PLAN.md` section 2's board generation item.
+- No UI, obviously — the click/rotate/confirm interaction was designed
+  to be client-side-only (preview locally with the pure
+  `placedShapeCells()`/`isLegalTilePlacement()`, submit once on confirm),
+  but there's no client for it yet.
+
+Open questions once further work starts: whether "least tiles moved"
+ties (multiple minimal-size rearrangements) need a tiebreak rule or are
+just player choice; how the new starting player for unit placement is
+actually chosen (currently just reuses `turnOrder[0]`, unconfirmed); and
 what happens if a player somehow has no legal spot for a unit they must
 place (mirrors the same open question for tiles).

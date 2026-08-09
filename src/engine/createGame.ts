@@ -76,6 +76,7 @@ export function createNewGame(params: {
     winnerPlayerIds: [],
     claimedByAchievementId: {},
     achievementsClaimedThisRound: 0,
+    boardSetup: null,
   }
 }
 
@@ -91,6 +92,17 @@ function nextUnitId(): string {
  * The exact stat block for each starting unit is a placeholder pending the
  * full rules — traits/movement here are enough to exercise board placement
  * and turn order, not final balance.
+ *
+ * TEMPORARY: the real rules are now known (see src/content/README.md's
+ * "Board generation" section and todo.md #7) and partly implemented —
+ * beginBoardSetup()/placeTile()/placeUnit() in ./boardSetup.ts run the
+ * real board+starting-unit-placement procedure via PLACE_TILE/PLACE_UNIT
+ * actions. This function still exists because nothing calls those yet;
+ * it'll be replaced by `beginBoardSetup(state, boardGenerationContent)`
+ * (skipping the `startingPositions` param entirely — there's no
+ * per-player starting coordinate in the real rules, units go anywhere
+ * legal) once a caller is ready to drive the real interactive phase
+ * instead of this shortcut.
  */
 export function startGame(state: GameState, startingPositions: Record<string, Coordinate>): GameState {
   if (state.status !== 'lobby') {

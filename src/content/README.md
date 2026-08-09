@@ -183,14 +183,20 @@ logic needed for that part). Once every player has placed all three
 units, the game begins for real (round 1's select-cards phase).
 
 The deterministic pieces (rotation, placement legality/covering, and
-seeding the starting water tiles — everything above except the actual
-player-driven turn-by-turn placement) are implemented in
-`src/engine/boardGeneration.ts`; see `todo.md` #7 for exactly what's
-covered and what's still open. It'll eventually fully replace
-`createGame.ts`'s `startGame()`, which currently places one hardcoded,
-non-real (`'settlement'`/`'mobile-unit'`/`'ship'`) unit trio per player at
-a single shared coordinate rather than running any of this — that wiring,
-and the interactive placement phase itself, don't exist yet. See
+seeding the starting water tiles) are implemented in
+`src/engine/boardGeneration.ts`. The interactive part — a player actually
+choosing where to place each tile/unit, turn by turn — is implemented
+too, in `src/engine/boardSetup.ts`: a new `GameStatus` (`'boardSetup'`,
+between `lobby` and `active`) and `GameState.boardSetup` track progress,
+and new `PLACE_TILE`/`PLACE_UNIT` actions (resolved by
+`placeTile()`/`placeUnit()`) handle validation and turn-cycling, with
+`beginBoardSetup()` as the `lobby` -> `boardSetup` entry point. See
+`todo.md` #7 for the full breakdown of what's covered and what's still
+open (mainly: the no-space/move-tiles search, and actually wiring
+`beginBoardSetup()` into `createGame.ts`'s `startGame()`, which still
+places its old hardcoded, non-real
+(`'settlement'`/`'mobile-unit'`/`'ship'`) unit trio per player at a single
+shared coordinate instead — nothing calls the real procedure yet). See
 `PROJECT_PLAN.md` section 2's board generation item.
 
 ## `achievements.json` (validated by `achievements.schema.json`)

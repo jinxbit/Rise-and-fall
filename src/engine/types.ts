@@ -8,7 +8,13 @@
 
 export type PlayMode = 'live' | 'async' | 'hotseat'
 
-export type GameStatus = 'lobby' | 'active' | 'completed'
+/**
+ * `boardSetup` is the first phase of a game (see src/engine/boardSetup.ts):
+ * players place tiles, then starting units, before the round cycle
+ * (`selectCards`/`actions`/`decline`/`purchase`) begins. `active` only
+ * starts once that's fully done.
+ */
+export type GameStatus = 'lobby' | 'boardSetup' | 'active' | 'completed'
 
 /** Board tiling scheme, fixed for the lifetime of a single game. */
 export type BoardShape = 'hex' | 'square'
@@ -180,6 +186,38 @@ export interface Player {
  */
 export type RoundPhase = 'selectCards' | 'actions' | 'decline' | 'purchase'
 
+/**
+ * Progress through the `boardSetup` game status (see
+ * src/engine/boardSetup.ts). Two sequential sub-phases:
+ *
+ * 1. Tile placement: `tileTierQueue` holds the terrain ids still needing
+ *    tiles placed, front-to-back (e.g. water, then plain, then forest,
+ *    then mountain, then glacier — the starting water tiles are seeded
+ *    automatically before this state even exists, so water here only
+ *    covers its `expansion` shapeGroup). `tilesRemainingInTier` counts
+ *    down within `tileTierQueue[0]`; once it hits 0 that tier is shifted
+ *    off the front (and skipped entirely if its pool was 0 to begin
+ *    with). Whoever's turn it is to place next is
+ *    `turnOrder[tilePlacerIndex % turnOrder.length]` — deliberately a
+ *    plain wrapping index rather than a draining queue, since tile pools
+ *    don't necessarily divide evenly by player count.
+ * 2. Unit placement: begins once `tileTierQueue` is empty.
+ *    `unitsRemainingByPlayerId` maps each player id to which of their
+ *    three starting unit kinds (city/nomad/ship) they still need to
+ *    place, shrinking as they place them; `unitPlacerIndex` is the same
+ *    kind of wrapping turn-order index as `tilePlacerIndex` (though here
+ *    every player always has the same count, so it never needs to skip
+ *    anyone). `boardSetup` on GameState goes back to `null` once every
+ *    player has placed all three.
+ */
+export interface BoardSetupState {
+  tileTierQueue: Terrain[]
+  tilesRemainingInTier: number
+  tilePlacerIndex: number
+  unitsRemainingByPlayerId: Record<string, string[]>
+  unitPlacerIndex: number
+}
+
 /** Append-only log entry, kept since the game has no hidden information. */
 export interface GameEvent {
   id: string
@@ -252,4 +290,21 @@ export interface GameState {
    * cards to decline (see beginDeclinePhase).
    */
   achievementsClaimedThisRound: number
+  /**
+   * Progress through the `boardSetup` status's tile/unit placement — see
+   * BoardSetupState above and src/engine/boardSetup.ts. Null before setup
+   * starts (`status: 'lobby'`) and again once it's finished
+   * (`status: 'active'`); only meaningful while `status: 'boardSetup'`.
+   */
+  boardSetup: BoardSetupState | null
 }
+
+/**
+ * The result of applying a single action (applyAction in ./applyAction.ts,
+ * and the boardSetup.ts action handlers it delegates PLACE_TILE/PLACE_UNIT
+ * to). Declared here rather than in applyAction.ts so boardSetup.ts can
+ * return it too without an import cycle.
+ */
+export type ActionResult =
+  | { ok: true; state: GameState }
+  | { ok: false; error: string }
