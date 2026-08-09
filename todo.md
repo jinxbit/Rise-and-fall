@@ -565,3 +565,33 @@ producing the wrong state. 233 tests total (was 230); `tsc -b`/
 Supabase and back on every read/write) and the `replayActions()`
 capability, per the explicit decision to keep this data-layer-only for
 now.
+
+## 12. Map templates (skip interactive tile placement) + a starting-unit Water bug it surfaced — fixed
+
+Requested: let a game start from a pre-made map instead of building one
+tile-by-tile in board setup. Added `src/content/mapTemplates.json`
+(+ schema) holding one template today (`classic`, captured from a real
+finished game's board), resolved via `resolveMapTemplateBoard()`/
+`listMapTemplates()` in `content/resolveContent.ts`. Engine side:
+`beginBoardSetupWithPresetBoard()`/`startGameWithPresetBoard()`
+(`boardSetup.ts`/`createGame.ts`) parallel `beginBoardSetup()`/
+`startGame()` but use the given `Board` as-is with an empty
+`tileTierQueue`, skipping straight to the existing starting-unit
+placement sub-phase — placement itself (`placeUnit`, turn cycling,
+transition to `active`) is untouched and still runs normally. Wired
+through a new nullable `games.map_template_id` column
+(`supabase/migrations/0002_map_template.sql`), a `MapTemplateSelector`
+on `HomePage.tsx`'s create-game form, and a branch in
+`LobbyPage.tsx`'s `handleStart()`.
+
+Testing this for real (a live hotseat game) surfaced a genuine bug
+flagged but left unconfirmed back in #7/#9: `isLegalStartingUnitPlacement`
+read "City and Nomad anywhere except Glacier" as *including* Water, so a
+Nomad could be placed on a Water hex — and then never move, since Water
+isn't in its `movement.terrains`. Confirmed the correct rule: only Ship
+may start on Water; City and Nomad are now also excluded from Water, not
+just Glacier. One-line fix in `boardSetup.ts`. Updated `replay.test.ts`'s
+fixture (it had a City placed on a seeded starting-water tile, now
+illegal) and added a direct regression test for City/Nomad rejected on
+Water in `boardSetup.test.ts`. 236 tests total (was 235); `tsc -b`/
+`oxlint`/`npm run build` all clean.

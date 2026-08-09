@@ -319,6 +319,15 @@ describe('placeUnit', () => {
     expect(cityResult.ok).toBe(false)
   })
 
+  it('rejects City/Nomad placed on Water (only Ship may start on Water)', () => {
+    const state = unitPlacementState()
+    const cityResult = placeUnit(state, 'p1', 'city', { q: 1, r: 0 }, emptyUnitContent)
+    expect(cityResult.ok).toBe(false)
+
+    const nomadResult = placeUnit(state, 'p1', 'nomad', { q: 1, r: 0 }, emptyUnitContent)
+    expect(nomadResult.ok).toBe(false)
+  })
+
   it('rejects placing on an already-occupied hex', () => {
     let state = unitPlacementState()
     const first = placeUnit(state, 'p1', 'city', { q: 0, r: 0 }, emptyUnitContent)

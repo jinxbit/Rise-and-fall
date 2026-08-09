@@ -148,18 +148,21 @@ export function placeTile(
 }
 
 /**
- * Per ruling: City and Nomad may go anywhere except Glacier; Ship only on
- * Water. Also requires the hex to be currently unoccupied — not an
- * explicitly stated rule for this specific phase, but consistent with how
- * every other unit-placing effect in the engine already behaves (see
- * applyCreate/applyTransform in ./unitActions.ts).
+ * Corrected ruling (see todo.md #12): only Ship may start on Water — City
+ * and Nomad go anywhere except Glacier *and* Water. The original reading
+ * ("City and Nomad anywhere except Glacier") let both start on Water,
+ * which stranded a Nomad there permanently, since Water isn't in its
+ * movement.terrains. Also requires the hex to be currently unoccupied —
+ * not an explicitly stated rule for this specific phase, but consistent
+ * with how every other unit-placing effect in the engine already behaves
+ * (see applyCreate/applyTransform in ./unitActions.ts).
  */
 export function isLegalStartingUnitPlacement(board: GameState['board'], units: Unit[], unitKind: string, coord: Coordinate): boolean {
   const tile = getTile(board, coord)
   if (!tile) return false
   if (units.some((u) => u.coord.q === coord.q && u.coord.r === coord.r)) return false
   if (unitKind === 'ship') return tile.terrain === 'water'
-  return tile.terrain !== 'glacier'
+  return tile.terrain !== 'glacier' && tile.terrain !== 'water'
 }
 
 /** PLACE_UNIT: places one of the player's three starting units (see PlaceUnitAction in ./actions.ts). */

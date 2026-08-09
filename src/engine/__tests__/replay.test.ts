@@ -64,7 +64,10 @@ describe('actionHistory + replayActions — board-setup phase', () => {
     if (!step1.ok) throw new Error(step1.error)
     const step2 = applyAction(step1.state, { type: 'PLACE_UNIT', playerId: 'p1', unitKind: 'city', coord: { q: 0, r: 0 } }, unitContent)
     if (!step2.ok) throw new Error(step2.error)
-    const step3 = applyAction(step2.state, { type: 'PLACE_UNIT', playerId: 'p2', unitKind: 'city', coord: { q: 2, r: 1 } }, unitContent)
+    // (2,1) is one of the seeded starting-water tiles, no longer a legal City
+    // placement (see boardSetup.ts's isLegalStartingUnitPlacement) — (1,0) is
+    // the other half of p1's plain tile from step1, still unoccupied.
+    const step3 = applyAction(step2.state, { type: 'PLACE_UNIT', playerId: 'p2', unitKind: 'city', coord: { q: 1, r: 0 } }, unitContent)
     if (!step3.ok) throw new Error(step3.error)
 
     const finalState = step3.state
