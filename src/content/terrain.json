@@ -12,16 +12,34 @@
         {
           "id": "initial",
           "label": "Starting water tiles, placed during game setup",
-          "shapes": [],
+          "shapes": [
+            {
+              "id": "hourglass",
+              "cells": [
+                { "q": 0, "r": 0 }, { "q": 1, "r": 0 }, { "q": 2, "r": 0 },
+                { "q": 0, "r": 1 }, { "q": 1, "r": 1 },
+                { "q": -1, "r": 2 }, { "q": 0, "r": 2 }, { "q": 1, "r": 2 }
+              ]
+            }
+          ],
           "limits": {
-            "byPlayerCount": { "2": 0, "3": 0, "4": 0 },
+            "byPlayerCount": { "2": 2, "3": 3, "4": 4 },
             "modules": {}
           }
         },
         {
           "id": "expansion",
           "label": "Water tiles placed later by players during the game",
-          "shapes": [],
+          "shapes": [
+            {
+              "id": "flower",
+              "cells": [
+                { "q": 0, "r": 0 }, { "q": 1, "r": 0 },
+                { "q": -1, "r": 1 }, { "q": 0, "r": 1 }, { "q": 1, "r": 1 },
+                { "q": -1, "r": 2 }, { "q": 0, "r": 2 }
+              ]
+            }
+          ],
           "limits": {
             "byPlayerCount": { "2": 0, "3": 0, "4": 0 },
             "modules": {}
@@ -40,7 +58,16 @@
         {
           "id": "standard",
           "label": "Plain tiles",
-          "shapes": [],
+          "shapes": [
+            {
+              "id": "wedge",
+              "cells": [
+                { "q": 0, "r": 0 },
+                { "q": -1, "r": 1 }, { "q": 0, "r": 1 },
+                { "q": -2, "r": 2 }, { "q": -1, "r": 2 }, { "q": 0, "r": 2 }
+              ]
+            }
+          ],
           "limits": {
             "byPlayerCount": { "2": 0, "3": 0, "4": 0 },
             "modules": {}
@@ -59,7 +86,15 @@
         {
           "id": "standard",
           "label": "Forest tiles",
-          "shapes": [],
+          "shapes": [
+            {
+              "id": "rhombus",
+              "cells": [
+                { "q": 0, "r": 0 }, { "q": 1, "r": 0 },
+                { "q": 0, "r": 1 }, { "q": 1, "r": 1 }
+              ]
+            }
+          ],
           "limits": {
             "byPlayerCount": { "2": 0, "3": 0, "4": 0 },
             "modules": {}
@@ -78,7 +113,14 @@
         {
           "id": "standard",
           "label": "Mountain tiles",
-          "shapes": [],
+          "shapes": [
+            {
+              "id": "triangle",
+              "cells": [
+                { "q": 0, "r": 0 }, { "q": 1, "r": 0 }, { "q": 1, "r": -1 }
+              ]
+            }
+          ],
           "limits": {
             "byPlayerCount": { "2": 0, "3": 0, "4": 0 },
             "modules": {}
@@ -97,7 +139,14 @@
         {
           "id": "standard",
           "label": "Glacier tiles",
-          "shapes": [],
+          "shapes": [
+            {
+              "id": "domino",
+              "cells": [
+                { "q": 0, "r": 0 }, { "q": 1, "r": 0 }
+              ]
+            }
+          ],
           "limits": {
             "byPlayerCount": { "2": 0, "3": 0, "4": 0 },
             "modules": {}
