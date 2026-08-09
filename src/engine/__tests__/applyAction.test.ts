@@ -109,14 +109,6 @@ describe('applyAction', () => {
     }
   })
 
-  it('rejects MOVE_UNIT outside the actions phase', () => {
-    const result = applyAction(state, { type: 'MOVE_UNIT', playerId: 'p1', unitId: 'unit_1', to: { q: 1, r: 0 } })
-    expect(result.ok).toBe(false)
-    if (!result.ok) {
-      expect(result.error).toContain('actions phase')
-    }
-  })
-
   it('does not mutate the input state', () => {
     const snapshot = JSON.stringify(state)
     applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'ship') })

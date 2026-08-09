@@ -101,7 +101,7 @@
         },
         "actions": {
           "type": "array",
-          "description": "The actions this unit's card can trigger. Exactly one is chosen each time the card is played, and it applies simultaneously to every unit of this type the playing player controls.",
+          "description": "The actions this unit's card can trigger. Exactly one is chosen each time the card is played, and it applies simultaneously to every unit of this type the playing player controls — except the 'move' action (present on every mobile unit kind), which is the sole exception: it moves only the one targeted unit, and no other unit of that kind acts that turn.",
           "items": { "$ref": "#/definitions/action" }
         }
       }

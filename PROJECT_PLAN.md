@@ -14,9 +14,10 @@ decisions get made.
 - [x] Repo scaffold: Vite + React + TypeScript, Tailwind CSS v4.
 - [x] Rules engine skeleton (`src/engine/`) — types, `applyAction()` with
       `END_TURN` implemented, `MOVE_UNIT`/`PLAY_CARD` originally stubbed
-      (since superseded — see sections 1 and 2 below: `MOVE_UNIT` is now
-      implemented, and `PLAY_CARD` was split into `CHOOSE_CARD` +
-      `RESOLVE_UNIT_ACTION`).
+      (since superseded — see sections 1 and 2 below: movement is now
+      implemented as one of `RESOLVE_UNIT_ACTION`'s per-kind actions rather
+      than a standalone `MOVE_UNIT` action type, and `PLAY_CARD` was split
+      into `CHOOSE_CARD` + `RESOLVE_UNIT_ACTION`).
 - [x] Supabase schema + Row Level Security for `games` / `players` /
       `game_state`.
 - [x] Supabase client, Discord OAuth sign-in/out, `useAuth()` hook,
@@ -47,8 +48,8 @@ decisions get made.
       may step onto, cliff-crossing, and how other units' presence gates
       passing through vs landing — is implemented per-unit via
       `movement.terrains`/`canCrossCliffs`/`blockedByUnits`/
-      `canEndMoveOnUnitTypes` in `content/units.json`; see `MOVE_UNIT` in
-      section 2.
+      `canEndMoveOnUnitTypes` in `content/units.json`; see the `move` action
+      in section 2.
 - [ ] Specify turn structure and any per-phase rules (draw, action limits,
       combat resolution, etc.) — mostly done (`src/engine/round.ts`,
       including player elimination — see `todo.md` #4). Still open: the
@@ -60,29 +61,30 @@ decisions get made.
 
 ## 2. Implement the rules engine
 
-- [x] Implement `MOVE_UNIT` in `applyAction()`, including terrain/cliff
-      movement restrictions. A breadth-first search (`legalMoveDestinations`
-      in `src/engine/movement.ts`) computes every hex a unit may legally
-      move to in one action, honoring `movement.terrains`, cliff-crossing
-      (`canCrossCliffs`), and — as two independent checks —
+- [x] Implement movement, including terrain/cliff movement restrictions.
+      Movement is an action like any other (per ruling — see `UnitActions.
+      md`'s resolved questions #5): every mobile unit kind's card has a
+      `move` action, resolved through `RESOLVE_UNIT_ACTION` same as
+      create/transform/income/etc. — but unlike those, `move` acts on only
+      the one unit named in `targets`, not every unit of the kind
+      (`applyMove()` in `src/engine/unitActions.ts`). A breadth-first search
+      (`legalMoveDestinations` in `src/engine/movement.ts`) computes every
+      hex a unit may legally move to, honoring `movement.terrains`,
+      cliff-crossing (`canCrossCliffs`), and — as two independent checks —
       `blockedByUnits` (passing through a hex) and `canEndMoveOnUnitTypes`
       (landing on an occupied hex). `moveDistance` is either a finite
       integer or the `'unlimited'` sentinel (Ship): an unbounded BFS
       restricted to `terrains: ['water']` naturally stays within a ship's
       connected water region without a distance cap, satisfying "movement
-      allowance is infinity but can't leave its water region." Gating for
-      *when* `MOVE_UNIT` may be called (currently: the active player, only
-      during the `actions` phase, not tied to which card they played, no
-      once-per-round-per-unit limit) is a documented assumption in
-      `applyMoveUnit()`, not yet confirmed against the round-sequence rules
-      — see `todo.md`.
-- [x] Implement each unit's actions (all 19, across the 6 kinds — create/
-      transform/convert/income/produce/trade/trade-resource). `RESOLVE_
-      UNIT_ACTION` now carries `actionId` + per-unit `targets` and applies
-      the chosen action to every unit of that kind the player controls, via
-      `applyUnitActionEffect()` in `src/engine/unitActions.ts`. 4 of the 19
-      rest on a documented assumption — see `UnitActions.md`'s open
-      questions at the repo root.
+      allowance is infinity but can't leave its water region."
+- [x] Implement each unit's actions (all 26, across the 6 kinds — create/
+      transform/convert/income/produce/trade/trade-resource/move).
+      `RESOLVE_UNIT_ACTION` carries `actionId` + per-unit `targets` and
+      applies the chosen action to every unit of that kind the player
+      controls (except `move` — see above), via `applyUnitActionEffect()`
+      in `src/engine/unitActions.ts`. A handful of actions' designs rested
+      on an assumption that needed confirming — all now resolved, see
+      `UnitActions.md`'s "Resolved questions" at the repo root.
 - [x] Real per-unit-kind unit limits, board-count/terrain-control/
       achievement VP scoring, elimination, resource tracking, and movement
       are all implemented (see `todo.md`) — what's left in this section is

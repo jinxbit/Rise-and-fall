@@ -22,6 +22,9 @@ function buildUnitContent(): UnitContent {
       isMobile: unit.movement.isMobile,
       terrains: unit.movement.terrains as UnitMovement['terrains'],
       canCrossCliffs: unit.movement.canCrossCliffs,
+      moveDistance: unit.movement.moveDistance as UnitMovement['moveDistance'],
+      blockedByUnits: unit.movement.blockedByUnits as UnitMovement['blockedByUnits'],
+      canEndMoveOnUnitTypes: unit.movement.canEndMoveOnUnitTypes,
     }
     unitSupplyCaps[unit.id] = unit.supply.byPlayerCount['2']
   }
@@ -71,7 +74,7 @@ describe('real content/units.json + terrain.json + resources.json', () => {
         seenTypes.add(action.effect.actionType)
       }
     }
-    expect([...seenTypes].sort()).toEqual(['convert', 'create', 'income', 'produce', 'trade', 'trade-resource', 'transform'])
+    expect([...seenTypes].sort()).toEqual(['convert', 'create', 'income', 'move', 'produce', 'trade', 'trade-resource', 'transform'])
   })
 
   it("City's Generate Income pays out per the real goldByTerrain table", () => {
@@ -161,5 +164,47 @@ describe('real content/units.json + terrain.json + resources.json', () => {
 
     expect(next.units).toHaveLength(1)
     expect(next.units[0]).toMatchObject({ kind: 'nomad', coord: { q: 1, r: 0 } })
+  })
+
+  it("Ship's Move (real moveDistance: 'unlimited', blockedByUnits: 'none') can reach across its water region but not onto a non-water hex", () => {
+    let board = createEmptyBoard('hex')
+    for (const [q, r] of [
+      [0, 0],
+      [1, 0],
+      [2, 0],
+      [3, 0],
+    ]) {
+      board = setTile(board, { q, r }, 'water')
+    }
+    board = setTile(board, { q: 4, r: 0 }, 'plain')
+
+    const ship: Unit = { id: 'u1', ownerId: 'p1', kind: 'ship', coord: { q: 0, r: 0 }, movement: content.movementByKind.ship, traits: [] }
+    const state: GameState = {
+      gameId: 'g',
+      playMode: 'hotseat',
+      status: 'active',
+      turn: 1,
+      activePlayerId: null,
+      roundPhase: 'actions',
+      chosenCardIdByPlayerId: {},
+      pendingPlayerIds: [],
+      turnOrder: ['p1'],
+      board,
+      players: [makePlayer('p1')],
+      units: [ship],
+      cards: {},
+      resourceBank: { gold: 1000, wood: 1000, stone: 1000 },
+      unitLimits: {},
+      log: [],
+      winnerPlayerIds: [],
+    }
+
+    const action = findAction('ship', 'move', content)
+
+    const toFarWater = applyUnitActionEffect(state, 'p1', 'ship', action, { [ship.id]: { q: 3, r: 0 } }, content)
+    expect(toFarWater.units[0].coord).toEqual({ q: 3, r: 0 })
+
+    const toPlain = applyUnitActionEffect(state, 'p1', 'ship', action, { [ship.id]: { q: 4, r: 0 } }, content)
+    expect(toPlain.units[0].coord).toEqual({ q: 0, r: 0 })
   })
 })

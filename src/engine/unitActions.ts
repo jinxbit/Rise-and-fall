@@ -1,6 +1,7 @@
 import { getTile, neighborCoords } from './board'
 import { syncCardZonesWithBoard } from './cards'
 import { isCliffBetweenTerrains } from './cliffs'
+import { legalMoveDestinations } from './movement'
 import { gainResource, spendResource } from './resources'
 import type {
   ActionCost,
@@ -263,11 +264,36 @@ function applyTradeResource(
   return creditResource(updatePlayerResources(state, playerId, paid.resources, paid.bank), playerId, effect.resource, effect.resourceAmount, resourceCaps)
 }
 
+/**
+ * Per ruling: movement is an action like any other, chosen by playing the
+ * card — but unlike every other action, it does NOT apply to every unit of
+ * the kind at once. Only the single unit named in `targets` moves; no other
+ * unit of that kind acts this turn. `targets` should have exactly one
+ * entry: the moving unit's id mapped to its destination. A missing/empty
+ * `targets`, an unowned/wrong-kind unit id, or an illegal destination (per
+ * legalMoveDestinations, ./movement.ts) is a no-op.
+ */
+function applyMove(state: GameState, playerId: string, kind: string, targets: Record<string, Coordinate>, content: UnitContent): GameState {
+  const entry = Object.entries(targets)[0]
+  if (!entry) return state
+  const [unitId, destination] = entry
+
+  const unit = state.units.find((u) => u.id === unitId)
+  if (!unit || unit.ownerId !== playerId || unit.kind !== kind) return state
+
+  const legalDestinations = legalMoveDestinations(state, unit, unit.movement, content.terrainLevels)
+  if (!legalDestinations.some((c) => coordKey(c) === coordKey(destination))) return state
+
+  const units = state.units.map((u) => (u.id === unitId ? { ...u, coord: destination } : u))
+  return { ...state, units }
+}
+
 // --- dispatcher --------------------------------------------------------------
 
 /**
- * Rule: playing a card lets the player choose one action, and it applies
- * simultaneously to every unit of that kind they control — not a single
+ * Rule: playing a card lets the player choose one action, and — with the
+ * sole exception of `move` (see applyMove above) — it applies
+ * simultaneously to every unit of that kind they control, not a single
  * unit. A unit with no legal target (or no target supplied, for a targeted
  * action) simply does nothing; the others still act independently, each
  * paying/gaining its own share.
@@ -280,6 +306,10 @@ export function applyUnitActionEffect(
   targets: Record<string, Coordinate>,
   content: UnitContent,
 ): GameState {
+  if (action.effect.actionType === 'move') {
+    return syncCardZonesWithBoard(applyMove(state, playerId, kind, targets, content))
+  }
+
   const actingUnits = state.units.filter((u) => u.ownerId === playerId && u.kind === kind)
   let nextState = state
 

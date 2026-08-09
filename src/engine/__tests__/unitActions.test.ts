@@ -641,3 +641,72 @@ describe('applyUnitActionEffect — trade-resource (Merchant)', () => {
     expect(next.players.find((p) => p.id === 'p1')!.resources).toEqual({ gold: 10, wood: 0, stone: 0 })
   })
 })
+
+describe('applyUnitActionEffect — move', () => {
+  const action: UnitAction = { id: 'move', name: 'Move', description: '', effect: { actionType: 'move' } }
+
+  it('moves only the targeted unit to a legal destination', () => {
+    const board = boardOf([
+      [0, 0, 'plain'],
+      [1, 0, 'plain'],
+    ])
+    const mover = makeUnit('p1', 'nomad', { q: 0, r: 0 }, { terrains: ['plain'], moveDistance: 1, blockedByUnits: 'all' })
+    const state = makeState({ board, units: [mover] })
+
+    const next = applyUnitActionEffect(state, 'p1', 'nomad', action, { [mover.id]: { q: 1, r: 0 } }, emptyContent)
+
+    expect(next.units.find((u) => u.id === mover.id)?.coord).toEqual({ q: 1, r: 0 })
+  })
+
+  it('does not move any other unit of the same kind, unlike every other action', () => {
+    const board = boardOf([
+      [0, 0, 'plain'],
+      [1, 0, 'plain'],
+      [5, 5, 'plain'],
+      [6, 5, 'plain'],
+    ])
+    const mover = makeUnit('p1', 'nomad', { q: 0, r: 0 }, { terrains: ['plain'], moveDistance: 1, blockedByUnits: 'all' })
+    const bystander = makeUnit('p1', 'nomad', { q: 5, r: 5 }, { terrains: ['plain'], moveDistance: 1, blockedByUnits: 'all' })
+    const state = makeState({ board, units: [mover, bystander] })
+
+    const next = applyUnitActionEffect(state, 'p1', 'nomad', action, { [mover.id]: { q: 1, r: 0 } }, emptyContent)
+
+    expect(next.units.find((u) => u.id === bystander.id)?.coord).toEqual({ q: 5, r: 5 })
+  })
+
+  it('is a no-op for an illegal destination', () => {
+    const board = boardOf([
+      [0, 0, 'plain'],
+      [1, 0, 'water'],
+    ])
+    const mover = makeUnit('p1', 'nomad', { q: 0, r: 0 }, { terrains: ['plain'], moveDistance: 1, blockedByUnits: 'all' })
+    const state = makeState({ board, units: [mover] })
+
+    const next = applyUnitActionEffect(state, 'p1', 'nomad', action, { [mover.id]: { q: 1, r: 0 } }, emptyContent)
+
+    expect(next.units.find((u) => u.id === mover.id)?.coord).toEqual({ q: 0, r: 0 })
+  })
+
+  it('is a no-op when no target is supplied', () => {
+    const board = boardOf([[0, 0, 'plain']])
+    const mover = makeUnit('p1', 'nomad', { q: 0, r: 0 }, { terrains: ['plain'], moveDistance: 1, blockedByUnits: 'all' })
+    const state = makeState({ board, units: [mover] })
+
+    const next = applyUnitActionEffect(state, 'p1', 'nomad', action, {}, emptyContent)
+
+    expect(next.units.find((u) => u.id === mover.id)?.coord).toEqual({ q: 0, r: 0 })
+  })
+
+  it("is a no-op for a target keyed to a unit of a different kind or owner", () => {
+    const board = boardOf([
+      [0, 0, 'plain'],
+      [1, 0, 'plain'],
+    ])
+    const otherOwner = makeUnit('p2', 'nomad', { q: 0, r: 0 }, { terrains: ['plain'], moveDistance: 1, blockedByUnits: 'all' })
+    const state = makeState({ board, units: [otherOwner] })
+
+    const next = applyUnitActionEffect(state, 'p1', 'nomad', action, { [otherOwner.id]: { q: 1, r: 0 } }, emptyContent)
+
+    expect(next.units.find((u) => u.id === otherOwner.id)?.coord).toEqual({ q: 0, r: 0 })
+  })
+})

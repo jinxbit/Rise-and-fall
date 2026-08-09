@@ -100,23 +100,24 @@ Blocked on the same gap as #2/#3: nothing tracks achievement claims yet, so
 there's no way to count "how many were claimed this round" to know how
 many cards each player must decline.
 
-## 6. Movement timing/frequency — assumption, not yet confirmed
+## 6. Movement timing/frequency — done
 
-`MOVE_UNIT` is now implemented (`src/engine/movement.ts`'s
-`legalMoveDestinations` + `applyMoveUnit` in `src/engine/applyAction.ts`),
-covering terrain restrictions, cliff-crossing, and the pass-through
+Resolved: movement is an action, just like every other unit action — chosen
+by playing a mobile unit kind's card during the `actions` phase, same as
+create/transform/income/etc. Only units of the kind matching the card
+played can move. Unlike every other action, choosing `move` acts on exactly
+one unit (whichever unit id is given in `RESOLVE_UNIT_ACTION`'s `targets`),
+not every unit of that kind — no other unit acts that turn.
+
+Implemented as a `move` action entry on every mobile unit kind in
+`units.json` (`MoveEffect` in `src/engine/unitContent.ts`), handled by
+`applyMove()` in `src/engine/unitActions.ts` — a special case in
+`applyUnitActionEffect()`'s dispatcher, since every other action loops over
+every owned unit of the kind. Legal destinations come from
+`legalMoveDestinations()` (`src/engine/movement.ts`), a BFS respecting
+terrain restrictions, cliff-crossing, and the pass-through
 (`blockedByUnits`) vs. land-on (`canEndMoveOnUnitTypes`) distinction, plus
-Ship's "infinite range, but can't leave its water region" rule. What's
-still an open assumption is *when* a unit may be moved — the round-sequence
-rules given so far (`selectCards`/`actions`/`decline`/`purchase`) never
-mention a dedicated movement step.
-
-Currently implemented as: allowed only during the active player's turn in
-the `actions` phase, for any unit they own (not tied to which card they
-played that turn), doesn't consume their turn slot, and can be called any
-number of times — nothing tracks "already moved this round" per unit, so
-the same unit could in principle be moved repeatedly in one action-phase
-turn. Flagged in `applyMoveUnit`'s doc comment. Needs: confirmation of
-whether movement is once-per-unit-per-round, whether it's restricted to the
-unit kind matching the card played that turn, and whether it can happen
-outside the `actions` phase at all.
+Ship's "infinite range, but can't leave its water region" rule
+(`moveDistance: "unlimited"`, bounded implicitly by `terrains: ["water"]`).
+There is no longer a standalone `MOVE_UNIT` action type — see
+`UnitActions.md`'s resolved questions #5.

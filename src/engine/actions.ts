@@ -1,17 +1,12 @@
 import type { Coordinate } from './types'
 
 // The action set matches the round sequence in ./round.ts: CHOOSE_CARD
-// (phase 1, simultaneous), RESOLVE_UNIT_ACTION (phase 2, turn order),
+// (phase 1, simultaneous), RESOLVE_UNIT_ACTION (phase 2, turn order —
+// movement is one of the actions resolved here, via a unit kind's 'move'
+// effect; see applyMove in ./unitActions.ts, not a standalone action type),
 // MOVE_TO_DECLINE (phase 3, turn order, only reachable when triggered),
 // PURCHASE_CARD / PASS_PURCHASE (phase 4, turn order). Recycle-check and
 // round-end are automatic engine bookkeeping, not player actions.
-
-export interface MoveUnitAction {
-  type: 'MOVE_UNIT'
-  playerId: string
-  unitId: string
-  to: Coordinate
-}
 
 export interface ChooseCardAction {
   type: 'CHOOSE_CARD'
@@ -53,7 +48,6 @@ export interface PassPurchaseAction {
 }
 
 export type Action =
-  | MoveUnitAction
   | ChooseCardAction
   | ResolveUnitActionAction
   | MoveToDeclineAction
