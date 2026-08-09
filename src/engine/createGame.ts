@@ -1,4 +1,4 @@
-import { beginBoardSetup } from './boardSetup'
+import { beginBoardSetup, beginBoardSetupWithPresetBoard } from './boardSetup'
 import type { BoardGenerationContent } from './boardGenerationContent'
 import { createPlayerCards } from './cards'
 import type { Board, Card, GameState, PlayMode, Player, Resources } from './types'
@@ -96,4 +96,19 @@ export function startGame(state: GameState, boardGenerationContent: BoardGenerat
     throw new Error(`Cannot start a game with status ${state.status}`)
   }
   return beginBoardSetup(state, boardGenerationContent)
+}
+
+/**
+ * Alternative to startGame() for games starting from a pre-made map (see
+ * content/mapTemplates.json / resolveMapTemplateBoard in
+ * content/resolveContent.ts): skips the interactive tile-placement
+ * sub-phase, using `board` as-is, but still runs the normal interactive
+ * starting-unit placement sub-phase from there — `status` becomes
+ * `'boardSetup'` just like startGame(), not `'active'` directly.
+ */
+export function startGameWithPresetBoard(state: GameState, board: Board): GameState {
+  if (state.status !== 'lobby') {
+    throw new Error(`Cannot start a game with status ${state.status}`)
+  }
+  return beginBoardSetupWithPresetBoard(state, board)
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createEmptyBoard, getTile, setTile } from '../board'
 import type { BoardGenerationContent, TileTierContent } from '../boardGenerationContent'
-import { beginBoardSetup, currentTilePlacerId, currentUnitPlacerId, placeTile, placeUnit } from '../boardSetup'
+import { beginBoardSetup, beginBoardSetupWithPresetBoard, currentTilePlacerId, currentUnitPlacerId, placeTile, placeUnit } from '../boardSetup'
 import { cardIdFor, createPlayerCards } from '../cards'
 import type { Card, Coordinate, GameState, Player, Terrain } from '../types'
 import type { UnitContent } from '../unitContent'
@@ -119,6 +119,52 @@ describe('beginBoardSetup', () => {
 
     expect(next.boardSetup?.tileTierQueue).toEqual([])
     expect(next.boardSetup?.unitsRemainingByPlayerId).toEqual({ p1: ['city', 'nomad', 'ship'], p2: ['city', 'nomad', 'ship'] })
+  })
+})
+
+describe('beginBoardSetupWithPresetBoard', () => {
+  it('uses the given board as-is and skips straight to unit placement', () => {
+    const preset = boardOf([[0, 0, 'plain'], [1, 0, 'water'], [2, 0, 'forest']])
+    const base = makeSetupState({ status: 'lobby', boardSetup: null, board: createEmptyBoard('hex') })
+
+    const next = beginBoardSetupWithPresetBoard(base, preset)
+
+    expect(next.status).toBe('boardSetup')
+    expect(next.board).toBe(preset)
+    expect(next.boardSetup?.tileTierQueue).toEqual([])
+    expect(next.boardSetup?.unitsRemainingByPlayerId).toEqual({ p1: ['city', 'nomad', 'ship'], p2: ['city', 'nomad', 'ship'] })
+    expect(currentTilePlacerId(next)).toBeNull()
+    expect(currentUnitPlacerId(next)).toBe('p1')
+  })
+
+  it('lets unit placement proceed normally to an active game afterward', () => {
+    const preset = boardOf([
+      [0, 0, 'plain'], [1, 0, 'water'], [2, 0, 'plain'],
+      [3, 0, 'plain'], [4, 0, 'water'], [5, 0, 'plain'],
+    ])
+    const base = makeSetupState({ status: 'lobby', boardSetup: null, board: createEmptyBoard('hex') })
+    let state = beginBoardSetupWithPresetBoard(base, preset)
+
+    // Turn order alternates p1/p2 each placement (see unitPlacerIndex), so
+    // this must interleave the two players' three placements rather than
+    // exhausting one player's units before the other's.
+    const placements: Array<[string, string, Coordinate]> = [
+      ['p1', 'city', { q: 0, r: 0 }],
+      ['p2', 'city', { q: 3, r: 0 }],
+      ['p1', 'ship', { q: 1, r: 0 }],
+      ['p2', 'ship', { q: 4, r: 0 }],
+      ['p1', 'nomad', { q: 2, r: 0 }],
+      ['p2', 'nomad', { q: 5, r: 0 }],
+    ]
+    for (const [playerId, kind, coord] of placements) {
+      const result = placeUnit(state, playerId, kind, coord, emptyUnitContent)
+      if (!result.ok) throw new Error(`setup failed: ${result.error}`)
+      state = result.state
+    }
+
+    expect(state.status).toBe('active')
+    expect(state.boardSetup).toBeNull()
+    expect(state.units).toHaveLength(6)
   })
 })
 

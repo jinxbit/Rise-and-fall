@@ -1,0 +1,52 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://rise-and-fall.local/mapTemplates.schema.json",
+  "title": "Rise & Fall map templates",
+  "description": "Pre-made board layouts players can choose at game creation instead of building the map interactively during board setup (see src/engine/boardSetup.ts's beginBoardSetupWithPresetBoard).",
+  "type": "object",
+  "required": ["mapTemplates"],
+  "additionalProperties": false,
+  "properties": {
+    "mapTemplates": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/mapTemplate" }
+    }
+  },
+  "definitions": {
+    "mapTemplate": {
+      "type": "object",
+      "required": ["id", "name", "description", "shape", "tiles"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Stable identifier, referenced by games.map_template_id (supabase/migrations)."
+        },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "shape": {
+          "type": "string",
+          "enum": ["hex", "square"]
+        },
+        "tiles": {
+          "type": "array",
+          "description": "Every tile on the finished map — no interactive tile placement happens for a template game, so this must already be the complete board.",
+          "items": { "$ref": "#/definitions/tile" }
+        }
+      }
+    },
+    "tile": {
+      "type": "object",
+      "required": ["q", "r", "terrain"],
+      "additionalProperties": false,
+      "properties": {
+        "q": { "type": "integer" },
+        "r": { "type": "integer" },
+        "terrain": {
+          "type": "string",
+          "enum": ["water", "plain", "forest", "mountain", "glacier"]
+        }
+      }
+    }
+  }
+}

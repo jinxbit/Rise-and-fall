@@ -20,6 +20,8 @@ export async function createGame(params: {
   avatarUrl: string | null
   minPlayers?: number
   maxPlayers?: number
+  /** Content id of a pre-made map template (src/content/mapTemplates.json) to skip interactive tile placement, or null/omitted for the usual interactive setup. */
+  mapTemplateId?: string | null
 }): Promise<{ game: GameRow; player: PlayerRow }> {
   const roomCode = generateRoomCode()
 
@@ -31,6 +33,7 @@ export async function createGame(params: {
       created_by: params.userId,
       min_players: params.minPlayers ?? 2,
       max_players: params.maxPlayers ?? 4,
+      map_template_id: params.mapTemplateId ?? null,
     })
     .select()
     .single()

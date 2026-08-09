@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { DiscordSignIn } from '../components/DiscordSignIn'
 import { GuestSignIn } from '../components/GuestSignIn'
+import { MapTemplateSelector } from '../components/MapTemplateSelector'
 import { PlayModeSelector } from '../components/PlayModeSelector'
 import { useAuth } from '../hooks/useAuth'
 import { createGame, getGameByRoomCode } from '../lib/gameApi'
@@ -13,6 +14,7 @@ export function HomePage() {
   const navigate = useNavigate()
 
   const [playMode, setPlayMode] = useState<PlayMode>('live')
+  const [mapTemplateId, setMapTemplateId] = useState<string | null>(null)
   const [roomCodeInput, setRoomCodeInput] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -54,6 +56,7 @@ export function HomePage() {
         userId: user.id,
         displayName,
         avatarUrl,
+        mapTemplateId,
       })
       navigate(`/lobby/${game.room_code}`)
     } catch (err) {
@@ -98,6 +101,8 @@ export function HomePage() {
       <section className="flex flex-col gap-3">
         <h2 className="font-medium text-neutral-200">Create a game</h2>
         <PlayModeSelector value={playMode} onChange={setPlayMode} />
+        <h3 className="text-sm font-medium text-neutral-400">Map</h3>
+        <MapTemplateSelector value={mapTemplateId} onChange={setMapTemplateId} />
         <button
           disabled={busy}
           onClick={() => void handleCreate()}

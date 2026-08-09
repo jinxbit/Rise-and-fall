@@ -15,6 +15,8 @@ export interface GameRow {
   created_by: string
   created_at: string
   updated_at: string
+  /** Content id of a pre-made map template (src/content/mapTemplates.json), or null to build the map interactively as usual. */
+  map_template_id: string | null
 }
 
 export interface PlayerRow {

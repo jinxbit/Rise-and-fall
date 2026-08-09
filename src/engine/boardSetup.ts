@@ -5,7 +5,7 @@ import { syncCardZonesWithBoard } from './cards'
 import { nextSequenceId } from './idSequence'
 import { appendLog } from './log'
 import { beginSelectCardsPhase } from './round'
-import type { ActionResult, BoardSetupState, Coordinate, GameState, Terrain, Unit } from './types'
+import type { ActionResult, Board, BoardSetupState, Coordinate, GameState, Terrain, Unit } from './types'
 import type { UnitContent } from './unitContent'
 
 /** Per ruling: every player's three starting units, one of each kind. */
@@ -60,6 +60,27 @@ export function beginBoardSetup(state: GameState, content: BoardGenerationConten
 
   let nextState: GameState = { ...state, status: 'boardSetup', board, boardSetup }
   nextState = { ...nextState, log: appendLog(nextState, null, 'Board setup begins: starting water tiles seeded') }
+  return beginUnitPlacementIfTilesDone(nextState, state.turnOrder)
+}
+
+/**
+ * Alternative to beginBoardSetup() for games starting from a pre-made map
+ * (see content/mapTemplates.json, resolved via resolveMapTemplateBoard in
+ * content/resolveContent.ts): skips the interactive tile-placement
+ * sub-phase entirely — `board` is used exactly as given, with an empty
+ * `tileTierQueue` — and goes straight into starting-unit placement, which
+ * proceeds exactly as normal from there (see placeUnit below).
+ */
+export function beginBoardSetupWithPresetBoard(state: GameState, board: Board): GameState {
+  const boardSetup: BoardSetupState = {
+    tileTierQueue: [],
+    tilesRemainingInTier: 0,
+    tilePlacerIndex: 0,
+    unitsRemainingByPlayerId: {},
+    unitPlacerIndex: 0,
+  }
+  let nextState: GameState = { ...state, status: 'boardSetup', board, boardSetup }
+  nextState = { ...nextState, log: appendLog(nextState, null, 'Board setup begins: starting from a preset map') }
   return beginUnitPlacementIfTilesDone(nextState, state.turnOrder)
 }
 

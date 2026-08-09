@@ -7,13 +7,15 @@
 // content/*.json itself.
 
 import achievementsJson from './achievements.json'
+import mapTemplatesJson from './mapTemplates.json'
 import resourcesJson from './resources.json'
 import terrainJson from './terrain.json'
 import unitsJson from './units.json'
 import type { AchievementContent } from '../engine/achievementContent'
+import { createEmptyBoard, setTile } from '../engine/board'
 import type { BoardGenerationContent, TileTierContent } from '../engine/boardGenerationContent'
 import type { UnitAction, UnitContent } from '../engine/unitContent'
-import type { Resources, Terrain, UnitMovement } from '../engine/types'
+import type { Board, BoardShape, Resources, Terrain, UnitMovement } from '../engine/types'
 
 const TILE_TIER_ORDER: Terrain[] = ['water', 'plain', 'forest', 'mountain', 'glacier']
 
@@ -81,6 +83,34 @@ export function resolveUnitLimits(playerCount: number): Record<string, number> {
     limits[unit.id] = unit.supply.byPlayerCount[key as keyof typeof unit.supply.byPlayerCount] ?? 0
   }
   return limits
+}
+
+export interface MapTemplateSummary {
+  id: string
+  name: string
+  description: string
+}
+
+/** Every pre-made map template a player can choose at game creation (see mapTemplates.json), skipping interactive tile placement in board setup. */
+export function listMapTemplates(): MapTemplateSummary[] {
+  return mapTemplatesJson.mapTemplates.map((t) => ({ id: t.id, name: t.name, description: t.description }))
+}
+
+/**
+ * Builds the finished Board for a map template id, or null if no template
+ * with that id exists (e.g. a game's map_template_id references a template
+ * that's since been renamed/removed). Passed to
+ * src/engine/createGame.ts's startGameWithPresetBoard.
+ */
+export function resolveMapTemplateBoard(templateId: string): Board | null {
+  const template = mapTemplatesJson.mapTemplates.find((t) => t.id === templateId)
+  if (!template) return null
+
+  let board = createEmptyBoard(template.shape as BoardShape)
+  for (const tile of template.tiles) {
+    board = setTile(board, { q: tile.q, r: tile.r }, tile.terrain as Terrain)
+  }
+  return board
 }
 
 export function resolveAchievementContent(): AchievementContent {

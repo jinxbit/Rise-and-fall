@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
-import { resolveBoardGenerationContent, resolveResourceBank, resolveUnitLimits } from '../content/resolveContent'
+import { listMapTemplates, resolveBoardGenerationContent, resolveMapTemplateBoard, resolveResourceBank, resolveUnitLimits } from '../content/resolveContent'
 import { createEmptyBoard } from '../engine/board'
-import { createNewGame, startGame } from '../engine/createGame'
+import { createNewGame, startGame, startGameWithPresetBoard } from '../engine/createGame'
 import {
   getGameByRoomCode,
   getGameState,
@@ -110,7 +110,15 @@ export function LobbyPage() {
           resourceBank: resolveResourceBank(players.length),
           unitLimits: resolveUnitLimits(players.length),
         })
-        const boardSetupState = startGame(lobbyState, resolveBoardGenerationContent(players.length))
+
+        let boardSetupState
+        if (game.map_template_id) {
+          const presetBoard = resolveMapTemplateBoard(game.map_template_id)
+          if (!presetBoard) throw new Error(`Unknown map template: ${game.map_template_id}`)
+          boardSetupState = startGameWithPresetBoard(lobbyState, presetBoard)
+        } else {
+          boardSetupState = startGame(lobbyState, resolveBoardGenerationContent(players.length))
+        }
         await insertGameState(game.id, boardSetupState)
       }
       await setGameStatus(game.id, 'active')
@@ -126,7 +134,10 @@ export function LobbyPage() {
       <header>
         <h1 className="text-2xl font-semibold">Room {game.room_code}</h1>
         <p className="text-neutral-400">
-          {game.play_mode} · {players.length}/{game.max_players} players
+          {game.play_mode} · {players.length}/{game.max_players} players ·{' '}
+          {game.map_template_id
+            ? (listMapTemplates().find((t) => t.id === game.map_template_id)?.name ?? game.map_template_id)
+            : 'interactive map'}
         </p>
       </header>
 
