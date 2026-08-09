@@ -2,8 +2,10 @@ import type { Action } from './actions'
 import { moveCard } from './cards'
 import { eliminatePlayersWithNoCardToDecline } from './elimination'
 import { appendLog } from './log'
+import { legalMoveDestinations } from './movement'
 import { beginActionsPhase, beginPostActionsPhase, beginPurchasePhase, finishRound } from './round'
 import type { Coordinate, GameState } from './types'
+import { coordKey } from './types'
 import { EMPTY_UNIT_CONTENT } from './unitContent'
 import type { UnitContent } from './unitContent'
 import { applyUnitActionEffect } from './unitActions'
@@ -33,7 +35,7 @@ export function applyAction(state: GameState, action: Action, unitContent: UnitC
 
   switch (action.type) {
     case 'MOVE_UNIT':
-      return { ok: false, error: 'NOT_IMPLEMENTED: MOVE_UNIT' }
+      return applyMoveUnit(state, action.playerId, action.unitId, action.to, unitContent)
     case 'CHOOSE_CARD':
       return applyChooseCard(state, action.playerId, action.cardId)
     case 'RESOLVE_UNIT_ACTION':
@@ -84,6 +86,46 @@ function applyChooseCard(state: GameState, playerId: string, cardId: string): Ac
   if (nextState.pendingPlayerIds.length === 0) {
     nextState = beginActionsPhase(nextState)
   }
+  return { ok: true, state: nextState }
+}
+
+/**
+ * Moves one of the active player's own units to a hex within
+ * legalMoveDestinations (see ./movement.ts). ASSUMPTION (not established
+ * by the round rules given so far, since the round sequence as specified
+ * only covers select-cards/actions/decline/purchase and never mentions a
+ * dedicated movement step): allowed during the active player's turn in
+ * the `actions` phase, for any unit they own (not tied to which card they
+ * played), and doesn't consume their turn slot — MOVE_UNIT can be called
+ * any number of times before/around RESOLVE_UNIT_ACTION, and nothing here
+ * currently stops the same unit from being moved more than once in a
+ * round (no "already moved" tracking exists on Unit). Flagged for
+ * confirmation.
+ */
+function applyMoveUnit(state: GameState, playerId: string, unitId: string, to: Coordinate, unitContent: UnitContent): ActionResult {
+  if (state.roundPhase !== 'actions') {
+    return { ok: false, error: 'Units can only move during the actions phase' }
+  }
+  if (state.activePlayerId !== playerId) {
+    return { ok: false, error: "It is not this player's turn to move a unit" }
+  }
+
+  const unit = state.units.find((u) => u.id === unitId)
+  if (!unit) {
+    return { ok: false, error: `Unknown unit: ${unitId}` }
+  }
+  if (unit.ownerId !== playerId) {
+    return { ok: false, error: 'Cannot move a unit you do not own' }
+  }
+
+  const legalDestinations = legalMoveDestinations(state, unit, unit.movement, unitContent.terrainLevels)
+  if (!legalDestinations.some((c) => coordKey(c) === coordKey(to))) {
+    return { ok: false, error: 'Illegal move destination' }
+  }
+
+  const units = state.units.map((u) => (u.id === unitId ? { ...u, coord: to } : u))
+  let nextState: GameState = { ...state, units }
+  nextState = { ...nextState, log: appendLog(nextState, playerId, `Player ${playerId} moved a ${unit.kind}`) }
   return { ok: true, state: nextState }
 }
 

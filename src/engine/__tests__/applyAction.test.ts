@@ -102,10 +102,18 @@ describe('applyAction', () => {
   })
 
   it('returns NOT_IMPLEMENTED for actions not yet built', () => {
-    const result = applyAction(state, { type: 'MOVE_UNIT', playerId: 'p1', unitId: 'unit_1', to: { q: 1, r: 0 } })
+    const result = applyAction(state, { type: 'PURCHASE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') })
     expect(result.ok).toBe(false)
     if (!result.ok) {
       expect(result.error).toContain('NOT_IMPLEMENTED')
+    }
+  })
+
+  it('rejects MOVE_UNIT outside the actions phase', () => {
+    const result = applyAction(state, { type: 'MOVE_UNIT', playerId: 'p1', unitId: 'unit_1', to: { q: 1, r: 0 } })
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.error).toContain('actions phase')
     }
   })
 

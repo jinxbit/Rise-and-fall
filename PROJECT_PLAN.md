@@ -13,7 +13,10 @@ decisions get made.
 
 - [x] Repo scaffold: Vite + React + TypeScript, Tailwind CSS v4.
 - [x] Rules engine skeleton (`src/engine/`) — types, `applyAction()` with
-      `END_TURN` implemented, `MOVE_UNIT`/`PLAY_CARD` stubbed.
+      `END_TURN` implemented, `MOVE_UNIT`/`PLAY_CARD` originally stubbed
+      (since superseded — see sections 1 and 2 below: `MOVE_UNIT` is now
+      implemented, and `PLAY_CARD` was split into `CHOOSE_CARD` +
+      `RESOLVE_UNIT_ACTION`).
 - [x] Supabase schema + Row Level Security for `games` / `players` /
       `game_state`.
 - [x] Supabase client, Discord OAuth sign-in/out, `useAuth()` hook,
@@ -40,8 +43,12 @@ decisions get made.
 - [ ] Finalize the full card list and each card's effect.
 - [x] Cliff definition: a hexside is a cliff if the two hexes' terrain
       elevation `level` differs by more than 1 (`src/content/terrain.json`,
-      `src/engine/cliffs.ts`). Terrain *movement* rules beyond that
-      (pathing, move costs) still need `MOVE_UNIT` itself (section 2).
+      `src/engine/cliffs.ts`). Terrain *movement* — which terrains a unit
+      may step onto, cliff-crossing, and how other units' presence gates
+      passing through vs landing — is implemented per-unit via
+      `movement.terrains`/`canCrossCliffs`/`blockedByUnits`/
+      `canEndMoveOnUnitTypes` in `content/units.json`; see `MOVE_UNIT` in
+      section 2.
 - [ ] Specify turn structure and any per-phase rules (draw, action limits,
       combat resolution, etc.) — mostly done (`src/engine/round.ts`,
       including player elimination — see `todo.md` #4). Still open: the
@@ -53,8 +60,22 @@ decisions get made.
 
 ## 2. Implement the rules engine
 
-- [ ] Implement `MOVE_UNIT` in `applyAction()`, including terrain/cliff
-      movement restrictions.
+- [x] Implement `MOVE_UNIT` in `applyAction()`, including terrain/cliff
+      movement restrictions. A breadth-first search (`legalMoveDestinations`
+      in `src/engine/movement.ts`) computes every hex a unit may legally
+      move to in one action, honoring `movement.terrains`, cliff-crossing
+      (`canCrossCliffs`), and — as two independent checks —
+      `blockedByUnits` (passing through a hex) and `canEndMoveOnUnitTypes`
+      (landing on an occupied hex). `moveDistance` is either a finite
+      integer or the `'unlimited'` sentinel (Ship): an unbounded BFS
+      restricted to `terrains: ['water']` naturally stays within a ship's
+      connected water region without a distance cap, satisfying "movement
+      allowance is infinity but can't leave its water region." Gating for
+      *when* `MOVE_UNIT` may be called (currently: the active player, only
+      during the `actions` phase, not tied to which card they played, no
+      once-per-round-per-unit limit) is a documented assumption in
+      `applyMoveUnit()`, not yet confirmed against the round-sequence rules
+      — see `todo.md`.
 - [x] Implement each unit's actions (all 19, across the 6 kinds — create/
       transform/convert/income/produce/trade/trade-resource). `RESOLVE_
       UNIT_ACTION` now carries `actionId` + per-unit `targets` and applies
@@ -63,14 +84,14 @@ decisions get made.
       rest on a documented assumption — see `UnitActions.md`'s open
       questions at the repo root.
 - [x] Real per-unit-kind unit limits, board-count/terrain-control/
-      achievement VP scoring, elimination, and resource tracking are all
-      implemented (see `todo.md`) — what's left in this section is
-      specifically `MOVE_UNIT`, win-condition wiring, and board generation.
+      achievement VP scoring, elimination, resource tracking, and movement
+      are all implemented (see `todo.md`) — what's left in this section is
+      win-condition wiring and board generation.
 - [ ] Implement win-condition checking and game-end handling.
 - [ ] Implement board generation/drafting at game start; wire it into
       `startGame()`.
 - [x] Expand the unit test suite in `src/engine/__tests__/` to cover
-      every action and edge case as it's implemented — 129 tests, including
+      every action and edge case as it's implemented — 151 tests, including
       a pass against the real `content/*.json` files, not just synthetic
       fixtures.
 

@@ -61,8 +61,13 @@ export interface UnitMovement {
   terrains: Terrain[]
   /** Whether this unit ignores cliff edges, which otherwise block movement/adjacency for every unit. */
   canCrossCliffs: boolean
-  /** Max hexes this unit can move in a single move action. Undefined where not yet decided for a unit. */
-  moveDistance?: number
+  /**
+   * Max hexes this unit can move in a single move action, or 'unlimited'
+   * for a unit with no distance cap (e.g. Ship — still bounded by its
+   * connected region of terrain it can move onto, just not by distance).
+   * Undefined where not yet decided for a unit.
+   */
+  moveDistance?: number | 'unlimited'
   /** Which units this unit's movement path is blocked by. Undefined where not yet decided for a unit. */
   blockedByUnits?: 'none' | 'enemy' | 'all'
   /** Unit kind ids this unit may end its move on top of, as an exception to the normal unoccupied-hex rule. */

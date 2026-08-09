@@ -296,7 +296,9 @@
       "movement": {
         "isMobile": true,
         "terrains": ["water"],
-        "canCrossCliffs": false
+        "canCrossCliffs": false,
+        "moveDistance": "unlimited",
+        "blockedByUnits": "none"
       },
       "actions": [
         {

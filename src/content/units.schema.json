@@ -84,9 +84,8 @@
               "description": "Whether this unit can cross a cliff edge — an edge between tiles that otherwise blocks movement/adjacency for every other unit."
             },
             "moveDistance": {
-              "type": "integer",
-              "minimum": 0,
-              "description": "Max hexes this unit can move in a single move action. Optional, only set once decided for a given unit."
+              "description": "Max hexes this unit can move in a single move action, or \"unlimited\" for a unit with no distance cap (e.g. Ship — bounded instead by its connected region of terrain it can move onto, since it can never leave that region regardless of distance). Optional, only set once decided for a given unit.",
+              "oneOf": [{ "type": "integer", "minimum": 0 }, { "type": "string", "enum": ["unlimited"] }]
             },
             "blockedByUnits": {
               "type": "string",
