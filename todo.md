@@ -122,18 +122,28 @@ claimed, and reset to 0 at the start of every round
 
 `beginDeclinePhase` now computes `cardsPerPlayer = Math.max(1,
 achievementsClaimedThisRound)` — every pending player owes that many cards
-this phase, not just whoever claimed the achievement(s). ASSUMPTION (the
-rules don't spell out the exact mechanics, flagged in `beginDeclinePhase`'s
-doc comment): each player declines all of their required cards
-consecutively before the turn passes to the next player, modeled by
-repeating their id in `pendingPlayerIds` that many times — so
-`applyMoveToDecline` (`src/engine/applyAction.ts`) needed zero changes, it
-just keeps popping the same id off the front until they've supplied enough
-cards, and the existing elimination cascade
-(`eliminatePlayersWithNoCardToDecline`) already handles a player running
-out of cards partway through their required count (eliminated, same as
-running out on the first card). Tested end-to-end in
-`src/engine/__tests__/round.test.ts`.
+this phase, not just whoever claimed the achievement(s).
+
+Per ruling, decline is **simultaneous**, like select-cards — not turn
+order, contrary to what the round-3 doc comments originally assumed.
+`beginDeclinePhase` now sets `activePlayerId: null` throughout the phase
+(same as select-cards), and `applyMoveToDecline`
+(`src/engine/applyAction.ts`) checks `pendingPlayerIds.includes(playerId)`
+rather than `pendingPlayerIds[0] === playerId` — any pending player may
+move a card into decline at any time, in any order relative to the others.
+A player who owes more than one card still appears more than once in
+`pendingPlayerIds` (repeating their id that many times), but each
+`MOVE_TO_DECLINE` now removes just the one occurrence being fulfilled
+(`removeOneOccurrence()`), not necessarily the front of the queue —
+they remain pending, and may act again whenever they choose, until every
+occurrence is gone. `eliminatePlayersWithNoCardToDecline`
+(`src/engine/elimination.ts`) was rewritten to match: instead of cascading
+through `activePlayerId` one at a time, it checks every currently-pending
+player independently (same pattern as `eliminatePlayersWithNoCardToPlay`
+for select-cards) — still re-run after each `MOVE_TO_DECLINE`, so a player
+who runs out of cards partway through their required count is caught and
+eliminated. Tested end-to-end in `src/engine/__tests__/round.test.ts` and
+`src/engine/__tests__/elimination.test.ts`.
 
 ## 6. Movement timing/frequency — done
 

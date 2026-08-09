@@ -129,7 +129,8 @@ describe('round flow', () => {
     if (!result.ok) return
     expect(result.state.roundPhase).toBe('decline')
     expect(result.state.pendingPlayerIds).toEqual(['p1', 'p2'])
-    expect(result.state.activePlayerId).toBe('p1')
+    // Decline is simultaneous (like select-cards), not turn order.
+    expect(result.state.activePlayerId).toBeNull()
 
     result = applyAction(result.state, { type: 'MOVE_TO_DECLINE', playerId: 'p1', cardId: cardIdFor('p1', 'temple') })
     if (!result.ok) throw new Error('setup failed')
@@ -274,21 +275,25 @@ describe('round flow', () => {
     expect(result.state.roundPhase).toBe('decline')
     // 2 achievements claimed this round -> each player owes 2 cards, so p1's id appears twice up front.
     expect(result.state.pendingPlayerIds).toEqual(['p1', 'p1', 'p2', 'p2'])
+    // Decline is simultaneous — nobody is "up" in particular.
+    expect(result.state.activePlayerId).toBeNull()
+
+    // p2 goes first here, and out of order relative to p1's two declines — simultaneous means either can act at any time.
+    result = applyAction(result.state, { type: 'MOVE_TO_DECLINE', playerId: 'p2', cardId: cardIdFor('p2', 'temple') })
+    if (!result.ok) throw new Error('setup failed')
+    expect(result.state.roundPhase).toBe('decline')
+    expect(result.state.pendingPlayerIds).toEqual(['p1', 'p1', 'p2'])
 
     result = applyAction(result.state, { type: 'MOVE_TO_DECLINE', playerId: 'p1', cardId: cardIdFor('p1', 'temple') })
     if (!result.ok) throw new Error('setup failed')
-    // Still p1's turn — they owe a second card before p2 gets a turn.
+    // p1 still owes a second card — declining once doesn't drop them from pendingPlayerIds.
     expect(result.state.roundPhase).toBe('decline')
-    expect(result.state.activePlayerId).toBe('p1')
-    expect(result.state.pendingPlayerIds).toEqual(['p1', 'p2', 'p2'])
+    expect(result.state.pendingPlayerIds).toEqual(['p1', 'p2'])
 
     result = applyAction(result.state, { type: 'MOVE_TO_DECLINE', playerId: 'p1', cardId: cardIdFor('p1', 'nomad') })
     if (!result.ok) throw new Error('setup failed')
-    expect(result.state.activePlayerId).toBe('p2')
-    expect(result.state.pendingPlayerIds).toEqual(['p2', 'p2'])
+    expect(result.state.pendingPlayerIds).toEqual(['p2'])
 
-    result = applyAction(result.state, { type: 'MOVE_TO_DECLINE', playerId: 'p2', cardId: cardIdFor('p2', 'temple') })
-    if (!result.ok) throw new Error('setup failed')
     result = applyAction(result.state, { type: 'MOVE_TO_DECLINE', playerId: 'p2', cardId: cardIdFor('p2', 'nomad') })
     expect(result.ok).toBe(true)
     if (!result.ok) return

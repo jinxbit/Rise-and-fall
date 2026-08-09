@@ -168,8 +168,10 @@ export interface Player {
  * 2. `actions` — in turn order, each player resolves the action for the
  *    unit kind they chose.
  * 3. `decline` — only inserted when a player reached a unit-kind limit this
- *    round; in turn order, each player moves one card from hand/discard to
- *    decline.
+ *    round; every player simultaneously (not turn order — same as
+ *    `selectCards`) moves one or more cards from hand/discard to decline —
+ *    more than one if more than one achievement was claimed this round
+ *    (`GameState.achievementsClaimedThisRound`).
  * 4. `purchase` — every player, in turn order, may buy one card back from
  *    their decline (cost rules TBD) or pass.
  * Recycle-check and round-end/game-end are automatic bookkeeping the engine
@@ -194,9 +196,10 @@ export interface GameState {
   /** Round number — increments each time a round finishes (see ./round.ts). */
   turn: number
   /**
-   * Whoever must act next in the current sequential phase (actions/decline/
-   * purchase) — the head of `pendingPlayerIds`. Null during `selectCards`,
-   * since that phase is simultaneous and has no single active player.
+   * Whoever must act next in the current sequential phase (`actions`/
+   * `purchase`) — the head of `pendingPlayerIds`. Null during `selectCards`
+   * and `decline`, since both are simultaneous phases with no single active
+   * player.
    */
   activePlayerId: string | null
   roundPhase: RoundPhase

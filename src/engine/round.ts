@@ -38,21 +38,21 @@ export function beginActionsPhase(state: GameState): GameState {
 }
 
 /**
- * Round step 3: every player moves one or more cards from hand/discard to
- * decline, in turn order. Also applies the elimination rule: the active
- * player is eliminated (and the next one checked in turn) for as long as
- * whoever's up has nothing to decline (hand and discard both empty).
+ * Round step 3: every player simultaneously moves one or more cards from
+ * hand/discard to decline — like select-cards, not turn order, so
+ * `activePlayerId` stays null throughout. Also applies the elimination
+ * rule: any pending player with nothing to decline (hand and discard both
+ * empty) is eliminated (see eliminatePlayersWithNoCardToDecline in
+ * ./elimination.ts).
  *
  * Per ruling, a player must decline more than one card if more than one
  * achievement was claimed *during the round now ending* — every pending
  * player owes `max(1, achievementsClaimedThisRound)` cards this phase, not
- * just the player(s) who claimed them. ASSUMPTION (the rules don't spell
- * out the exact mechanics): each player declines all of their required
- * cards consecutively before the turn passes to the next player — modeled
- * by repeating their id in `pendingPlayerIds` that many times, so the
- * existing one-card-per-MOVE_TO_DECLINE logic (applyMoveToDecline in
- * ./applyAction.ts) needs no changes; it just keeps popping the same id
- * off the front until they've supplied enough cards.
+ * just the player(s) who claimed them. Modeled by repeating their id in
+ * `pendingPlayerIds` that many times (order doesn't matter, since the
+ * phase is simultaneous); `applyMoveToDecline` (./applyAction.ts) removes
+ * one occurrence per card declined, regardless of which player goes when,
+ * until every player has supplied all their required cards.
  */
 export function beginDeclinePhase(state: GameState): GameState {
   const cardsPerPlayer = Math.max(1, state.achievementsClaimedThisRound)
@@ -60,7 +60,7 @@ export function beginDeclinePhase(state: GameState): GameState {
     ...state,
     roundPhase: 'decline',
     pendingPlayerIds: state.turnOrder.flatMap((id) => Array<string>(cardsPerPlayer).fill(id)),
-    activePlayerId: state.turnOrder[0] ?? null,
+    activePlayerId: null,
   }
   const afterEliminations = eliminatePlayersWithNoCardToDecline(started)
   return afterEliminations.pendingPlayerIds.length === 0 ? beginPurchasePhase(afterEliminations) : afterEliminations

@@ -27,7 +27,11 @@ export function eliminatePlayer(state: GameState, playerId: string): GameState {
   const units = state.units.filter((u) => u.ownerId !== playerId)
   const turnOrder = state.turnOrder.filter((id) => id !== playerId)
   const pendingPlayerIds = state.pendingPlayerIds.filter((id) => id !== playerId)
-  const activePlayerId = state.roundPhase === 'selectCards' ? null : (pendingPlayerIds[0] ?? null)
+  // selectCards and decline are both simultaneous phases with no single
+  // active player; actions/purchase are turn order, so the next pending
+  // player (if any) becomes active.
+  const activePlayerId =
+    state.roundPhase === 'selectCards' || state.roundPhase === 'decline' ? null : (pendingPlayerIds[0] ?? null)
 
   let nextState: GameState = { ...state, players, units, turnOrder, pendingPlayerIds, activePlayerId, resourceBank }
   nextState = {
@@ -64,18 +68,22 @@ export function eliminatePlayersWithNoCardToPlay(state: GameState): GameState {
 }
 
 /**
- * Decline phase (sequential, turn order): eliminates the active player and
- * advances to the next pending one, repeating as long as the (new) active
- * player also has nothing to decline (hand and discard both empty).
+ * Decline phase (rule 3, simultaneous like select-cards — a player may owe
+ * more than one card, see beginDeclinePhase in ./round.ts, but still isn't
+ * on anyone else's turn): eliminates every currently pending player who has
+ * nothing left to decline (hand and discard both empty). Must be re-run
+ * after each MOVE_TO_DECLINE, not just once at phase start, since
+ * multi-card decline can leave a player owing more cards than they have
+ * left partway through their own declines.
  */
 export function eliminatePlayersWithNoCardToDecline(state: GameState): GameState {
+  if (state.roundPhase !== 'decline') return state
+
   let nextState = state
-  while (
-    nextState.roundPhase === 'decline' &&
-    nextState.activePlayerId &&
-    hasNoCardToDecline(nextState, nextState.activePlayerId)
-  ) {
-    nextState = eliminatePlayer(nextState, nextState.activePlayerId)
+  for (const playerId of new Set(state.pendingPlayerIds)) {
+    if (hasNoCardToDecline(nextState, playerId)) {
+      nextState = eliminatePlayer(nextState, playerId)
+    }
   }
   return nextState
 }

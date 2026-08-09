@@ -162,13 +162,29 @@ function applyResolveUnitAction(
   return { ok: true, state: nextState }
 }
 
-/** Round step 3 (rule 3 of decline): in turn order, move one card from hand or discard to decline. */
+/** Removes a single occurrence of `id` from `ids` (not every occurrence — see removeOneOccurrence's caller). */
+function removeOneOccurrence(ids: string[], id: string): string[] {
+  const index = ids.indexOf(id)
+  if (index === -1) return ids
+  return [...ids.slice(0, index), ...ids.slice(index + 1)]
+}
+
+/**
+ * Round step 3 (rule 3 of decline): every player simultaneously moves one
+ * card from hand or discard to decline — not turn order, so any pending
+ * player may act in any order relative to the others. A player who owes
+ * more than one card this round (see beginDeclinePhase in ./round.ts)
+ * appears more than once in `pendingPlayerIds`; each call here removes
+ * just the one occurrence being fulfilled; that player remains pending
+ * (and may act again, in any order relative to everyone else) until all of
+ * their occurrences are gone.
+ */
 function applyMoveToDecline(state: GameState, playerId: string, cardId: string): ActionResult {
   if (state.roundPhase !== 'decline') {
     return { ok: false, error: 'Not in the decline phase' }
   }
-  if (state.pendingPlayerIds[0] !== playerId) {
-    return { ok: false, error: "It is not this player's turn to move a card into decline" }
+  if (!state.pendingPlayerIds.includes(playerId)) {
+    return { ok: false, error: 'This player has no more cards owed to decline this round' }
   }
 
   const playerIndex = state.players.findIndex((p) => p.id === playerId)
@@ -184,11 +200,10 @@ function applyMoveToDecline(state: GameState, playerId: string, cardId: string):
   const players = [...state.players]
   players[playerIndex] = nextPlayer
 
-  let nextState: GameState = { ...state, players, pendingPlayerIds: state.pendingPlayerIds.slice(1) }
+  let nextState: GameState = { ...state, players, pendingPlayerIds: removeOneOccurrence(state.pendingPlayerIds, playerId) }
   nextState = { ...nextState, log: appendLog(nextState, playerId, `Player ${playerId} moved a card into decline`) }
-  nextState = { ...nextState, activePlayerId: nextState.pendingPlayerIds[0] ?? null }
-  // Whoever's up next might themselves have nothing to decline — cascades
-  // via eliminatePlayersWithNoCardToDecline until someone valid is found.
+  // This player (or another still-pending one) might now have nothing left
+  // to decline for a required card they haven't supplied yet.
   nextState = eliminatePlayersWithNoCardToDecline(nextState)
 
   if (nextState.pendingPlayerIds.length === 0) {

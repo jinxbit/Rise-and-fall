@@ -63,7 +63,7 @@ function makeState(overrides: Partial<GameState> = {}): GameState {
 describe('eliminatePlayer', () => {
   it('marks the player eliminated, removes their units, and drops them from turn order', () => {
     const state = makeState({
-      roundPhase: 'decline',
+      roundPhase: 'actions',
       turnOrder: ['p1', 'p2'],
       pendingPlayerIds: ['p1', 'p2'],
       activePlayerId: 'p1',
@@ -82,7 +82,7 @@ describe('eliminatePlayer', () => {
 
   it('returns the eliminated player\'s resources to the bank and zeroes their own holding', () => {
     const state = makeState({
-      roundPhase: 'decline',
+      roundPhase: 'actions',
       turnOrder: ['p1', 'p2'],
       pendingPlayerIds: ['p1', 'p2'],
       activePlayerId: 'p1',
@@ -116,9 +116,24 @@ describe('eliminatePlayer', () => {
     expect(next.pendingPlayerIds).toEqual(['p2'])
   })
 
-  it('sets activePlayerId to null once nobody is left pending', () => {
+  it('leaves activePlayerId null during the decline phase too, which is simultaneous like select-cards', () => {
     const state = makeState({
       roundPhase: 'decline',
+      turnOrder: ['p1', 'p2'],
+      pendingPlayerIds: ['p1', 'p2'],
+      activePlayerId: null,
+      players: [makePlayer('p1'), makePlayer('p2')],
+    })
+
+    const next = eliminatePlayer(state, 'p1')
+
+    expect(next.activePlayerId).toBeNull()
+    expect(next.pendingPlayerIds).toEqual(['p2'])
+  })
+
+  it('sets activePlayerId to null once nobody is left pending', () => {
+    const state = makeState({
+      roundPhase: 'actions',
       turnOrder: ['p1'],
       pendingPlayerIds: ['p1'],
       activePlayerId: 'p1',
@@ -180,12 +195,12 @@ describe('eliminatePlayersWithNoCardToPlay', () => {
 })
 
 describe('eliminatePlayersWithNoCardToDecline', () => {
-  it('cascades through consecutive players with nothing to decline', () => {
+  it('eliminates every pending player with nothing to decline, independent of order', () => {
     const state = makeState({
       roundPhase: 'decline',
       turnOrder: ['p1', 'p2', 'p3'],
       pendingPlayerIds: ['p1', 'p2', 'p3'],
-      activePlayerId: 'p1',
+      activePlayerId: null,
       players: [
         makePlayer('p1', { handCardIds: [], discardCardIds: [] }),
         makePlayer('p2', { handCardIds: [], discardCardIds: [] }),
@@ -195,23 +210,39 @@ describe('eliminatePlayersWithNoCardToDecline', () => {
 
     const next = eliminatePlayersWithNoCardToDecline(state)
 
-    expect(next.activePlayerId).toBe('p3')
+    expect(next.activePlayerId).toBeNull()
     expect(next.pendingPlayerIds).toEqual(['p3'])
     expect(next.players.find((p) => p.id === 'p1')?.eliminated).toBe(true)
     expect(next.players.find((p) => p.id === 'p2')?.eliminated).toBe(true)
     expect(next.players.find((p) => p.id === 'p3')?.eliminated).toBe(false)
   })
 
-  it('stops as soon as the active player has a card available, from hand or discard', () => {
+  it('is a no-op when every pending player has a card available, from hand or discard', () => {
     const state = makeState({
       roundPhase: 'decline',
       turnOrder: ['p1', 'p2'],
       pendingPlayerIds: ['p1', 'p2'],
-      activePlayerId: 'p1',
-      players: [makePlayer('p1', { handCardIds: [], discardCardIds: ['card_p1_city'] }), makePlayer('p2', { handCardIds: [] })],
+      activePlayerId: null,
+      players: [makePlayer('p1', { handCardIds: [], discardCardIds: ['card_p1_city'] }), makePlayer('p2', { handCardIds: ['card_p2_city'] })],
     })
 
     expect(eliminatePlayersWithNoCardToDecline(state)).toBe(state)
+  })
+
+  it('eliminates only the specific player who runs out, leaving another still owing a card pending', () => {
+    const state = makeState({
+      roundPhase: 'decline',
+      turnOrder: ['p1', 'p2'],
+      pendingPlayerIds: ['p1', 'p2'],
+      activePlayerId: null,
+      players: [makePlayer('p1', { handCardIds: [], discardCardIds: [] }), makePlayer('p2', { handCardIds: ['card_p2_city'] })],
+    })
+
+    const next = eliminatePlayersWithNoCardToDecline(state)
+
+    expect(next.pendingPlayerIds).toEqual(['p2'])
+    expect(next.players.find((p) => p.id === 'p1')?.eliminated).toBe(true)
+    expect(next.players.find((p) => p.id === 'p2')?.eliminated).toBe(false)
   })
 
   it('does nothing outside the decline phase', () => {
@@ -303,7 +334,7 @@ describe('elimination wired into round phases', () => {
       players,
       roundPhase: 'decline',
       pendingPlayerIds: ['p1', 'p2'],
-      activePlayerId: 'p1',
+      activePlayerId: null,
     }
 
     const result = applyAction(state, { type: 'MOVE_TO_DECLINE', playerId: 'p1', cardId: cardIdFor('p1', 'city') })
