@@ -15,7 +15,7 @@
   "definitions": {
     "terrainType": {
       "type": "object",
-      "required": ["id", "name", "placesOn", "level", "victoryPoints", "shapeGroups"],
+      "required": ["id", "name", "placesOn", "level", "victoryPoints", "scoresAs", "shapeGroups"],
       "additionalProperties": false,
       "properties": {
         "id": {
@@ -36,7 +36,12 @@
         "victoryPoints": {
           "type": "number",
           "minimum": 0,
-          "description": "VP per hex awarded for territory control of a contiguous region of this terrain type at game end: the player with a unit majority in the region scores this value times the region's hex count (a region with no clear majority scores nothing, for anyone). Placeholder 0 until the real value is decided."
+          "description": "VP per hex awarded for territory control of a contiguous region of this terrain type at game end: the player with a unit majority in the region scores this value times the region's hex count (a region with no clear majority scores nothing, for anyone). Placeholder 0 until the real value is decided. Unused for a terrain type whose `scoresAs` points elsewhere (see below) — its own value never gets looked up."
+        },
+        "scoresAs": {
+          "type": "string",
+          "enum": ["water", "plain", "forest", "mountain", "glacier"],
+          "description": "For territory-control scoring only: the terrain type id this terrain's hexes are grouped and scored as, instead of their own id. Equal to `id` for every terrain type except Glacier, which scores as Mountain — Glacier hexes don't form their own regions and don't break a Mountain region's contiguity; they're simply part of it. Has no effect outside territory scoring (elevation `level` and everything else still use each terrain's real id)."
         },
         "shapeGroups": {
           "type": "array",

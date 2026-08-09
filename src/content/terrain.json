@@ -7,6 +7,7 @@
       "placesOn": null,
       "level": 0,
       "victoryPoints": 0,
+      "scoresAs": "water",
       "shapeGroups": [
         {
           "id": "initial",
@@ -34,6 +35,7 @@
       "placesOn": ["water"],
       "level": 1,
       "victoryPoints": 0,
+      "scoresAs": "plain",
       "shapeGroups": [
         {
           "id": "standard",
@@ -52,6 +54,7 @@
       "placesOn": ["plain"],
       "level": 2,
       "victoryPoints": 0,
+      "scoresAs": "forest",
       "shapeGroups": [
         {
           "id": "standard",
@@ -70,6 +73,7 @@
       "placesOn": ["forest"],
       "level": 3,
       "victoryPoints": 0,
+      "scoresAs": "mountain",
       "shapeGroups": [
         {
           "id": "standard",
@@ -88,6 +92,7 @@
       "placesOn": ["mountain"],
       "level": 4,
       "victoryPoints": 0,
+      "scoresAs": "mountain",
       "shapeGroups": [
         {
           "id": "standard",

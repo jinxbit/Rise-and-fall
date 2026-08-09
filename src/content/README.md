@@ -53,6 +53,14 @@ The 5 terrain types (water, plain, forest, mountain, glacier) plus:
   scores this value times the region's hex count (e.g. a 5-hex water region
   at `victoryPoints: 1` scores 5). A region with no clear majority scores
   nothing, for anyone. Placeholder `0` until the real value is decided.
+  Unused for Glacier — see `scoresAs`.
+- `scoresAs` — which terrain id this terrain's hexes count as for territory
+  scoring only. Every terrain is `scoresAs` itself except Glacier, which is
+  `"mountain"`: Glacier hexes don't form their own regions or score on
+  their own — they're simply part of whatever Mountain region they're
+  attached to (and don't break one apart). Implemented as
+  `calculateTerrainControlVP`'s `terrainScoresAs` param in
+  `src/engine/scoring.ts`.
 - `shapeGroups` — distinct tile pools for that terrain type. Every terrain
   type has a single `standard` group except water, which has `initial`
   (placed at game setup) and `expansion` (placed later by players) — two
