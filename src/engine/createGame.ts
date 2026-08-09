@@ -57,7 +57,7 @@ export function createNewGame(params: {
     units: [],
     cards,
     log: [],
-    winnerPlayerId: null,
+    winnerPlayerIds: [],
   }
 }
 

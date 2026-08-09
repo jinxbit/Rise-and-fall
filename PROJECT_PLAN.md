@@ -27,14 +27,25 @@ decisions get made.
 
 ## 1. Nail down the full ruleset
 
-- [ ] Document exact win conditions.
+- [x] Document exact win conditions. Most total VP wins (achievements +
+      board-count + terrain-control), no tiebreaker; game ends once
+      `achievements.json`'s `gameLength` target has been claimed and the
+      round in progress finishes. See `src/content/README.md`'s
+      `achievements.json` section and `src/engine/victoryPoints.ts`. (The
+      real per-unit/per-terrain/per-achievement VP *numbers* are still
+      placeholders — the rule itself is settled.)
 - [ ] Finalize the full unit list: stats, abilities, and the six unit
       kinds' special actions/transformations (e.g. merchant transform,
       ship trade — already partially defined in `src/content/units.json`).
 - [ ] Finalize the full card list and each card's effect.
-- [ ] Specify cliff-traversal / terrain movement rules precisely.
+- [x] Cliff definition: a hexside is a cliff if the two hexes' terrain
+      elevation `level` differs by more than 1 (`src/content/terrain.json`,
+      `src/engine/cliffs.ts`). Terrain *movement* rules beyond that
+      (pathing, move costs) still need `MOVE_UNIT` itself (section 2).
 - [ ] Specify turn structure and any per-phase rules (draw, action limits,
-      combat resolution, etc.).
+      combat resolution, etc.) — mostly done (`src/engine/round.ts`), but
+      see `todo.md` #4/#5 for two new rules (elimination, multi-card
+      decline) still needing design decisions before they can be built.
 - [ ] Capture all of the above as the source of truth the engine work in
       section 2 implements against (update `src/content/*.json` +
       schemas, and/or a rules reference doc).

@@ -164,5 +164,11 @@ export interface GameState {
   units: Unit[]
   cards: Record<string, Card>
   log: GameEvent[]
-  winnerPlayerId: string | null
+  /**
+   * The winner(s) once the game ends: whoever has the most total VP
+   * (achievements + board-count + terrain-control — see
+   * src/engine/victoryPoints.ts). There is no tiebreaker, so this can hold
+   * more than one player id on a tie. Empty until the game ends.
+   */
+  winnerPlayerIds: string[]
 }

@@ -82,9 +82,15 @@ export function finishRound(state: GameState): GameState {
     }
   }
 
-  // Round step 6, game-end half: no win condition is specified yet, so the
-  // round always continues. Once one exists, check it here and — if met —
-  // return { ...nextState, status: 'completed', winnerPlayerId: ... }
+  // Round step 6, game-end half: the rule is now known — once
+  // content/achievements.json's gameLength target has been claimed
+  // (summed across all players), the round in progress finishes fully and
+  // then whoever has the most total VP wins (achievements + board-count +
+  // terrain-control, see src/engine/victoryPoints.ts) with no tiebreaker.
+  // Still a no-op here because GameState doesn't track claimed achievements
+  // yet, so the trigger can't be checked live. Once it does, check it here
+  // and — if met — return
+  // { ...nextState, status: 'completed', winnerPlayerIds: determineWinners(...) }
   // instead of starting the next round below.
 
   nextState = { ...nextState, turn: nextState.turn + 1 }

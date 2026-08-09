@@ -4,10 +4,11 @@
   "title": "Rise & Fall achievement definitions",
   "description": "The achievement pool and the game-length setting that counts them. Each achievement is tied to one unit type and can be claimed by exactly one player for the whole game — the first player to simultaneously control their full per-player supply of that unit type claims it; it is then unavailable to every other player, even if they later also reach full supply.",
   "type": "object",
-  "required": ["gameLength", "achievements"],
+  "required": ["gameLength", "purchaseCost", "achievements"],
   "additionalProperties": false,
   "properties": {
     "gameLength": { "$ref": "#/definitions/gameLength" },
+    "purchaseCost": { "$ref": "#/definitions/purchaseCost" },
     "achievements": {
       "type": "array",
       "items": { "$ref": "#/definitions/achievement" }
@@ -33,6 +34,19 @@
         "max": {
           "type": "integer",
           "description": "Highest game length players may choose. Equal to the total number of achievements, since each can only ever be claimed once."
+        }
+      }
+    },
+    "purchaseCost": {
+      "type": "object",
+      "description": "The gold cost to buy a card back from decline during the purchase phase, which rises as achievements are claimed over the course of the game.",
+      "required": ["byAchievementCount"],
+      "additionalProperties": false,
+      "properties": {
+        "byAchievementCount": {
+          "type": "array",
+          "description": "byAchievementCount[i] is the gold cost once i+1 achievements have been claimed in total across all players (1-indexed: index 0 = after the 1st achievement, index 1 = after the 2nd, etc). Before any achievement has been claimed, cost is 0 (undecided by the rules — treated as free). Since only 6 achievements can ever be claimed, this array never needs more than 6 entries.",
+          "items": { "type": "number", "minimum": 0 }
         }
       }
     },
