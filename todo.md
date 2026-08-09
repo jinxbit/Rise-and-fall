@@ -221,20 +221,42 @@ units, in four parts.
    player has placed all three units, round 1 begins for real.
 
 All of this is recorded in `src/content/terrain.json` (shapes + per-tier
-quantities) and `src/content/README.md`'s "Board generation" section, but
-none of it is implemented in code yet — there's no `generateBoard()` (or
-similar) in `src/engine/`. It will fully replace `createGame.ts`'s
-`startGame()`, which currently places one hardcoded, non-real unit trio
-(kinds literally named `'settlement'`/`'mobile-unit'`/`'ship'`, not the
-real `'city'`/`'nomad'`/`'ship'`) per player, all at one shared
-coordinate, rather than running any of this. See `PROJECT_PLAN.md`
-section 2's board generation item.
+quantities) and `src/content/README.md`'s "Board generation" section.
 
-Open questions once implementation starts: whether "least tiles moved"
-ties (multiple minimal-size rearrangements) need a tiebreak rule or are
-just player choice; how the new starting player in #5 is actually
-chosen; what happens if a player somehow has no legal spot for a unit
-they must place (mirrors the same open question for tiles); and whether
-rotation-only (no reflection) tile placement needs a canonical-shape
-rotation helper in the engine (`legalMoveDestinations`-style pure
-function) before any of this can be written.
+**Implementation status:** the deterministic, non-interactive pieces are
+now built in `src/engine/boardGeneration.ts` (tested in
+`src/engine/__tests__/boardGeneration.test.ts`, 22 tests, including a pass
+against the real `content/terrain.json` hourglass shape):
+- `rotateShape()`/`placedShapeCells()` — rotate a shape's cells by 60° x n
+  and resolve them to absolute board coordinates for a given anchor (rule
+  1's rotation-on-placement).
+- `isLegalTilePlacement()` — rule 3's covering check (`placesOn: null` =
+  must be completely untiled hexes, e.g. water; `placesOn: [...]` = every
+  covered hex must currently be exactly one of those terrains, no holes,
+  no mixing) and `applyTilePlacement()` to actually cover them.
+- `seedStartingWaterTiles()` — rule 1's automatic setup step (no player
+  choice involved, so it's a plain pure function): places the starting
+  hourglass tiles per player count, pairwise-interlocked via the
+  `(dq:2, dr:1)` offset (2p: one pair; 3p: a chain of 3, the same offset
+  applied cumulatively; 4p: two separate pairs). ASSUMPTION flagged in
+  code (`STARTING_WATER_SECOND_PAIR_OFFSET`): how far apart the two pairs
+  sit in the 4-player case isn't specified by the rules — chosen to be
+  comfortably non-overlapping, not derived from anything.
+
+**Still not implemented** — the genuinely interactive part, which is a
+much bigger piece of work: there's no new `RoundPhase`/`Action` for
+players to actually choose *where* to place each tile turn by turn (rule
+2), no pool-tracking state on `GameState` for "which tier, how many
+remain," no implementation of rule 4's no-space/move-tiles search, and no
+unit-placement phase (rule 5) either. `createGame.ts`'s `startGame()`
+still places one hardcoded, non-real unit trio (kinds literally named
+`'settlement'`/`'mobile-unit'`/`'ship'`, not the real
+`'city'`/`'nomad'`/`'ship'`) per player at one shared coordinate, rather
+than running any of this — it hasn't been wired up yet. See
+`PROJECT_PLAN.md` section 2's board generation item.
+
+Open questions once that work starts: whether "least tiles moved" ties
+(multiple minimal-size rearrangements) need a tiebreak rule or are just
+player choice; how the new starting player in #5 is actually chosen; and
+what happens if a player somehow has no legal spot for a unit they must
+place (mirrors the same open question for tiles).

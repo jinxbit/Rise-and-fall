@@ -182,11 +182,16 @@ has placed a unit, its matching card enters their hand automatically
 logic needed for that part). Once every player has placed all three
 units, the game begins for real (round 1's select-cards phase).
 
-None of this is implemented yet — see `PROJECT_PLAN.md` section 2's board
-generation item and `todo.md` #7. It'll fully replace `createGame.ts`'s
-`startGame()`, which currently places one hardcoded, non-real
-(`'settlement'`/`'mobile-unit'`/`'ship'`) unit trio per player at a single
-shared coordinate rather than running any of this.
+The deterministic pieces (rotation, placement legality/covering, and
+seeding the starting water tiles — everything above except the actual
+player-driven turn-by-turn placement) are implemented in
+`src/engine/boardGeneration.ts`; see `todo.md` #7 for exactly what's
+covered and what's still open. It'll eventually fully replace
+`createGame.ts`'s `startGame()`, which currently places one hardcoded,
+non-real (`'settlement'`/`'mobile-unit'`/`'ship'`) unit trio per player at
+a single shared coordinate rather than running any of this — that wiring,
+and the interactive placement phase itself, don't exist yet. See
+`PROJECT_PLAN.md` section 2's board generation item.
 
 ## `achievements.json` (validated by `achievements.schema.json`)
 

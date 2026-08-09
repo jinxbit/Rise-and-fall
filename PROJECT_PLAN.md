@@ -108,16 +108,25 @@ decisions get made.
       finished game today is decided almost entirely by achievement VP —
       the win-condition logic itself is complete and tested.
 - [ ] Implement board generation/drafting at game start; wire it into
-      `startGame()`. The rules are now settled (not just the tile shapes/
-      quantities in `content/terrain.json`, but the full procedure — seed
+      `startGame()`. The rules are settled — not just the tile shapes/
+      quantities in `content/terrain.json`, but the full procedure (seed
       the starting water tiles, then place the rest tier by tier in player
-      order, each tile only placeable where it fully covers the tier
-      directly below it): see `src/content/README.md`'s "Board generation"
-      section and `todo.md` #7. Still just data + a written-down
-      procedure, though — no `generateBoard()` or placement-legality
-      function exists in `src/engine/` yet.
+      order with no territory concept, each tile only placeable where it
+      fully covers the tier directly below it, moving already-placed
+      uncovered tiles if there's no space, then a unit-placement
+      sub-phase) — see `src/content/README.md`'s "Board generation"
+      section and `todo.md` #7. The deterministic half is implemented:
+      `src/engine/boardGeneration.ts` has shape rotation
+      (`rotateShape`/`placedShapeCells`), placement legality/covering
+      (`isLegalTilePlacement`/`applyTilePlacement`), and the automatic
+      starting-water-tile seeding (`seedStartingWaterTiles`) — tested
+      against both synthetic shapes and the real `content/terrain.json`
+      hourglass. Not yet built: the actual interactive turn-by-turn tile/
+      unit placement (a new `RoundPhase`/`Action` pair and pool-tracking
+      state), the no-space/move-tiles search, and wiring any of it into
+      `startGame()`.
 - [x] Expand the unit test suite in `src/engine/__tests__/` to cover
-      every action and edge case as it's implemented — 162 tests, including
+      every action and edge case as it's implemented — 186 tests, including
       a pass against the real `content/*.json` files, not just synthetic
       fixtures.
 
