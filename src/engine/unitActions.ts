@@ -235,14 +235,32 @@ function applyConvert(state: GameState, playerId: string, unit: Unit, effect: Co
   return { ...afterCost, units }
 }
 
-/** Per ruling: despite the name, not a real trade — Merchant just generates flat gold, no target needed. */
+/**
+ * A real conversion: `resource`/`mode` are fixed on the effect (Merchant
+ * has a separate action per resource+direction — Buy/Sell Wood/Stone), so
+ * no target is needed; it just applies to every acting Merchant like any
+ * other no-target action. Skips (per unit) if the player can't afford the
+ * gold (buy) or doesn't have the resource (sell).
+ */
 function applyTradeResource(
   state: GameState,
   playerId: string,
   effect: TradeResourceEffect,
   resourceCaps: Partial<Record<keyof Resources, number | null>>,
 ): GameState {
-  return creditResource(state, playerId, 'gold', effect.gold, resourceCaps)
+  const player = state.players.find((p) => p.id === playerId)
+  if (!player) return state
+  const goldAmount = effect.goldPerResource * effect.resourceAmount
+
+  if (effect.mode === 'sell') {
+    const sold = spendResource(player.resources, state.resourceBank, effect.resource, effect.resourceAmount)
+    if (!sold) return state
+    return creditResource(updatePlayerResources(state, playerId, sold.resources, sold.bank), playerId, 'gold', goldAmount, resourceCaps)
+  }
+
+  const paid = spendResource(player.resources, state.resourceBank, 'gold', goldAmount)
+  if (!paid) return state
+  return creditResource(updatePlayerResources(state, playerId, paid.resources, paid.bank), playerId, effect.resource, effect.resourceAmount, resourceCaps)
 }
 
 // --- dispatcher --------------------------------------------------------------

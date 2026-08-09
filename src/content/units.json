@@ -173,12 +173,51 @@
       },
       "actions": [
         {
-          "id": "trade-resource",
-          "name": "Buy/Sell Resource",
-          "description": "Generate 5 gold.",
+          "id": "buy-wood",
+          "name": "Buy Wood",
+          "description": "Buy 1 Wood for 5 gold.",
           "effect": {
             "actionType": "trade-resource",
-            "gold": 5
+            "resource": "wood",
+            "mode": "buy",
+            "resourceAmount": 1,
+            "goldPerResource": 5
+          }
+        },
+        {
+          "id": "sell-wood",
+          "name": "Sell Wood",
+          "description": "Sell 1 Wood for 5 gold.",
+          "effect": {
+            "actionType": "trade-resource",
+            "resource": "wood",
+            "mode": "sell",
+            "resourceAmount": 1,
+            "goldPerResource": 5
+          }
+        },
+        {
+          "id": "buy-stone",
+          "name": "Buy Stone",
+          "description": "Buy 1 Stone for 5 gold.",
+          "effect": {
+            "actionType": "trade-resource",
+            "resource": "stone",
+            "mode": "buy",
+            "resourceAmount": 1,
+            "goldPerResource": 5
+          }
+        },
+        {
+          "id": "sell-stone",
+          "name": "Sell Stone",
+          "description": "Sell 1 Stone for 5 gold.",
+          "effect": {
+            "actionType": "trade-resource",
+            "resource": "stone",
+            "mode": "sell",
+            "resourceAmount": 1,
+            "goldPerResource": 5
           }
         },
         {

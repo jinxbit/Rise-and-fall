@@ -53,13 +53,18 @@ export interface ProduceEffect {
 }
 
 /**
- * Despite the name ("Buy/Sell Resource" in units.json), this isn't a real
- * trade — per ruling, Merchant "just generates income": flat gold, no
- * resource involved, no target needed.
+ * A real 1-way conversion (per ruling): each of Merchant's Buy/Sell
+ * Wood/Stone actions is its own effect — `resource` and `mode` are fixed
+ * per action (not a player choice at resolve time), so it applies
+ * uniformly to every Merchant the player owns, same as any other
+ * no-target action.
  */
 export interface TradeResourceEffect {
   actionType: 'trade-resource'
-  gold: number
+  resource: 'wood' | 'stone'
+  mode: 'buy' | 'sell'
+  resourceAmount: number
+  goldPerResource: number
 }
 
 export interface TradeEffect {

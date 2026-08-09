@@ -51,29 +51,38 @@ Status legend: ✅ implemented & tested
 
 ## Merchant
 
-| # | Action | Status | Notes |
-|---|--------|--------|-------|
-| 11 | Buy/Sell Resource | ✅ | not a real trade — flat 5 gold income, no target |
-| 12 | Generate Income | ✅ | |
-| 13 | Transform to Ship | ✅ | |
+Split "Buy/Sell Resource" into 4 concrete actions (Buy/Sell × Wood/Stone),
+matching how City already splits "Create" per unit type rather than one
+generic action with a parameter — each of the 4 applies uniformly to every
+Merchant the player owns (`resource`/`mode` are fixed on the action, not a
+per-unit choice), a straightforward 1-for-5 conversion each way.
+
+| # | Action | Status |
+|---|--------|--------|
+| 11 | Buy Wood | ✅ |
+| 12 | Sell Wood | ✅ |
+| 13 | Buy Stone | ✅ |
+| 14 | Sell Stone | ✅ |
+| 15 | Generate Income | ✅ |
+| 16 | Transform to Ship | ✅ |
 
 ## Mountaineer
 
 | # | Action | Status |
 |---|--------|--------|
-| 14 | Produce Resource | ✅ |
-| 15 | Transform to City | ✅ |
+| 17 | Produce Resource | ✅ |
+| 18 | Transform to City | ✅ |
 
 ## Ship
 
 | # | Action | Status | Notes |
 |---|--------|--------|-------|
-| 16 | Transform to Nomad | ✅ | |
-| 17 | Transform to City | ✅ | |
-| 18 | Transform to Merchant | ✅ | |
-| 19 | Trade | ✅ | flat rate per adjacent City, any owner (no own/enemy split) |
+| 19 | Transform to Nomad | ✅ | |
+| 20 | Transform to City | ✅ | |
+| 21 | Transform to Merchant | ✅ | |
+| 22 | Trade | ✅ | flat rate per adjacent City, any owner (no own/enemy split) |
 
-**19/19 implemented and tested** — 129 tests across `unitActions.test.ts`
+**22/22 implemented and tested** — 131 tests across `unitActions.test.ts`
 (synthetic fixtures) and `unitActions.realContent.test.ts` (against the
 real `units.json`/`terrain.json`/`resources.json`).
 
@@ -83,9 +92,11 @@ All four open questions from the first implementation pass are resolved:
 
 1. **Ship's "Trade"** — no own/enemy split. Flat `goldPerCity` per adjacent
    City regardless of owner.
-2. **Merchant's "Buy/Sell Resource"** — not a real trade. The action now
-   just generates flat gold income (`effect: { actionType: 'trade-resource',
-   gold: 5 }` in `units.json`), no resource involved, no target needed.
+2. **Merchant's "Buy/Sell Resource"** — it IS a real trade after all: a
+   straight 1-resource-for-5-gold conversion, either direction, player's
+   choice — but the choice is made by picking *which action* to play
+   (Buy Wood / Sell Wood / Buy Stone / Sell Stone are 4 separate actions,
+   see above), not a per-unit input at resolve time.
 3. **Cliff-crossing on transform/convert** — same absolute rule as create:
    never allowed, regardless of the acting unit's movement capability.
    `create`'s now-redundant `targetHex.crossCliff` field was removed from

@@ -576,30 +576,68 @@ describe('applyUnitActionEffect — convert (Temple)', () => {
 })
 
 describe('applyUnitActionEffect — trade-resource (Merchant)', () => {
-  // Per ruling: despite the name ("Buy/Sell Resource"), there's no actual
-  // trade — the Merchant just generates flat gold income, no target needed.
-  const action: UnitAction = {
-    id: 'trade-resource',
-    name: 'Buy/Sell Resource',
+  // Per ruling: a real 1-for-5 conversion. Buy/Sell/Wood/Stone are 4
+  // separate actions (resource + mode fixed per action, not a per-unit
+  // choice) — each applies uniformly to every Merchant the player owns.
+  const sellWood: UnitAction = {
+    id: 'sell-wood',
+    name: 'Sell Wood',
     description: '',
-    effect: { actionType: 'trade-resource', gold: 5 },
+    effect: { actionType: 'trade-resource', resource: 'wood', mode: 'sell', resourceAmount: 1, goldPerResource: 5 },
+  }
+  const buyStone: UnitAction = {
+    id: 'buy-stone',
+    name: 'Buy Stone',
+    description: '',
+    effect: { actionType: 'trade-resource', resource: 'stone', mode: 'buy', resourceAmount: 1, goldPerResource: 5 },
   }
 
-  it('generates flat gold income, no target needed', () => {
+  it('sells: converts the resource into gold', () => {
+    const state = makeState({
+      players: [makePlayer('p1', { resources: { gold: 0, wood: 1, stone: 0 } }), makePlayer('p2')],
+      units: [makeUnit('p1', 'merchant', { q: 0, r: 0 })],
+    })
+
+    const next = applyUnitActionEffect(state, 'p1', 'merchant', sellWood, {}, emptyContent)
+
+    expect(next.players.find((p) => p.id === 'p1')!.resources).toEqual({ gold: 5, wood: 0, stone: 0 })
+  })
+
+  it('buys: converts gold into the resource', () => {
+    const state = makeState({
+      players: [makePlayer('p1', { resources: { gold: 5, wood: 0, stone: 0 } }), makePlayer('p2')],
+      units: [makeUnit('p1', 'merchant', { q: 0, r: 0 })],
+    })
+
+    const next = applyUnitActionEffect(state, 'p1', 'merchant', buyStone, {}, emptyContent)
+
+    expect(next.players.find((p) => p.id === 'p1')!.resources).toEqual({ gold: 0, wood: 0, stone: 1 })
+  })
+
+  it('sell skips a unit whose player lacks the resource to sell', () => {
     const state = makeState({ units: [makeUnit('p1', 'merchant', { q: 0, r: 0 })] })
 
-    const next = applyUnitActionEffect(state, 'p1', 'merchant', action, {}, emptyContent)
+    const next = applyUnitActionEffect(state, 'p1', 'merchant', sellWood, {}, emptyContent)
 
-    expect(goldOf(next, 'p1')).toBe(5)
+    expect(next.players.find((p) => p.id === 'p1')!.resources).toEqual({ gold: 0, wood: 0, stone: 0 })
+  })
+
+  it('buy skips a unit whose player cannot afford the gold', () => {
+    const state = makeState({ units: [makeUnit('p1', 'merchant', { q: 0, r: 0 })] })
+
+    const next = applyUnitActionEffect(state, 'p1', 'merchant', buyStone, {}, emptyContent)
+
+    expect(next.players.find((p) => p.id === 'p1')!.resources).toEqual({ gold: 0, wood: 0, stone: 0 })
   })
 
   it('applies independently to every Merchant the player owns', () => {
     const state = makeState({
+      players: [makePlayer('p1', { resources: { gold: 0, wood: 2, stone: 0 } }), makePlayer('p2')],
       units: [makeUnit('p1', 'merchant', { q: 0, r: 0 }), makeUnit('p1', 'merchant', { q: 5, r: 5 })],
     })
 
-    const next = applyUnitActionEffect(state, 'p1', 'merchant', action, {}, emptyContent)
+    const next = applyUnitActionEffect(state, 'p1', 'merchant', sellWood, {}, emptyContent)
 
-    expect(goldOf(next, 'p1')).toBe(10)
+    expect(next.players.find((p) => p.id === 'p1')!.resources).toEqual({ gold: 10, wood: 0, stone: 0 })
   })
 })
