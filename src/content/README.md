@@ -165,10 +165,10 @@ there isn't enough contiguous space of the correct lower tier, one or
 more already-placed tiles must be *moved* (picked up and placed again
 elsewhere, following the same placement rule) to open up room — using
 the fewest possible tiles moved to make the pending placement legal.
-ASSUMPTION, not yet confirmed: only a tile with nothing currently placed
-on top of any of its hexes can be moved (you can't lift a tile buried
-under a higher tier without first moving what's on top of it, which
-would need to count toward the total moved).
+Confirmed: only a currently-uncovered tile (nothing placed on top of any
+of its hexes) is eligible to be moved — a buried tile can't be moved at
+all, not even as part of a cascade, so the set of candidates is always
+just the board's current topmost tiles.
 
 **1c. Unit placement.** Once every tile is placed, a new starting player
 is chosen. Starting with them, in turn order, each player places one of

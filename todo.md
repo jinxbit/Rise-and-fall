@@ -204,10 +204,11 @@ units, in four parts.
    contiguous space of the correct lower tier), one or more already-placed
    tiles must be *moved* elsewhere (re-placed following the same rule 3)
    to open up room — using the fewest tiles moved that makes the pending
-   placement legal. ASSUMPTION, not yet confirmed: only a tile with
-   nothing currently placed on top of any of its hexes is eligible to be
-   moved (can't lift a tile buried under a higher tier without first
-   moving whatever's on top, which would need to count toward the total).
+   placement legal. Confirmed: only a currently-uncovered tile (nothing
+   placed on top of any of its hexes) is eligible to be moved — a tile
+   buried under a higher tier can't be moved at all (not even as part of
+   a cascade), so the search for which tiles to move only ever considers
+   the board's current topmost tiles.
 5. Once every tile is placed, a new starting player is chosen. Starting
    with them, in turn order, each player places one of their three
    starting units — one City, one Nomad, one Ship, in their own color,
@@ -229,12 +230,11 @@ real `'city'`/`'nomad'`/`'ship'`) per player, all at one shared
 coordinate, rather than running any of this. See `PROJECT_PLAN.md`
 section 2's board generation item.
 
-Open questions once implementation starts: the topmost-tile-only
-assumption in #4 above; whether "least tiles moved" ties (multiple
-minimal-size rearrangements) need a tiebreak rule or are just player
-choice; how the new starting player in #5 is actually chosen; what
-happens if a player somehow has no legal spot for a unit they must place
-(mirrors the same open question for tiles); and whether rotation-only (no
-reflection) tile placement needs a canonical-shape rotation helper in the
-engine (`legalMoveDestinations`-style pure function) before any of this
-can be written.
+Open questions once implementation starts: whether "least tiles moved"
+ties (multiple minimal-size rearrangements) need a tiebreak rule or are
+just player choice; how the new starting player in #5 is actually
+chosen; what happens if a player somehow has no legal spot for a unit
+they must place (mirrors the same open question for tiles); and whether
+rotation-only (no reflection) tile placement needs a canonical-shape
+rotation helper in the engine (`legalMoveDestinations`-style pure
+function) before any of this can be written.
