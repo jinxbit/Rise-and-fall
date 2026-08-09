@@ -15,7 +15,7 @@
   "definitions": {
     "terrainType": {
       "type": "object",
-      "required": ["id", "name", "placesOn", "victoryPoints", "shapeGroups"],
+      "required": ["id", "name", "placesOn", "level", "victoryPoints", "shapeGroups"],
       "additionalProperties": false,
       "properties": {
         "id": {
@@ -27,6 +27,11 @@
           "description": "Terrain type id(s) this type may be placed on top of during board setup. null only for water, the base terrain.",
           "type": ["array", "null"],
           "items": { "type": "string" }
+        },
+        "level": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Elevation level. A hexside between two hexes is a cliff if the absolute difference between their terrain levels is greater than 1 (e.g. Water(0)-Plain(1) = 1, not a cliff; Water(0)-Mountain(3) = 3, a cliff). Cliffs block movement/adjacency for every unit except those with canCrossCliffs."
         },
         "victoryPoints": {
           "type": "number",

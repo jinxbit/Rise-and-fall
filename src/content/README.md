@@ -41,6 +41,12 @@ The 5 terrain types (water, plain, forest, mountain, glacier) plus:
 - `placesOn` — which terrain type(s) this one may be placed on top of during
   board setup (e.g. `plain.placesOn = ["water"]`). `null` only for water,
   the base terrain.
+- `level` — elevation: Water 0, Plain 1, Forest 2, Mountain 3, Glacier 4. A
+  hexside is a cliff if the two hexes' levels differ by more than 1 (e.g.
+  Water-Plain = 1, not a cliff; Water-Mountain = 3, a cliff). See
+  `isCliffEdge`/`isCliffBetweenTerrains` in `src/engine/cliffs.ts`. Cliffs
+  block movement/adjacency for every unit except those with
+  `movement.canCrossCliffs` (`units.json`).
 - `victoryPoints` — VP per hex for territory control: at game end, each
   contiguous region of same-terrain hexes is checked for unit majority: the
   player with more units on hexes in that region than any other player

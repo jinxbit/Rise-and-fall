@@ -1,6 +1,7 @@
 export * from './types'
 export * from './board'
 export * from './cards'
+export * from './cliffs'
 export * from './decline'
 export * from './round'
 export * from './scoring'
