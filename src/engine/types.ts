@@ -6,6 +6,8 @@
 // intentionally open-ended (string ids resolved against a content table)
 // rather than hardcoding every card/unit as a literal type.
 
+import type { LoggedAction } from './actions'
+
 export type PlayMode = 'live' | 'async' | 'hotseat'
 
 /**
@@ -308,6 +310,21 @@ export interface GameState {
    * transform).
    */
   idSequence: number
+  /**
+   * Event sourcing: every action applyAction() has accepted and applied so
+   * far, in order — including PLACE_TILE/PLACE_UNIT from the board-setup
+   * phase, not just round actions. Empty right after createNewGame() +
+   * startGame(), since that genesis transition is deterministic from the
+   * player roster and current content and isn't itself a dispatched
+   * Action; everything from the first PLACE_TILE onward is captured here.
+   * Replaying these through applyAction() from that same genesis state
+   * always reconstructs this exact GameState (see replayActions in
+   * ./replay.ts) — this array *is* "the action history", and the rest of
+   * GameState is the cached/materialized "final state" derived from it, so
+   * a reader never has to replay from scratch just to see where things
+   * stand.
+   */
+  actionHistory: LoggedAction[]
 }
 
 /**

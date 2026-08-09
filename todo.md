@@ -508,3 +508,60 @@ click-tested in a browser — same sandbox limitation as all prior UI
 work here (no Supabase credentials/Docker) — the radial-menu
 positioning and highlight styling especially are worth a visual check
 on a real deployment.
+
+## 11. Event sourcing — full action history + a derivable final state
+
+Requested: `GameState` should carry its complete action history (board
+setup included), not just the current snapshot. Discussed the design
+before building it — specifically whether the log should live in a
+separate DB table (needing a migration and, for real consistency, an
+atomic Postgres function so the log and the live snapshot can never
+drift apart) or be embedded directly in `GameState` itself. Went with
+**embedding it in state**: `GameState.actionHistory: LoggedAction[]`
+(`src/engine/actions.ts` — `{action, turn, timestamp}`). This sidesteps
+the whole dual-write consistency problem outright — there's only ever
+one write (the existing `game_state` row, via the same
+`writeGameState`/`insertGameState` calls already in `gameApi.ts`), so
+**no migration, no new table, no changes to the persistence layer at
+all** were needed; `actionHistory` is just another field that rides
+along in the same JSONB blob.
+
+Mechanics: `applyAction()` (`src/engine/applyAction.ts`) is now a thin
+wrapper — the original dispatch logic moved to a private
+`dispatchAction()`, and on success the wrapper appends the just-applied
+`action` to the returned state's `actionHistory` in one place, so every
+action type gets this for free without touching each individual
+`apply*` handler. Because `PLACE_TILE`/`PLACE_UNIT` already flow through
+this same `applyAction()` entry point (established back in the
+board-setup wiring work), board setup is covered automatically — "this
+includes the map building phase" didn't need any separate handling.
+Only genuinely player-dispatched actions are logged — not derived
+bookkeeping (phase transitions, achievement claims, elimination,
+round-end) — since `applyAction()` is already a pure, deterministic
+reducer that reconstructs all of that from the logged actions alone. The
+game's genesis (`createNewGame()` + `startGame()`, which auto-seeds
+starting water tiles) isn't itself a logged entry — it's deterministic
+from the player roster + current content, so replay just calls those
+directly and folds the history on top.
+
+New `src/engine/replay.ts`'s `replayActions(genesis, history, content...)`
+folds `applyAction()` over a logged history and returns the resulting
+state — proof that "the final state" is always derivable from "the
+history", not just asserted. Throws if any logged entry is rejected
+(a corrupted or mismatched history).
+
+Tested in a new `replay.test.ts`: one flow drives real `PLACE_TILE`/
+`PLACE_UNIT` actions through board setup and confirms `replayActions`
+reconstructs an identical state (modulo wall-clock timestamps, which
+were never meant to replay byte-for-byte — same pre-existing caveat as
+`GameEvent.timestamp` in the human-readable log); one does the same for
+`CHOOSE_CARD`/`RESOLVE_UNIT_ACTION` in the round cycle; one confirms
+replaying a reordered/tampered history throws instead of silently
+producing the wrong state. 233 tests total (was 230); `tsc -b`/
+`oxlint`/`npm run build` all clean.
+
+**Scope note:** no history-viewer UI was built — just the data model
+(the log lives in every `GameState`, so it's already flowing to
+Supabase and back on every read/write) and the `replayActions()`
+capability, per the explicit decision to keep this data-layer-only for
+now.

@@ -61,6 +61,7 @@ function makeSetupState(overrides: Partial<GameState> = {}): GameState {
     achievementsClaimedThisRound: 0,
     boardSetup: { tileTierQueue: [], tilesRemainingInTier: 0, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
     idSequence: 0,
+    actionHistory: [],
     ...overrides,
   }
 }

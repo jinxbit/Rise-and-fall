@@ -58,6 +58,7 @@ function makeState(overrides: Partial<GameState> = {}): GameState {
     achievementsClaimedThisRound: 0,
     boardSetup: null,
     idSequence: 0,
+    actionHistory: [],
     ...overrides,
   }
 }

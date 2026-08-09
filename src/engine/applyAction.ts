@@ -1,4 +1,4 @@
-import type { Action, UnitActionAssignment } from './actions'
+import type { Action, LoggedAction, UnitActionAssignment } from './actions'
 import type { AchievementContent } from './achievementContent'
 import { EMPTY_ACHIEVEMENT_CONTENT } from './achievementContent'
 import { updateAchievementClaims } from './achievements'
@@ -42,6 +42,12 @@ export type { ActionResult } from './types'
  * PLACE_TILE/PLACE_UNIT are handled before the status guard below, since
  * they're the only actions valid during `status: 'boardSetup'` — every
  * other action requires `status: 'active'`.
+ *
+ * Every accepted action is appended to the returned state's
+ * `actionHistory` (event sourcing — see GameState.actionHistory's doc
+ * comment) via a thin wrapper around the actual dispatch logic below, so
+ * every caller gets this for free without each individual apply* handler
+ * needing to remember to do it.
  */
 export function applyAction(
   state: GameState,
@@ -49,6 +55,20 @@ export function applyAction(
   unitContent: UnitContent = EMPTY_UNIT_CONTENT,
   achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT,
   boardGenerationContent: BoardGenerationContent = EMPTY_BOARD_GENERATION_CONTENT,
+): ActionResult {
+  const result = dispatchAction(state, action, unitContent, achievementContent, boardGenerationContent)
+  if (!result.ok) return result
+
+  const loggedAction: LoggedAction = { action, turn: result.state.turn, timestamp: new Date().toISOString() }
+  return { ok: true, state: { ...result.state, actionHistory: [...result.state.actionHistory, loggedAction] } }
+}
+
+function dispatchAction(
+  state: GameState,
+  action: Action,
+  unitContent: UnitContent,
+  achievementContent: AchievementContent,
+  boardGenerationContent: BoardGenerationContent,
 ): ActionResult {
   if (action.type === 'PLACE_TILE') {
     return placeTile(state, action.playerId, action.anchor, action.rotationSteps, boardGenerationContent)

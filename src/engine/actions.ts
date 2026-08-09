@@ -92,3 +92,17 @@ export type Action =
   | MoveToDeclineAction
   | PurchaseCardAction
   | PassPurchaseAction
+
+/**
+ * One entry in `GameState.actionHistory` — event sourcing: every action
+ * that was actually accepted and applied, in order, so the game's current
+ * state is always reconstructable by replaying this history from genesis
+ * (see replayActions in ./replay.ts). `turn` and `timestamp` are metadata
+ * only — replay never depends on either, only on `action` itself and the
+ * order entries appear in.
+ */
+export interface LoggedAction {
+  action: Action
+  turn: number
+  timestamp: string
+}

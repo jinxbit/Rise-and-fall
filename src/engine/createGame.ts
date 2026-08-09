@@ -78,6 +78,7 @@ export function createNewGame(params: {
     achievementsClaimedThisRound: 0,
     boardSetup: null,
     idSequence: 0,
+    actionHistory: [],
   }
 }
 
