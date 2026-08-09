@@ -113,7 +113,7 @@ export function HexBoard(props: {
           <polygon
             key={`ghost-${coordKey(coord)}`}
             points={hexPoints(x, y, size - 1)}
-            fill={ghost.legal ? 'rgba(34,197,94,0.55)' : 'rgba(239,68,68,0.55)'}
+            fill={ghost.legal ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}
             stroke={ghost.legal ? '#22c55e' : '#ef4444'}
             strokeWidth={2}
             pointerEvents="none"
