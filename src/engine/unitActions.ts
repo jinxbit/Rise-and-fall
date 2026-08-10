@@ -1,4 +1,4 @@
-import { getTile, neighborCoords } from './board'
+import { connectedTerrainRegion, getTile, neighborCoords } from './board'
 import { syncCardZonesWithBoard } from './cards'
 import { isCliffBetweenTerrains } from './cliffs'
 import { nextSequenceId } from './idSequence'
@@ -174,7 +174,15 @@ function applyProduce(
   return nextState
 }
 
-/** Per ruling: no own/enemy split — goldPerCity per adjacent City regardless of owner. */
+/**
+ * Per ruling: no own/enemy split — goldPerCity per City adjacent to any hex
+ * in the Ship's whole contiguous sea area (every water hex reachable from
+ * the Ship without leaving water), not just the hex the Ship itself sits
+ * on. A City counts even if it sits across a cliff edge from the water —
+ * cliffs block *movement/targeting* between hexes, not this area-wide
+ * adjacency scan. Each City is counted once no matter how many sea hexes
+ * it borders.
+ */
 function applyTrade(
   state: GameState,
   playerId: string,
@@ -182,8 +190,14 @@ function applyTrade(
   effect: TradeEffect,
   resourceCaps: Partial<Record<keyof Resources, number | null>>,
 ): GameState {
-  const cityCount = adjacentUnits(state, unit.coord).filter((u) => u.kind === 'city').length
-  return creditResource(state, playerId, 'gold', cityCount * effect.goldPerCity, resourceCaps)
+  const seaArea = connectedTerrainRegion(state.board, unit.coord)
+  const cityIds = new Set<string>()
+  for (const coord of seaArea) {
+    for (const neighbor of adjacentUnits(state, coord)) {
+      if (neighbor.kind === 'city') cityIds.add(neighbor.id)
+    }
+  }
+  return creditResource(state, playerId, 'gold', cityIds.size * effect.goldPerCity, resourceCaps)
 }
 
 /** Per ruling: creation can never cross a cliff, always respects the target kind's supply cap, and can never target Water/Glacier unless the created kind is the one sole kind allowed there (see isCreationAllowedOnTerrain). */

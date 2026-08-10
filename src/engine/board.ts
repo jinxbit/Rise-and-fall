@@ -51,3 +51,38 @@ export function neighborTiles(board: Board, coord: Coordinate): Tile[] {
     .map((c) => getTile(board, c))
     .filter((t): t is Tile => t !== undefined)
 }
+
+/**
+ * Flood-fills every hex reachable from `start` while staying on the same
+ * terrain as `start`'s own tile — e.g. a Ship's whole contiguous "sea area"
+ * for its Trade action. Adjacency alone decides the region; cliffs never
+ * interrupt it (a cliff is a level difference between *different* terrains,
+ * which can't occur between same-terrain neighbors).
+ */
+export function connectedTerrainRegion(board: Board, start: Coordinate): Coordinate[] {
+  const startTile = getTile(board, start)
+  if (!startTile) return []
+  const terrain = startTile.terrain
+
+  const visited = new Set([coordKey(start)])
+  const region: Coordinate[] = [start]
+  let frontier: Coordinate[] = [start]
+
+  while (frontier.length > 0) {
+    const next: Coordinate[] = []
+    for (const from of frontier) {
+      for (const neighbor of neighborCoords(board, from)) {
+        const key = coordKey(neighbor)
+        if (visited.has(key)) continue
+        const tile = getTile(board, neighbor)
+        if (!tile || tile.terrain !== terrain) continue
+        visited.add(key)
+        region.push(neighbor)
+        next.push(neighbor)
+      }
+    }
+    frontier = next
+  }
+
+  return region
+}

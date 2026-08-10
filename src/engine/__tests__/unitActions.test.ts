@@ -251,6 +251,70 @@ describe('applyUnitActionEffect — trade (Ship)', () => {
 
     expect(goldOf(next, 'p1')).toBe(10)
   })
+
+  it('counts a City adjacent to any hex in the whole contiguous sea area, not just the hex the Ship sits on', () => {
+    const board = boardOf([
+      [0, 0, 'water'],
+      [1, 0, 'water'], // same sea area as (0,0), reachable by water-to-water BFS
+      [2, 0, 'plain'], // adjacent to (1,0) only, not to the Ship's own hex
+    ])
+    const state = makeState({
+      board,
+      units: [makeUnit('p1', 'ship', { q: 0, r: 0 }), makeUnit('p2', 'city', { q: 2, r: 0 })],
+    })
+
+    const next = applyUnitActionEffect(state, 'p1', 'ship', action, {}, emptyContent)
+
+    expect(goldOf(next, 'p1')).toBe(5)
+  })
+
+  it('counts a City across a cliff edge from the sea area', () => {
+    const board = boardOf([
+      [0, 0, 'water'],
+      [0, -1, 'mountain'], // level 3 vs water's level 0: a cliff edge, still counts
+    ])
+    const state = makeState({
+      board,
+      units: [makeUnit('p1', 'ship', { q: 0, r: 0 }), makeUnit('p2', 'city', { q: 0, r: -1 })],
+    })
+
+    const next = applyUnitActionEffect(state, 'p1', 'ship', action, {}, emptyContent)
+
+    expect(goldOf(next, 'p1')).toBe(5)
+  })
+
+  it('does not count a City next to a separate, disconnected sea area', () => {
+    const board = boardOf([
+      [0, 0, 'water'],
+      [1, 0, 'plain'], // land gap breaks the water-to-water chain
+      [2, 0, 'water'], // a different sea area
+      [3, 0, 'plain'],
+    ])
+    const state = makeState({
+      board,
+      units: [makeUnit('p1', 'ship', { q: 0, r: 0 }), makeUnit('p2', 'city', { q: 3, r: 0 })],
+    })
+
+    const next = applyUnitActionEffect(state, 'p1', 'ship', action, {}, emptyContent)
+
+    expect(goldOf(next, 'p1')).toBe(0)
+  })
+
+  it('counts each City once even if it borders multiple hexes of the sea area', () => {
+    const board = boardOf([
+      [0, 0, 'water'],
+      [1, 0, 'water'],
+      [1, -1, 'plain'], // adjacent to both (0,0) and (1,0)
+    ])
+    const state = makeState({
+      board,
+      units: [makeUnit('p1', 'ship', { q: 0, r: 0 }), makeUnit('p2', 'city', { q: 1, r: -1 })],
+    })
+
+    const next = applyUnitActionEffect(state, 'p1', 'ship', action, {}, emptyContent)
+
+    expect(goldOf(next, 'p1')).toBe(5)
+  })
 })
 
 describe('applyUnitActionEffect — create', () => {

@@ -1457,3 +1457,34 @@ the player-strip deltas. Verified end-to-end with a real 2-player replay
 rendered through the sandbox's headless screenshot pipeline before and
 after the bounds fix. 309 tests total (was 290); `tsc -b`/`oxlint`/
 `npm run build` all clean.
+
+## 32. Bug fix: Ship's Trade only counted Cities on its own hex, not the whole sea area
+
+Reported: Trade should pay out for every City adjacent to any part of the
+sea the Ship is sailing in — a contiguous stretch of connected water
+hexes — not just the single hex the Ship happens to occupy, and that
+includes a City across a cliff edge from the water.
+
+`applyTrade` (`unitActions.ts`) previously called the same
+`adjacentUnits` helper every other adjacency-based effect uses, scoped
+to just `unit.coord` — correct for "adjacent to this one hex" effects
+like income, but wrong for Trade, which the rules describe in terms of
+the sea itself, not the Ship's exact position in it. Added
+`connectedTerrainRegion(board, start)` to `board.ts` — a same-terrain
+BFS flood fill (reused the existing `neighborCoords` helper, no cliff
+check needed since a cliff is by definition a boundary between two
+*different* terrain levels and can't occur between same-terrain
+neighbors) — and rewrote `applyTrade` to flood-fill the Ship's sea area
+first, then union the adjacent units across every hex in that area,
+deduping by unit id so a City touching two sea hexes at once is still
+only paid once. Cliffs were never checked against the target City in
+either the old or new code, so a City across a cliff edge from the
+water already counted correctly; added a regression test to lock that
+in given it was explicitly called out in the report.
+
+Four new tests in `unitActions.test.ts`: a City reachable only through
+a second water hex now counts; a City across a cliff edge from the
+water counts; a City next to a *disconnected* second sea area (land gap
+breaks the flood fill) does not count; a City bordering two hexes of
+the same sea area is only paid once. 313 tests total (was 309); `tsc
+-b`/`oxlint`/`npm run build` all clean.

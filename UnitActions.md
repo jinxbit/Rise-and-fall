@@ -100,7 +100,7 @@ a straightforward 1-for-5 conversion each way.
 | 19 | Transform to Nomad | ✅ | |
 | 20 | Transform to City | ✅ | |
 | 21 | Transform to Merchant | ✅ | |
-| 22 | Trade | ✅ | flat rate per adjacent City, any owner (no own/enemy split) |
+| 22 | Trade | ✅ | flat rate per City adjacent to the Ship's whole contiguous sea area, any owner (no own/enemy split), cliffs don't block it |
 | 26 | Move | ✅ | water-only, `moveDistance: "unlimited"` bounded by its connected water region |
 
 **26/26 implemented and tested** — 148 tests across `unitActions.test.ts`
