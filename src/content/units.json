@@ -268,7 +268,7 @@
       "id": "mountaineer",
       "name": "Mountaineer",
       "description": "",
-      "victoryPoints": { "byBoardCount": [] },
+      "victoryPoints": { "byBoardCount": [2,5,10] },
       "supply": { "byPlayerCount": { "2": 3, "3": 3, "4": 3 } },
       "movement": {
         "isMobile": true,
