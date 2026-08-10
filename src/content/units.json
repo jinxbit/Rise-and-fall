@@ -5,7 +5,7 @@
       "id": "city",
       "name": "City",
       "description": "",
-      "victoryPoints": { "byBoardCount": [] },
+      "victoryPoints": { "byBoardCount": [1, 3, 5, 7, 9, 11, 13, 15] },
       "supply": { "byPlayerCount": { "2": 8, "3": 8, "4": 8 } },
       "movement": {
         "isMobile": false,
