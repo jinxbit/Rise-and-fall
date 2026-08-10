@@ -122,36 +122,36 @@ describe('canPlaceRemainingTiles', () => {
 
   it('is always true for placesOn: null (water) — the board is unbounded, so there is always room somewhere', () => {
     const board = boardOf([[0, 0, 'plain']])
-    expect(canPlaceRemainingTiles(board, domino, null, 'water', 5)).toBe(true)
+    expect(canPlaceRemainingTiles(board, domino, null, 5)).toBe(true)
   })
 
   it('is false when no hex on the board has a qualifying terrain at all', () => {
     const board = boardOf([[0, 0, 'forest']])
-    expect(canPlaceRemainingTiles(board, domino, ['water'], 'plain', 1)).toBe(false)
+    expect(canPlaceRemainingTiles(board, domino, ['water'], 1)).toBe(false)
   })
 
   it('is false when qualifying hexes exist but none of them are adjacent to another', () => {
     // Three isolated water hexes, none neighboring another — a 2-cell
     // domino can never land on two of them at once.
     const board = boardOf([[0, 0, 'water'], [5, 5, 'water'], [-3, 2, 'water']])
-    expect(canPlaceRemainingTiles(board, domino, ['water'], 'plain', 1)).toBe(false)
+    expect(canPlaceRemainingTiles(board, domino, ['water'], 1)).toBe(false)
   })
 
   it('is true when a legal placement exists somewhere on the board', () => {
     const board = boardOf([[0, 0, 'water'], [1, 0, 'water'], [5, 5, 'water']])
-    expect(canPlaceRemainingTiles(board, domino, ['water'], 'plain', 1)).toBe(true)
+    expect(canPlaceRemainingTiles(board, domino, ['water'], 1)).toBe(true)
   })
 
   it('finds a placement that only fits after rotation', () => {
     // (2,2)-(2,3) are adjacent along the {0,1} direction, not the domino's
     // own unrotated {1,0} offset — only a rotated placement can cover both.
     const board = boardOf([[2, 2, 'water'], [2, 3, 'water']])
-    expect(canPlaceRemainingTiles(board, domino, ['water'], 'plain', 1)).toBe(true)
+    expect(canPlaceRemainingTiles(board, domino, ['water'], 1)).toBe(true)
   })
 
   it('is true for count > 1 when every remaining tile has independent room', () => {
     const board = boardOf([[0, 0, 'water'], [1, 0, 'water'], [5, 5, 'water'], [6, 5, 'water']])
-    expect(canPlaceRemainingTiles(board, domino, ['water'], 'plain', 2)).toBe(true)
+    expect(canPlaceRemainingTiles(board, domino, ['water'], 2)).toBe(true)
   })
 
   it('is false for count > 1 when only one spot exists but two tiles are still owed', () => {
@@ -159,18 +159,31 @@ describe('canPlaceRemainingTiles', () => {
     // board — room for exactly 1 more tile, not the 2 still required. A
     // shallow "is there room for one more" check would wrongly allow this.
     const board = boardOf([[0, 0, 'water'], [1, 0, 'water']])
-    expect(canPlaceRemainingTiles(board, domino, ['water'], 'plain', 1)).toBe(true)
-    expect(canPlaceRemainingTiles(board, domino, ['water'], 'plain', 2)).toBe(false)
+    expect(canPlaceRemainingTiles(board, domino, ['water'], 1)).toBe(true)
+    expect(canPlaceRemainingTiles(board, domino, ['water'], 2)).toBe(false)
   })
 
-  it('accounts for the terrain conversion of earlier virtual placements when checking later ones', () => {
+  it('accounts for shared hexes between candidate placements when checking later ones', () => {
     // Four water hexes in a row: (0,0)-(1,0)-(2,0)-(3,0). Only one domino
-    // fits without reusing a hex the first placement already converted to
-    // 'plain' — greedily placing (0,0)-(1,0) first still leaves
-    // (2,0)-(3,0) open for the second, so both fit.
+    // fits without reusing a hex another placement already claims — using
+    // (0,0)-(1,0) leaves (2,0)-(3,0) open for a second, so both fit, but a
+    // third has nowhere left to go.
     const board = boardOf([[0, 0, 'water'], [1, 0, 'water'], [2, 0, 'water'], [3, 0, 'water']])
-    expect(canPlaceRemainingTiles(board, domino, ['water'], 'plain', 2)).toBe(true)
-    expect(canPlaceRemainingTiles(board, domino, ['water'], 'plain', 3)).toBe(false)
+    expect(canPlaceRemainingTiles(board, domino, ['water'], 2)).toBe(true)
+    expect(canPlaceRemainingTiles(board, domino, ['water'], 3)).toBe(false)
+  })
+
+  it('finds a fit a naive "always take the first legal spot found" greedy pass would miss — the reported bug', () => {
+    // A 4-hex chain A-B-C-D, but inserted in board order B,A,C,D: a search
+    // that always takes the first legal spot it finds starts from B (first
+    // inserted) and immediately commits to the middle edge B-C, stranding
+    // both A and D with no partner left — even though the *only* other
+    // option, pairing A-B and C-D instead, fits both tiles perfectly. A
+    // real game hit exactly this shape (see todo.md): a placement the live
+    // game had already accepted got rejected on replay/undo because the
+    // old greedy check couldn't find the fit it needed.
+    const board = boardOf([[1, 0, 'water'], [0, 0, 'water'], [2, 0, 'water'], [3, 0, 'water']])
+    expect(canPlaceRemainingTiles(board, domino, ['water'], 2)).toBe(true)
   })
 })
 

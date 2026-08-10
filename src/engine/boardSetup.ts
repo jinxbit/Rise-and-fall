@@ -163,7 +163,7 @@ export function checkTilePlacementLegality(
     // that wouldn't leave room for every remaining tile of this tier is
     // rejected outright, same as any other illegal placement — the player
     // has to pick a different anchor/rotation instead.
-    if (!canPlaceRemainingTiles(board, tierContent.shapeCells, tierContent.placesOn, tierContent.terrain, tilesRemainingInTier)) {
+    if (!canPlaceRemainingTiles(board, tierContent.shapeCells, tierContent.placesOn, tilesRemainingInTier)) {
       return 'This placement would leave no legal spot for the rest of this tier'
     }
   }

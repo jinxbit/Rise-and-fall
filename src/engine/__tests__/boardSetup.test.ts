@@ -11,10 +11,13 @@ import {
   placeUnit,
 } from '../boardSetup'
 import { isLegalTilePlacement, placedShapeCells, touchesEnoughExistingTerrain, wouldEncloseEmptyHexes } from '../boardGeneration'
+import { applyAction } from '../applyAction'
+import { createNewGame, startGame } from '../createGame'
 import { cardIdFor, createPlayerCards } from '../cards'
 import type { Board, Card, Coordinate, GameState, Player, Terrain } from '../types'
 import type { UnitContent } from '../unitContent'
 import terrainJson from '../../content/terrain.json'
+import { resolveBoardGenerationContent } from '../../content/resolveContent'
 
 function makePlayer(id: string, cards: Card[]): Player {
   return {
@@ -643,5 +646,63 @@ describe('against real content/terrain.json', () => {
     state = result.state
 
     expect(state.boardSetup?.tileTierQueue).toEqual(['plain'])
+  })
+
+  it("replays a real reported game's action sequence without rule 4 falsely rejecting an already-accepted placement (regression for the Undo bug)", () => {
+    // The first 14 PLACE_TILE actions from a real reported game (anchor +
+    // rotationSteps only — player ids swapped for plain p1/p2, alternating
+    // in the same order the real ones did). The 14th placement (a Plain
+    // tile) was accepted live, but replaying this exact history against
+    // rule 4's old greedy canPlaceRemainingTiles falsely rejected it —
+    // greedy's first-found choice for the 8 still-owed Plain tiles
+    // stranded 3 of them, even though a real fit for all 8 existed (see
+    // todo.md). This is also exactly what Undo/replay depends on:
+    // GamePage.tsx's undo re-derives state by replaying actionHistory from
+    // genesis, so a false rejection here breaks Undo for real games too.
+    const placements: Array<{ anchor: Coordinate; rotationSteps: number }> = [
+      { anchor: { q: 4, r: -2 }, rotationSteps: 0 },
+      { anchor: { q: 5, r: 1 }, rotationSteps: 2 },
+      { anchor: { q: 7, r: -4 }, rotationSteps: 0 },
+      { anchor: { q: 5, r: -5 }, rotationSteps: 0 },
+      { anchor: { q: 9, r: -3 }, rotationSteps: 0 },
+      { anchor: { q: 2, r: -3 }, rotationSteps: 0 },
+      { anchor: { q: 8, r: 0 }, rotationSteps: 0 },
+      { anchor: { q: 8, r: -7 }, rotationSteps: 0 },
+      { anchor: { q: 3, r: -6 }, rotationSteps: 0 },
+      { anchor: { q: 6, r: -8 }, rotationSteps: 0 },
+      { anchor: { q: 8, r: -9 }, rotationSteps: 1 },
+      { anchor: { q: 4, r: -9 }, rotationSteps: 0 },
+      { anchor: { q: 5, r: -3 }, rotationSteps: 0 },
+      { anchor: { q: 7, r: -8 }, rotationSteps: 1 },
+    ]
+
+    const boardGenerationContent = resolveBoardGenerationContent(2)
+    const lobby = createNewGame({
+      gameId: 'real_game_1',
+      playMode: 'hotseat',
+      board: createEmptyBoard('hex'),
+      players: [
+        { id: 'p1', authUserId: 'auth_1', displayName: 'Alice', color: 'red' },
+        { id: 'p2', authUserId: 'auth_2', displayName: 'Bob', color: 'blue' },
+      ],
+    })
+    let state = startGame(lobby, boardGenerationContent)
+
+    for (let i = 0; i < placements.length; i++) {
+      const playerId = i % 2 === 0 ? 'p1' : 'p2'
+      const result = applyAction(
+        state,
+        { type: 'PLACE_TILE', playerId, anchor: placements[i].anchor, rotationSteps: placements[i].rotationSteps },
+        undefined,
+        undefined,
+        boardGenerationContent,
+      )
+      expect(result.ok).toBe(true)
+      if (!result.ok) throw new Error(`action[${i}] failed: ${result.error}`)
+      state = result.state
+    }
+
+    expect(state.boardSetup?.tileTierQueue).toEqual(['plain', 'forest', 'mountain', 'glacier'])
+    expect(state.boardSetup?.tilesRemainingInTier).toBe(8)
   })
 })

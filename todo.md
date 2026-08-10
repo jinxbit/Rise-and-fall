@@ -2220,3 +2220,57 @@ in `boardSetup.test.ts` that places a real tile via `placeTile()` (a real
 generated `placementId`), then attempts a second real placement touching
 2 hexes of that same tile — reproducing the exact reported bug end to
 end. 371 tests total (was 365); `tsc -b`/`oxlint`/`npm run build` all clean.
+
+## 48. Fixed: Undo/replay could falsely reject an already-accepted placement (rule 4's greedy check was too weak)
+
+Bug report: Undo didn't work on a real in-progress game.
+
+Traced it with the real reported game state: `GamePage.tsx`'s Undo
+rebuilds state by replaying `actionHistory` from genesis
+(`replayActions`, one `applyAction()` call per logged entry — see
+`gameGenesis.ts`). Reconstructing this exact game from genesis and
+replaying its real history (using the real `content/terrain.json` and
+`resolveBoardGenerationContent()`) failed partway through — not just for
+the N-1 replay Undo needs, but for the *full* N-action replay too: one
+of the game's own already-accepted Plain-tile placements got rejected by
+rule 4 (`canPlaceRemainingTiles`, `This placement would leave no legal
+spot for the rest of this tier`) on replay, even though it's in the
+game's own persisted history, meaning it really was accepted live.
+
+Since `applyAction()` is a pure, deterministic function of state, the
+same action replayed against the same preceding history must evaluate
+identically to how it did live — so this wasn't a "rules changed
+between live play and now" question, it was a real determinism/
+correctness bug. Proved it with a brute-force search: at that exact
+point, 8 more Plain tiles were genuinely still placeable somewhere on
+the board (found a valid arrangement in 10 search steps), but
+`canPlaceRemainingTiles`'s old implementation — greedily taking
+whichever legal spot `Object.values(board.tiles)` iteration found
+*first*, applying it, and repeating — committed to a first choice that
+stranded 3 of the 8, and never backtracked to try a different one. This
+matches the doc comment I'd already written for it ("a different choice
+of which legal spot to fill first could leave room where this doesn't")
+— confirmed here as a real, reproducible false rejection, not just a
+theoretical caveat.
+
+Replaced the naive greedy loop with real backtracking: `findAllLegalPlacements()`
++ `findDisjointCombos()` (already built for #44's `findForcedPlacement`)
+now answer `canPlaceRemainingTiles` too — "does at least one combination
+of `count` pairwise-disjoint placements exist," found via actual search
+rather than a single greedy pass, capped by a shared step budget
+(`COMBO_SEARCH_STEP_BUDGET`, 200k) so a pathological board can't hang
+the check; running out of budget conservatively reports "no room,"
+matching rule 4's existing bias toward rejecting when unsure. Dropped
+`canPlaceRemainingTiles`'s now-unused `terrain` parameter (the old
+implementation needed it to apply virtual placements to a working board;
+the new one only checks cell-disjointness, never touches terrain) and
+updated its one call site (`boardSetup.ts`).
+
+Added a synthetic counterexample in `boardGeneration.test.ts` that
+deliberately reproduces the failure mode (a 4-hex chain inserted so the
+first-found placement is the *middle* edge, stranding both ends) and a
+real-data regression test in `boardSetup.test.ts` replaying the actual
+reported game's first 14 actions end to end through `applyAction()` with
+real `content/terrain.json` — the 14th placement, which used to fail on
+replay, now succeeds. 373 tests total (was 371); `tsc -b`/`oxlint`/`npm run build`
+all clean.

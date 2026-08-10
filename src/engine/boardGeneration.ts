@@ -173,73 +173,6 @@ export function wouldEncloseEmptyHexes(board: Board, placedCells: Coordinate[]):
   return false
 }
 
-/**
- * Finds one legal placement of `shapeCells` somewhere on `board`, in any of
- * the 6 rotations, or `null` if none exists. Every legal placement's own
- * anchor cell (local `{0,0}` by convention — see rotateShape's doc comment)
- * must itself land on a hex the shape is allowed to cover, so it's enough
- * to try anchoring each cell of each rotation onto each currently-tiled hex
- * with a qualifying terrain — no need to search the (otherwise unbounded)
- * plane of empty coordinates.
- */
-function findLegalPlacement(board: Board, shapeCells: Coordinate[], placesOn: Terrain[]): Coordinate[] | null {
-  const candidateHexes = Object.values(board.tiles).filter((tile) => placesOn.includes(tile.terrain))
-
-  for (let rotation = 0; rotation < 6; rotation++) {
-    const rotatedCells = rotateShape(shapeCells, rotation)
-    for (const hex of candidateHexes) {
-      for (const localCell of rotatedCells) {
-        const anchor: Coordinate = { q: hex.coord.q - localCell.q, r: hex.coord.r - localCell.r }
-        const placed = placedShapeCells(shapeCells, anchor, rotation)
-        if (isLegalTilePlacement(board, placed, placesOn)) return placed
-      }
-    }
-  }
-  return null
-}
-
-/**
- * Whether `count` more tiles of this tier (`shapeCells`/`placesOn`, each
- * resolving to `terrain` once placed) could all still be legally placed on
- * `board` — rule 4's no-space check (see boardSetup.ts's placeTile): rather
- * than searching for a minimal set of already-placed tiles to relocate to
- * open up room, a placement that wouldn't leave room for the rest of the
- * tier is rejected outright, and the player has to choose a different
- * placement instead.
- *
- * Checking room for just one more tile isn't enough — a spot that fits one
- * more tile can still leave zero room for the tile after that, and by the
- * time that's discovered the earlier placement is already locked in. So
- * this greedily finds one legal placement, applies it to a working copy of
- * the board, and repeats `count` times; if any iteration finds nowhere left
- * to go, the whole placement is rejected. (This is a greedy approximation,
- * not an exhaustive search of every possible placement order — in
- * principle a different choice of which legal spot to fill first could
- * leave room where this doesn't — but it matches the ruling this
- * implements: "make sure all other tiles of the same terrain type are
- * placeable.")
- *
- * `placesOn: null` (water) always returns true — the board is unbounded, so
- * there's always room somewhere.
- */
-export function canPlaceRemainingTiles(
-  board: Board,
-  shapeCells: Coordinate[],
-  placesOn: Terrain[] | null,
-  terrain: Terrain,
-  count: number,
-): boolean {
-  if (placesOn === null) return true
-
-  let workingBoard = board
-  for (let i = 0; i < count; i++) {
-    const placed = findLegalPlacement(workingBoard, shapeCells, placesOn)
-    if (placed === null) return false
-    workingBoard = applyTilePlacement(workingBoard, placed, terrain)
-  }
-  return true
-}
-
 interface CandidatePlacement {
   cells: Coordinate[]
   anchor: Coordinate
@@ -269,24 +202,34 @@ function findAllLegalPlacements(board: Board, shapeCells: Coordinate[], placesOn
   return placements
 }
 
+/** Bounds the backtracking searches below so a pathological board can't hang a placement check indefinitely — see canPlaceRemainingTiles's doc comment. */
+const COMBO_SEARCH_STEP_BUDGET = 200_000
+
 /**
  * Finds up to `limit` distinct ways to choose `count` pairwise-disjoint
  * placements out of `placements` (each combo is a set — order doesn't
- * matter). Stops as soon as `limit` combos are found, since
- * findForcedPlacement only needs to tell "exactly one" apart from "more
- * than one," not enumerate every combo.
+ * matter). Stops as soon as `limit` combos are found, or once the search
+ * has spent `stepBudget` steps without finding enough — a bounded,
+ * best-effort search, not a guaranteed-exhaustive one.
  */
-function findDisjointCombos(placements: CandidatePlacement[], count: number, limit: number): CandidatePlacement[][] {
+function findDisjointCombos(
+  placements: CandidatePlacement[],
+  count: number,
+  limit: number,
+  stepBudget: number = COMBO_SEARCH_STEP_BUDGET,
+): CandidatePlacement[][] {
   const results: CandidatePlacement[][] = []
   const chosen: CandidatePlacement[] = []
+  let steps = 0
 
   function backtrack(startIndex: number, usedCells: Set<string>): void {
-    if (results.length >= limit) return
+    if (results.length >= limit || steps >= stepBudget) return
+    steps++
     if (chosen.length === count) {
       results.push([...chosen])
       return
     }
-    for (let i = startIndex; i < placements.length && results.length < limit; i++) {
+    for (let i = startIndex; i < placements.length && results.length < limit && steps < stepBudget; i++) {
       const placement = placements[i]
       if (placement.cells.some((c) => usedCells.has(coordKey(c)))) continue
       const nextUsed = new Set(usedCells)
@@ -299,6 +242,41 @@ function findDisjointCombos(placements: CandidatePlacement[], count: number, lim
 
   backtrack(0, new Set())
   return results
+}
+
+/**
+ * Whether `count` more tiles of this tier (`shapeCells`/`placesOn`) could
+ * all still be legally placed on `board` — rule 4's no-space check (see
+ * boardSetup.ts's placeTile): rather than searching for a minimal set of
+ * already-placed tiles to relocate to open up room, a placement that
+ * wouldn't leave room for the rest of the tier is rejected outright, and
+ * the player has to choose a different placement instead.
+ *
+ * Backtracks for an actual combination of `count` pairwise-disjoint
+ * placements (findDisjointCombos, the same search findForcedPlacement
+ * below uses) instead of a naive "always take the first legal spot found"
+ * greedy pass. A greedy pass can pick a placement that forecloses every
+ * valid way to fit the rest, even when a different first choice would've
+ * worked — confirmed against a real reported game where 8 more tiles
+ * genuinely fit (a full backtracking search found a fit in 10 steps), but
+ * the old greedy version couldn't find any arrangement at all and
+ * wrongly rejected an already-accepted placement on replay/undo (see
+ * todo.md).
+ *
+ * Bounded by a step budget (see findDisjointCombos) so a pathological
+ * board can't hang the check indefinitely — if the budget runs out
+ * without finding a fit, this conservatively reports "no room," matching
+ * rule 4's existing bias toward rejecting when unsure rather than risking
+ * a stranded future tile.
+ *
+ * `placesOn: null` (water) always returns true — the board is unbounded, so
+ * there's always room somewhere.
+ */
+export function canPlaceRemainingTiles(board: Board, shapeCells: Coordinate[], placesOn: Terrain[] | null, count: number): boolean {
+  if (placesOn === null || count <= 0) return true
+
+  const placements = findAllLegalPlacements(board, shapeCells, placesOn)
+  return findDisjointCombos(placements, count, 1).length > 0
 }
 
 /**
