@@ -88,36 +88,28 @@ export interface UnitMarker {
   highlighted?: boolean
 }
 
-/** Renders one icon's shapes at a single fill colour — called twice per glyph (see UnitGlyph) to build the white-halo-behind-black-ink effect. */
-function renderIconShapes(kind: string, fill: string) {
-  const shapes = UNIT_ICONS[kind] ?? []
-  return shapes.map((shape: IconShape, i) => {
-    switch (shape.kind) {
-      case 'polygon':
-        return <polygon key={i} points={shape.points} fill={fill} />
-      case 'rect':
-        return <rect key={i} x={shape.x} y={shape.y} width={shape.width} height={shape.height} rx={shape.rx} fill={fill} />
-      case 'path':
-        return <path key={i} d={shape.d} fill={fill} fillRule={shape.fillRule} />
-      case 'circle':
-        return <circle key={i} cx={shape.cx} cy={shape.cy} r={shape.r} fill={fill} />
-    }
-  })
-}
+/** The unit glyph's fixed ink colour — always drawn on UNIT_PLATE_COLOR (see UnitGlyph), so contrast is guaranteed regardless of player colour or terrain. */
+const UNIT_GLYPH_COLOR = '#14161a'
+/** The marker's fixed backdrop behind the glyph — deliberately NOT the player's colour (see unitIcons.ts's doc comment for why). Ownership shows instead as a small colour bar beneath it. */
+const UNIT_PLATE_COLOR = '#f2f2ef'
 
-/**
- * A unit kind's pictogram, centered at (x, y) at `size` pixels square. The
- * white copy is drawn first, scaled up from the center so it peeks out as a
- * halo around the black copy on top — proportional to icon size (not a
- * fixed stroke width), so it holds up whether the icon renders at 40px or
- * 14px. See unitIcons.ts's doc comment for why this lives here rather than
- * per-shape strokes (seam artifacts where shapes touch/overlap).
- */
+/** A unit kind's pictogram, centered at (x, y) at `size` pixels square, in the fixed ink colour. */
 function UnitGlyph({ kind, x, y, size }: { kind: string; x: number; y: number; size: number }) {
+  const shapes = UNIT_ICONS[kind] ?? []
   return (
     <svg x={x - size / 2} y={y - size / 2} width={size} height={size} viewBox="0 0 24 24" pointerEvents="none">
-      <g transform="translate(12,12) scale(1.18) translate(-12,-12)">{renderIconShapes(kind, '#ffffff')}</g>
-      <g>{renderIconShapes(kind, '#14161a')}</g>
+      {shapes.map((shape: IconShape, i) => {
+        switch (shape.kind) {
+          case 'polygon':
+            return <polygon key={i} points={shape.points} fill={UNIT_GLYPH_COLOR} />
+          case 'rect':
+            return <rect key={i} x={shape.x} y={shape.y} width={shape.width} height={shape.height} rx={shape.rx} fill={UNIT_GLYPH_COLOR} />
+          case 'path':
+            return <path key={i} d={shape.d} fill={UNIT_GLYPH_COLOR} fillRule={shape.fillRule} />
+          case 'circle':
+            return <circle key={i} cx={shape.cx} cy={shape.cy} r={shape.r} fill={UNIT_GLYPH_COLOR} />
+        }
+      })}
     </svg>
   )
 }
@@ -285,8 +277,15 @@ export function HexBoard(props: {
       })}
       {(props.units ?? []).map((unit, i) => {
         const { x, y } = axialToPixel(unit.coord, size)
-        const markerSize = size * 0.8
-        const glyphSize = markerSize * 0.82
+        const plateSize = size * 0.8
+        // The glyph fills the whole plate (and the bar is narrower still),
+        // so it visibly spills past the ownership bar's edges on purpose —
+        // see unitIcons.ts's doc comment for why the plate itself is a
+        // fixed neutral colour rather than the player's.
+        const glyphSize = plateSize
+        const barWidth = plateSize * 0.7
+        const barHeight = plateSize * 0.26
+        const barY = y + plateSize / 2 - barHeight * 0.25
         return (
           <g key={i} pointerEvents="none">
             {unit.highlighted && (
@@ -296,18 +295,28 @@ export function HexBoard(props: {
             )}
             {STATIC_UNIT_KINDS.has(unit.kind) ? (
               <rect
-                x={x - markerSize / 2}
-                y={y - markerSize / 2}
-                width={markerSize}
-                height={markerSize}
-                rx={markerSize * 0.15}
-                fill={unit.color}
+                x={x - plateSize / 2}
+                y={y - plateSize / 2}
+                width={plateSize}
+                height={plateSize}
+                rx={plateSize * 0.15}
+                fill={UNIT_PLATE_COLOR}
                 stroke="#000"
                 strokeWidth={1}
               />
             ) : (
-              <circle cx={x} cy={y} r={markerSize / 2} fill={unit.color} stroke="#000" strokeWidth={1} />
+              <circle cx={x} cy={y} r={plateSize / 2} fill={UNIT_PLATE_COLOR} stroke="#000" strokeWidth={1} />
             )}
+            <rect
+              x={x - barWidth / 2}
+              y={barY}
+              width={barWidth}
+              height={barHeight}
+              rx={barHeight * 0.3}
+              fill={unit.color}
+              stroke="#000"
+              strokeWidth={0.75}
+            />
             <UnitGlyph kind={unit.kind} x={x} y={y} size={glyphSize} />
           </g>
         )

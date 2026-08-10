@@ -1247,3 +1247,48 @@ Unrelated to this entry: pulled in three content-only commits pushed
 directly to `main` outside this session (`7f33839`, `ba49750`,
 `28e416e`) updating `achievements.json`/`units.json`'s `victoryPoints`
 — real score tuning, no code changes, nothing to reconcile.
+
+## 27. Unit markers weren't clear enough — dropped the player-colour fill for a fixed neutral plate + a colour bar underneath; redesigned the Nomad icon
+
+Feedback on entry `#26`'s pictograms: still not clear enough. Root
+cause: the marker's own shape was filled with the *player's* colour,
+and the glyph sat directly on top of it — against a light colour
+(yellow) the black glyph still worked, but there was no guarantee of
+that in general, and mixing "which shape" (rect/circle) with "which
+colour" (player) and "which glyph" (kind) all on the same surface made
+the marker busier to parse than it needed to be.
+
+Fix: ownership and legibility are now two separate visual layers.
+- The marker's own shape (rectangle for City/Temple, circle for the
+  rest) is always filled with a fixed neutral off-white
+  (`UNIT_PLATE_COLOR`, `#f2f2ef`) — never the player's colour — and the
+  glyph is always the same fixed ink colour (`UNIT_GLYPH_COLOR`,
+  `#14161a`) on top of it. Black-on-near-white is close to maximum
+  contrast, and it no longer depends on which of the four player
+  colours or which terrain the marker happens to sit on — so the old
+  white-halo-behind-black-ink trick (entry `#26`) is gone too; it was
+  solving exactly this problem for a variable-coloured backdrop, and
+  there isn't one anymore.
+- The player's colour moved to a small rounded bar beneath the plate,
+  narrower than the plate itself — per the request, the glyph (drawn at
+  the same size as the plate) visibly spans past the bar's edges rather
+  than being contained by it.
+
+Also redesigned the Nomad glyph, per request ("a horse or a wagon
+icon") — replaced the tent (already a strange fit for a unit that's
+never NOT moving) with a covered wagon at first, but on the round
+mobile-unit plate a dome-shaped canopy sitting right above two wheels
+read as a face (round head, two "ears") rather than a wagon — tried
+adding more margin between the canopy and the plate edge first, which
+didn't fix the misread, so switched to a wagon *wheel* instead: a rim,
+a hub, and four spokes, all radially symmetric so there's no way to
+mistake it for a face, and bold enough to hold up at 14px.
+
+Updated `HexBoard.test.tsx`'s marker tests for the new plate/bar split
+(plate is always the neutral colour; the player's colour now appears
+exactly once, as a `<rect>` bar, regardless of the marker's own shape).
+Visually spot-checked again via `react-dom/server` + the sandbox's
+Chromium — every kind × every one of the four real player colours ×
+alternating Plain/Glacier terrain (the lightest terrain, the hardest
+contrast case) — before wiring in for real. 285 tests total (was 284);
+`tsc -b`/`oxlint`/`npm run build` all clean.

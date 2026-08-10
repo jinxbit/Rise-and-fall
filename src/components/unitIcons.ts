@@ -3,11 +3,15 @@
  * single/double-letter text label (see unitKindLabel.ts, now unused) —
  * design proposal reviewed and approved before wiring in here. Each icon
  * is a handful of basic shapes on a shared 24×24 grid so every glyph sits
- * at the same optical weight; HexBoard.tsx renders them twice per unit (a
- * larger white "halo" copy behind, the ink-black glyph on top) so they
- * stay legible against any player colour without needing per-icon color
- * tuning. Kept in its own module (not HexBoard.tsx, which only exports
- * components) so React Fast Refresh isn't disabled for that file.
+ * at the same optical weight.
+ *
+ * Contrast is guaranteed structurally, not per-icon: HexBoard.tsx draws
+ * every glyph in one fixed ink colour on a fixed light "plate" behind it
+ * (not the player's colour — a marker filled with the owner's colour
+ * couldn't guarantee the glyph read clearly against every one of the four
+ * player colours, which is what prompted this). Ownership instead shows as
+ * a small colour bar beneath the plate; the glyph is sized to spill past
+ * that bar's edges on purpose.
  */
 
 export type IconShape =
@@ -27,13 +31,17 @@ export const UNIT_ICONS: Record<string, IconShape[]> = {
     { kind: 'rect', x: 11.25, y: 10, width: 1.5, height: 7.3 },
     { kind: 'rect', x: 16.2, y: 10, width: 1.5, height: 7.3 },
   ],
-  // A bowed tent with a doorway notch (evenodd cutout) — softer and rounder than the Temple's crisp triangle.
+  // A wagon wheel — rim, four spokes, hub. Reads as "on the move," unlike
+  // the tent this replaced (a Nomad never sits still). A full covered-wagon
+  // silhouette (canopy over two wheels) was tried first, but on the round
+  // marker plate the dome-plus-two-wheels shape read as a face, not a
+  // wagon; a wheel is radially symmetric, so it can't be misread that way,
+  // and it's bolder at small sizes than a multi-part scene would be.
   nomad: [
-    {
-      kind: 'path',
-      d: 'M12,5 Q6,10.5 5,20 L19,20 Q18,10.5 12,5 Z M10.3,20 L10.3,14.6 L13.7,14.6 L13.7,20 Z',
-      fillRule: 'evenodd',
-    },
+    { kind: 'path', d: 'M3,12 A9,9 0 1,0 21,12 A9,9 0 1,0 3,12 Z M5.8,12 A6.2,6.2 0 1,0 18.2,12 A6.2,6.2 0 1,0 5.8,12 Z', fillRule: 'evenodd' },
+    { kind: 'rect', x: 5.8, y: 11.2, width: 12.4, height: 1.6 },
+    { kind: 'rect', x: 11.2, y: 5.8, width: 1.6, height: 12.4 },
+    { kind: 'circle', cx: 12, cy: 12, r: 2.2 },
   ],
   // A drawstring coin bag — the only rounded, organic silhouette.
   merchant: [
