@@ -31,17 +31,20 @@ export const UNIT_ICONS: Record<string, IconShape[]> = {
     { kind: 'rect', x: 11.25, y: 10, width: 1.5, height: 7.3 },
     { kind: 'rect', x: 16.2, y: 10, width: 1.5, height: 7.3 },
   ],
-  // A wagon wheel — rim, four spokes, hub. Reads as "on the move," unlike
-  // the tent this replaced (a Nomad never sits still). A full covered-wagon
-  // silhouette (canopy over two wheels) was tried first, but on the round
-  // marker plate the dome-plus-two-wheels shape read as a face, not a
-  // wagon; a wheel is radially symmetric, so it can't be misread that way,
-  // and it's bolder at small sizes than a multi-part scene would be.
+  // A donkey in side profile — body, neck, head, two long upright ears (the
+  // feature that reads "donkey" rather than "horse"), two merged leg
+  // blocks, a tail. Went through a tent, then a covered wagon, then a
+  // wagon wheel before landing here — see git history on this file for why
+  // each earlier attempt got replaced.
   nomad: [
-    { kind: 'path', d: 'M3,12 A9,9 0 1,0 21,12 A9,9 0 1,0 3,12 Z M5.8,12 A6.2,6.2 0 1,0 18.2,12 A6.2,6.2 0 1,0 5.8,12 Z', fillRule: 'evenodd' },
-    { kind: 'rect', x: 5.8, y: 11.2, width: 12.4, height: 1.6 },
-    { kind: 'rect', x: 11.2, y: 5.8, width: 1.6, height: 12.4 },
-    { kind: 'circle', cx: 12, cy: 12, r: 2.2 },
+    { kind: 'rect', x: 4, y: 11, width: 11, height: 5, rx: 2.4 },
+    { kind: 'rect', x: 12.4, y: 6, width: 3, height: 6.2, rx: 1 },
+    { kind: 'rect', x: 14.6, y: 4.4, width: 5, height: 3.8, rx: 1.6 },
+    { kind: 'polygon', points: '14.9,5 13.6,0.8 15.7,4.3' },
+    { kind: 'polygon', points: '16.9,4.6 17.5,0.5 18.6,4.2' },
+    { kind: 'rect', x: 12, y: 15.6, width: 2.6, height: 6.2 },
+    { kind: 'rect', x: 5.4, y: 15.6, width: 2.6, height: 6.2 },
+    { kind: 'polygon', points: '4.5,11.5 2.3,14 4.3,16.5 5,15.5 4,14 4.8,12.5' },
   ],
   // A drawstring coin bag — the only rounded, organic silhouette.
   merchant: [

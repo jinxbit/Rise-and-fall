@@ -1292,3 +1292,20 @@ Chromium — every kind × every one of the four real player colours ×
 alternating Plain/Glacier terrain (the lightest terrain, the hardest
 contrast case) — before wiring in for real. 285 tests total (was 284);
 `tsc -b`/`oxlint`/`npm run build` all clean.
+
+## 28. Nomad glyph, take four: a donkey
+
+Follow-up request: change the wagon-wheel Nomad glyph (entry `#27`) to
+a donkey. Side profile: body, a neck rising to a head with two long
+upright ears (the feature that reads "donkey" rather than "horse"),
+two merged leg blocks (one shape per side rather than four separate
+thin legs, which would have vanished at 14px), and a small tail — eight
+simple axis-aligned shapes, no freehand curve-tracing, so the geometry
+stayed predictable without needing visual iteration to get right this
+time. Spot-checked via the same `react-dom/server` + Chromium
+screenshot process as every icon before it — reads clearly as a
+standing quadruped with donkey ears from a 14px marker up through a
+60px zoomed-in one, across all four player colours. No test changes
+needed: `HexBoard.test.tsx`'s marker tests check glyph count/plate
+colour/shape, not any kind's specific geometry. `tsc -b`/`oxlint`/
+`npm run build` all clean, 285 tests still passing.
