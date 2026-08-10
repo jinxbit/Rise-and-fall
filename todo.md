@@ -1388,3 +1388,72 @@ claimed achievement's VP value (and 0 for a player with nothing
 claimed); and a DOM-order assertion that the achievements panel is the
 very last child of the page, after the board. 290 tests total (was
 287); `tsc -b`/`oxlint`/`npm run build` all clean.
+
+## 31. "Show history" toggle: review what happened on the board since a player's last turn
+
+Requested: a button to reveal what opponents did between a player's own
+turns — movement as arrows, new units in a green halo, resource
+gathering in red, income generation in gold (with the amount shown),
+merchant trades with both resource and gold deltas shown, conversions
+in purple, and the net resource/gold change per player surfaced in the
+player strip.
+
+Nothing about "what happened last turn" was previously stored, so it's
+derived on demand from the existing `actionHistory: LoggedAction[]`
+event log rather than adding new persisted state. New module
+`engine/turnReview.ts`: `findReviewWindowStart(actionHistory, playerId)`
+walks backward to find the index right after that player's own most
+recent action (0 if they haven't acted yet this game); `buildTurnReview`
+then replays only the actions in that window starting from the state as
+of that point, extracting a flat list of per-unit events plus a
+per-player aggregate resource/gold delta.
+
+Event extraction for `RESOLVE_UNIT_ACTION` needed two parallel passes
+per unit assignment: the real `applyAction` call advances the
+authoritative state so later actions in the window see the world
+exactly as it really unfolded (achievement claims, eliminations, etc.),
+while a second, throwaway `applyUnitActionEffect` call on just that
+assignment produces a clean before/after pair to diff for events. Diffing
+only `assignment.unitId` (the acting unit) turned out to be wrong for
+three of the six event types: a `create` effect lands on a brand-new
+unit id, a self-destroying `transform` effect leaves the acting unit
+gone with the replacement under a new id, and `convert` changes a unit
+that isn't the acting one at all (the adjacent target). Fixed by
+scanning every unit present in either the before or after state map,
+not just the acting unit's id, and only using the acting unit's id
+specifically to attribute the resource delta (produced/income/traded)
+once it's computed.
+
+`HexBoard.tsx` renders the review: `HistoryArrow` draws a short
+sky-blue line with an arrowhead from a unit's prior hex to its new one;
+`historyHalos` draws one stroke-only ring per event type around a
+unit's marker plate (green=created, red=produced, gold=income,
+purple=converted; a unit can carry more than one, e.g. built-and-moved
+in the same turn), stacked at increasing radius with a `<title>` for
+hover text; `historyLabel` renders a small pill (e.g. `"+2 Wood"` or
+`"+1 Wood, -5 Gold"`) offset above-right of the marker. A unit's label
+can sit far enough right of its hex to clip past the board's edge —
+caught in a screenshot during visual QA — so the SVG `viewBox` bounds
+calculation now includes an extra bounds point at each label's far
+corner, the same way it already accounts for the action-menu overlay.
+
+`RoundView.tsx` adds the toggle button (disabled when there's nothing
+to show), a `summarizeUnitHistory` helper that groups the flat event
+list by unit into halos/label/moves for `HexBoard`, and passes
+`resourceDeltaByPlayerId` through to `PlayersStrip` so each player's
+Gold/Wood/Stone figures show a `(+N)`/`(−N)` suffix while history is
+visible. `GamePage.tsx` wires it up: replays from genesis to the
+review-window start, builds the review via a `useMemo` keyed on action-
+history length, and fails quiet (returns `null`) if anything's
+inconsistent rather than throwing.
+
+14 new engine tests (`turnReview.test.ts`) covering the window-start
+boundary, each event type individually (including the destroySelf-
+transform and both convert variants — City-owns-Nomad and Temple-
+steals-enemy), multi-assignment attribution, and cross-action aggregate
+deltas; 5 new `RoundView.test.tsx` tests for the toggle's enabled state,
+click behaviour, halo/label rendering, hidden-by-default behaviour, and
+the player-strip deltas. Verified end-to-end with a real 2-player replay
+rendered through the sandbox's headless screenshot pipeline before and
+after the bounds fix. 309 tests total (was 290); `tsc -b`/`oxlint`/
+`npm run build` all clean.

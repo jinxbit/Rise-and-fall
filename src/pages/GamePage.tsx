@@ -8,6 +8,7 @@ import { applyAction } from '../engine/applyAction'
 import { appendLog } from '../engine/log'
 import { replayActions } from '../engine/replay'
 import type { ActionResult, GameState as EngineGameState, Coordinate } from '../engine/types'
+import { buildTurnReview, findReviewWindowStart } from '../engine/turnReview'
 import { useAuth } from '../hooks/useAuth'
 import type { GameRow, PlayerRow } from '../lib/dbTypes'
 import { buildGenesisState } from '../lib/gameGenesis'
@@ -50,6 +51,7 @@ export function GamePage() {
   const [actionError, setActionError] = useState<string | null>(null)
   const [showStateJson, setShowStateJson] = useState(false)
   const [undoing, setUndoing] = useState(false)
+  const [showHistory, setShowHistory] = useState(false)
 
   useEffect(() => {
     if (!roomCode) return
@@ -90,6 +92,35 @@ export function GamePage() {
   const boardGenerationContent = useMemo(() => resolveBoardGenerationContent(players.length), [players.length])
   const unitContent = useMemo(() => resolveUnitContent(players.length), [players.length])
   const achievementContent = useMemo(() => resolveAchievementContent(), [])
+
+  const me = players.find((p) => p.user_id === session?.user.id)
+
+  /**
+   * "What happened since I last acted" (see engine/turnReview.ts) — reviewed
+   * on demand via RoundView's history toggle, not stored. Rebuilding it
+   * needs genesis (same buildGenesisState() Undo already uses) plus a
+   * replay up to the start of the review window before buildTurnReview can
+   * even begin, so it's only worth doing here, once, off the full
+   * actionHistory — not duplicated per component that wants a piece of it.
+   * Recomputes whenever the action history actually grows (or the viewer
+   * changes) — game/players staying referentially stable between fetches
+   * would make this needlessly expensive otherwise.
+   */
+  const turnReview = useMemo(() => {
+    if (!game || !gameState || !me || players.length === 0) return null
+    try {
+      const genesis = buildGenesisState(game, players)
+      const windowStart = findReviewWindowStart(gameState.actionHistory, me.id)
+      const stateAtWindowStart = replayActions(genesis, gameState.actionHistory.slice(0, windowStart), unitContent, achievementContent, boardGenerationContent)
+      return buildTurnReview(stateAtWindowStart, gameState.actionHistory.slice(windowStart), unitContent, achievementContent, boardGenerationContent)
+    } catch {
+      // A genesis/content mismatch shouldn't be possible for a game this
+      // session is actually playing, but the review is a nice-to-have, not
+      // core gameplay — fail quiet (no review) rather than break the page.
+      return null
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [game, gameState?.actionHistory.length, me?.id, players, unitContent, achievementContent, boardGenerationContent])
 
   /**
    * Writes whatever `computeNext` derives from the current state, retrying
@@ -180,8 +211,6 @@ export function GamePage() {
   if (!session) return <div className="p-8 text-neutral-400">Sign in from the home page first.</div>
   if (!game) return <div className="p-8 text-neutral-400">Looking for room {roomCode}…</div>
 
-  const me = players.find((p) => p.user_id === session.user.id)
-
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6 p-8">
       <header className="flex items-center justify-between">
@@ -256,6 +285,9 @@ export function GamePage() {
           myPlayerId={me?.id ?? null}
           unitContent={unitContent}
           achievementContent={achievementContent}
+          turnReview={turnReview}
+          showHistory={showHistory}
+          onToggleHistory={() => setShowHistory((v) => !v)}
           onChooseCard={(cardId) => {
             if (!me) return
             void submitAction({ type: 'CHOOSE_CARD', playerId: me.id, cardId })

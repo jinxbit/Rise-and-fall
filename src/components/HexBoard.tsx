@@ -74,9 +74,41 @@ function hexEdgeSegment(ax: number, ay: number, bx: number, by: number, radius: 
   return { x1: mx - px * half, y1: my - py * half, x2: mx + px * half, y2: my + py * half }
 }
 
+/** Pulls both ends of a line segment inward along its own direction — used to keep a history arrow (see HistoryArrow) from starting/ending right under a unit marker's plate. */
+function insetSegment(x1: number, y1: number, x2: number, y2: number, startInset: number, endInset: number) {
+  const dx = x2 - x1
+  const dy = y2 - y1
+  const dist = Math.hypot(dx, dy) || 1
+  const ux = dx / dist
+  const uy = dy / dist
+  return { x1: x1 + ux * startInset, y1: y1 + uy * startInset, x2: x2 - ux * endInset, y2: y2 - uy * endInset }
+}
+
+/** A small filled triangle pointing along (x1,y1) -> (x2,y2), tip at (x2,y2) — the arrowhead on a history arrow. */
+function arrowHeadPoints(x1: number, y1: number, x2: number, y2: number, headLength: number, headWidth: number): string {
+  const angle = Math.atan2(y2 - y1, x2 - x1)
+  const backX = x2 - headLength * Math.cos(angle)
+  const backY = y2 - headLength * Math.sin(angle)
+  const leftX = backX + headWidth * Math.cos(angle + Math.PI / 2)
+  const leftY = backY + headWidth * Math.sin(angle + Math.PI / 2)
+  const rightX = backX + headWidth * Math.cos(angle - Math.PI / 2)
+  const rightY = backY + headWidth * Math.sin(angle - Math.PI / 2)
+  return `${x2},${y2} ${leftX},${leftY} ${rightX},${rightY}`
+}
+
 export interface GhostCell {
   coord: Coordinate
   legal: boolean
+}
+
+/** One event type worth ringing a unit for in history-review mode (see RoundView.tsx's history toggle) — 'moved' is drawn as an arrow instead (see HistoryArrow), not a halo. */
+export type HistoryHaloType = 'created' | 'produced' | 'income' | 'converted'
+
+const HISTORY_HALO_COLOR: Record<HistoryHaloType, string> = {
+  created: '#22c55e', // green — newly built (created or transformed into)
+  produced: '#ef4444', // red — gathered a resource
+  income: '#eab308', // gold — generated income (or Ship's Trade)
+  converted: '#a855f7', // purple — changed owner or kind via a convert
 }
 
 export interface UnitMarker {
@@ -86,6 +118,16 @@ export interface UnitMarker {
   kind: string
   /** Draws a bright ring around the unit — e.g. "this unit can still act this turn, click it." */
   highlighted?: boolean
+  /** History-review overlay: one ring per applicable event type since the reviewed window began — concentric if more than one applies to the same unit. */
+  historyHalos?: HistoryHaloType[]
+  /** History-review overlay: a small tag near the marker for an income/produce/trade amount, e.g. "+5 Gold" or "+1 Wood, -5 Gold". */
+  historyLabel?: string
+}
+
+/** A movement event in history-review mode — one hex-to-hex hop, drawn as an arrow. A unit that moved more than once in the reviewed window gets one arrow per hop, in order. */
+export interface HistoryArrow {
+  from: Coordinate
+  to: Coordinate
 }
 
 /** The unit glyph's fixed ink colour — always drawn on UNIT_PLATE_COLOR (see UnitGlyph), so contrast is guaranteed regardless of player colour or terrain. */
@@ -142,6 +184,8 @@ function actionMenuRadius(size: number, optionCount: number): number {
 
 const ACTION_MENU_BOX_WIDTH_FACTOR = 3.4
 const ACTION_MENU_BOX_HEIGHT_FACTOR = 1.7
+/** Generous enough for the longest realistic history label, e.g. "+1 Wood, -5 Gold". */
+const HISTORY_LABEL_WIDTH_FACTOR = 3.4
 
 /**
  * Renders a Board as an SVG hex grid, with optional extras for interactive
@@ -159,6 +203,8 @@ export function HexBoard(props: {
   extraCoords?: Coordinate[]
   ghostCells?: GhostCell[]
   units?: UnitMarker[]
+  /** History-review overlay (see RoundView.tsx's history toggle): one arrow per movement hop since the reviewed window began. */
+  arrows?: HistoryArrow[]
   actionMenu?: ActionMenu
   selectedCoord?: Coordinate | null
   interactive?: boolean
@@ -200,6 +246,15 @@ export function HexBoard(props: {
     const menuPad =
       actionMenuRadius(size, props.actionMenu.options.length) + size * Math.max(ACTION_MENU_BOX_WIDTH_FACTOR, ACTION_MENU_BOX_HEIGHT_FACTOR)
     boundsPoints.push({ x: x - menuPad, y: y - menuPad }, { x: x + menuPad, y: y + menuPad })
+  }
+  // A history-review label (see UnitMarker.historyLabel) sits well outside
+  // its own hex — extend the viewBox so it can't get clipped for a unit
+  // near the board's edge.
+  for (const unit of props.units ?? []) {
+    if (!unit.historyLabel) continue
+    const { x, y } = axialToPixel(unit.coord, size)
+    const plateSize = size * 0.8
+    boundsPoints.push({ x: x + plateSize * 0.4 + size * HISTORY_LABEL_WIDTH_FACTOR, y: y - plateSize * 1.05 })
   }
   const minX = Math.min(...boundsPoints.map((p) => p.x)) - pad
   const maxX = Math.max(...boundsPoints.map((p) => p.x)) + pad
@@ -275,6 +330,18 @@ export function HexBoard(props: {
           />
         )
       })}
+      {(props.arrows ?? []).map((arrow, i) => {
+        const from = axialToPixel(arrow.from, size)
+        const to = axialToPixel(arrow.to, size)
+        const headLength = size * 0.4
+        const seg = insetSegment(from.x, from.y, to.x, to.y, size * 0.5, size * 0.5 + headLength * 0.6)
+        return (
+          <g key={`arrow-${i}`} pointerEvents="none">
+            <line x1={seg.x1} y1={seg.y1} x2={seg.x2} y2={seg.y2} stroke="#38bdf8" strokeWidth={2.5} strokeLinecap="round" />
+            <polygon points={arrowHeadPoints(seg.x1, seg.y1, seg.x2, seg.y2, headLength, size * 0.24)} fill="#38bdf8" />
+          </g>
+        )
+      })}
       {(props.units ?? []).map((unit, i) => {
         const { x, y } = axialToPixel(unit.coord, size)
         const plateSize = size * 0.8
@@ -286,6 +353,7 @@ export function HexBoard(props: {
         const barWidth = plateSize * 0.7
         const barHeight = plateSize * 0.26
         const barY = y + plateSize / 2 - barHeight * 0.25
+        const historyHalos = unit.historyHalos ?? []
         return (
           <g key={i} pointerEvents="none">
             {unit.highlighted && (
@@ -293,6 +361,19 @@ export function HexBoard(props: {
                 <animate attributeName="opacity" values="1;0.35;1" dur="1.4s" repeatCount="indefinite" />
               </circle>
             )}
+            {historyHalos.map((haloType, hi) => (
+              <circle
+                key={`halo-${haloType}`}
+                cx={x}
+                cy={y}
+                r={plateSize / 2 + size * 0.22 + hi * size * 0.14}
+                fill="none"
+                stroke={HISTORY_HALO_COLOR[haloType]}
+                strokeWidth={2.5}
+              >
+                <title>{haloType}</title>
+              </circle>
+            ))}
             {STATIC_UNIT_KINDS.has(unit.kind) ? (
               <rect
                 x={x - plateSize / 2}
@@ -318,6 +399,16 @@ export function HexBoard(props: {
               strokeWidth={0.75}
             />
             <UnitGlyph kind={unit.kind} x={x} y={y} size={glyphSize} />
+            {unit.historyLabel && (
+              <foreignObject x={x + plateSize * 0.4} y={y - plateSize * 1.05} width={size * HISTORY_LABEL_WIDTH_FACTOR} height={size * 0.62}>
+                <div
+                  style={{ fontSize: size * 0.28, lineHeight: 1.1 }}
+                  className="inline-flex w-fit items-center whitespace-nowrap rounded-md border border-neutral-700 bg-neutral-900/95 px-1.5 py-0.5 font-medium text-neutral-100"
+                >
+                  {unit.historyLabel}
+                </div>
+              </foreignObject>
+            )}
           </g>
         )
       })}

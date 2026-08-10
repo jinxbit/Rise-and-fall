@@ -8,6 +8,7 @@ import { cardIdFor, createPlayerCards, syncCardZonesWithBoard } from '../../engi
 import { createNewGame } from '../../engine/createGame'
 import { beginSelectCardsPhase } from '../../engine/round'
 import type { GameState, Player, Resources, Unit, UnitMovement } from '../../engine/types'
+import type { TurnReview } from '../../engine/turnReview'
 import { EMPTY_UNIT_CONTENT } from '../../engine/unitContent'
 import type { UnitAction, UnitContent } from '../../engine/unitContent'
 import type { PlayerRow } from '../../lib/dbTypes'
@@ -81,6 +82,9 @@ describe('RoundView — player status summary and achievements panel', () => {
         myPlayerId="p1"
         unitContent={EMPTY_UNIT_CONTENT}
         achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        turnReview={null}
+        showHistory={false}
+        onToggleHistory={() => {}}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
         onPassActions={() => {}}
@@ -105,6 +109,9 @@ describe('RoundView — player status summary and achievements panel', () => {
         myPlayerId="p1"
         unitContent={EMPTY_UNIT_CONTENT}
         achievementContent={{ ...EMPTY_ACHIEVEMENT_CONTENT, purchaseCostTable: [5, 10, 20] }}
+        turnReview={null}
+        showHistory={false}
+        onToggleHistory={() => {}}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
         onPassActions={() => {}}
@@ -140,6 +147,9 @@ describe('RoundView — player status summary and achievements panel', () => {
         myPlayerId="p1"
         unitContent={unitContent}
         achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        turnReview={null}
+        showHistory={false}
+        onToggleHistory={() => {}}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
         onPassActions={() => {}}
@@ -166,6 +176,9 @@ describe('RoundView — player status summary and achievements panel', () => {
         myPlayerId="p1"
         unitContent={EMPTY_UNIT_CONTENT}
         achievementContent={{ ...EMPTY_ACHIEVEMENT_CONTENT, achievementVictoryPoints: { 'city-mastery': 5 } }}
+        turnReview={null}
+        showHistory={false}
+        onToggleHistory={() => {}}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
         onPassActions={() => {}}
@@ -190,6 +203,9 @@ describe('RoundView — player status summary and achievements panel', () => {
         myPlayerId="p1"
         unitContent={EMPTY_UNIT_CONTENT}
         achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        turnReview={null}
+        showHistory={false}
+        onToggleHistory={() => {}}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
         onPassActions={() => {}}
@@ -270,6 +286,9 @@ describe("RoundView — City's Convert to Merchant/Mountaineer (bug report: \"no
         myPlayerId="p1"
         unitContent={content}
         achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        turnReview={null}
+        showHistory={false}
+        onToggleHistory={() => {}}
         onChooseCard={() => {}}
         onResolveUnit={onResolveUnit}
         onPassActions={() => {}}
@@ -296,5 +315,110 @@ describe("RoundView — City's Convert to Merchant/Mountaineer (bug report: \"no
     fireEvent.click(container.querySelectorAll('svg > polygon')[1])
 
     expect(onResolveUnit).toHaveBeenCalledWith('city1', 'create-merchant', { q: 1, r: 0 })
+  })
+})
+
+describe('RoundView — history review toggle', () => {
+  function renderWithReview(turnReview: TurnReview | null, showHistory: boolean, onToggleHistory: () => void = () => {}) {
+    const state = makeState()
+    state.board = setTile(state.board, { q: 0, r: 0 }, 'plain')
+    state.units = [
+      { id: 'nomad_a', ownerId: 'p1', kind: 'nomad', coord: { q: 0, r: 0 }, movement: { isMobile: true, terrains: [], canCrossCliffs: false }, traits: [] },
+    ]
+    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
+    return render(
+      <RoundView
+        state={state}
+        players={players}
+        myPlayerId="p1"
+        unitContent={EMPTY_UNIT_CONTENT}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        turnReview={turnReview}
+        showHistory={showHistory}
+        onToggleHistory={onToggleHistory}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+  }
+
+  it('disables the history button when there is nothing to review, and toggles the label when clicked', () => {
+    const { rerender } = renderWithReview({ events: [], resourceDeltaByPlayerId: {} }, false)
+    const button = screen.getByRole('button', { name: 'Show history' })
+    expect(button).toBeDisabled() // no events yet
+
+    rerender(
+      <RoundView
+        state={makeState()}
+        players={[makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]}
+        myPlayerId="p1"
+        unitContent={EMPTY_UNIT_CONTENT}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        turnReview={{
+          events: [{ unitId: 'nomad_a', playerId: 'p1', type: 'produced', to: { q: 0, r: 0 }, resourceDelta: { wood: 2 } }],
+          resourceDeltaByPlayerId: { p1: { gold: 0, wood: 2, stone: 0 } },
+        }}
+        showHistory={false}
+        onToggleHistory={() => {}}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+    expect(screen.getByRole('button', { name: 'Show history' })).not.toBeDisabled()
+  })
+
+  it('calls onToggleHistory when clicked, and shows "Hide history" once toggled on', () => {
+    const onToggleHistory = vi.fn()
+    const turnReview: TurnReview = {
+      events: [{ unitId: 'nomad_a', playerId: 'p1', type: 'produced', to: { q: 0, r: 0 }, resourceDelta: { wood: 2 } }],
+      resourceDeltaByPlayerId: { p1: { gold: 0, wood: 2, stone: 0 } },
+    }
+    renderWithReview(turnReview, false, onToggleHistory)
+    fireEvent.click(screen.getByRole('button', { name: 'Show history' }))
+    expect(onToggleHistory).toHaveBeenCalledOnce()
+
+    renderWithReview(turnReview, true, onToggleHistory)
+    expect(screen.getByRole('button', { name: 'Hide history' })).toBeInTheDocument()
+  })
+
+  it('overlays a halo ring on a unit with a reviewed event, and shows its resource-delta label', () => {
+    const turnReview: TurnReview = {
+      events: [{ unitId: 'nomad_a', playerId: 'p1', type: 'produced', to: { q: 0, r: 0 }, resourceDelta: { wood: 2 } }],
+      resourceDeltaByPlayerId: { p1: { gold: 0, wood: 2, stone: 0 } },
+    }
+    const { container } = renderWithReview(turnReview, true)
+
+    // 'produced' halo colour (red, see HISTORY_HALO_COLOR in HexBoard.tsx).
+    expect(container.querySelectorAll('circle[stroke="#ef4444"]')).toHaveLength(1)
+    expect(screen.getByText('+2 Wood')).toBeInTheDocument()
+  })
+
+  it('does not show halos, labels, or resource deltas when showHistory is off, even with a non-empty review', () => {
+    const turnReview: TurnReview = {
+      events: [{ unitId: 'nomad_a', playerId: 'p1', type: 'produced', to: { q: 0, r: 0 }, resourceDelta: { wood: 2 } }],
+      resourceDeltaByPlayerId: { p1: { gold: 0, wood: 2, stone: 0 } },
+    }
+    const { container } = renderWithReview(turnReview, false)
+
+    expect(container.querySelectorAll('circle[stroke="#ef4444"]')).toHaveLength(0)
+    expect(screen.queryByText('+2 Wood')).not.toBeInTheDocument()
+  })
+
+  it("shows a resource delta suffix in the player's status once toggled on", () => {
+    const turnReview: TurnReview = {
+      events: [],
+      resourceDeltaByPlayerId: { p1: { gold: 5, wood: -1, stone: 0 } },
+    }
+    renderWithReview(turnReview, true)
+    expect(screen.getByText('(+5)')).toBeInTheDocument()
+    expect(screen.getByText('(-1)')).toBeInTheDocument()
   })
 })

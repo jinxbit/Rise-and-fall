@@ -4,13 +4,14 @@ import { UNIT_KINDS } from '../engine/cards'
 import { legalMoveDestinations } from '../engine/movement'
 import { calculatePurchaseCost } from '../engine/purchaseCost'
 import { calculateTerrainControlVP } from '../engine/scoring'
+import type { TurnReview, UnitReviewEvent } from '../engine/turnReview'
 import { calculateAchievementVP, calculateBoardCountVP, sumVP } from '../engine/victoryPoints'
 import type { AchievementContent } from '../engine/achievementContent'
 import { listAchievements } from '../content/resolveContent'
-import type { Coordinate, GameState, RoundPhase } from '../engine/types'
+import type { Coordinate, GameState, Resources, RoundPhase } from '../engine/types'
 import type { UnitAction, UnitContent } from '../engine/unitContent'
 import type { PlayerRow } from '../lib/dbTypes'
-import type { GhostCell, UnitMarker } from './HexBoard'
+import type { GhostCell, HistoryArrow, HistoryHaloType, UnitMarker } from './HexBoard'
 import { HexBoard } from './HexBoard'
 
 const ACHIEVEMENTS = listAchievements()
@@ -63,18 +64,81 @@ function currentScoreByPlayerId(state: GameState, achievementContent: Achievemen
   )
 }
 
+interface UnitHistorySummary {
+  halos: HistoryHaloType[]
+  resourceDelta: Partial<Resources>
+  moves: HistoryArrow[]
+}
+
+/**
+ * Groups a TurnReview's flat event list by unit, for HexBoard's overlay
+ * props: a 'moved' event becomes an arrow (not a halo); every other event
+ * type contributes a halo (deduped — a unit that produced twice still gets
+ * one red ring, not two) and, if it carries one, folds its resourceDelta
+ * into a single running total per unit (so two produce events in the same
+ * window show one combined label, e.g. "+4 Wood" rather than two tags).
+ */
+function summarizeUnitHistory(events: UnitReviewEvent[]): Map<string, UnitHistorySummary> {
+  const byUnit = new Map<string, UnitHistorySummary>()
+  for (const event of events) {
+    let entry = byUnit.get(event.unitId)
+    if (!entry) {
+      entry = { halos: [], resourceDelta: {}, moves: [] }
+      byUnit.set(event.unitId, entry)
+    }
+    if (event.type === 'moved') {
+      if (event.from && event.to) entry.moves.push({ from: event.from, to: event.to })
+      continue
+    }
+    if ((event.type === 'created' || event.type === 'converted' || event.type === 'produced' || event.type === 'income') && !entry.halos.includes(event.type)) {
+      entry.halos.push(event.type)
+    }
+    if (event.resourceDelta) {
+      for (const key of ['gold', 'wood', 'stone'] as const) {
+        const amount = event.resourceDelta[key]
+        if (amount) entry.resourceDelta[key] = (entry.resourceDelta[key] ?? 0) + amount
+      }
+    }
+  }
+  return byUnit
+}
+
+const RESOURCE_LABELS: [keyof Resources, string][] = [
+  ['gold', 'Gold'],
+  ['wood', 'Wood'],
+  ['stone', 'Stone'],
+]
+
+function formatResourceDelta(delta: Partial<Resources>): string {
+  return RESOURCE_LABELS.map(([key, label]) => {
+    const amount = delta[key]
+    return amount ? `${amount > 0 ? '+' : ''}${amount} ${label}` : null
+  })
+    .filter((s): s is string => s !== null)
+    .join(', ')
+}
+
+/** A resource total's change since the reviewed window began, e.g. " (+5)" — blank if it didn't change (or there's nothing to compare against). */
+function deltaSuffix(amount: number | undefined): string {
+  if (!amount) return ''
+  return ` (${amount > 0 ? '+' : ''}${amount})`
+}
+
 function PlayersStrip({
   state,
   players,
   myPlayerId,
   unitContent,
   achievementContent,
+  resourceDeltaByPlayerId,
 }: {
   state: GameState
   players: PlayerRow[]
   myPlayerId: string | null
   unitContent: UnitContent
   achievementContent: AchievementContent
+  /** From TurnReview, only while the history review is toggled on — see RoundView's showHistory. */
+  resourceDeltaByPlayerId?: Record<string, Resources> | null
 }) {
   const scoreByPlayerId = currentScoreByPlayerId(state, achievementContent)
 
@@ -89,6 +153,7 @@ function PlayersStrip({
           const onBoard = state.units.filter((u) => u.ownerId === player.id && u.kind === kind).length
           return `${capitalize(kind)} ${Math.max(0, cap - onBoard)}`
         }).filter((entry): entry is string => entry !== null)
+        const delta = resourceDeltaByPlayerId?.[player.id]
         return (
           <div
             key={player.id}
@@ -100,9 +165,18 @@ function PlayersStrip({
             <span className="text-neutral-200">{row?.display_name ?? player.id}</span>
             {player.eliminated && <span>(eliminated)</span>}
             <span className="font-medium text-neutral-200">Score {scoreByPlayerId[player.id] ?? 0}</span>
-            <span>Gold {player.resources.gold}</span>
-            <span>Wood {player.resources.wood}</span>
-            <span>Stone {player.resources.stone}</span>
+            <span>
+              Gold {player.resources.gold}
+              {delta && <span className="text-emerald-400">{deltaSuffix(delta.gold)}</span>}
+            </span>
+            <span>
+              Wood {player.resources.wood}
+              {delta && <span className="text-emerald-400">{deltaSuffix(delta.wood)}</span>}
+            </span>
+            <span>
+              Stone {player.resources.stone}
+              {delta && <span className="text-emerald-400">{deltaSuffix(delta.stone)}</span>}
+            </span>
             <span>Hand: {handKinds.length > 0 ? handKinds.map(capitalize).join(', ') : 'empty'}</span>
             <span>Decline {player.declineCardIds.length}</span>
             {remainingByKind.length > 0 && <span>Remaining: {remainingByKind.join(', ')}</span>}
@@ -324,6 +398,15 @@ export function RoundView(props: {
   myPlayerId: string | null
   unitContent: UnitContent
   achievementContent: AchievementContent
+  /**
+   * "What happened since I last acted" (see engine/turnReview.ts) —
+   * GamePage.tsx computes this from the full actionHistory, since it needs
+   * genesis + content to replay. Null while it hasn't loaded yet, or if
+   * there's nothing to review (e.g. the very start of the game).
+   */
+  turnReview: TurnReview | null
+  showHistory: boolean
+  onToggleHistory: () => void
   onChooseCard: (cardId: string) => void
   onResolveUnit: (unitId: string, actionId: string, target?: Coordinate) => void
   onPassActions: () => void
@@ -331,7 +414,7 @@ export function RoundView(props: {
   onPurchaseCard: (cardId: string) => void
   onPassPurchase: () => void
 }) {
-  const { state, players, myPlayerId, unitContent, achievementContent } = props
+  const { state, players, myPlayerId, unitContent, achievementContent, turnReview, showHistory } = props
   const [mode, setMode] = useState<ActionUiMode>({ kind: 'idle' })
 
   const turnKey = `${state.turn}:${state.roundPhase}:${state.pendingPlayerIds[0] ?? ''}`
@@ -396,12 +479,19 @@ export function RoundView(props: {
   }
 
   const availableUnitIds = new Set(availableUnits.map((u) => u.id))
-  const units: UnitMarker[] = state.units.map((u) => ({
-    coord: u.coord,
-    color: players.find((p) => p.id === u.ownerId)?.color ?? '#a3a3a3',
-    kind: u.kind,
-    highlighted: isMyActionTurn && availableUnitIds.has(u.id),
-  }))
+  const historyByUnit = showHistory && turnReview ? summarizeUnitHistory(turnReview.events) : null
+  const units: UnitMarker[] = state.units.map((u) => {
+    const history = historyByUnit?.get(u.id)
+    return {
+      coord: u.coord,
+      color: players.find((p) => p.id === u.ownerId)?.color ?? '#a3a3a3',
+      kind: u.kind,
+      highlighted: isMyActionTurn && availableUnitIds.has(u.id),
+      historyHalos: history?.halos,
+      historyLabel: history && Object.keys(history.resourceDelta).length > 0 ? formatResourceDelta(history.resourceDelta) : undefined,
+    }
+  })
+  const historyArrows: HistoryArrow[] = historyByUnit ? [...historyByUnit.values()].flatMap((h) => h.moves) : []
 
   const ghostCells: GhostCell[] = legalTargets.map((coord) => ({ coord, legal: true }))
   const actionMenu =
@@ -419,8 +509,26 @@ export function RoundView(props: {
 
   return (
     <div className="flex flex-col gap-4">
-      <PhaseBanner state={state} />
-      <PlayersStrip state={state} players={players} myPlayerId={myPlayerId} unitContent={unitContent} achievementContent={achievementContent} />
+      <div className="flex items-center justify-between gap-3">
+        <PhaseBanner state={state} />
+        <button
+          type="button"
+          onClick={props.onToggleHistory}
+          disabled={!turnReview || turnReview.events.length === 0}
+          title="Review what happened on the board since your last turn — movement, new units, resources gathered, income, trades, and conversions."
+          className="rounded-md border border-neutral-700 px-3 py-1 text-xs hover:border-neutral-500 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {showHistory ? 'Hide history' : 'Show history'}
+        </button>
+      </div>
+      <PlayersStrip
+        state={state}
+        players={players}
+        myPlayerId={myPlayerId}
+        unitContent={unitContent}
+        achievementContent={achievementContent}
+        resourceDeltaByPlayerId={showHistory ? turnReview?.resourceDeltaByPlayerId : null}
+      />
 
       {state.roundPhase === 'selectCards' && (
         <SelectCardsPanel state={state} players={players} myPlayerId={myPlayerId} onChooseCard={props.onChooseCard} />
@@ -445,6 +553,7 @@ export function RoundView(props: {
       <HexBoard
         board={state.board}
         units={units}
+        arrows={historyArrows}
         ghostCells={ghostCells}
         actionMenu={actionMenu}
         interactive={isMyActionTurn}
