@@ -94,6 +94,10 @@ export function GamePage() {
   const achievementContent = useMemo(() => resolveAchievementContent(), [])
 
   const isHotseat = game?.play_mode === 'hotseat'
+  // Creation-time opt-out (HomePage.tsx's checkbox) for groups that don't
+  // want the extra tap every turn — when set, `me` just always follows
+  // whoever must act next, and the gate never has anything to catch it on.
+  const skipHotseatGate = game?.skip_hotseat_pass_gate ?? false
   /**
    * Whichever seated player must act next (see engine/turnOrder.ts) — used
    * to know who the pass-the-device gate should hand the shared device to.
@@ -101,9 +105,11 @@ export function GamePage() {
    * so there's nothing to gate.
    */
   const pendingActorId = gameState ? currentActorId(gameState) : null
-  const needsHotseatGate = isHotseat && pendingActorId !== null && pendingActorId !== hotseatActivePlayerId
+  const needsHotseatGate = isHotseat && !skipHotseatGate && pendingActorId !== null && pendingActorId !== hotseatActivePlayerId
 
-  const me = isHotseat ? players.find((p) => p.id === hotseatActivePlayerId) : players.find((p) => p.user_id === session?.user.id)
+  const me = isHotseat
+    ? players.find((p) => p.id === (skipHotseatGate ? pendingActorId : hotseatActivePlayerId))
+    : players.find((p) => p.user_id === session?.user.id)
 
   /**
    * "What happened since I last acted" (see engine/turnReview.ts) — reviewed

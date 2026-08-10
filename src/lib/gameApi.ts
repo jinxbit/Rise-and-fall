@@ -23,6 +23,8 @@ export async function createGame(params: {
   maxPlayers?: number
   /** Content id of a pre-made map template (src/content/mapTemplates.json) to skip interactive tile placement, or null/omitted for the usual interactive setup. */
   mapTemplateId?: string | null
+  /** Hotseat only: skip the "pass the device" confirmation gate between local players' turns (see GamePage.tsx). Ignored for live/async. Defaults to false (gate shown), matching the checkbox's unchecked default in HomePage.tsx. */
+  skipHotseatPassGate?: boolean
 }): Promise<{ game: GameRow; player: PlayerRow }> {
   const roomCode = generateRoomCode()
 
@@ -35,6 +37,7 @@ export async function createGame(params: {
       min_players: params.minPlayers ?? 2,
       max_players: params.maxPlayers ?? 4,
       map_template_id: params.mapTemplateId ?? null,
+      skip_hotseat_pass_gate: params.skipHotseatPassGate ?? false,
     })
     .select()
     .single()

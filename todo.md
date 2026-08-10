@@ -1695,3 +1695,34 @@ income for zero payout" test with one confirming it now IS rejected,
 plus a new one confirming the same income succeeds normally once the
 unit is standing on a producing terrain. 332 tests total (was 329);
 `tsc -b`/`oxlint`/`npm run build` all clean.
+
+## 36. Hotseat: option at game creation to skip the "pass the device" gate every turn
+
+Requested: some hotseat groups don't want the "Pass the device to
+`<Name>`" confirmation tap between every local player's turn (#34) —
+add a creation-time option to skip it.
+
+New `games.skip_hotseat_pass_gate` boolean column
+(`0004_hotseat_skip_pass_gate.sql`, defaults `false` so existing/new
+games keep today's behavior unless opted out), set via a checkbox in
+`HomePage.tsx` that only appears once "Hotseat" is the selected play
+mode, threaded through `createGame`'s new `skipHotseatPassGate` param.
+
+`GamePage.tsx`'s gate logic (`needsHotseatGate`) now also requires
+`!skip_hotseat_pass_gate`; when the setting IS on, `me` resolves
+straight from `currentActorId(gameState)` (engine/turnOrder.ts) instead
+of the separately-tracked, tap-to-confirm `hotseatActivePlayerId` —
+every render just shows whoever must act next, with no confirmation
+step to bypass. The board/hand UI itself needed no changes: it already
+only cares which `PlayerRow` id `me` resolves to.
+
+`tsc -b`/`oxlint`/`npm run build`/332 tests all clean (no test changes
+needed — this only affects two GamePage.tsx-local derived values and a
+HomePage.tsx-local form field, neither under existing test coverage,
+consistent with how the rest of the hotseat pass-and-play flow was
+built in #34); visually confirmed the new checkbox via a screenshot.
+
+**Not done by me**: like #34's migration, `0004_hotseat_skip_pass_gate.sql`
+still needs to be applied to the live Supabase project before the
+checkbox actually works end-to-end — I can't reach the SQL editor or
+run `supabase db push` from here.

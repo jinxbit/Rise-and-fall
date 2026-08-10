@@ -17,6 +17,8 @@ export interface GameRow {
   updated_at: string
   /** Content id of a pre-made map template (src/content/mapTemplates.json), or null to build the map interactively as usual. */
   map_template_id: string | null
+  /** Hotseat only: skip GamePage.tsx's "pass the device" confirmation gate between local players' turns. Set at creation (HomePage.tsx); irrelevant for live/async. */
+  skip_hotseat_pass_gate: boolean
 }
 
 export interface PlayerRow {

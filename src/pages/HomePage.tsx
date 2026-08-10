@@ -15,6 +15,7 @@ export function HomePage() {
 
   const [playMode, setPlayMode] = useState<PlayMode>('live')
   const [mapTemplateId, setMapTemplateId] = useState<string | null>(null)
+  const [skipHotseatPassGate, setSkipHotseatPassGate] = useState(false)
   const [roomCodeInput, setRoomCodeInput] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -57,6 +58,7 @@ export function HomePage() {
         displayName,
         avatarUrl,
         mapTemplateId,
+        skipHotseatPassGate,
       })
       navigate(`/lobby/${game.room_code}`)
     } catch (err) {
@@ -101,6 +103,17 @@ export function HomePage() {
       <section className="flex flex-col gap-3">
         <h2 className="font-medium text-neutral-200">Create a game</h2>
         <PlayModeSelector value={playMode} onChange={setPlayMode} />
+        {playMode === 'hotseat' && (
+          <label className="flex items-center gap-2 text-sm text-neutral-400">
+            <input
+              type="checkbox"
+              checked={skipHotseatPassGate}
+              onChange={(e) => setSkipHotseatPassGate(e.target.checked)}
+              className="h-4 w-4 rounded border-neutral-700 bg-neutral-900"
+            />
+            Don&apos;t show a &quot;pass the device&quot; message every turn
+          </label>
+        )}
         <h3 className="text-sm font-medium text-neutral-400">Map</h3>
         <MapTemplateSelector value={mapTemplateId} onChange={setMapTemplateId} />
         <button
