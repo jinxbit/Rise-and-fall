@@ -3,9 +3,8 @@ import { EMPTY_ACHIEVEMENT_CONTENT } from './achievementContent'
 import { syncCardZonesWithBoard } from './cards'
 import { isDeclineTriggered } from './decline'
 import { eliminatePlayersWithNoCardToDecline, eliminatePlayersWithNoCardToPlay } from './elimination'
-import { calculateTerrainControlVP } from './scoring'
 import type { GameState } from './types'
-import { calculateAchievementVP, calculateBoardCountVP, calculateGoldVP, determineWinners, sumVP } from './victoryPoints'
+import { calculateVPBreakdown, determineWinners } from './victoryPoints'
 
 /**
  * Round step 1: every player simultaneously picks a card; nobody is
@@ -156,12 +155,8 @@ export function finishRound(state: GameState, achievementContent: AchievementCon
   // gold), with no tiebreaker (a tie is a shared win).
   const totalAchievementsClaimed = Object.keys(nextState.claimedByAchievementId).length
   if (totalAchievementsClaimed >= achievementContent.gameLength) {
-    const totalVP = sumVP(
-      calculateAchievementVP(nextState.claimedByAchievementId, achievementContent.achievementVictoryPoints),
-      calculateBoardCountVP(nextState.units, achievementContent.unitBoardCountVP),
-      calculateTerrainControlVP(nextState.board, nextState.units, achievementContent.terrainVictoryPoints, achievementContent.terrainScoresAs),
-      calculateGoldVP(nextState.players, achievementContent.goldPerVictoryPoint),
-    )
+    const breakdownByPlayerId = calculateVPBreakdown(nextState, achievementContent)
+    const totalVP = Object.fromEntries(Object.entries(breakdownByPlayerId).map(([playerId, b]) => [playerId, b.total]))
     const activePlayerIds = nextState.players.filter((p) => !p.eliminated).map((p) => p.id)
     const winnerPlayerIds = determineWinners(activePlayerIds, totalVP)
 

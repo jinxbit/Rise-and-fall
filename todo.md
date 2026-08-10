@@ -2457,3 +2457,37 @@ achievement-VP tie into an outright win — only possible if gold is
 really being counted), and a live-score test in `RoundView.test.tsx`
 mirroring the existing achievement/terrain-control score tests. 399
 tests total (was 393); `tsc -b`/`oxlint`/`npm run build` all clean.
+
+## 53. Real end-of-game screen: every player's final VP and its breakdown
+
+Feature request: "Work on end game screen, Show all players, their
+final VPs, and the breakdown of their VPs." Previously `GamePage.tsx`
+only rendered a bare "Winner(s): name" banner once `status ===
+'completed'` — no per-player scores, no indication of *why* anyone
+won.
+
+Added `calculateVPBreakdown(state, achievementContent)` to
+`victoryPoints.ts` — the one place that combines all four VP sources
+(achievements/board-count/terrain-control/gold) per player into a
+`{ achievements, boardCount, terrainControl, gold, total }` record,
+covering every player in `state.players` even at all-0 (unlike the
+individual `calculate*VP` functions, which omit a 0-scoring player
+entirely). `round.ts`'s `finishRound()` (the real win check) and
+`RoundView.tsx`'s `currentScoreByPlayerId()` (the live score shown
+during play) were both re-implementing this same four-source sum
+inline — refactored both to call the shared function instead, so the
+combination now lives in exactly one place.
+
+New `EndGameView.tsx` component: every player, ranked by total VP
+descending, in a table with one column per VP source plus the total;
+winner(s) — per `state.winnerPlayerIds`, no tiebreaker — get a trophy
+and highlighted styling; eliminated players are marked. Wired into
+`GamePage.tsx` in place of the old bare banner.
+
+Added `calculateVPBreakdown` coverage in `victoryPoints.test.ts`
+(combines all four sources with a correct total, includes a
+0-everything player, includes every player even with no achievement
+content supplied) and a new `EndGameView.test.tsx` (ranks players by
+total VP, shows the per-source breakdown, highlights the winner(s)
+with a trophy, handles a multi-winner tie). 405 tests total (was 399);
+`tsc -b`/`oxlint`/`npm run build` all clean.

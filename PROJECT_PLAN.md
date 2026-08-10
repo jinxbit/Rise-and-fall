@@ -186,7 +186,9 @@ decisions get made.
 - [ ] Hand-of-cards UI.
 - [ ] Action log / game history display.
 - [ ] Turn/phase indicator and end-turn controls.
-- [ ] Win/loss end-of-game screen.
+- [x] Win/loss end-of-game screen — `EndGameView.tsx`: every player
+      ranked by total VP, with the achievements/board-count/terrain-
+      control/gold breakdown and winner(s) highlighted (`todo.md` #53).
 
 ## 4. Play-mode specific work
 

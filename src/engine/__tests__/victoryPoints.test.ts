@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { calculateAchievementVP, calculateBoardCountVP, calculateGoldVP, determineWinners, sumVP } from '../victoryPoints'
-import type { Coordinate, Player, Unit } from '../types'
+import { calculateAchievementVP, calculateBoardCountVP, calculateGoldVP, calculateVPBreakdown, determineWinners, sumVP } from '../victoryPoints'
+import { createEmptyBoard, setTile } from '../board'
+import { createNewGame } from '../createGame'
+import { EMPTY_ACHIEVEMENT_CONTENT } from '../achievementContent'
+import type { AchievementContent } from '../achievementContent'
+import type { Coordinate, GameState, Player, Unit } from '../types'
 
 let unitCounter = 0
 function unitAt(ownerId: string, kind: string, coord: Coordinate = { q: 0, r: 0 }): Unit {
@@ -132,5 +136,58 @@ describe('determineWinners', () => {
 
   it('returns an empty array for no players', () => {
     expect(determineWinners([], { p1: 5 })).toEqual([])
+  })
+})
+
+describe('calculateVPBreakdown', () => {
+  function baseState(): GameState {
+    let board = createEmptyBoard('hex')
+    board = setTile(board, { q: 0, r: 0 }, 'water')
+    board = setTile(board, { q: 1, r: 0 }, 'water')
+
+    const state = createNewGame({
+      gameId: 'game_1',
+      playMode: 'hotseat',
+      board,
+      players: [
+        { id: 'p1', authUserId: 'auth_1', displayName: 'Alice', color: 'red' },
+        { id: 'p2', authUserId: 'auth_2', displayName: 'Bob', color: 'blue' },
+      ],
+    })
+
+    const players = state.players.map((player) => (player.id === 'p1' ? { ...player, resources: { ...player.resources, gold: 5 } } : player))
+
+    const units = [unitAt('p1', 'city', { q: 0, r: 0 }), unitAt('p1', 'city', { q: 1, r: 0 })]
+
+    return { ...state, status: 'active', players, units, claimedByAchievementId: { 'city-mastery': 'p1' } }
+  }
+
+  const content: AchievementContent = {
+    ...EMPTY_ACHIEVEMENT_CONTENT,
+    achievementVictoryPoints: { 'city-mastery': 3 },
+    unitBoardCountVP: { city: [1, 2] },
+    terrainVictoryPoints: { water: 1 },
+    goldPerVictoryPoint: 2,
+  }
+
+  it('combines all four VP sources per player into one breakdown, with a correct total', () => {
+    const breakdown = calculateVPBreakdown(baseState(), content)
+
+    expect(breakdown.p1).toEqual({ achievements: 3, boardCount: 2, terrainControl: 2, gold: 2, total: 9 })
+  })
+
+  it('includes a player who scored 0 on every source, unlike the individual calculate*VP functions', () => {
+    const breakdown = calculateVPBreakdown(baseState(), content)
+
+    expect(breakdown.p2).toEqual({ achievements: 0, boardCount: 0, terrainControl: 0, gold: 0, total: 0 })
+  })
+
+  it('includes every player in state.players even with no achievement/terrain/unit/gold content supplied', () => {
+    const breakdown = calculateVPBreakdown(baseState(), EMPTY_ACHIEVEMENT_CONTENT)
+
+    expect(breakdown).toEqual({
+      p1: { achievements: 0, boardCount: 0, terrainControl: 0, gold: 0, total: 0 },
+      p2: { achievements: 0, boardCount: 0, terrainControl: 0, gold: 0, total: 0 },
+    })
   })
 })

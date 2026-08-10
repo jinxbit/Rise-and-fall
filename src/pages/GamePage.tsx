@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { BoardSetupView } from '../components/BoardSetupView'
+import { EndGameView } from '../components/EndGameView'
 import { RoundView } from '../components/RoundView'
 import { resolveAchievementContent, resolveBoardGenerationContent, resolveUnitContent } from '../content/resolveContent'
 import type { Action } from '../engine/actions'
@@ -328,12 +329,7 @@ export function GamePage() {
         />
       )}
 
-      {gameState?.status === 'completed' && (
-        <div className="rounded-md border border-amber-700/50 bg-amber-500/10 p-4 text-amber-300">
-          <p className="text-lg font-semibold">Game over</p>
-          <p>Winner{gameState.winnerPlayerIds.length > 1 ? 's' : ''}: {gameState.winnerPlayerIds.map((id) => players.find((p) => p.id === id)?.display_name ?? id).join(', ') || 'none'}</p>
-        </div>
-      )}
+      {gameState?.status === 'completed' && <EndGameView state={gameState} players={players} achievementContent={achievementContent} />}
 
       {!needsHotseatGate && gameState?.status === 'active' && (
         <RoundView
