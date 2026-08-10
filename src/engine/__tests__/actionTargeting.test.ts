@@ -142,6 +142,26 @@ describe('legalCreateTargets', () => {
 
     expect(legalCreateTargets(state, 'p1', unit, shipEffect, emptyContent)).toEqual([{ q: 1, r: 0 }])
   })
+
+  it('excludes a Glacier hex for a non-Mountaineer target unit', () => {
+    // Mountain, not Plain, adjacent to Glacier: their terrain levels are
+    // only 1 apart, so this isn't also blocked by the unrelated cliff rule
+    // — the exclusion below is only ever about the Glacier restriction.
+    const board = boardOf([[0, 0, 'mountain'], [1, 0, 'glacier'], [1, -1, 'mountain']])
+    const unit = makeUnit('p1', 'city', { q: 0, r: 0 })
+    const state = makeState({ board, units: [unit], players: [makePlayer('p1', { resources: { gold: 5, wood: 0, stone: 0 } })] })
+
+    expect(legalCreateTargets(state, 'p1', unit, effect, emptyContent)).toEqual([{ q: 1, r: -1 }])
+  })
+
+  it('includes a Glacier hex when the target unit is a Mountaineer', () => {
+    const mountaineerEffect: CreateEffect = { actionType: 'create', targetUnit: 'mountaineer', targetHex: { location: 'adj' }, cost: {} }
+    const board = boardOf([[0, 0, 'mountain'], [1, 0, 'glacier']])
+    const unit = makeUnit('p1', 'city', { q: 0, r: 0 })
+    const state = makeState({ board, units: [unit], players: [makePlayer('p1')] })
+
+    expect(legalCreateTargets(state, 'p1', unit, mountaineerEffect, emptyContent)).toEqual([{ q: 1, r: 0 }])
+  })
 })
 
 describe('legalTransformTargets', () => {
@@ -189,6 +209,24 @@ describe('legalTransformTargets', () => {
       cost: {},
     }
     const board = boardOf([[0, 0, 'plain'], [1, 0, 'water']])
+    const unit = makeUnit('p1', 'nomad', { q: 0, r: 0 })
+    const state = makeState({ board, units: [unit], players: [makePlayer('p1')] })
+
+    expect(legalTransformTargets(state, 'p1', unit, effect, emptyContent)).toEqual([])
+  })
+
+  it('excludes Glacier for a non-Mountaineer target unit even if the content terrainType mistakenly allows it', () => {
+    const effect: TransformEffect = {
+      actionType: 'transform',
+      targetUnit: 'city',
+      targetHex: { terrainType: ['glacier'], location: 'adj' },
+      destroySelf: true,
+      cost: {},
+    }
+    // Mountain, not Plain, adjacent to Glacier — see the analogous
+    // legalCreateTargets test above for why (isolates this from the
+    // unrelated cliff rule).
+    const board = boardOf([[0, 0, 'mountain'], [1, 0, 'glacier']])
     const unit = makeUnit('p1', 'nomad', { q: 0, r: 0 })
     const state = makeState({ board, units: [unit], players: [makePlayer('p1')] })
 

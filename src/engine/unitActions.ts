@@ -99,16 +99,27 @@ export function hasReachedSupplyCap(state: GameState, playerId: string, kind: st
 }
 
 /**
- * Per ruling: no unit kind may be created/transformed into existence on
- * Water except a Ship — regardless of that kind's own movement profile (a
- * Merchant can travel onto Water once it exists, but can't be *built*
- * there). Applied as a hard engine-level guarantee in both applyCreate and
- * applyTransform below, on top of whatever terrain restriction the action's
- * own content already specifies, so a future content mistake can't
- * reintroduce this.
+ * Per ruling: some terrain types restrict which single unit kind may be
+ * created/transformed into existence there, regardless of that kind's own
+ * movement profile (a Merchant can travel onto Water once it exists, but
+ * can't be *built* there) and regardless of whatever terrain restriction
+ * the action's own content already specifies. Water: only a Ship. Glacier:
+ * only a Mountaineer — 'create' effects have no `targetHex.terrainType`
+ * field in content at all (see CreateEffect in ./unitContent.ts), so
+ * without this a City's "Create Nomad" would happily place a Nomad on
+ * Glacier with nothing to stop it. Applied as a hard engine-level
+ * guarantee in both applyCreate and applyTransform below (and mirrored in
+ * ./actionTargeting.ts's legalCreateTargets/legalTransformTargets for the
+ * UI), so a future content mistake can't reintroduce either violation.
  */
-export function isWaterCreationAllowed(targetUnit: string, terrain: Terrain): boolean {
-  return terrain !== 'water' || targetUnit === 'ship'
+const SOLE_CREATABLE_KIND_BY_TERRAIN: Partial<Record<Terrain, string>> = {
+  water: 'ship',
+  glacier: 'mountaineer',
+}
+
+export function isCreationAllowedOnTerrain(targetUnit: string, terrain: Terrain): boolean {
+  const soleAllowedKind = SOLE_CREATABLE_KIND_BY_TERRAIN[terrain]
+  return soleAllowedKind === undefined || soleAllowedKind === targetUnit
 }
 
 // --- per-actionType handlers, one acting unit at a time ---------------------
@@ -175,13 +186,13 @@ function applyTrade(
   return creditResource(state, playerId, 'gold', cityCount * effect.goldPerCity, resourceCaps)
 }
 
-/** Per ruling: creation can never cross a cliff, always respects the target kind's supply cap, and can never target Water unless the created kind is a Ship (see isWaterCreationAllowed). */
+/** Per ruling: creation can never cross a cliff, always respects the target kind's supply cap, and can never target Water/Glacier unless the created kind is the one sole kind allowed there (see isCreationAllowedOnTerrain). */
 function applyCreate(state: GameState, playerId: string, unit: Unit, effect: CreateEffect, targetCoord: Coordinate | undefined, content: UnitContent): GameState {
   if (!targetCoord) return state
   if (!isAdjacent(state, unit.coord, targetCoord)) return state
   const targetTile = getTile(state.board, targetCoord)
   if (!targetTile) return state
-  if (!isWaterCreationAllowed(effect.targetUnit, targetTile.terrain)) return state
+  if (!isCreationAllowedOnTerrain(effect.targetUnit, targetTile.terrain)) return state
   if (unitsAt(state, targetCoord).length > 0) return state
   if (crossesCliff(state, unit.coord, targetCoord, content.terrainLevels)) return state
   if (hasReachedSupplyCap(state, playerId, effect.targetUnit, content.unitSupplyCaps)) return state
@@ -209,7 +220,7 @@ function applyTransform(state: GameState, playerId: string, unit: Unit, effect: 
 
   const targetTile = getTile(state.board, resolvedTargetCoord)
   if (!targetTile || !effect.targetHex.terrainType.includes(targetTile.terrain)) return state
-  if (!isWaterCreationAllowed(effect.targetUnit, targetTile.terrain)) return state
+  if (!isCreationAllowedOnTerrain(effect.targetUnit, targetTile.terrain)) return state
 
   if (effect.targetHex.location === 'adj') {
     if (!isAdjacent(state, unit.coord, resolvedTargetCoord)) return state

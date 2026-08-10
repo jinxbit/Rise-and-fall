@@ -720,3 +720,35 @@ No engine changes, no test changes — purely `HexBoard.tsx`/
 `BoardSetupView.tsx` rendering. `tsc -b`/`oxlint`/`npm run build`/full
 vitest suite (243 tests, unaffected) all clean. Not click-tested in a
 browser — same sandbox limitation as all prior UI work here.
+
+## 16. No unit but Mountaineer may be created/transformed onto Glacier — fixed
+
+Reported from real testing: a City's "Create Nomad" placed the Nomad on
+a Glacier hex. Root cause was the same shape as #9's Water bug, just for
+a different terrain: `CreateEffect` has no `targetHex.terrainType` field
+in content at all (unlike `TransformEffect`), so `applyCreate` never
+checked the target hex's terrain beyond the Water-only guard added in
+#9 (`isWaterCreationAllowed`) — Glacier sailed straight through.
+
+Fix: generalized `isWaterCreationAllowed` into `isCreationAllowedOnTerrain`
+(`unitActions.ts`), backed by a small `SOLE_CREATABLE_KIND_BY_TERRAIN`
+table (`water: 'ship'`, `glacier: 'mountaineer'`) instead of a single
+hardcoded water check — same call sites as before (`applyCreate`,
+`applyTransform`, and `actionTargeting.ts`'s `legalCreateTargets`/
+`legalTransformTargets` for the UI's target highlighting), so both the
+hard rule and the UI stay in sync automatically. Movement
+(`legalMoveDestinations`) and starting-unit placement
+(`isLegalStartingUnitPlacement`) already correctly restricted Glacier to
+Mountaineer-only (confirmed via `git log` — never buggy), so this closes
+the one remaining gap.
+
+Mirrored every Water regression test for Glacier/Mountaineer (create
+allowed/disallowed, transform disallowed even with a mistaken content
+`terrainType`, `legalCreateTargets`/`legalTransformTargets` include/
+exclude). Caught a subtlety while writing them: Plain(level 1) next to
+Glacier(level 4) is *also* a cliff edge (diff > 1), which independently
+blocks creation there — so a naive Plain-adjacent-to-Glacier test board
+would "pass" for the wrong reason. Used Mountain(level 3) next to
+Glacier(diff 1, no cliff) instead, so each new test isolates the Glacier/
+Mountaineer rule from the unrelated cliff rule. 249 tests total (was
+243); `tsc -b`/`oxlint`/`npm run build` all clean.

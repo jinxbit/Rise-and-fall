@@ -319,6 +319,47 @@ describe('applyUnitActionEffect — create', () => {
     expect(next.units.some((u) => u.kind === 'ship' && u.coord.q === 1 && u.coord.r === 0)).toBe(true)
   })
 
+  it('never creates a non-Mountaineer unit on a Glacier hex, even though the action itself has no terrain restriction', () => {
+    // Mountain, not Plain, adjacent to Glacier: their terrain levels (3 and
+    // 4) are only 1 apart, so this isn't also blocked by the unrelated
+    // cliff rule (crossesCliff) — the rejection below is only ever about
+    // the Glacier/Mountaineer restriction being tested here.
+    const board = boardOf([
+      [0, 0, 'mountain'],
+      [1, 0, 'glacier'],
+    ])
+    const state = makeState({
+      board,
+      players: [makePlayer('p1', { resources: { gold: 5, wood: 0, stone: 0 } }), makePlayer('p2')],
+      units: [makeUnit('p1', 'city', { q: 0, r: 0 })],
+    })
+    const city = state.units[0]
+
+    const next = applyUnitActionEffect(state, 'p1', 'city', action, { [city.id]: { q: 1, r: 0 } }, content)
+
+    expect(next.units).toHaveLength(1)
+    expect(next.players.find((p) => p.id === 'p1')!.resources.gold).toBe(5)
+  })
+
+  it('does allow creating a Mountaineer on a Glacier hex', () => {
+    const mountaineerAction: UnitAction = {
+      id: 'create-mountaineer',
+      name: 'Create Mountaineer',
+      description: '',
+      effect: { actionType: 'create', targetUnit: 'mountaineer', targetHex: { location: 'adj' }, cost: {} },
+    }
+    const board = boardOf([
+      [0, 0, 'mountain'],
+      [1, 0, 'glacier'],
+    ])
+    const state = makeState({ board, units: [makeUnit('p1', 'city', { q: 0, r: 0 })] })
+    const city = state.units[0]
+
+    const next = applyUnitActionEffect(state, 'p1', 'city', mountaineerAction, { [city.id]: { q: 1, r: 0 } }, content)
+
+    expect(next.units.some((u) => u.kind === 'mountaineer' && u.coord.q === 1 && u.coord.r === 0)).toBe(true)
+  })
+
   it("derives the new unit's id from state.idSequence (not a hidden module counter) and advances it by one", () => {
     const board = boardOf([
       [0, 0, 'plain'],
@@ -622,12 +663,37 @@ describe('applyUnitActionEffect — transform', () => {
       description: '',
       // A real units.json action would never list 'water' here for a
       // non-Ship targetUnit — this simulates a future content mistake to
-      // prove the engine still refuses it (see isWaterCreationAllowed).
+      // prove the engine still refuses it (see isCreationAllowedOnTerrain).
       effect: { actionType: 'transform', targetUnit: 'city', targetHex: { terrainType: ['water'], location: 'adj' }, destroySelf: true, cost: {} },
     }
     const board = boardOf([
       [0, 0, 'plain'],
       [1, 0, 'water'],
+    ])
+    const state = makeState({ board, units: [makeUnit('p1', 'nomad', { q: 0, r: 0 })] })
+    const nomad = state.units[0]
+
+    const next = applyUnitActionEffect(state, 'p1', 'nomad', action, { [nomad.id]: { q: 1, r: 0 } }, content)
+
+    expect(next.units).toHaveLength(1)
+    expect(next.units[0].kind).toBe('nomad')
+  })
+
+  it('never transforms into a non-Mountaineer unit on Glacier, even if the action content mistakenly allows the terrain', () => {
+    const action: UnitAction = {
+      id: 'transform-to-city-on-glacier',
+      name: 'Transform to City (bad content)',
+      description: '',
+      // A real units.json action would never list 'glacier' here for a
+      // non-Mountaineer targetUnit — this simulates a future content
+      // mistake to prove the engine still refuses it.
+      effect: { actionType: 'transform', targetUnit: 'city', targetHex: { terrainType: ['glacier'], location: 'adj' }, destroySelf: true, cost: {} },
+    }
+    // Mountain, not Plain, adjacent to Glacier — see the analogous create
+    // test above for why (isolates this from the unrelated cliff rule).
+    const board = boardOf([
+      [0, 0, 'mountain'],
+      [1, 0, 'glacier'],
     ])
     const state = makeState({ board, units: [makeUnit('p1', 'nomad', { q: 0, r: 0 })] })
     const nomad = state.units[0]
