@@ -3,7 +3,6 @@ import { EMPTY_ACHIEVEMENT_CONTENT } from './achievementContent'
 import { syncCardZonesWithBoard } from './cards'
 import { isDeclineTriggered } from './decline'
 import { eliminatePlayersWithNoCardToDecline, eliminatePlayersWithNoCardToPlay } from './elimination'
-import { appendLog } from './log'
 import { calculateTerrainControlVP } from './scoring'
 import type { GameState } from './types'
 import { calculateAchievementVP, calculateBoardCountVP, determineWinners, sumVP } from './victoryPoints'
@@ -85,7 +84,6 @@ export function skipEmptyDeclinePurchasers(state: GameState): GameState {
     const player = nextState.players.find((p) => p.id === playerId)
     if (!player || player.declineCardIds.length > 0) break
     nextState = { ...nextState, pendingPlayerIds: nextState.pendingPlayerIds.slice(1) }
-    nextState = { ...nextState, log: appendLog(nextState, playerId, `Player ${playerId} had nothing to purchase back`) }
     nextState = { ...nextState, activePlayerId: nextState.pendingPlayerIds[0] ?? null }
   }
   return nextState
@@ -145,18 +143,10 @@ export function finishRound(state: GameState, achievementContent: AchievementCon
     // now-absent kind moves straight back to supply instead of sitting in
     // hand as a false choice.
     nextState = syncCardZonesWithBoard(nextState)
-    nextState = { ...nextState, log: appendLog(nextState, null, "A player's discard was recycled into their hand") }
 
     const turnOrder =
       nextState.turnOrder.length > 1 ? [...nextState.turnOrder.slice(1), nextState.turnOrder[0]] : nextState.turnOrder
-    const nextFirstPlayerId = turnOrder[0] ?? null
     nextState = { ...nextState, turnOrder }
-    if (nextFirstPlayerId) {
-      nextState = {
-        ...nextState,
-        log: appendLog(nextState, nextFirstPlayerId, `Player ${nextFirstPlayerId} becomes the first player`),
-      }
-    }
   }
 
   // Round step 6, game-end: once achievementContent.gameLength total
@@ -174,18 +164,9 @@ export function finishRound(state: GameState, achievementContent: AchievementCon
     const activePlayerIds = nextState.players.filter((p) => !p.eliminated).map((p) => p.id)
     const winnerPlayerIds = determineWinners(activePlayerIds, totalVP)
 
-    nextState = { ...nextState, status: 'completed', winnerPlayerIds }
-    return {
-      ...nextState,
-      log: appendLog(
-        nextState,
-        null,
-        `Game ends — ${totalAchievementsClaimed} achievements claimed. Winner(s): ${winnerPlayerIds.join(', ') || 'none'}`,
-      ),
-    }
+    return { ...nextState, status: 'completed', winnerPlayerIds }
   }
 
   nextState = { ...nextState, turn: nextState.turn + 1 }
-  nextState = { ...nextState, log: appendLog(nextState, null, `Round ${nextState.turn} begins`) }
   return beginSelectCardsPhase(nextState)
 }

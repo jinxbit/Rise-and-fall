@@ -1,5 +1,4 @@
 import type { AchievementContent } from './achievementContent'
-import { appendLog } from './log'
 import type { GameState } from './types'
 
 function countUnitsOfKind(state: GameState, playerId: string, kind: string): number {
@@ -44,10 +43,6 @@ export function updateAchievementClaims(
       ...nextState,
       claimedByAchievementId: { ...nextState.claimedByAchievementId, [achievementId]: claimant.id },
       achievementsClaimedThisRound: nextState.achievementsClaimedThisRound + 1,
-    }
-    nextState = {
-      ...nextState,
-      log: appendLog(nextState, claimant.id, `Player ${claimant.id} claimed the ${kind} mastery achievement`),
     }
   }
 

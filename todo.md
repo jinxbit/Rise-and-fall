@@ -1488,3 +1488,84 @@ water counts; a City next to a *disconnected* second sea area (land gap
 breaks the flood fill) does not count; a City bordering two hexes of
 the same sea area is only paid once. 313 tests total (was 309); `tsc
 -b`/`oxlint`/`npm run build` all clean.
+
+## 33. Removed `GameState.log` — the history panel is now derived from `actionHistory`, like everything else event-sourced
+
+Requested: stop persisting the running narration log as its own
+ever-growing field on `GameState` (and therefore in every
+`game_state` row written to Supabase), since it duplicates information
+`actionHistory` already has; regenerate it from the action log instead,
+the same way `turnReview.ts` already regenerates "what happened since
+my last turn" on demand rather than storing it.
+
+Every one of the ~20 `appendLog(state, playerId, message)` call sites
+scattered across `applyAction.ts`, `boardSetup.ts`, `round.ts`,
+`achievements.ts`, `elimination.ts`, and `cards.ts` wrote its message
+straight into `state.log` as a side effect of the mutation that
+triggered it — a City generating income, a round closing, an
+achievement being claimed, and so on. Removing `log` from `GameState`
+meant none of that context (card names, resource deltas, which unit
+kind resolved what) was available to reconstruct after the fact from a
+bare `LoggedAction` alone.
+
+New `engine/gameLog.ts`'s `buildGameLog(genesis, actionHistory, ...)`
+solves this the same way `buildTurnReview` already does: replay each
+logged action for real via `applyAction` (so every phase transition,
+achievement claim, and elimination actually happens, exactly as it did
+live) and derive the display line(s) from the *before/after state
+pair*, not from a value threaded through the mutation itself.
+`describePrimaryAction` covers the one-line-per-action-type case
+(reading the action's own payload plus a cheap before/after lookup —
+e.g. a placed tile's terrain comes from which board hex's terrain
+*changed*, not which hex is new, since a placed tile usually overwrites
+an already-tracked seeded-water hex rather than adding a fresh one).
+`describeCascade` covers everything that used to fire as a nested side
+effect of a single dispatched action — achievement claims, eliminations,
+a card resyncing between supply and hand, a new round beginning, the
+game ending — generically, by diffing the relevant GameState slices,
+since the same cascade (e.g. a round closing) can be triggered from
+several different action types once every nested phase-transition
+function has run its course.
+
+Two cascade lines didn't survive the move to pure before/after diffing
+and were dropped rather than faked: "player had nothing to purchase
+back" (an auto-skip that can silently skip several players inside one
+dispatch, with no reliable way to recover exactly who from just the
+outer snapshot pair) and "a player's discard was recycled into their
+hand" (indistinguishable, after the fact, from "this player's discard
+was simply always empty" once later steps in the same cascade have
+already cleared it). A related bug surfaced by the same before/after
+approach: a "turn ends" line was firing off `pendingPlayerIds`, but
+when the SAME dispatch also closed out the whole round, the *next*
+round's select-cards phase had already reset `pendingPlayerIds` back to
+include this player — so the check silently produced a false negative.
+Fixed by skipping that line whenever the round also turned over in the
+same dispatch (the "Round N begins" line already implies the turn
+ended, so it's not a loss).
+
+`RoundView`'s `LogPanel` now takes a `gameLog: GameEvent[]` prop
+instead of reading `state.log`; `GamePage.tsx` computes it via a
+`useMemo` alongside the existing `turnReview` one, replaying from
+genesis on every `actionHistory` length change. Undo (`handleUndo`)
+dropped its special "player X undid action Y" annotation entirely —
+previously a synthetic log line that didn't itself re-enter
+`actionHistory` (so it couldn't itself be undone); now the log is
+derived fresh from whatever `actionHistory` remains after the undo, so
+it just naturally narrates one fewer step with no annotation needed.
+
+Also added: a "Copy JSON" button next to the existing "Show game state
+JSON" debug toggle, writing the pretty-printed state to the clipboard
+via `navigator.clipboard.writeText` — small, unrelated-to-the-log
+request bundled into the same pass since it touches the same debug
+panel.
+
+New `gameLog.test.ts` (9 tests) covers the primary per-action messages,
+the resource-delta suffix, the turn-ends/round-begins interaction bug
+above, achievement-claim and card-zone-sync cascades, and the
+board-setup-begins/tile-placed messages. Every test elsewhere that
+asserted against `.log` text directly was ported to assert against the
+underlying state change instead (achievements/elimination) or simply
+dropped where it was purely redundant with an existing state assertion
+(round.ts's purchase-skip test). `log.ts` and `GameEvent`'s old
+"persisted forever" doc comment are gone; 319 tests total (was 313);
+`tsc -b`/`oxlint`/`npm run build` all clean.

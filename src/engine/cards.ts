@@ -1,4 +1,3 @@
-import { appendLog } from './log'
 import type { Card, CardZone, GameState, Player } from './types'
 
 /**
@@ -95,8 +94,6 @@ export function moveCard(player: Player, cardId: string, toZone: CardZone): Play
  * after anything that changes `state.units`.
  */
 export function syncCardZonesWithBoard(state: GameState): GameState {
-  const messages: string[] = []
-
   const players = state.players.map((player) => {
     let nextPlayer = player
     for (const kind of UNIT_KINDS) {
@@ -110,18 +107,12 @@ export function syncCardZonesWithBoard(state: GameState): GameState {
 
       if (!hasUnitOnBoard && zone !== 'supply') {
         nextPlayer = moveCard(nextPlayer, id, 'supply')
-        messages.push(`${player.displayName}'s ${kind} card returned to supply (no units left on the board)`)
       } else if (hasUnitOnBoard && zone === 'supply') {
         nextPlayer = moveCard(nextPlayer, id, 'hand')
-        messages.push(`${player.displayName}'s ${kind} card entered their hand (first unit placed)`)
       }
     }
     return nextPlayer
   })
 
-  let nextState: GameState = { ...state, players }
-  for (const message of messages) {
-    nextState = { ...nextState, log: appendLog(nextState, null, message) }
-  }
-  return nextState
+  return { ...state, players }
 }

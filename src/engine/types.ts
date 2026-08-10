@@ -220,7 +220,14 @@ export interface BoardSetupState {
   unitPlacerIndex: number
 }
 
-/** Append-only log entry, kept since the game has no hidden information. */
+/**
+ * A displayable narration entry — "Player p1 chose to play Nomad", "Round 3
+ * begins", etc. Not stored on GameState (nothing about it survives a
+ * player's turn beyond what's already implied by actionHistory): derived on
+ * demand from actionHistory by ./gameLog.ts's buildGameLog, the same way
+ * ./turnReview.ts derives its per-turn summary. See GameState.actionHistory's
+ * doc comment for why the game has no hidden information to protect here.
+ */
 export interface GameEvent {
   id: string
   turn: number
@@ -279,7 +286,6 @@ export interface GameState {
    * `supply.byPlayerCount` — see src/engine/decline.ts's `getUnitLimit`.
    */
   unitLimits: Record<string, number>
-  log: GameEvent[]
   /**
    * The winner(s) once the game ends: whoever has the most total VP
    * (achievements + board-count + terrain-control — see

@@ -60,7 +60,6 @@ function makeState(): GameState {
     cards,
     resourceBank: { gold: 100, wood: 100, stone: 100 },
     unitLimits: {},
-    log: [],
     winnerPlayerIds: [],
     claimedByAchievementId: { 'city-mastery': 'p2' },
     achievementsClaimedThisRound: 0,
@@ -85,6 +84,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         turnReview={null}
         showHistory={false}
         onToggleHistory={() => {}}
+        gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
         onPassActions={() => {}}
@@ -112,6 +112,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         turnReview={null}
         showHistory={false}
         onToggleHistory={() => {}}
+        gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
         onPassActions={() => {}}
@@ -150,6 +151,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         turnReview={null}
         showHistory={false}
         onToggleHistory={() => {}}
+        gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
         onPassActions={() => {}}
@@ -179,6 +181,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         turnReview={null}
         showHistory={false}
         onToggleHistory={() => {}}
+        gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
         onPassActions={() => {}}
@@ -206,6 +209,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         turnReview={null}
         showHistory={false}
         onToggleHistory={() => {}}
+        gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
         onPassActions={() => {}}
@@ -289,6 +293,7 @@ describe("RoundView — City's Convert to Merchant/Mountaineer (bug report: \"no
         turnReview={null}
         showHistory={false}
         onToggleHistory={() => {}}
+        gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={onResolveUnit}
         onPassActions={() => {}}
@@ -336,6 +341,7 @@ describe('RoundView — history review toggle', () => {
         turnReview={turnReview}
         showHistory={showHistory}
         onToggleHistory={onToggleHistory}
+        gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
         onPassActions={() => {}}
@@ -364,6 +370,7 @@ describe('RoundView — history review toggle', () => {
         }}
         showHistory={false}
         onToggleHistory={() => {}}
+        gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
         onPassActions={() => {}}

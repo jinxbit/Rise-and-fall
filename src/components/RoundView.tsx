@@ -8,7 +8,7 @@ import type { TurnReview, UnitReviewEvent } from '../engine/turnReview'
 import { calculateAchievementVP, calculateBoardCountVP, sumVP } from '../engine/victoryPoints'
 import type { AchievementContent } from '../engine/achievementContent'
 import { listAchievements } from '../content/resolveContent'
-import type { Coordinate, GameState, Resources, RoundPhase } from '../engine/types'
+import type { Coordinate, GameEvent, GameState, Resources, RoundPhase } from '../engine/types'
 import type { UnitAction, UnitContent } from '../engine/unitContent'
 import type { PlayerRow } from '../lib/dbTypes'
 import type { GhostCell, HistoryArrow, HistoryHaloType, UnitMarker } from './HexBoard'
@@ -222,8 +222,8 @@ function AchievementsPanel({ state, players, achievementContent }: { state: Game
   )
 }
 
-function LogPanel({ state }: { state: GameState }) {
-  const recent = [...state.log].slice(-8).reverse()
+function LogPanel({ gameLog }: { gameLog: GameEvent[] }) {
+  const recent = [...gameLog].slice(-8).reverse()
   if (recent.length === 0) return null
   return (
     <div className="flex flex-col gap-1 rounded-md border border-neutral-800 p-3 text-xs text-neutral-500">
@@ -407,6 +407,8 @@ export function RoundView(props: {
   turnReview: TurnReview | null
   showHistory: boolean
   onToggleHistory: () => void
+  /** The running narration log — derived from actionHistory, see engine/gameLog.ts's buildGameLog. */
+  gameLog: GameEvent[]
   onChooseCard: (cardId: string) => void
   onResolveUnit: (unitId: string, actionId: string, target?: Coordinate) => void
   onPassActions: () => void
@@ -560,7 +562,7 @@ export function RoundView(props: {
         onHexClick={isMyActionTurn ? handleBoardClick : undefined}
       />
 
-      <LogPanel state={state} />
+      <LogPanel gameLog={props.gameLog} />
       <AchievementsPanel state={state} players={players} achievementContent={achievementContent} />
     </div>
   )

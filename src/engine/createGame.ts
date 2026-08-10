@@ -73,7 +73,6 @@ export function createNewGame(params: {
     cards,
     resourceBank: params.resourceBank ?? { ...EMPTY_RESOURCES },
     unitLimits: params.unitLimits ?? {},
-    log: [],
     winnerPlayerIds: [],
     claimedByAchievementId: {},
     achievementsClaimedThisRound: 0,

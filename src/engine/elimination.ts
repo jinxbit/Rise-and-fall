@@ -1,4 +1,3 @@
-import { appendLog } from './log'
 import type { GameState, Resources } from './types'
 
 /**
@@ -33,12 +32,7 @@ export function eliminatePlayer(state: GameState, playerId: string): GameState {
   const activePlayerId =
     state.roundPhase === 'selectCards' || state.roundPhase === 'decline' ? null : (pendingPlayerIds[0] ?? null)
 
-  let nextState: GameState = { ...state, players, units, turnOrder, pendingPlayerIds, activePlayerId, resourceBank }
-  nextState = {
-    ...nextState,
-    log: appendLog(nextState, playerId, `Player ${playerId} was eliminated — no card available to play`),
-  }
-  return nextState
+  return { ...state, players, units, turnOrder, pendingPlayerIds, activePlayerId, resourceBank }
 }
 
 function hasNoCardToPlay(state: GameState, playerId: string): boolean {

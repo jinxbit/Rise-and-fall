@@ -4,9 +4,8 @@ import { EMPTY_ACHIEVEMENT_CONTENT } from './achievementContent'
 import { updateAchievementClaims } from './achievements'
 import { moveCard, syncCardZonesWithBoard } from './cards'
 import { eliminatePlayersWithNoCardToDecline } from './elimination'
-import { appendLog } from './log'
 import { calculatePurchaseCost } from './purchaseCost'
-import { describeResourceDelta, spendResource } from './resources'
+import { spendResource } from './resources'
 import { beginActionsPhase, beginPostActionsPhase, beginPurchasePhase, finishRound, skipEmptyDeclinePurchasers } from './round'
 import { EMPTY_BOARD_GENERATION_CONTENT } from './boardGenerationContent'
 import type { BoardGenerationContent } from './boardGenerationContent'
@@ -128,7 +127,6 @@ function applyChooseCard(state: GameState, playerId: string, cardId: string): Ac
     chosenCardIdByPlayerId: { ...state.chosenCardIdByPlayerId, [playerId]: cardId },
     pendingPlayerIds: state.pendingPlayerIds.filter((id) => id !== playerId),
   }
-  nextState = { ...nextState, log: appendLog(nextState, playerId, `Player ${playerId} chose to play ${card.name}`) }
 
   if (nextState.pendingPlayerIds.length === 0) {
     nextState = beginActionsPhase(nextState)
@@ -145,7 +143,7 @@ function applyChooseCard(state: GameState, playerId: string, cardId: string): Ac
  * advances `pendingPlayerIds` to the next player, and resets
  * `resolvedUnitIdsThisTurn` for their fresh turn.
  */
-function finishActionsTurn(state: GameState, playerId: string, achievementContent: AchievementContent, logMessage: string): ActionResult {
+function finishActionsTurn(state: GameState, playerId: string, achievementContent: AchievementContent): ActionResult {
   const cardId = state.chosenCardIdByPlayerId[playerId]
   if (!cardId) {
     return { ok: false, error: 'Player has no chosen card to resolve' }
@@ -165,7 +163,6 @@ function finishActionsTurn(state: GameState, playerId: string, achievementConten
     pendingPlayerIds: state.pendingPlayerIds.slice(1),
     resolvedUnitIdsThisTurn: [],
   }
-  nextState = { ...nextState, log: appendLog(nextState, playerId, logMessage) }
   nextState = { ...nextState, activePlayerId: nextState.pendingPlayerIds[0] ?? null }
 
   if (nextState.pendingPlayerIds.length === 0) {
@@ -187,8 +184,8 @@ const ACTION_TYPES_WITH_PRECONDITIONS = new Set(['create', 'transform', 'convert
 
 /**
  * Round step 2, rules 3 & 4's action part: resolves one or more of the
- * active player's units immediately — applied and logged right away, not
- * staged behind a later submit — which is what lets one unit's effect
+ * active player's units immediately — applied right away, not staged
+ * behind a later submit — which is what lets one unit's effect
  * (e.g. a Nomad producing a resource) be visible before the player even
  * chooses a later unit's action (e.g. a second Nomad spending it to
  * convert), and lets a global Undo roll back exactly one unit's action
@@ -236,7 +233,6 @@ function applyResolveUnitAction(
 
   let nextState: GameState = state
   const resolvedUnitIds: string[] = []
-  const resolvedActionNames: string[] = []
   for (const assignment of unitActions) {
     if (state.resolvedUnitIdsThisTurn.includes(assignment.unitId)) continue
     const unitAction = actionsForKind.find((a) => a.id === assignment.actionId)
@@ -248,10 +244,9 @@ function applyResolveUnitAction(
     // change anything means its preconditions weren't met (e.g. an
     // unaffordable cost, an illegal or missing target, a full supply cap) —
     // that's a failed action, not this unit's turn, so it's left out of
-    // resolvedUnitIds entirely rather than being marked resolved and logged.
+    // resolvedUnitIds entirely rather than being marked resolved.
     if (ACTION_TYPES_WITH_PRECONDITIONS.has(unitAction.effect.actionType) && nextState === beforeState) continue
     resolvedUnitIds.push(assignment.unitId)
-    if (!resolvedActionNames.includes(unitAction.name)) resolvedActionNames.push(unitAction.name)
   }
 
   if (resolvedUnitIds.length === 0) {
@@ -263,27 +258,12 @@ function applyResolveUnitAction(
 
   const resolvedUnitIdsThisTurn = [...nextState.resolvedUnitIdsThisTurn, ...resolvedUnitIds]
   nextState = { ...nextState, resolvedUnitIdsThisTurn }
-  // Reports what the resolved action(s) actually produced/cost (e.g. "+3
-  // gold" for a Trade, "+1 wood" for a Nomad gathering) rather than just
-  // naming the action — the real before/after resource delta across every
-  // assignment that resolved in this dispatch, not each action's nominal
-  // effect, so a cap-clamped gain still shows the true amount.
-  const resourcesBefore = state.players.find((p) => p.id === playerId)!.resources
-  const resourcesAfter = nextState.players.find((p) => p.id === playerId)!.resources
-  nextState = {
-    ...nextState,
-    log: appendLog(
-      nextState,
-      playerId,
-      `Player ${playerId}'s ${card.kind} resolved ${resolvedActionNames.join(', ')}${describeResourceDelta(resourcesBefore, resourcesAfter)}`,
-    ),
-  }
   nextState = updateAchievementClaims(nextState, achievementContent, unitContent.unitSupplyCaps)
 
   const actingUnitIds = nextState.units.filter((u) => u.ownerId === playerId && u.kind === card.kind).map((u) => u.id)
   const everyUnitActed = actingUnitIds.every((id) => resolvedUnitIdsThisTurn.includes(id))
   if (everyUnitActed) {
-    return finishActionsTurn(nextState, playerId, achievementContent, `Player ${playerId}'s ${card.kind} finished acting — turn ends`)
+    return finishActionsTurn(nextState, playerId, achievementContent)
   }
 
   return { ok: true, state: nextState }
@@ -304,7 +284,7 @@ function applyPassActions(state: GameState, playerId: string, achievementContent
     return { ok: false, error: "It is not this player's turn to pass" }
   }
 
-  return finishActionsTurn(state, playerId, achievementContent, `Player ${playerId} passed on resolving further actions`)
+  return finishActionsTurn(state, playerId, achievementContent)
 }
 
 /** Removes a single occurrence of `id` from `ids` (not every occurrence — see removeOneOccurrence's caller). */
@@ -346,7 +326,6 @@ function applyMoveToDecline(state: GameState, playerId: string, cardId: string, 
   players[playerIndex] = nextPlayer
 
   let nextState: GameState = { ...state, players, pendingPlayerIds: removeOneOccurrence(state.pendingPlayerIds, playerId) }
-  nextState = { ...nextState, log: appendLog(nextState, playerId, `Player ${playerId} moved a card into decline`) }
   // This player (or another still-pending one) might now have nothing left
   // to decline for a required card they haven't supplied yet.
   nextState = eliminatePlayersWithNoCardToDecline(nextState)
@@ -397,7 +376,6 @@ function applyPurchaseCard(state: GameState, playerId: string, cardId: string, a
 
   let nextState: GameState = { ...state, players, resourceBank: spent.bank, pendingPlayerIds: state.pendingPlayerIds.slice(1) }
   nextState = syncCardZonesWithBoard(nextState)
-  nextState = { ...nextState, log: appendLog(nextState, playerId, `Player ${playerId} purchased a card back from decline for ${cost} gold`) }
   nextState = { ...nextState, activePlayerId: nextState.pendingPlayerIds[0] ?? null }
   nextState = skipEmptyDeclinePurchasers(nextState)
 
@@ -417,7 +395,6 @@ function applyPassPurchase(state: GameState, playerId: string, achievementConten
   }
 
   let nextState: GameState = { ...state, pendingPlayerIds: state.pendingPlayerIds.slice(1) }
-  nextState = { ...nextState, log: appendLog(nextState, playerId, `Player ${playerId} passed on purchasing`) }
   nextState = { ...nextState, activePlayerId: nextState.pendingPlayerIds[0] ?? null }
   nextState = skipEmptyDeclinePurchasers(nextState)
 

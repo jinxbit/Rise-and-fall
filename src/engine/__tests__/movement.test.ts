@@ -58,7 +58,6 @@ function makeState(overrides: Partial<GameState> = {}): GameState {
     cards: {},
     resourceBank: { gold: 1000, wood: 1000, stone: 1000 },
     unitLimits: {},
-    log: [],
     winnerPlayerIds: [],
     claimedByAchievementId: {},
     achievementsClaimedThisRound: 0,

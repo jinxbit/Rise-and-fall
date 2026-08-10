@@ -133,7 +133,6 @@ describe('round flow', () => {
     expect(result.state.roundPhase).toBe('purchase')
     expect(result.state.activePlayerId).toBe('p2')
     expect(result.state.pendingPlayerIds).toEqual(['p2'])
-    expect(result.state.log.at(-1)?.message).toContain('nothing to purchase back')
 
     result = applyAction(result.state, { type: 'PASS_PURCHASE', playerId: 'p2' })
     expect(result.ok).toBe(true)

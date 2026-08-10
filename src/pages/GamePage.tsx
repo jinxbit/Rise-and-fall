@@ -5,7 +5,7 @@ import { RoundView } from '../components/RoundView'
 import { resolveAchievementContent, resolveBoardGenerationContent, resolveUnitContent } from '../content/resolveContent'
 import type { Action } from '../engine/actions'
 import { applyAction } from '../engine/applyAction'
-import { appendLog } from '../engine/log'
+import { buildGameLog } from '../engine/gameLog'
 import { replayActions } from '../engine/replay'
 import type { ActionResult, GameState as EngineGameState, Coordinate } from '../engine/types'
 import { buildTurnReview, findReviewWindowStart } from '../engine/turnReview'
@@ -13,17 +13,6 @@ import { useAuth } from '../hooks/useAuth'
 import type { GameRow, PlayerRow } from '../lib/dbTypes'
 import { buildGenesisState } from '../lib/gameGenesis'
 import { getGameByRoomCode, getGameState, listPlayers, subscribeToGameState, subscribeToPlayers, writeGameState } from '../lib/gameApi'
-
-const ACTION_DESCRIPTION: Record<Action['type'], string> = {
-  PLACE_TILE: 'placing a tile',
-  PLACE_UNIT: 'placing a starting unit',
-  CHOOSE_CARD: 'choosing a card',
-  RESOLVE_UNIT_ACTION: 'resolving an action',
-  PASS_ACTIONS: 'passing on remaining actions',
-  MOVE_TO_DECLINE: 'moving a card to decline',
-  PURCHASE_CARD: 'purchasing a card',
-  PASS_PURCHASE: 'passing on purchasing',
-}
 
 /**
  * Two players' writes racing the game_state row's optimistic-concurrency
@@ -50,6 +39,7 @@ export function GamePage() {
   const [version, setVersion] = useState<number | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [showStateJson, setShowStateJson] = useState(false)
+  const [copiedStateJson, setCopiedStateJson] = useState(false)
   const [undoing, setUndoing] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
 
@@ -123,6 +113,23 @@ export function GamePage() {
   }, [game, gameState?.actionHistory.length, me?.id, players, unitContent, achievementContent, boardGenerationContent])
 
   /**
+   * The running narration log (see engine/gameLog.ts) — nothing about it is
+   * stored on GameState, so it's rebuilt from the full actionHistory the
+   * same way turnReview rebuilds its own windowed slice above, just without
+   * a window: every logged action, from genesis, gets its line(s).
+   */
+  const gameLog = useMemo(() => {
+    if (!game || players.length === 0) return []
+    try {
+      const genesis = buildGenesisState(game, players)
+      return buildGameLog(genesis, gameState?.actionHistory ?? [], unitContent, achievementContent, boardGenerationContent)
+    } catch {
+      return []
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [game, gameState?.actionHistory.length, players, unitContent, achievementContent, boardGenerationContent])
+
+  /**
    * Writes whatever `computeNext` derives from the current state, retrying
    * against freshly refetched state (up to MAX_WRITE_RETRIES times) if the
    * write loses the optimistic-concurrency race — see MAX_WRITE_RETRIES's
@@ -171,11 +178,12 @@ export function GamePage() {
    * game) and every logged action except the last one is replayed on top of
    * it (replayActions), which is exactly what event sourcing buys us here:
    * "step back one action" needs no separate undo stack, just a shorter
-   * replay. Logs a note about what got undone (not itself a logged action —
-   * it doesn't re-enter actionHistory, so it can't itself be undone).
-   * Recomputed fresh on each writeWithRetry attempt (not just once up
-   * front), since a retry replays against newer state than what
-   * `gameState` held when the button was clicked.
+   * replay. The log itself needs no separate note about what got undone —
+   * it's derived fresh from actionHistory (see gameLog above), so a shorter
+   * history just naturally narrates one fewer step. Recomputed fresh on
+   * each writeWithRetry attempt (not just once up front), since a retry
+   * replays against newer state than what `gameState` held when the button
+   * was clicked.
    */
   async function handleUndo() {
     if (!me || !game) return
@@ -186,17 +194,8 @@ export function GamePage() {
           return { ok: false, error: 'Nothing left to undo.' }
         }
         const genesis = buildGenesisState(game, players)
-        const undoneEntry = state.actionHistory[state.actionHistory.length - 1]
         const previousHistory = state.actionHistory.slice(0, -1)
-        let undoneState = replayActions(genesis, previousHistory, unitContent, achievementContent, boardGenerationContent)
-        undoneState = {
-          ...undoneState,
-          log: appendLog(
-            undoneState,
-            me.id,
-            `Player ${me.id} undid the last action: Player ${undoneEntry.action.playerId} ${ACTION_DESCRIPTION[undoneEntry.action.type]}`,
-          ),
-        }
+        const undoneState = replayActions(genesis, previousHistory, unitContent, achievementContent, boardGenerationContent)
         return { ok: true, state: undoneState }
       })
       setActionError(result.ok ? null : result.error)
@@ -205,6 +204,13 @@ export function GamePage() {
     } finally {
       setUndoing(false)
     }
+  }
+
+  async function handleCopyStateJson() {
+    if (!gameState) return
+    await navigator.clipboard.writeText(JSON.stringify(gameState, null, 2))
+    setCopiedStateJson(true)
+    setTimeout(() => setCopiedStateJson(false), 1500)
   }
 
   if (authLoading) return <div className="p-8 text-neutral-400">Loading…</div>
@@ -245,9 +251,20 @@ export function GamePage() {
       </header>
 
       {showStateJson && gameState && (
-        <pre className="max-h-96 overflow-auto rounded-md border border-neutral-800 bg-neutral-900 p-4 text-xs text-neutral-300">
-          {JSON.stringify(gameState, null, 2)}
-        </pre>
+        <div className="flex flex-col gap-2">
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => void handleCopyStateJson()}
+              className="rounded-md border border-neutral-700 px-3 py-1 text-xs hover:border-neutral-500"
+            >
+              {copiedStateJson ? 'Copied!' : 'Copy JSON'}
+            </button>
+          </div>
+          <pre className="max-h-96 overflow-auto rounded-md border border-neutral-800 bg-neutral-900 p-4 text-xs text-neutral-300">
+            {JSON.stringify(gameState, null, 2)}
+          </pre>
+        </div>
       )}
 
       {actionError && <div className="rounded-md bg-red-500/10 p-3 text-sm text-red-400">{actionError}</div>}
@@ -288,6 +305,7 @@ export function GamePage() {
           turnReview={turnReview}
           showHistory={showHistory}
           onToggleHistory={() => setShowHistory((v) => !v)}
+          gameLog={gameLog}
           onChooseCard={(cardId) => {
             if (!me) return
             void submitAction({ type: 'CHOOSE_CARD', playerId: me.id, cardId })

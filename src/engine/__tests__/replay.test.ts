@@ -9,11 +9,10 @@ import { beginSelectCardsPhase } from '../round'
 import type { Card, GameState, Player } from '../types'
 import type { UnitAction, UnitContent } from '../unitContent'
 
-/** Strips wall-clock timestamps (log entries, actionHistory entries) before a deep-equality comparison — applyAction() stamps real time, so two independently-produced states are never byte-identical there even when every game-logic field matches. */
+/** Strips wall-clock timestamps (actionHistory entries) before a deep-equality comparison — applyAction() stamps real time, so two independently-produced states are never byte-identical there even when every game-logic field matches. */
 function stripTimestamps(state: GameState) {
   return {
     ...state,
-    log: state.log.map((entry) => ({ ...entry, timestamp: '' })),
     actionHistory: state.actionHistory.map((entry) => ({ ...entry, timestamp: '' })),
   }
 }

@@ -53,7 +53,6 @@ function makeState(overrides: Partial<GameState> = {}): GameState {
     cards: {},
     resourceBank: { gold: 1000, wood: 1000, stone: 1000 },
     unitLimits: {},
-    log: [],
     winnerPlayerIds: [],
     claimedByAchievementId: {},
     achievementsClaimedThisRound: 0,
@@ -146,13 +145,5 @@ describe('updateAchievementClaims', () => {
     const next = updateAchievementClaims(state, EMPTY_ACHIEVEMENT_CONTENT, unitSupplyCaps)
 
     expect(next).toBe(state)
-  })
-
-  it('logs the claim', () => {
-    const state = makeState({ units: [makeUnit('p1', 'city'), makeUnit('p1', 'city')] })
-
-    const next = updateAchievementClaims(state, content, unitSupplyCaps)
-
-    expect(next.log.some((e) => e.message.includes('mastery achievement'))).toBe(true)
   })
 })

@@ -3,7 +3,6 @@ import { applyTilePlacement, isLegalTilePlacement, placedShapeCells, seedStartin
 import type { BoardGenerationContent, TileTierContent } from './boardGenerationContent'
 import { syncCardZonesWithBoard } from './cards'
 import { nextSequenceId } from './idSequence'
-import { appendLog } from './log'
 import { beginSelectCardsPhase } from './round'
 import type { ActionResult, Board, BoardSetupState, Coordinate, GameState, Terrain, Unit } from './types'
 import type { UnitContent } from './unitContent'
@@ -33,9 +32,7 @@ function beginUnitPlacementIfTilesDone(state: GameState, turnOrder: string[]): G
   if (Object.keys(boardSetup.unitsRemainingByPlayerId).length > 0) return state
 
   const unitsRemainingByPlayerId = Object.fromEntries(turnOrder.map((id) => [id, [...STARTING_UNIT_KINDS]]))
-  let nextState: GameState = { ...state, boardSetup: { ...boardSetup, unitsRemainingByPlayerId, unitPlacerIndex: 0 } }
-  nextState = { ...nextState, log: appendLog(nextState, null, 'All tiles placed — starting-unit placement begins') }
-  return nextState
+  return { ...state, boardSetup: { ...boardSetup, unitsRemainingByPlayerId, unitPlacerIndex: 0 } }
 }
 
 /**
@@ -58,8 +55,7 @@ export function beginBoardSetup(state: GameState, content: BoardGenerationConten
     content,
   )
 
-  let nextState: GameState = { ...state, status: 'boardSetup', board, boardSetup }
-  nextState = { ...nextState, log: appendLog(nextState, null, 'Board setup begins: starting water tiles seeded') }
+  const nextState: GameState = { ...state, status: 'boardSetup', board, boardSetup }
   return beginUnitPlacementIfTilesDone(nextState, state.turnOrder)
 }
 
@@ -79,8 +75,7 @@ export function beginBoardSetupWithPresetBoard(state: GameState, board: Board): 
     unitsRemainingByPlayerId: {},
     unitPlacerIndex: 0,
   }
-  let nextState: GameState = { ...state, status: 'boardSetup', board, boardSetup }
-  nextState = { ...nextState, log: appendLog(nextState, null, 'Board setup begins: starting from a preset map') }
+  const nextState: GameState = { ...state, status: 'boardSetup', board, boardSetup }
   return beginUnitPlacementIfTilesDone(nextState, state.turnOrder)
 }
 
@@ -141,7 +136,6 @@ export function placeTile(
   nextBoardSetup = skipExhaustedTiers(nextBoardSetup, content)
 
   let nextState: GameState = { ...state, board, boardSetup: nextBoardSetup }
-  nextState = { ...nextState, log: appendLog(nextState, playerId, `Player ${playerId} placed a ${tierContent.terrain} tile`) }
   nextState = beginUnitPlacementIfTilesDone(nextState, state.turnOrder)
 
   return { ok: true, state: nextState }
@@ -205,7 +199,6 @@ export function placeUnit(state: GameState, playerId: string, unitKind: string, 
 
   let nextState: GameState = { ...state, units, boardSetup: nextBoardSetup, idSequence }
   nextState = syncCardZonesWithBoard(nextState)
-  nextState = { ...nextState, log: appendLog(nextState, playerId, `Player ${playerId} placed a starting ${unitKind}`) }
 
   const everyoneDone = Object.values(unitsRemainingByPlayerId).every((k) => k.length === 0)
   if (everyoneDone) {

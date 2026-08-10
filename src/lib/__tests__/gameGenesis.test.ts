@@ -27,11 +27,6 @@ function makePlayers(): PlayerRow[] {
   ]
 }
 
-/** Strips wall-clock timestamps before a deep-equality comparison — buildGenesisState stamps real time via appendLog, so two independently-built genesis states are never byte-identical there even when every game-logic field matches. */
-function stripTimestamps(entries: { timestamp: string }[]) {
-  return entries.map((e) => ({ ...e, timestamp: '' }))
-}
-
 describe('buildGenesisState', () => {
   it('is deterministic: the same game/players always rebuild the same genesis', () => {
     const game = makeGame()
@@ -40,7 +35,10 @@ describe('buildGenesisState', () => {
     const first = buildGenesisState(game, players)
     const second = buildGenesisState(game, players)
 
-    expect({ ...first, log: stripTimestamps(first.log) }).toEqual({ ...second, log: stripTimestamps(second.log) })
+    // Genesis's actionHistory is always empty (see GameState.actionHistory's
+    // doc comment), so there's no wall-clock timestamp anywhere on it left
+    // to strip before comparing.
+    expect(first).toEqual(second)
   })
 
   it('without a map template, starts interactive board setup (tiles still to be placed)', () => {

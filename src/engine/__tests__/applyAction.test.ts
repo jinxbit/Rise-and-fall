@@ -446,22 +446,6 @@ describe('RESOLVE_UNIT_ACTION resolves immediately; the turn ends via PASS_ACTIO
     expect(p1.discardCardIds).not.toContain(cardIdFor('p1', 'city'))
   })
 
-  it('logs the actual resource amount the resolved action produced, not just its name', () => {
-    const state = makeTwoCitiesState()
-
-    const result = applyAction(
-      state,
-      { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [{ unitId: 'city_a', actionId: 'generate-income' }] },
-      twoCityContent,
-    )
-
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-    const entry = result.state.log.at(-1)!
-    expect(entry.message).toContain('Generate Income')
-    expect(entry.message).toContain('+3 gold')
-  })
-
   it('rejects re-resolving the same unit twice in the same turn', () => {
     const state = makeTwoCitiesState()
     const first = applyAction(
@@ -633,7 +617,7 @@ describe('RESOLVE_UNIT_ACTION rejects an action whose cost/target preconditions 
     return chosen.state
   }
 
-  it('rejects the whole dispatch when the unit cannot afford the cost — no unit is created, nothing is logged, the unit stays free to act', () => {
+  it('rejects the whole dispatch when the unit cannot afford the cost — no unit is created, the unit stays free to act', () => {
     const state = makeSingleNomadState()
     expect(state.players.find((p) => p.id === 'p1')!.resources.wood).toBe(0)
 
@@ -644,9 +628,9 @@ describe('RESOLVE_UNIT_ACTION rejects an action whose cost/target preconditions 
     )
 
     expect(result.ok).toBe(false)
-    // Nothing about the input state leaked through: no City appeared, no
-    // log entry was appended, and the actionHistory/resolvedUnitIdsThisTurn
-    // this bug report complained about staying untouched.
+    // Nothing about the input state leaked through: no City appeared, and
+    // the actionHistory/resolvedUnitIdsThisTurn this bug report complained
+    // about staying untouched.
     expect(state.units).toHaveLength(1)
     expect(state.units[0].kind).toBe('nomad')
     expect(state.resolvedUnitIdsThisTurn).toEqual([])
