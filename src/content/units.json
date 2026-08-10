@@ -272,7 +272,7 @@
       "supply": { "byPlayerCount": { "2": 3, "3": 3, "4": 3 } },
       "movement": {
         "isMobile": true,
-        "terrains": ["water", "plain", "forest", "mountain", "glacier"],
+        "terrains": ["plain", "forest", "mountain", "glacier"],
         "canCrossCliffs": true,
         "moveDistance": 3,
         "blockedByUnits": "enemy"

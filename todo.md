@@ -2367,14 +2367,18 @@ condition and the new empty-review hint text. 388 tests total (was
 
 Also reported in the same message: "mountaineer is not able to go on
 water." Traced `legalMoveDestinations()` (`movement.ts`) against the
-real `content/units.json` movement profile (`terrains` includes
+real `content/units.json` movement profile (`terrains` included
 `water`, `canCrossCliffs: true`) with a script reproducing the exact
-board layout from the report — a Mountaineer next to a Water hex
-correctly has that hex in its legal move destinations. Didn't change
-anything here — the one restriction that *does* exist is intentional
-and different: a Mountaineer can't be directly *created* on Water
-(`SOLE_CREATABLE_KIND_BY_TERRAIN` in `unitActions.ts` reserves Water for
-Ship, matching the settled ruling), only *moved* there afterward. Asked
-the user for exact repro steps (which unit, which hex, create vs. move)
-before touching this further, rather than guess at a fix for behavior
-that already matches the rules as understood.
+board + full unit list from the report — a Mountaineer next to a Water
+hex had that hex as a legal move destination, which read as the engine
+working correctly. Asked the user what specifically happened when they
+tried it, expecting a UI-level repro — the actual answer flipped the
+diagnosis entirely: "Mountaineers are not allowed to be on water" is the
+*rule*, and the engine allowing it was the bug. `content/units.json`'s
+mountaineer `movement.terrains` had `"water"` in it, which was simply
+wrong content, not an engine logic error — removed it (now
+`["plain", "forest", "mountain", "glacier"]`). Added a real-content
+regression in `unitActions.realContent.test.ts` confirming a Mountaineer
+can no longer move onto Water but still can onto every other terrain in
+its list. 389 tests total (was 388); `tsc -b`/`oxlint`/`npm run build`
+all clean.

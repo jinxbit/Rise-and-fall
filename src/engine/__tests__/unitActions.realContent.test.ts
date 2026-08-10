@@ -301,4 +301,44 @@ describe('real content/units.json + terrain.json + resources.json', () => {
     const toPlain = applyUnitActionEffect(state, 'p1', 'ship', action, { [ship.id]: { q: 4, r: 0 } }, content)
     expect(toPlain.units[0].coord).toEqual({ q: 0, r: 0 })
   })
+
+  it("Mountaineer cannot move onto Water (bug report: Mountaineers aren't allowed on Water)", () => {
+    let board = createEmptyBoard('hex')
+    board = setTile(board, { q: 0, r: 0 }, 'mountain')
+    board = setTile(board, { q: 1, r: 0 }, 'water')
+    board = setTile(board, { q: -1, r: 0 }, 'forest')
+
+    const mountaineer: Unit = { id: 'u1', ownerId: 'p1', kind: 'mountaineer', coord: { q: 0, r: 0 }, movement: content.movementByKind.mountaineer, traits: [] }
+    const state: GameState = {
+      gameId: 'g',
+      playMode: 'hotseat',
+      status: 'active',
+      turn: 1,
+      activePlayerId: null,
+      roundPhase: 'actions',
+      chosenCardIdByPlayerId: {},
+      pendingPlayerIds: [],
+      resolvedUnitIdsThisTurn: [],
+      turnOrder: ['p1'],
+      board,
+      players: [makePlayer('p1')],
+      units: [mountaineer],
+      cards: {},
+      resourceBank: { gold: 1000, wood: 1000, stone: 1000 },
+      winnerPlayerIds: [],
+      claimedByAchievementId: {},
+      achievementsClaimedThisRound: 0,
+      boardSetup: null,
+      idSequence: 0,
+      actionHistory: [],
+    }
+
+    const action = findAction('mountaineer', 'move', content)
+
+    const toWater = applyUnitActionEffect(state, 'p1', 'mountaineer', action, { [mountaineer.id]: { q: 1, r: 0 } }, content)
+    expect(toWater.units[0].coord).toEqual({ q: 0, r: 0 }) // rejected, stayed put
+
+    const toForest = applyUnitActionEffect(state, 'p1', 'mountaineer', action, { [mountaineer.id]: { q: -1, r: 0 } }, content)
+    expect(toForest.units[0].coord).toEqual({ q: -1, r: 0 }) // every other terrain still works
+  })
 })
