@@ -1949,3 +1949,24 @@ had nothing to compute over. Retitled it to what it actually covers
 sitting next to a test that now genuinely covers the terrain-control
 case. 336 tests total (was 335); `tsc -b`/`oxlint`/`npm run build` all
 clean.
+
+## 42. Real terrain victory-point values
+
+Filled in `content/terrain.json`'s per-terrain `victoryPoints`
+(previously all `0` placeholders — see #41): Plain 1, Water 2, Forest
+3, Mountain 4. Glacier's own `victoryPoints` is never actually read for
+scoring (`scoresAs: "mountain"` merges Glacier hexes into Mountain
+regions, which score at Mountain's rate — see `scoring.ts`'s
+`calculateTerrainControlVP`/`effectiveTerrain`), but set it to 4 to
+match anyway rather than leave a stale, misleading `0` sitting next to
+a field that says "treated as mountain."
+
+No test changes — #41 already added real regression coverage for the
+terrain-control scoring path (`RoundView.test.tsx`) using synthetic
+values, and no existing test asserts on `terrain.json`'s literal
+numbers. Verified end-to-end with a one-off script calling
+`resolveAchievementContent()` against the real file and confirming
+`terrainVictoryPoints`/`terrainScoresAs` come out as `{ water: 2,
+plain: 1, forest: 3, mountain: 4, glacier: 4 }` / `{ ..., glacier:
+"mountain" }`. 336 tests unchanged; `tsc -b`/`oxlint`/`npm run build`
+all clean.
