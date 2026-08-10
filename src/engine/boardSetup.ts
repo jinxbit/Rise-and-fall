@@ -1,5 +1,5 @@
 import { getTile } from './board'
-import { applyTilePlacement, hasAnyLegalPlacement, isLegalTilePlacement, placedShapeCells, seedStartingWaterTiles } from './boardGeneration'
+import { applyTilePlacement, canPlaceRemainingTiles, isLegalTilePlacement, placedShapeCells, seedStartingWaterTiles } from './boardGeneration'
 import type { BoardGenerationContent, TileTierContent } from './boardGenerationContent'
 import { syncCardZonesWithBoard } from './cards'
 import { nextSequenceId } from './idSequence'
@@ -130,12 +130,15 @@ export function placeTile(
   const board = applyTilePlacement(state.board, placedCells, tierContent.terrain)
   const tilesRemainingInTier = boardSetup.tilesRemainingInTier - 1
 
-  // Rule 4 (simplified — see hasAnyLegalPlacement's doc comment): rather
+  // Rule 4 (simplified — see canPlaceRemainingTiles's doc comment): rather
   // than relocating already-placed tiles to open up room, a placement that
-  // would leave none of this tier's own remaining tiles anywhere legal to
-  // go is rejected outright, same as any other illegal placement — the
-  // player has to pick a different anchor/rotation instead.
-  if (tilesRemainingInTier > 0 && !hasAnyLegalPlacement(board, tierContent.shapeCells, tierContent.placesOn)) {
+  // wouldn't leave room for every remaining tile of this tier is rejected
+  // outright, same as any other illegal placement — the player has to pick
+  // a different anchor/rotation instead.
+  if (
+    tilesRemainingInTier > 0 &&
+    !canPlaceRemainingTiles(board, tierContent.shapeCells, tierContent.placesOn, tierContent.terrain, tilesRemainingInTier)
+  ) {
     return { ok: false, error: 'This placement would leave no legal spot for the rest of this tier' }
   }
 

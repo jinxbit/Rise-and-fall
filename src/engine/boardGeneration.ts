@@ -76,27 +76,15 @@ export function applyTilePlacement(board: Board, placedCells: Coordinate[], terr
 }
 
 /**
- * Whether `shapeCells` (a tier's one shape, in its own local coordinates,
- * unrotated) could still be legally placed *somewhere* on `board`, in any
- * of the 6 rotations — rule 4's simplified no-space check (see
- * boardSetup.ts's placeTile): rather than searching for a minimal set of
- * already-placed tiles to relocate to open up room, a placement that would
- * leave zero legal spots anywhere for the tier's own remaining tiles is
- * rejected outright, and the player has to choose a different placement
- * instead.
- *
- * Every legal placement's own anchor cell (local `{0,0}` by convention —
- * see rotateShape's doc comment) must itself land on a hex the shape is
- * allowed to cover, so it's enough to try anchoring each cell of each
- * rotation onto each currently-tiled hex with a qualifying terrain — no
- * need to search the (otherwise unbounded) plane of empty coordinates.
- * `placesOn: null` (water) is the one case with no such hexes to anchor
- * against at all, but the board is unbounded, so there's always room
- * somewhere and this returns true immediately without searching.
+ * Finds one legal placement of `shapeCells` somewhere on `board`, in any of
+ * the 6 rotations, or `null` if none exists. Every legal placement's own
+ * anchor cell (local `{0,0}` by convention — see rotateShape's doc comment)
+ * must itself land on a hex the shape is allowed to cover, so it's enough
+ * to try anchoring each cell of each rotation onto each currently-tiled hex
+ * with a qualifying terrain — no need to search the (otherwise unbounded)
+ * plane of empty coordinates.
  */
-export function hasAnyLegalPlacement(board: Board, shapeCells: Coordinate[], placesOn: Terrain[] | null): boolean {
-  if (placesOn === null) return true
-
+function findLegalPlacement(board: Board, shapeCells: Coordinate[], placesOn: Terrain[]): Coordinate[] | null {
   const candidateHexes = Object.values(board.tiles).filter((tile) => placesOn.includes(tile.terrain))
 
   for (let rotation = 0; rotation < 6; rotation++) {
@@ -105,11 +93,53 @@ export function hasAnyLegalPlacement(board: Board, shapeCells: Coordinate[], pla
       for (const localCell of rotatedCells) {
         const anchor: Coordinate = { q: hex.coord.q - localCell.q, r: hex.coord.r - localCell.r }
         const placed = placedShapeCells(shapeCells, anchor, rotation)
-        if (isLegalTilePlacement(board, placed, placesOn)) return true
+        if (isLegalTilePlacement(board, placed, placesOn)) return placed
       }
     }
   }
-  return false
+  return null
+}
+
+/**
+ * Whether `count` more tiles of this tier (`shapeCells`/`placesOn`, each
+ * resolving to `terrain` once placed) could all still be legally placed on
+ * `board` — rule 4's no-space check (see boardSetup.ts's placeTile): rather
+ * than searching for a minimal set of already-placed tiles to relocate to
+ * open up room, a placement that wouldn't leave room for the rest of the
+ * tier is rejected outright, and the player has to choose a different
+ * placement instead.
+ *
+ * Checking room for just one more tile isn't enough — a spot that fits one
+ * more tile can still leave zero room for the tile after that, and by the
+ * time that's discovered the earlier placement is already locked in. So
+ * this greedily finds one legal placement, applies it to a working copy of
+ * the board, and repeats `count` times; if any iteration finds nowhere left
+ * to go, the whole placement is rejected. (This is a greedy approximation,
+ * not an exhaustive search of every possible placement order — in
+ * principle a different choice of which legal spot to fill first could
+ * leave room where this doesn't — but it matches the ruling this
+ * implements: "make sure all other tiles of the same terrain type are
+ * placeable.")
+ *
+ * `placesOn: null` (water) always returns true — the board is unbounded, so
+ * there's always room somewhere.
+ */
+export function canPlaceRemainingTiles(
+  board: Board,
+  shapeCells: Coordinate[],
+  placesOn: Terrain[] | null,
+  terrain: Terrain,
+  count: number,
+): boolean {
+  if (placesOn === null) return true
+
+  let workingBoard = board
+  for (let i = 0; i < count; i++) {
+    const placed = findLegalPlacement(workingBoard, shapeCells, placesOn)
+    if (placed === null) return false
+    workingBoard = applyTilePlacement(workingBoard, placed, terrain)
+  }
+  return true
 }
 
 // --- starting water tiles ------------------------------------------------------

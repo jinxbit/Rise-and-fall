@@ -195,11 +195,15 @@ describe('placeTile', () => {
 
   it('places the tile, converts the covered hexes, and advances to the next player', () => {
     const state = makeSetupState({
-      // A second disjoint water pair elsewhere, since tilesRemainingInTier
+      // Two more disjoint water pairs elsewhere, since tilesRemainingInTier
       // (3) claims 2 more tiles are still owed after this one — otherwise
-      // rule 4's no-space check (see hasAnyLegalPlacement) would correctly
+      // rule 4's no-space check (see canPlaceRemainingTiles) would correctly
       // reject this placement for stranding them with nowhere left to go.
-      board: boardOf([[0, 0, 'water'], [1, 0, 'water'], [10, 0, 'water'], [11, 0, 'water']]),
+      board: boardOf([
+        [0, 0, 'water'], [1, 0, 'water'],
+        [10, 0, 'water'], [11, 0, 'water'],
+        [20, 0, 'water'], [21, 0, 'water'],
+      ]),
       boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 3, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
     })
 
@@ -301,6 +305,25 @@ describe('placeTile', () => {
     const result = placeTile(state, 'p1', { q: 0, r: 0 }, 0, content)
 
     expect(result.ok).toBe(true)
+  })
+
+  it('rejects a placement that leaves room for only one of two still-owed tiles (not just the next one)', () => {
+    const state = makeSetupState({
+      // A 3-hex chain (5,5)-(6,5)-(7,5): exactly one domino fits there, not
+      // two — placing (5,5)-(6,5) or (6,5)-(7,5) leaves only one isolated
+      // hex behind, nowhere for a second tile to land. A shallow "is there
+      // room for one more tile" check would wrongly allow this, since a
+      // legal domino does exist somewhere right after this placement — the
+      // bug it misses is that room runs out one tile short of the two still
+      // owed.
+      board: boardOf([[0, 0, 'water'], [1, 0, 'water'], [5, 5, 'water'], [6, 5, 'water'], [7, 5, 'water']]),
+      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 3, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+    })
+
+    const result = placeTile(state, 'p1', { q: 0, r: 0 }, 0, content)
+
+    expect(result.ok).toBe(false)
+    expect(getTile(state.board, { q: 0, r: 0 })?.terrain).toBe('water')
   })
 
   it('is rejected outside the boardSetup status', () => {

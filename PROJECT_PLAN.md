@@ -156,8 +156,9 @@ decisions get made.
             original "relocate a minimal set of already-placed tiles"
             search, `placeTile()` now just rejects a placement outright if
             it would leave nowhere left for the tier's own remaining tiles
-            to legally go (`hasAnyLegalPlacement()` in
-            `src/engine/boardGeneration.ts` — see `todo.md`).
+            to legally go (`canPlaceRemainingTiles()` in
+            `src/engine/boardGeneration.ts`, a greedy check across *all*
+            remaining tiles, not just the next one — see `todo.md` #43).
 - [x] Expand the unit test suite in `src/engine/__tests__/` to cover
       every action and edge case as it's implemented — 220 tests, including
       a pass against the real `content/*.json` files, not just synthetic

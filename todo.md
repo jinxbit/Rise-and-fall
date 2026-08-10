@@ -1970,3 +1970,50 @@ numbers. Verified end-to-end with a one-off script calling
 plain: 1, forest: 3, mountain: 4, glacier: 4 }` / `{ ..., glacier:
 "mountain" }`. 336 tests unchanged; `tsc -b`/`oxlint`/`npm run build`
 all clean.
+
+## 43. Fixed: rule 4's no-space check only looked one tile ahead, not all of them
+
+Bug report with a real game state: `boardSetup.tilesRemainingInTier: 2`,
+and the only legal placement left on the board got rejected — meaning a
+tile should have already been rejected earlier, not this one.
+
+Confirmed against the real board data and the real Plain "wedge" shape
+(`content/terrain.json`) with a one-off script using the actual engine
+functions: exactly one legal placement existed, and using it would leave
+the board's very last Plain tile with nowhere to go — a genuine
+zero-legal-moves deadlock.
+
+**Root cause:** `hasAnyLegalPlacement()` (added for #40's rule 4) only
+checked whether *one more* tile could still be placed after the current
+one, not whether *all* of the tier's remaining tiles could. A placement
+can pass that shallow check (one spot remains right after it) while still
+leaving too little room for the tiles still owed beyond that — the
+shortfall doesn't surface until whichever placement is the one that
+actually runs out of room, which can be the *only* legal move left, with
+nothing else to fall back on.
+
+**Fix:** replaced `hasAnyLegalPlacement()` with `canPlaceRemainingTiles()`
+(`src/engine/boardGeneration.ts`), which greedily finds a legal placement,
+applies it to a working copy of the board, and repeats once per remaining
+tile — rejecting the whole placement if any iteration comes up empty.
+`boardSetup.ts`'s `placeTile()` now passes the tier's actual
+`tilesRemainingInTier` count through instead of implicitly checking for
+just one. This is a greedy approximation (a different placement order
+could in principle find room this doesn't) rather than an exhaustive
+search, matching the ruling's own "make sure all other tiles of the same
+terrain type are placeable."
+
+This fixes the check going forward for new games. It can't repair a save
+that already reached this exact deadlock, though — the damage (an earlier
+placement that the old shallow check should have rejected but didn't) is
+already baked into that game's `actionHistory`; the corrected check, run
+against the reported state, agrees there is no longer any legal move at
+all. That specific game needs a board-setup restart, not a check fix.
+
+Added direct coverage for `canPlaceRemainingTiles()` in
+`boardGeneration.test.ts` (including a case where an earlier virtual
+placement's terrain conversion changes what's still available for a
+later one) and an integration case in `boardSetup.test.ts` reproducing
+the reported bug's shape: a placement that leaves room for only one of
+two still-owed tiles is now rejected, where it previously wasn't. 340
+tests total (was 336); `tsc -b`/`oxlint`/`npm run build` all clean.
