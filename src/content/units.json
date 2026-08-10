@@ -26,23 +26,29 @@
         },
         {
           "id": "create-merchant",
-          "name": "Create Merchant",
-          "description": "Create a Merchant on an adjacent hex. Cannot target a hex across a cliff edge.",
+          "name": "Convert to Merchant",
+          "description": "Convert an adjacent own Nomad into a Merchant. Cannot target a hex across a cliff edge.",
           "effect": {
-            "actionType": "create",
-            "targetUnit": "merchant",
+            "actionType": "convert",
             "targetHex": { "location": "adj" },
+            "targetOwner": "own",
+            "targetMobileOnly": false,
+            "requiredTargetKind": "nomad",
+            "resultUnit": "merchant",
             "cost": { "gold": 2, "wood": 0, "stone": 0 }
           }
         },
         {
           "id": "create-mountaineer",
-          "name": "Create Mountaineer",
-          "description": "Create a Mountaineer on an adjacent hex. Cannot target a hex across a cliff edge.",
+          "name": "Convert to Mountaineer",
+          "description": "Convert an adjacent own Nomad into a Mountaineer. Cannot target a hex across a cliff edge.",
           "effect": {
-            "actionType": "create",
-            "targetUnit": "mountaineer",
+            "actionType": "convert",
             "targetHex": { "location": "adj" },
+            "targetOwner": "own",
+            "targetMobileOnly": false,
+            "requiredTargetKind": "nomad",
+            "resultUnit": "mountaineer",
             "cost": { "gold": 1, "wood": 0, "stone": 0 }
           }
         },

@@ -267,6 +267,68 @@ describe('legalConvertTargets', () => {
   })
 })
 
+describe("legalConvertTargets, targetOwner: 'own' (City upgrading an adjacent Nomad)", () => {
+  const effect: ConvertEffect = {
+    actionType: 'convert',
+    targetHex: { location: 'adj' },
+    targetOwner: 'own',
+    targetMobileOnly: false,
+    requiredTargetKind: 'nomad',
+    resultUnit: 'merchant',
+    cost: { gold: 2 },
+  }
+
+  it('returns adjacent hexes with an own Nomad, affordable', () => {
+    const board = boardOf([[0, 0, 'plain'], [1, 0, 'plain']])
+    const unit = makeUnit('p1', 'city', { q: 0, r: 0 })
+    const nomad = makeUnit('p1', 'nomad', { q: 1, r: 0 })
+    const state = makeState({ board, units: [unit, nomad], players: [makePlayer('p1', { resources: { gold: 2, wood: 0, stone: 0 } })] })
+
+    expect(legalConvertTargets(state, 'p1', unit, effect, emptyContent)).toEqual([{ q: 1, r: 0 }])
+  })
+
+  it('excludes an adjacent own unit that is not the required kind', () => {
+    const board = boardOf([[0, 0, 'plain'], [1, 0, 'plain']])
+    const unit = makeUnit('p1', 'city', { q: 0, r: 0 })
+    const merchant = makeUnit('p1', 'merchant', { q: 1, r: 0 })
+    const state = makeState({ board, units: [unit, merchant], players: [makePlayer('p1', { resources: { gold: 2, wood: 0, stone: 0 } })] })
+
+    expect(legalConvertTargets(state, 'p1', unit, effect, emptyContent)).toEqual([])
+  })
+
+  it('excludes an adjacent enemy Nomad', () => {
+    const board = boardOf([[0, 0, 'plain'], [1, 0, 'plain']])
+    const unit = makeUnit('p1', 'city', { q: 0, r: 0 })
+    const enemyNomad = makeUnit('p2', 'nomad', { q: 1, r: 0 })
+    const state = makeState({
+      board,
+      units: [unit, enemyNomad],
+      players: [makePlayer('p1', { resources: { gold: 2, wood: 0, stone: 0 } }), makePlayer('p2')],
+    })
+
+    expect(legalConvertTargets(state, 'p1', unit, effect, emptyContent)).toEqual([])
+  })
+
+  it('returns nothing if the player cannot afford the cost', () => {
+    const board = boardOf([[0, 0, 'plain'], [1, 0, 'plain']])
+    const unit = makeUnit('p1', 'city', { q: 0, r: 0 })
+    const nomad = makeUnit('p1', 'nomad', { q: 1, r: 0 })
+    const state = makeState({ board, units: [unit, nomad], players: [makePlayer('p1', { resources: { gold: 0, wood: 0, stone: 0 } })] })
+
+    expect(legalConvertTargets(state, 'p1', unit, effect, emptyContent)).toEqual([])
+  })
+
+  it('returns nothing once the result kind is at its supply cap', () => {
+    const board = boardOf([[0, 0, 'plain'], [1, 0, 'plain']])
+    const unit = makeUnit('p1', 'city', { q: 0, r: 0 })
+    const nomad = makeUnit('p1', 'nomad', { q: 1, r: 0 })
+    const state = makeState({ board, units: [unit, nomad], players: [makePlayer('p1', { resources: { gold: 2, wood: 0, stone: 0 } })] })
+    const content: UnitContent = { ...emptyContent, unitSupplyCaps: { merchant: 0 } }
+
+    expect(legalConvertTargets(state, 'p1', unit, effect, content)).toEqual([])
+  })
+})
+
 describe('isActionAvailableForUnit', () => {
   it('income/produce/trade are always available, even when their payout would be zero', () => {
     const incomeAction: UnitAction = { id: 'a', name: 'Income', description: '', effect: { actionType: 'income', goldByTerrain: { forest: 3 } } }

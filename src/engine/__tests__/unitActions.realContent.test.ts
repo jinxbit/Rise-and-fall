@@ -190,6 +190,46 @@ describe('real content/units.json + terrain.json + resources.json', () => {
     expect(next.units[0].kind).toBe('nomad')
   })
 
+  it("City's Convert to Merchant (real cost: 2 gold) upgrades an adjacent own Nomad in place, rather than creating one from nothing", () => {
+    const board = setTile(setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'plain'), { q: 1, r: 0 }, 'plain')
+    const city: Unit = { id: 'city1', ownerId: 'p1', kind: 'city', coord: { q: 0, r: 0 }, movement: content.movementByKind.city, traits: [] }
+    const nomad: Unit = { id: 'nomad1', ownerId: 'p1', kind: 'nomad', coord: { q: 1, r: 0 }, movement: content.movementByKind.nomad, traits: [] }
+    const state: GameState = {
+      gameId: 'g',
+      playMode: 'hotseat',
+      status: 'active',
+      turn: 1,
+      activePlayerId: null,
+      roundPhase: 'actions',
+      chosenCardIdByPlayerId: {},
+      pendingPlayerIds: [],
+      resolvedUnitIdsThisTurn: [],
+      turnOrder: ['p1'],
+      board,
+      players: [makePlayer('p1', { gold: 2, wood: 0, stone: 0 })],
+      units: [city, nomad],
+      cards: {},
+      resourceBank: { gold: 1000, wood: 1000, stone: 1000 },
+      unitLimits: {},
+      log: [],
+      winnerPlayerIds: [],
+      claimedByAchievementId: {},
+      achievementsClaimedThisRound: 0,
+      boardSetup: null,
+      idSequence: 0,
+      actionHistory: [],
+    }
+
+    const action = findAction('city', 'create-merchant', content)
+    const next = applyUnitActionEffect(state, 'p1', 'city', action, { [city.id]: nomad.coord }, content, [city.id])
+
+    // No new unit appeared — the Nomad itself became the Merchant.
+    expect(next.units).toHaveLength(2)
+    expect(next.units.find((u) => u.id === city.id)?.kind).toBe('city')
+    expect(next.units.find((u) => u.id === nomad.id)?.kind).toBe('merchant')
+    expect(next.players[0].resources.gold).toBe(0)
+  })
+
   it("Ship's Transform to Nomad (0 cost, real 'plain' terrainType) resolves onto an adjacent hex", () => {
     const board = setTile(setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'water'), { q: 1, r: 0 }, 'plain')
     const ship: Unit = { id: 'u1', ownerId: 'p1', kind: 'ship', coord: { q: 0, r: 0 }, movement: content.movementByKind.ship, traits: [] }

@@ -7,6 +7,7 @@ import type { Board, Coordinate, GameState } from '../engine/types'
 import type { PlayerRow } from '../lib/dbTypes'
 import type { GhostCell } from './HexBoard'
 import { HexBoard } from './HexBoard'
+import { unitKindLabel } from './unitKindLabel'
 
 const STARTING_UNIT_LABELS: Record<string, string> = { city: 'City', nomad: 'Nomad', ship: 'Ship' }
 
@@ -155,7 +156,7 @@ function UnitPlacementPanel(props: {
   const units = state.units.map((u) => ({
     coord: u.coord,
     color: players.find((p) => p.id === u.ownerId)?.color ?? '#a3a3a3',
-    label: u.kind.slice(0, 1).toUpperCase(),
+    label: unitKindLabel(u.kind),
   }))
 
   const ghostCells: GhostCell[] = selectedKind

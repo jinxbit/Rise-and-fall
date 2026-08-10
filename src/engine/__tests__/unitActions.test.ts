@@ -761,6 +761,130 @@ describe('applyUnitActionEffect — convert (Temple)', () => {
   })
 })
 
+describe("applyUnitActionEffect — convert, 'own' (City upgrading an adjacent Nomad)", () => {
+  // Per ruling: a City doesn't conjure a Merchant/Mountaineer from
+  // nothing — it converts (upgrades) an adjacent Nomad it already
+  // controls into one, at the same gold cost as the old (wrong)
+  // create-from-nothing version.
+  const action: UnitAction = {
+    id: 'create-merchant',
+    name: 'Convert to Merchant',
+    description: '',
+    effect: {
+      actionType: 'convert',
+      targetHex: { location: 'adj' },
+      targetOwner: 'own',
+      targetMobileOnly: false,
+      requiredTargetKind: 'nomad',
+      resultUnit: 'merchant',
+      cost: { gold: 2 },
+    },
+  }
+  const content: UnitContent = {
+    ...emptyContent,
+    movementByKind: {
+      city: { isMobile: false, terrains: [], canCrossCliffs: false },
+      nomad: { isMobile: true, terrains: ['plain', 'forest', 'mountain'], canCrossCliffs: false },
+      merchant: { isMobile: true, terrains: ['water', 'plain', 'forest', 'mountain'], canCrossCliffs: false, moveDistance: 4 },
+    },
+  }
+
+  it('converts an adjacent own Nomad into the target kind in place, paying the cost, without touching the acting City', () => {
+    const board = boardOf([
+      [0, 0, 'plain'],
+      [1, 0, 'plain'],
+    ])
+    const state = makeState({
+      board,
+      units: [makeUnit('p1', 'city', { q: 0, r: 0 }), makeUnit('p1', 'nomad', { q: 1, r: 0 })],
+      players: [makePlayer('p1', { resources: { gold: 5, wood: 0, stone: 0 } })],
+    })
+    const [city, nomad] = state.units
+
+    const next = applyUnitActionEffect(state, 'p1', 'city', action, { [city.id]: nomad.coord }, content)
+
+    expect(next.units).toHaveLength(2)
+    expect(next.units.find((u) => u.id === city.id)?.kind).toBe('city')
+    const converted = next.units.find((u) => u.id === nomad.id)!
+    expect(converted.kind).toBe('merchant')
+    expect(converted.coord).toEqual({ q: 1, r: 0 })
+    expect(converted.movement).toEqual(content.movementByKind.merchant)
+    expect(goldOf(next, 'p1')).toBe(3)
+  })
+
+  it('does not convert an adjacent own unit that is not the required kind', () => {
+    const board = boardOf([
+      [0, 0, 'plain'],
+      [1, 0, 'plain'],
+    ])
+    const state = makeState({
+      board,
+      units: [makeUnit('p1', 'city', { q: 0, r: 0 }), makeUnit('p1', 'merchant', { q: 1, r: 0 })],
+      players: [makePlayer('p1', { resources: { gold: 5, wood: 0, stone: 0 } })],
+    })
+    const [city, merchant] = state.units
+
+    const next = applyUnitActionEffect(state, 'p1', 'city', action, { [city.id]: merchant.coord }, content)
+
+    expect(next.units.find((u) => u.id === merchant.id)?.kind).toBe('merchant')
+    expect(goldOf(next, 'p1')).toBe(5)
+  })
+
+  it('does not convert an adjacent enemy Nomad', () => {
+    const board = boardOf([
+      [0, 0, 'plain'],
+      [1, 0, 'plain'],
+    ])
+    const state = makeState({
+      board,
+      units: [makeUnit('p1', 'city', { q: 0, r: 0 }), makeUnit('p2', 'nomad', { q: 1, r: 0 })],
+      players: [makePlayer('p1', { resources: { gold: 5, wood: 0, stone: 0 } }), makePlayer('p2')],
+    })
+    const [city, enemyNomad] = state.units
+
+    const next = applyUnitActionEffect(state, 'p1', 'city', action, { [city.id]: enemyNomad.coord }, content)
+
+    const stillEnemy = next.units.find((u) => u.id === enemyNomad.id)!
+    expect(stillEnemy.kind).toBe('nomad')
+    expect(stillEnemy.ownerId).toBe('p2')
+  })
+
+  it('is a no-op when the player cannot afford the cost', () => {
+    const board = boardOf([
+      [0, 0, 'plain'],
+      [1, 0, 'plain'],
+    ])
+    const state = makeState({
+      board,
+      units: [makeUnit('p1', 'city', { q: 0, r: 0 }), makeUnit('p1', 'nomad', { q: 1, r: 0 })],
+      players: [makePlayer('p1', { resources: { gold: 0, wood: 0, stone: 0 } })],
+    })
+    const [city, nomad] = state.units
+
+    const next = applyUnitActionEffect(state, 'p1', 'city', action, { [city.id]: nomad.coord }, content)
+
+    expect(next.units.find((u) => u.id === nomad.id)?.kind).toBe('nomad')
+  })
+
+  it('is a no-op once the target kind is at its supply cap', () => {
+    const board = boardOf([
+      [0, 0, 'plain'],
+      [1, 0, 'plain'],
+    ])
+    const state = makeState({
+      board,
+      units: [makeUnit('p1', 'city', { q: 0, r: 0 }), makeUnit('p1', 'nomad', { q: 1, r: 0 })],
+      players: [makePlayer('p1', { resources: { gold: 5, wood: 0, stone: 0 } })],
+    })
+    const [city, nomad] = state.units
+    const cappedContent: UnitContent = { ...content, unitSupplyCaps: { merchant: 0 } }
+
+    const next = applyUnitActionEffect(state, 'p1', 'city', action, { [city.id]: nomad.coord }, cappedContent)
+
+    expect(next.units.find((u) => u.id === nomad.id)?.kind).toBe('nomad')
+  })
+})
+
 describe('applyUnitActionEffect — trade-resource (Merchant)', () => {
   // Per ruling: a real 1-for-5 conversion. Buy/Sell/Wood/Stone are 4
   // separate actions (resource + mode fixed per action, not a per-unit

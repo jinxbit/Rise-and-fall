@@ -59,9 +59,15 @@ export function legalConvertTargets(state: GameState, playerId: string, unit: Un
 
   return neighborCoords(state.board, unit.coord).filter((coord) => {
     if (crossesCliff(state, unit.coord, coord, content.terrainLevels)) return false
-    const target = unitsAt(state, coord).find((u) => u.ownerId !== playerId)
+    const target = unitsAt(state, coord).find((u) =>
+      effect.targetOwner === 'own'
+        ? u.ownerId === playerId && (!effect.requiredTargetKind || u.kind === effect.requiredTargetKind)
+        : u.ownerId !== playerId,
+    )
     if (!target) return false
     if (effect.targetMobileOnly && !content.movementByKind[target.kind]?.isMobile) return false
+    const resultKind = effect.resultUnit ?? target.kind
+    if (resultKind !== target.kind && hasReachedSupplyCap(state, playerId, resultKind, content.unitSupplyCaps)) return false
     return true
   })
 }

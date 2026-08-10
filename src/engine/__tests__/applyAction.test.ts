@@ -446,6 +446,22 @@ describe('RESOLVE_UNIT_ACTION resolves immediately; the turn ends via PASS_ACTIO
     expect(p1.discardCardIds).not.toContain(cardIdFor('p1', 'city'))
   })
 
+  it('logs the actual resource amount the resolved action produced, not just its name', () => {
+    const state = makeTwoCitiesState()
+
+    const result = applyAction(
+      state,
+      { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [{ unitId: 'city_a', actionId: 'generate-income' }] },
+      twoCityContent,
+    )
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const entry = result.state.log.at(-1)!
+    expect(entry.message).toContain('Generate Income')
+    expect(entry.message).toContain('+3 gold')
+  })
+
   it('rejects re-resolving the same unit twice in the same turn', () => {
     const state = makeTwoCitiesState()
     const first = applyAction(

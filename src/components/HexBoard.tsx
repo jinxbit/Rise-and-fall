@@ -256,7 +256,14 @@ export function HexBoard(props: {
               </circle>
             )}
             <circle cx={x} cy={y} r={size * 0.4} fill={unit.color} stroke="#000" strokeWidth={1} />
-            <text x={x} y={y} textAnchor="middle" dominantBaseline="central" fontSize={size * 0.4} fill="#000">
+            <text
+              x={x}
+              y={y}
+              textAnchor="middle"
+              dominantBaseline="central"
+              fontSize={unit.label.length > 1 ? size * 0.3 : size * 0.4}
+              fill="#000"
+            >
               {unit.label}
             </text>
           </g>

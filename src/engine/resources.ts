@@ -48,3 +48,22 @@ export function spendResource(
     bank: { ...bank, [resourceId]: bank[resourceId] + amount },
   }
 }
+
+/**
+ * Renders how a player's resources actually changed between two snapshots
+ * as a parenthesized log suffix, e.g. " (+3 gold)" or " (+1 wood, -5
+ * gold)" — comparing actual before/after values (not an action's nominal
+ * effect) so it reflects reality even when a gain was clamped by a
+ * player/bank cap. Empty string if nothing changed (e.g. an Income action
+ * with no qualifying adjacent units). Used by applyResolveUnitAction
+ * (./applyAction.ts) so the log records what a resolved action actually
+ * produced/cost, not just its name.
+ */
+export function describeResourceDelta(before: Resources, after: Resources): string {
+  const parts: string[] = []
+  for (const key of ['gold', 'wood', 'stone'] as const) {
+    const delta = after[key] - before[key]
+    if (delta !== 0) parts.push(`${delta > 0 ? '+' : ''}${delta} ${key}`)
+  }
+  return parts.length > 0 ? ` (${parts.join(', ')})` : ''
+}

@@ -8,6 +8,7 @@ import type { UnitAction, UnitContent } from '../engine/unitContent'
 import type { PlayerRow } from '../lib/dbTypes'
 import type { GhostCell, UnitMarker } from './HexBoard'
 import { HexBoard } from './HexBoard'
+import { unitKindLabel } from './unitKindLabel'
 
 function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1)
@@ -344,7 +345,7 @@ export function RoundView(props: {
   const units: UnitMarker[] = state.units.map((u) => ({
     coord: u.coord,
     color: players.find((p) => p.id === u.ownerId)?.color ?? '#a3a3a3',
-    label: u.kind.slice(0, 1).toUpperCase(),
+    label: unitKindLabel(u.kind),
     highlighted: isMyActionTurn && availableUnitIds.has(u.id),
   }))
 

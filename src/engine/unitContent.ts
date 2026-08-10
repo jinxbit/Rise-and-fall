@@ -34,8 +34,20 @@ export interface TransformEffect {
 export interface ConvertEffect {
   actionType: 'convert'
   targetHex: { location: 'adj' }
-  targetOwner: 'enemy'
+  /**
+   * 'enemy' steals an adjacent enemy unit outright, keeping its kind (e.g.
+   * Temple's Convert Enemy Unit). 'own' instead targets one of the acting
+   * player's own adjacent units — used for a City upgrading an adjacent
+   * Nomad into a Merchant or Mountaineer (per ruling, the City doesn't
+   * conjure the Merchant/Mountaineer from nothing; it converts an existing
+   * Nomad into one) — paired with `requiredTargetKind`/`resultUnit` below.
+   */
+  targetOwner: 'enemy' | 'own'
   targetMobileOnly: boolean
+  /** Restricts which kind may be targeted — required for a meaningful 'own' conversion (e.g. 'nomad'); unused for 'enemy'. */
+  requiredTargetKind?: string
+  /** If set, the target unit's kind changes to this (e.g. nomad -> merchant); otherwise only ownership changes, same as before this field existed (the 'enemy' case). */
+  resultUnit?: string
   cost: ActionCost
 }
 

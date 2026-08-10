@@ -247,21 +247,37 @@ function applyTransform(state: GameState, playerId: string, unit: Unit, effect: 
   return { ...afterCost, idSequence, units: [...units, newUnit] }
 }
 
-/** Per ruling: convert can never cross a cliff either (same rule as create/transform). */
+/**
+ * Per ruling: convert can never cross a cliff either (same rule as
+ * create/transform). Covers two shapes: 'enemy' steals an adjacent enemy
+ * unit outright (kind unchanged — e.g. Temple's Convert Enemy Unit);
+ * 'own' upgrades one of the acting player's own adjacent units into a
+ * different kind in place (e.g. a City converting an adjacent Nomad into
+ * a Merchant/Mountaineer) — see ConvertEffect's doc comment.
+ */
 function applyConvert(state: GameState, playerId: string, unit: Unit, effect: ConvertEffect, targetCoord: Coordinate | undefined, content: UnitContent): GameState {
   if (!targetCoord) return state
   if (!isAdjacent(state, unit.coord, targetCoord)) return state
   if (crossesCliff(state, unit.coord, targetCoord, content.terrainLevels)) return state
 
-  const targetUnit = unitsAt(state, targetCoord).find((u) => u.ownerId !== playerId)
+  const targetUnit = unitsAt(state, targetCoord).find((u) =>
+    effect.targetOwner === 'own'
+      ? u.ownerId === playerId && (!effect.requiredTargetKind || u.kind === effect.requiredTargetKind)
+      : u.ownerId !== playerId,
+  )
   if (!targetUnit) return state
 
   if (effect.targetMobileOnly && !content.movementByKind[targetUnit.kind]?.isMobile) return state
 
+  const resultKind = effect.resultUnit ?? targetUnit.kind
+  if (resultKind !== targetUnit.kind && hasReachedSupplyCap(state, playerId, resultKind, content.unitSupplyCaps)) return state
+
   const afterCost = tryPayCost(state, playerId, effect.cost)
   if (!afterCost) return state
 
-  const units = afterCost.units.map((u) => (u.id === targetUnit.id ? { ...u, ownerId: playerId } : u))
+  const units = afterCost.units.map((u) =>
+    u.id === targetUnit.id ? { ...u, ownerId: playerId, kind: resultKind, movement: content.movementByKind[resultKind] ?? u.movement } : u,
+  )
   return { ...afterCost, units }
 }
 

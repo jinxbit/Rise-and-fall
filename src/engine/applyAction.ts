@@ -6,7 +6,7 @@ import { moveCard, syncCardZonesWithBoard } from './cards'
 import { eliminatePlayersWithNoCardToDecline } from './elimination'
 import { appendLog } from './log'
 import { calculatePurchaseCost } from './purchaseCost'
-import { spendResource } from './resources'
+import { describeResourceDelta, spendResource } from './resources'
 import { beginActionsPhase, beginPostActionsPhase, beginPurchasePhase, finishRound, skipEmptyDeclinePurchasers } from './round'
 import { EMPTY_BOARD_GENERATION_CONTENT } from './boardGenerationContent'
 import type { BoardGenerationContent } from './boardGenerationContent'
@@ -263,9 +263,20 @@ function applyResolveUnitAction(
 
   const resolvedUnitIdsThisTurn = [...nextState.resolvedUnitIdsThisTurn, ...resolvedUnitIds]
   nextState = { ...nextState, resolvedUnitIdsThisTurn }
+  // Reports what the resolved action(s) actually produced/cost (e.g. "+3
+  // gold" for a Trade, "+1 wood" for a Nomad gathering) rather than just
+  // naming the action — the real before/after resource delta across every
+  // assignment that resolved in this dispatch, not each action's nominal
+  // effect, so a cap-clamped gain still shows the true amount.
+  const resourcesBefore = state.players.find((p) => p.id === playerId)!.resources
+  const resourcesAfter = nextState.players.find((p) => p.id === playerId)!.resources
   nextState = {
     ...nextState,
-    log: appendLog(nextState, playerId, `Player ${playerId}'s ${card.kind} resolved ${resolvedActionNames.join(', ')}`),
+    log: appendLog(
+      nextState,
+      playerId,
+      `Player ${playerId}'s ${card.kind} resolved ${resolvedActionNames.join(', ')}${describeResourceDelta(resourcesBefore, resourcesAfter)}`,
+    ),
   }
   nextState = updateAchievementClaims(nextState, achievementContent, unitContent.unitSupplyCaps)
 

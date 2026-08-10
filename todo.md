@@ -1083,3 +1083,72 @@ state reference* (not just an equivalent one) for a real, unaffordable
 Transform to Temple, which is the specific property
 `applyResolveUnitAction` depends on to detect the no-op. 267 tests total
 (was 266); `tsc -b`/`oxlint`/`npm run build` all clean.
+
+## 24. Richer log messages, City's "Create Merchant/Mountaineer" rule fix, and distinct Merchant/Mountaineer icons
+
+Three requests in one message:
+
+**1. Log detail.** A resolved action's log line only ever named the
+action ("Player p1's ship resolved Trade"), never what it actually
+produced — no gold amount for a Trade, no resource for a Nomad's Produce
+Resource. Fix: `describeResourceDelta` (`resources.ts`) compares a
+player's resources before/after the whole `RESOLVE_UNIT_ACTION`
+dispatch and renders whatever changed as a suffix, e.g. "Player p1's
+ship resolved Trade (+5 gold)" or "Player p1's nomad resolved Produce
+Resource (+1 wood)". Deliberately compares actual before/after values
+rather than the effect's nominal amount, so a gain clamped by a
+resource cap still logs the true amount, and covers every resource-
+touching action type (income/produce/trade/trade-resource, and now
+convert/create/transform's costs too) via one general mechanism instead
+of special-casing per action type. `applyAction.ts` wires this into
+`applyResolveUnitAction`'s existing log line.
+
+**2. Rule fix (per correction — the previous description of these
+actions was wrong): City's "Create Merchant" and "Create Mountaineer"
+don't conjure a unit from nothing on an empty adjacent hex.** They
+convert an adjacent Nomad the player already owns into the target unit,
+at the same gold cost as before (2 gold, 1 gold). City's "Create Nomad"
+is unaffected — a City can still raise a fresh Nomad from nothing;
+only the Merchant/Mountaineer actions were wrong.
+
+`ConvertEffect` (`unitContent.ts`) gained two optional fields:
+`targetOwner` now accepts `'own'` in addition to the existing `'enemy'`
+(Temple's Convert Enemy Unit is unchanged — still `'enemy'`,
+kind-preserving), `requiredTargetKind` restricts which kind may be
+targeted (`'nomad'`, so a City can't "convert" an adjacent Merchant or
+Ship), and `resultUnit` changes the target's kind on conversion instead
+of only its ownership. `applyConvert` (`unitActions.ts`) and
+`legalConvertTargets` (`actionTargeting.ts`) both grew the matching
+branch — same adjacency/cliff/cost/supply-cap rules as any other
+convert, just filtering by owner+kind instead of "any enemy unit" and
+rewriting the target's `kind`/`movement` in place instead of only its
+`ownerId`. `content/units.json`'s `create-merchant`/`create-mountaineer`
+actions were rewritten to this shape (ids kept as-is so old
+`actionHistory` entries still resolve on replay; only name/description/
+effect changed). Entry `#22`'s no-op rejection already covers this
+automatically — an unaffordable or illegal City conversion is rejected
+outright, not silently accepted, with no extra work.
+
+**3. Mountaineer and Merchant rendered as the same on-board icon** — both
+kinds' first letter is 'M', and unit markers were labeled by first
+letter alone. New `unitKindLabel()` (`components/unitKindLabel.ts`, its
+own module so `HexBoard.tsx` still exports only components, keeping Fast
+Refresh working) gives every kind an explicit, unambiguous label:
+city 'C', temple 'T', nomad 'N', ship 'S', merchant 'Mr', mountaineer
+'Mt' — the pair that collided are the only two-letter ones. `HexBoard`'s
+unit-marker text shrinks slightly for two-letter labels so they still
+fit inside the marker circle. `RoundView.tsx` and `BoardSetupView.tsx`
+(the two places unit markers are built) both switched from
+`kind.slice(0, 1).toUpperCase()` to this shared helper.
+
+Added regression coverage: a new `applyUnitActionEffect — convert,
+'own'` describe block in `unitActions.test.ts` (converts the right
+adjacent unit in place; rejects a wrong-kind adjacent own unit, an
+adjacent enemy Nomad, an unaffordable cost, and a full supply cap); a
+matching `legalConvertTargets, targetOwner: 'own'` block in
+`actionTargeting.test.ts`; a real-content regression in
+`unitActions.realContent.test.ts` converting a real Nomad into a real
+Merchant via the real `create-merchant` action/cost; and an
+`applyAction.test.ts` test asserting a resolved Income's log entry
+contains both the action name and "+3 gold". 279 tests total (was 267);
+`tsc -b`/`oxlint`/`npm run build` all clean.
