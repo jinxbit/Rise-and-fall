@@ -173,7 +173,7 @@
       "id": "merchant",
       "name": "Merchant",
       "description": "",
-      "victoryPoints": { "byBoardCount": [] },
+      "victoryPoints": { "byBoardCount": [1, 4, 9, 16, 25, 36] },
       "supply": { "byPlayerCount": { "2": 6, "3": 6, "4": 6 } },
       "movement": {
         "isMobile": true,
@@ -315,7 +315,7 @@
       "id": "ship",
       "name": "Ship",
       "description": "",
-      "victoryPoints": { "byBoardCount": [] },
+      "victoryPoints": { "byBoardCount": [5, 10, 15, 20, 25] },
       "supply": { "byPlayerCount": { "2": 5, "3": 5, "4": 5 } },
       "movement": {
         "isMobile": true,
