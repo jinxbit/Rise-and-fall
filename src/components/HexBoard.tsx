@@ -403,7 +403,14 @@ export function HexBoard(props: {
               <foreignObject x={x + plateSize * 0.4} y={y - plateSize * 1.05} width={size * HISTORY_LABEL_WIDTH_FACTOR} height={size * 0.62}>
                 <div
                   style={{ fontSize: size * 0.28, lineHeight: 1.1 }}
-                  className="inline-flex w-fit items-center whitespace-nowrap rounded-md border border-neutral-700 bg-neutral-900/95 px-1.5 py-0.5 font-medium text-neutral-100"
+                  // `w-fit`/shrink-to-fit sizing doesn't reliably compute inside
+                  // an SVG foreignObject (observed in Chromium: the box instead
+                  // expands to fill the foreignObject's full declared width,
+                  // pushing the actually-narrow text mostly out of view) — fill
+                  // the box exactly instead and center within it, the same
+                  // fixed-size approach the action-menu option boxes below
+                  // already use safely.
+                  className="flex h-full w-full items-center justify-center whitespace-nowrap rounded-md border border-neutral-700 bg-neutral-900/95 px-1.5 font-medium text-neutral-100"
                 >
                   {unit.historyLabel}
                 </div>

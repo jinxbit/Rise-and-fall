@@ -1726,3 +1726,46 @@ built in #34); visually confirmed the new checkbox via a screenshot.
 still needs to be applied to the live Supabase project before the
 checkbox actually works end-to-end — I can't reach the SQL editor or
 run `supabase db push` from here.
+
+## 37. Bug fix: a history-review resource-delta label ("+3 Gold" etc.) rendered as an unreadable dark bar instead of a pill
+
+Reported: "the income generation label is not visible - only a small
+part of the top shows." Reproduced via a real headless-browser
+screenshot (not just unit tests, which don't catch layout bugs like
+this) of a City that had just generated income with history review
+turned on: the `historyLabel` badge rendered as a wide, dark,
+rounded-rectangle bar overlapping the unit's own halo/glyph, with only
+a thin sliver of the "+3 Gold" text peeking out — not the intended
+small pill floating above the unit.
+
+Root cause: the label's inner `<div>` (inside an SVG `<foreignObject>`)
+used `inline-flex w-fit` to shrink-wrap tightly around its own text,
+relying on CSS `fit-content` sizing. That doesn't reliably compute
+inside a `foreignObject` in Chromium — instead of shrinking to the text,
+the div expanded to fill the entire foreignObject's declared width
+(`size * 3.4`, generously sized to fit worst-case text like "+1 Wood,
+-5 Gold"), producing the oversized dark bar, with the actually-narrow
+text left near one edge instead of centered — which is what "only a
+small part... shows" was describing.
+
+Fixed by not fighting the browser's foreignObject quirks: dropped
+`w-fit`/`inline-flex` and made the div `h-full w-full` with
+`items-center justify-center`, filling the foreignObject's already-sized
+box exactly and centering the text within it — the identical, proven
+pattern the action-menu radial option boxes a few lines below already
+use for the same "text inside a fixed-size foreignObject" problem.
+Also dropped the now-redundant `py-0.5` vertical padding, since
+`h-full` + centering handles vertical spacing without it (that padding
+had left uncomfortably little headroom against the label's other own
+box's fixed height budget, a second near-miss worth closing while in
+here even though it wasn't the reported bug's actual cause).
+
+No unit test changes: nothing in the existing suite asserted on the
+label's specific CSS classes, and RTL/jsdom doesn't run real CSS layout
+(`fit-content` sizing, `foreignObject` clipping) — this class of bug is
+invisible to the existing test infra by construction, which is exactly
+why it shipped unnoticed. Verified only by real rendering: a fresh
+headless-Chromium screenshot of both a short label ("+3 Gold") and the
+longest realistic one ("-5 Gold, +1 Wood") confirmed both now render as
+a normal, fully-legible pill. 332 tests unchanged; `tsc -b`/`oxlint`/
+`npm run build` all clean.
