@@ -373,6 +373,12 @@ export function applyUnitActionEffect(
   }
 
   // A destroySelf transform or a convert can change who owns/has a unit of
-  // a given kind — resync hand/supply zones for every affected card.
-  return syncCardZonesWithBoard(nextState)
+  // a given kind — resync hand/supply zones for every affected card. Skipped
+  // when nothing about `state` actually changed (every acting unit's action
+  // turned out to be illegal/unaffordable), so a genuine no-op is
+  // detectable by callers via reference equality — see
+  // applyResolveUnitAction in ./applyAction.ts, which rejects a
+  // RESOLVE_UNIT_ACTION outright rather than silently accepting a no-op as
+  // the unit's turn.
+  return nextState === state ? nextState : syncCardZonesWithBoard(nextState)
 }

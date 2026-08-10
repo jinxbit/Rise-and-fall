@@ -971,3 +971,88 @@ assertion was actually asserting the bug. Switched it to a Ship card
 (a kind the fixture's players do have) so it tests what it always meant
 to: recycle + first-player rotation, not this interaction. 259 tests
 total (was 258); `tsc -b`/`oxlint`/`npm run build` all clean.
+
+## 22. An unaffordable/illegal unit action was silently accepted as the unit's turn — fixed, and the radial menu now disables actions that can't be taken
+
+Reported: a Nomad was chosen to Transform to City with insufficient
+resources. No City was created, but the engine still treated it as the
+Nomad's action for the turn — it was marked resolved and even appeared
+in the log, exactly as if the transform had actually happened.
+
+Root cause: `applyCreate`/`applyTransform`/`applyConvert`/
+`applyTradeResource`/`applyMove` (`unitActions.ts`) were all written to
+fail *silently* — every guard clause (can't afford the cost, no legal
+target, adjacency/terrain/supply-cap/cliff violation) just does
+`return state` unchanged, on the assumption that a caller resolving a
+whole kind's worth of units at once (`applyUnitActionEffect`'s normal
+multi-unit mode) wants the other units to keep acting even if one of
+them has nothing legal to do. But `applyResolveUnitAction`
+(`applyAction.ts`) — the immediate-resolve path introduced by entry
+`#4`/`#5` above — was treating "the call returned *some* state" as proof
+an action happened, unconditionally pushing the unit into
+`resolvedUnitIdsThisTurn` and the log regardless of whether anything
+about the state actually changed.
+
+Fix, in two parts:
+- `applyUnitActionEffect` now returns its input `state` completely
+  unchanged (same object reference) when nothing about it changed —
+  previously it always ran the loop's result through
+  `syncCardZonesWithBoard`, which unconditionally rebuilds `players` via
+  `.map` and so always returned a *new* object even on a total no-op,
+  masking the no-op from any caller trying to detect one by reference
+  equality. Skipping that call when nothing changed is safe: sync only
+  ever reacts to a change in `state.units`, so if nothing changed there's
+  nothing for it to correct anyway.
+- `applyResolveUnitAction` now compares state before/after each
+  assignment by reference. For `create`/`transform`/`convert`/
+  `trade-resource`/`move` — the action types with a real precondition
+  (a cost, a required target, an adjacency/terrain/supply-cap rule) that
+  can make them genuinely impossible — an unchanged reference means the
+  action didn't happen, so that assignment is left out of
+  `resolvedUnitIds` (and thus out of the log) entirely, same as if the
+  unit id or action id had been invalid. `income`/`produce`/`trade` are
+  deliberately exempted from this check: they have no cost and no
+  required target, so they always succeed even when their numeric payout
+  happens to be zero (e.g. an Income action with no qualifying adjacent
+  units) — that's a legitimate resolved turn, not a failure, and forcing
+  it to fail would risk soft-locking a player with nothing else to pick.
+  If a `RESOLVE_UNIT_ACTION` ends up resolving nothing at all this way,
+  the whole dispatch is rejected exactly like the pre-existing
+  "already acted / not a legal action" case — no partial log entry, no
+  actionHistory entry, the unit remains free to act.
+
+Better yet (per the follow-up request): the radial action menu
+(`HexBoard.tsx`/`RoundView.tsx`) now disables options the clicked unit
+can't currently take, instead of only rejecting them after the fact. A
+new `isActionAvailableForUnit` (`actionTargeting.ts`) reuses the exact
+same legal-target queries the UI's target-highlighting already calls
+(`legalCreateTargets`/`legalTransformTargets`/`legalConvertTargets`),
+adds the equivalent checks for `trade-resource` (afford the gold to buy,
+or hold the resource to sell) and `move` (at least one legal
+destination via `legalMoveDestinations`), and reports `income`/
+`produce`/`trade` as always available — mirroring
+`ACTION_TYPES_WITH_PRECONDITIONS` on the engine side so the UI and the
+engine agree on which action types can even be unavailable.
+`RoundView.tsx` computes this per option when building the menu and
+passes a new `ActionMenuOption.disabled` flag through to `HexBoard.tsx`;
+`selectAction` also re-checks it before dispatching, as defense in depth
+against a stale menu. Per the explicit constraint that "disablement
+can't be marked with an opacity": a disabled option renders with a
+distinct dashed red border, dark neutral background, and dimmed-but-
+still-solid (not translucent) text, a dashed connector line instead of
+solid, `cursor-not-allowed` instead of `cursor-pointer`, and no
+`onClick` — a different visual language from the normal indigo box
+entirely, rather than the same box faded out.
+
+Added regression coverage: `applyAction.test.ts` now has a Nomad fixture
+where Transform-to-City costs more wood than the player has, confirming
+the whole `RESOLVE_UNIT_ACTION` is rejected with no unit created, no log
+entry, and `resolvedUnitIdsThisTurn` untouched; a companion test
+confirms the identical action succeeds once funded; and a third confirms
+Income with a legitimately-zero payout is still accepted, not
+mistakenly rejected by the same logic. `actionTargeting.test.ts` gained
+a new `isActionAvailableForUnit` describe block covering all of
+income/produce/trade (always true), create/transform (mirrors legal
+targets), trade-resource (buy/sell affordability), and move (legal
+destinations exist). 266 tests total (was 259); `tsc -b`/`oxlint`/
+`npm run build` all clean.

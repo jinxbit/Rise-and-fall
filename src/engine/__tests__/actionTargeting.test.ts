@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { legalConvertTargets, legalCreateTargets, legalTransformTargets } from '../actionTargeting'
+import { isActionAvailableForUnit, legalConvertTargets, legalCreateTargets, legalTransformTargets } from '../actionTargeting'
 import { createEmptyBoard, setTile } from '../board'
-import type { ConvertEffect, CreateEffect, TransformEffect, UnitContent } from '../unitContent'
+import type { ConvertEffect, CreateEffect, TransformEffect, UnitAction, UnitContent } from '../unitContent'
 import type { Coordinate, GameState, Player, Terrain, Unit } from '../types'
 
 function makePlayer(id: string, overrides: Partial<Player> = {}): Player {
@@ -264,5 +264,76 @@ describe('legalConvertTargets', () => {
     const state = makeState({ board, units: [unit, own], players: [makePlayer('p1')] })
 
     expect(legalConvertTargets(state, 'p1', unit, effect, emptyContent)).toEqual([])
+  })
+})
+
+describe('isActionAvailableForUnit', () => {
+  it('income/produce/trade are always available, even when their payout would be zero', () => {
+    const incomeAction: UnitAction = { id: 'a', name: 'Income', description: '', effect: { actionType: 'income', goldByTerrain: { forest: 3 } } }
+    const produceAction: UnitAction = { id: 'b', name: 'Produce', description: '', effect: { actionType: 'produce', resourceByTerrain: { forest: { wood: 1 } } } }
+    const tradeAction: UnitAction = { id: 'c', name: 'Trade', description: '', effect: { actionType: 'trade', goldPerCity: 1 } }
+    const unit = makeUnit('p1', 'city', { q: 0, r: 0 })
+    // On Plain, not Forest, so income/produce would both yield nothing —
+    // still reported as available, since neither action has a cost or a
+    // required target that could make it illegal.
+    const state = makeState({ board: boardOf([[0, 0, 'plain']]), units: [unit], players: [makePlayer('p1')] })
+
+    expect(isActionAvailableForUnit(state, 'p1', unit, incomeAction, emptyContent)).toBe(true)
+    expect(isActionAvailableForUnit(state, 'p1', unit, produceAction, emptyContent)).toBe(true)
+    expect(isActionAvailableForUnit(state, 'p1', unit, tradeAction, emptyContent)).toBe(true)
+  })
+
+  it('create/transform/convert mirror their legal-targets query — unavailable with no legal target', () => {
+    const createAction: UnitAction = {
+      id: 'a',
+      name: 'Create Nomad',
+      description: '',
+      effect: { actionType: 'create', targetUnit: 'nomad', targetHex: { location: 'adj' }, cost: { gold: 1 } },
+    }
+    const unit = makeUnit('p1', 'city', { q: 0, r: 0 })
+    const state = makeState({ board: boardOf([[0, 0, 'plain'], [1, 0, 'plain']]), units: [unit], players: [makePlayer('p1', { resources: { gold: 0, wood: 0, stone: 0 } })] })
+
+    // Can't afford the cost, so there's no legal target at all.
+    expect(isActionAvailableForUnit(state, 'p1', unit, createAction, emptyContent)).toBe(false)
+
+    const funded = { ...state, players: [makePlayer('p1', { resources: { gold: 5, wood: 0, stone: 0 } })] }
+    expect(isActionAvailableForUnit(funded, 'p1', unit, createAction, emptyContent)).toBe(true)
+  })
+
+  it('trade-resource is unavailable when the player cannot afford to buy, or has nothing to sell', () => {
+    const buyAction: UnitAction = {
+      id: 'buy',
+      name: 'Buy Wood',
+      description: '',
+      effect: { actionType: 'trade-resource', resource: 'wood', mode: 'buy', resourceAmount: 1, goldPerResource: 2 },
+    }
+    const sellAction: UnitAction = {
+      id: 'sell',
+      name: 'Sell Stone',
+      description: '',
+      effect: { actionType: 'trade-resource', resource: 'stone', mode: 'sell', resourceAmount: 1, goldPerResource: 2 },
+    }
+    const unit = makeUnit('p1', 'merchant', { q: 0, r: 0 })
+    const poor = makeState({
+      board: boardOf([[0, 0, 'plain']]),
+      units: [unit],
+      players: [makePlayer('p1', { resources: { gold: 0, wood: 0, stone: 0 } })],
+    })
+    expect(isActionAvailableForUnit(poor, 'p1', unit, buyAction, emptyContent)).toBe(false)
+    expect(isActionAvailableForUnit(poor, 'p1', unit, sellAction, emptyContent)).toBe(false)
+
+    const stocked = { ...poor, players: [makePlayer('p1', { resources: { gold: 2, wood: 0, stone: 1 } })] }
+    expect(isActionAvailableForUnit(stocked, 'p1', unit, buyAction, emptyContent)).toBe(true)
+    expect(isActionAvailableForUnit(stocked, 'p1', unit, sellAction, emptyContent)).toBe(true)
+  })
+
+  it('move is unavailable with no legal destination', () => {
+    const moveAction: UnitAction = { id: 'm', name: 'Move', description: '', effect: { actionType: 'move' } }
+    const unit = makeUnit('p1', 'nomad', { q: 0, r: 0 }, { isMobile: true, terrains: ['plain'] })
+    const isolated = makeState({ board: boardOf([[0, 0, 'plain']]), units: [unit], players: [makePlayer('p1')] })
+    expect(isActionAvailableForUnit(isolated, 'p1', unit, moveAction, emptyContent)).toBe(false)
+
+    const withNeighbor = { ...isolated, board: boardOf([[0, 0, 'plain'], [1, 0, 'plain']]) }
+    expect(isActionAvailableForUnit(withNeighbor, 'p1', unit, moveAction, emptyContent)).toBe(true)
   })
 })

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { legalConvertTargets, legalCreateTargets, legalTransformTargets } from '../engine/actionTargeting'
+import { isActionAvailableForUnit, legalConvertTargets, legalCreateTargets, legalTransformTargets } from '../engine/actionTargeting'
 import { legalMoveDestinations } from '../engine/movement'
 import { calculatePurchaseCost } from '../engine/purchaseCost'
 import type { AchievementContent } from '../engine/achievementContent'
@@ -314,9 +314,10 @@ export function RoundView(props: {
   }
 
   function selectAction(actionId: string) {
-    if (!menuUnit) return
+    if (!menuUnit || !myPlayerId) return
     const action = actionsForKind.find((a) => a.id === actionId)
     if (!action) return
+    if (!isActionAvailableForUnit(state, myPlayerId, menuUnit, action, unitContent)) return
     if (actionNeedsTargeting(action.effect)) {
       setMode({ kind: 'targeting', unitId: menuUnit.id, actionId })
     } else {
@@ -348,13 +349,18 @@ export function RoundView(props: {
   }))
 
   const ghostCells: GhostCell[] = legalTargets.map((coord) => ({ coord, legal: true }))
-  const actionMenu = menuUnit
-    ? {
-        coord: menuUnit.coord,
-        options: actionsForKind.map((a) => ({ id: a.id, label: a.name })),
-        onSelect: selectAction,
-      }
-    : undefined
+  const actionMenu =
+    menuUnit && myPlayerId
+      ? {
+          coord: menuUnit.coord,
+          options: actionsForKind.map((a) => ({
+            id: a.id,
+            label: a.name,
+            disabled: !isActionAvailableForUnit(state, myPlayerId, menuUnit, a, unitContent),
+          })),
+          onSelect: selectAction,
+        }
+      : undefined
 
   return (
     <div className="flex flex-col gap-4">

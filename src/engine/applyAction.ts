@@ -175,6 +175,17 @@ function finishActionsTurn(state: GameState, playerId: string, achievementConten
 }
 
 /**
+ * Which action types have a real precondition (a cost, a required target,
+ * an adjacency/terrain/supply-cap rule) that can make them impossible to
+ * perform right now — used by applyResolveUnitAction below to tell a
+ * genuine no-op (e.g. a Transform that can't be afforded) apart from
+ * income/produce/trade, which have no cost or required target and so
+ * always succeed even when their numeric payout happens to be zero (e.g.
+ * no adjacent qualifying units).
+ */
+const ACTION_TYPES_WITH_PRECONDITIONS = new Set(['create', 'transform', 'convert', 'trade-resource', 'move'])
+
+/**
  * Round step 2, rules 3 & 4's action part: resolves one or more of the
  * active player's units immediately — applied and logged right away, not
  * staged behind a later submit — which is what lets one unit's effect
@@ -231,13 +242,23 @@ function applyResolveUnitAction(
     const unitAction = actionsForKind.find((a) => a.id === assignment.actionId)
     if (!unitAction) continue
     const targets = assignment.target ? { [assignment.unitId]: assignment.target } : {}
+    const beforeState = nextState
     nextState = applyUnitActionEffect(nextState, playerId, card.kind, unitAction, targets, unitContent, [assignment.unitId])
+    // A create/transform/convert/trade-resource/move that didn't actually
+    // change anything means its preconditions weren't met (e.g. an
+    // unaffordable cost, an illegal or missing target, a full supply cap) —
+    // that's a failed action, not this unit's turn, so it's left out of
+    // resolvedUnitIds entirely rather than being marked resolved and logged.
+    if (ACTION_TYPES_WITH_PRECONDITIONS.has(unitAction.effect.actionType) && nextState === beforeState) continue
     resolvedUnitIds.push(assignment.unitId)
     if (!resolvedActionNames.includes(unitAction.name)) resolvedActionNames.push(unitAction.name)
   }
 
   if (resolvedUnitIds.length === 0) {
-    return { ok: false, error: 'No unit action was resolved (already acted this turn, or not a legal action for this card)' }
+    return {
+      ok: false,
+      error: "No unit action was resolved (already acted this turn, not a legal action for this card, or its cost/target requirements weren't met)",
+    }
   }
 
   const resolvedUnitIdsThisTurn = [...nextState.resolvedUnitIdsThisTurn, ...resolvedUnitIds]

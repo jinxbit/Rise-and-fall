@@ -89,6 +89,14 @@ export interface ActionMenuOption {
   id: string
   /** Full action name, shown in full in the option's box — no abbreviation, since a 1-2 letter label made the menu unusable (had to hover to find out what each option was). */
   label: string
+  /**
+   * True when the unit can't actually perform this action right now (e.g.
+   * unaffordable, no legal target) — rendered with a distinct dim-red/
+   * slashed-border treatment and no click handler, never with reduced
+   * opacity (that reads as "loading"/"disabled-and-still-legible" rather
+   * than "you cannot pick this").
+   */
+  disabled?: boolean
 }
 
 export interface ActionMenu {
@@ -264,13 +272,30 @@ export function HexBoard(props: {
             const oy = actionMenuCenter.y + radius * Math.sin(angle)
             const boxWidth = size * ACTION_MENU_BOX_WIDTH_FACTOR
             const boxHeight = size * ACTION_MENU_BOX_HEIGHT_FACTOR
+            const disabled = option.disabled ?? false
             return (
-              <g key={option.id} className="cursor-pointer" onClick={() => props.actionMenu?.onSelect(option.id)}>
-                <line x1={actionMenuCenter.x} y1={actionMenuCenter.y} x2={ox} y2={oy} stroke="#71717a" strokeWidth={1} />
+              <g
+                key={option.id}
+                className={disabled ? 'cursor-not-allowed' : 'cursor-pointer'}
+                onClick={disabled ? undefined : () => props.actionMenu?.onSelect(option.id)}
+              >
+                <line
+                  x1={actionMenuCenter.x}
+                  y1={actionMenuCenter.y}
+                  x2={ox}
+                  y2={oy}
+                  stroke={disabled ? '#3f3f46' : '#71717a'}
+                  strokeWidth={1}
+                  strokeDasharray={disabled ? '3 3' : undefined}
+                />
                 <foreignObject x={ox - boxWidth / 2} y={oy - boxHeight / 2} width={boxWidth} height={boxHeight}>
                   <div
                     style={{ fontSize: size * 0.3, lineHeight: 1.15 }}
-                    className="flex h-full w-full items-center justify-center rounded-md border-2 border-indigo-400 bg-indigo-950 px-1 text-center font-medium text-indigo-100 hover:bg-indigo-900"
+                    className={
+                      disabled
+                        ? 'flex h-full w-full items-center justify-center rounded-md border-2 border-dashed border-red-900 bg-neutral-900 px-1 text-center font-medium text-neutral-500'
+                        : 'flex h-full w-full items-center justify-center rounded-md border-2 border-indigo-400 bg-indigo-950 px-1 text-center font-medium text-indigo-100 hover:bg-indigo-900'
+                    }
                   >
                     {option.label}
                   </div>

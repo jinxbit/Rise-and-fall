@@ -570,6 +570,115 @@ describe('RESOLVE_UNIT_ACTION resolves immediately; the turn ends via PASS_ACTIO
   })
 })
 
+describe('RESOLVE_UNIT_ACTION rejects an action whose cost/target preconditions were not met (bug: an unaffordable Transform silently consumed the unit\'s turn)', () => {
+  const nomadContent: UnitContent = {
+    actionsByKind: {
+      nomad: [
+        {
+          id: 'transform-to-city',
+          name: 'Transform to City',
+          description: '',
+          effect: {
+            actionType: 'transform',
+            targetUnit: 'city',
+            targetHex: { terrainType: ['plain'], location: 'self' },
+            destroySelf: true,
+            cost: { wood: 5 },
+          },
+        },
+        { id: 'generate-income', name: 'Generate Income', description: '', effect: { actionType: 'income', goldByTerrain: { forest: 3 } } },
+      ],
+    },
+    movementByKind: {},
+    terrainLevels: { water: 0, plain: 1, forest: 2, mountain: 3, glacier: 4 },
+    resourceCaps: { gold: null, wood: 5, stone: 5 },
+    unitSupplyCaps: {},
+  }
+
+  function makeSingleNomadState(): GameState {
+    const board = setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'plain')
+    const nomad: Unit = { id: 'nomad_a', ownerId: 'p1', kind: 'nomad', coord: { q: 0, r: 0 }, movement: { isMobile: true, terrains: [], canCrossCliffs: false }, traits: [] }
+    const lobby = createNewGame({
+      gameId: 'game_5',
+      playMode: 'hotseat',
+      board,
+      players: [
+        { id: 'p1', authUserId: null, displayName: 'Alice', color: 'red' },
+        { id: 'p2', authUserId: null, displayName: 'Bob', color: 'blue' },
+      ],
+      resourceBank: { gold: 100, wood: 100, stone: 100 },
+    })
+    // p2 has no units, so they're eliminated for having no card to choose —
+    // leaves p1 the only pending player, same trick as the fixtures above.
+    const active: GameState = { ...lobby, board, units: [nomad], status: 'active' }
+    const selecting = beginSelectCardsPhase(syncCardZonesWithBoard(active))
+    const chosen = applyAction(selecting, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'nomad') })
+    if (!chosen.ok) throw new Error('setup failed')
+    return chosen.state
+  }
+
+  it('rejects the whole dispatch when the unit cannot afford the cost — no unit is created, nothing is logged, the unit stays free to act', () => {
+    const state = makeSingleNomadState()
+    expect(state.players.find((p) => p.id === 'p1')!.resources.wood).toBe(0)
+
+    const result = applyAction(
+      state,
+      { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [{ unitId: 'nomad_a', actionId: 'transform-to-city' }] },
+      nomadContent,
+    )
+
+    expect(result.ok).toBe(false)
+    // Nothing about the input state leaked through: no City appeared, no
+    // log entry was appended, and the actionHistory/resolvedUnitIdsThisTurn
+    // this bug report complained about staying untouched.
+    expect(state.units).toHaveLength(1)
+    expect(state.units[0].kind).toBe('nomad')
+    expect(state.resolvedUnitIdsThisTurn).toEqual([])
+  })
+
+  it('the same Transform succeeds once the unit can actually afford it', () => {
+    const state = makeSingleNomadState()
+    const funded: GameState = {
+      ...state,
+      players: state.players.map((p) => (p.id === 'p1' ? { ...p, resources: { ...p.resources, wood: 5 } } : p)),
+    }
+
+    const result = applyAction(
+      funded,
+      { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [{ unitId: 'nomad_a', actionId: 'transform-to-city' }] },
+      nomadContent,
+    )
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.state.units.some((u) => u.kind === 'city' && u.coord.q === 0 && u.coord.r === 0)).toBe(true)
+    // nomad_a was p1's only acting unit, so resolving it ends the turn on
+    // its own — resolvedUnitIdsThisTurn is already reset for the next
+    // player, exactly like the "resolving the last unassigned unit ends the
+    // turn automatically" case above; the one new actionHistory entry is
+    // what shows this resolved successfully rather than being rejected.
+    expect(result.state.actionHistory.at(-1)?.action.type).toBe('RESOLVE_UNIT_ACTION')
+    expect(result.state.actionHistory).toHaveLength(state.actionHistory.length + 1)
+  })
+
+  it('does NOT reject income just because its payout happens to be zero — that is still a valid resolved turn', () => {
+    const state = makeSingleNomadState()
+
+    const result = applyAction(
+      state,
+      { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [{ unitId: 'nomad_a', actionId: 'generate-income' }] },
+      nomadContent,
+    )
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.state.players.find((p) => p.id === 'p1')!.resources.gold).toBe(0)
+    // Same "only acting unit" auto-end-turn case as above.
+    expect(result.state.actionHistory.at(-1)?.action.type).toBe('RESOLVE_UNIT_ACTION')
+    expect(result.state.actionHistory).toHaveLength(state.actionHistory.length + 1)
+  })
+})
+
 describe('applyAction — PLACE_TILE/PLACE_UNIT dispatch during boardSetup', () => {
   function makeBoardSetupState(): GameState {
     const lobby = createNewGame({
