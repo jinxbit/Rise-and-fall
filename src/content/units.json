@@ -67,7 +67,7 @@
       "id": "temple",
       "name": "Temple",
       "description": "",
-      "victoryPoints": { "byBoardCount": [] },
+      "victoryPoints": { "byBoardCount": [5, 10, 15] },
       "supply": { "byPlayerCount": { "2": 3, "3": 3, "4": 3 } },
       "movement": {
         "isMobile": false,
@@ -103,7 +103,7 @@
       "id": "nomad",
       "name": "Nomad",
       "description": "",
-      "victoryPoints": { "byBoardCount": [] },
+      "victoryPoints": { "byBoardCount": [1,2,3,4,5,6,7,8] },
       "supply": { "byPlayerCount": { "2": 8, "3": 8, "4": 8 } },
       "movement": {
         "isMobile": true,
