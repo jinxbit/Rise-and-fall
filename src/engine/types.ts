@@ -50,6 +50,18 @@ export interface Tile {
   terrain: Terrain
   /** Unit/settlement ids currently occupying this tile. */
   occupantIds: string[]
+  /**
+   * Which physical tile placement this hex came from — every hex a single
+   * PLACE_TILE (or the initial seeding) covers shares the same id, set by
+   * applyTilePlacement()/seedStartingWaterTiles() (./boardGeneration.ts).
+   * Used to tell "two adjacent hexes of the same tile" apart from "hexes
+   * from two different tiles" — currently only board setup's Sea-touching
+   * rule cares (see touchesEnoughExistingTerrain()); undefined for a hex
+   * that predates this field (an already-persisted game) or was never set
+   * by a real placement (most test fixtures build boards directly with
+   * setTile()).
+   */
+  placementId?: string
 }
 
 export interface Board {

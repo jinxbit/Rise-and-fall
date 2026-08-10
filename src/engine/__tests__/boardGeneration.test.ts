@@ -230,9 +230,30 @@ describe('touchesEnoughExistingTerrain', () => {
     expect(touchesEnoughExistingTerrain(board, placedCells, 'water', 2)).toBe(false)
   })
 
-  it('counts 2 distinct existing hexes as enough for a minimum of 2', () => {
-    // (0,0) and (1,-1) are both neighbors of (1,0).
+  it('counts 2 hexes with no placementId (e.g. an already-persisted game, or a test board built with setTile) as 2 separate tiles, falling back to one per hex', () => {
+    // (0,0) and (1,-1) are both neighbors of (1,0). Neither has a
+    // placementId (boardOf() builds via setTile directly), so each falls
+    // back to being its own standalone "tile" rather than merging.
     const board = boardOf([[0, 0, 'water'], [1, -1, 'water']])
+    const placedCells = [{ q: 1, r: 0 }, { q: 2, r: 0 }]
+    expect(touchesEnoughExistingTerrain(board, placedCells, 'water', 2)).toBe(true)
+  })
+
+  it('counts 2 adjacent hexes from the SAME earlier tile placement as only 1 tile, not 2 — the reported bug', () => {
+    // (0,0) and (1,-1) are both neighbors of (1,0), same as the test
+    // above, but this time both hexes share one placementId (as they
+    // would if a single real tile placement had covered both) — touching
+    // 2 of that one tile's hexes still only connects to 1 existing tile.
+    let board = boardOf([[0, 0, 'water'], [1, -1, 'water']])
+    board = { ...board, tiles: { ...board.tiles, '0,0': { ...board.tiles['0,0'], placementId: 'tile_A' }, '1,-1': { ...board.tiles['1,-1'], placementId: 'tile_A' } } }
+    const placedCells = [{ q: 1, r: 0 }, { q: 2, r: 0 }]
+    expect(touchesEnoughExistingTerrain(board, placedCells, 'water', 2)).toBe(false)
+    expect(touchesEnoughExistingTerrain(board, placedCells, 'water', 1)).toBe(true)
+  })
+
+  it('counts 2 hexes from 2 DIFFERENT earlier tile placements as 2 tiles', () => {
+    let board = boardOf([[0, 0, 'water'], [1, -1, 'water']])
+    board = { ...board, tiles: { ...board.tiles, '0,0': { ...board.tiles['0,0'], placementId: 'tile_A' }, '1,-1': { ...board.tiles['1,-1'], placementId: 'tile_B' } } }
     const placedCells = [{ q: 1, r: 0 }, { q: 2, r: 0 }]
     expect(touchesEnoughExistingTerrain(board, placedCells, 'water', 2)).toBe(true)
   })
@@ -295,6 +316,19 @@ describe('applyTilePlacement', () => {
     const next = applyTilePlacement(board, [{ q: 0, r: 0 }], 'plain')
     expect(getTile(next, { q: 0, r: 0 })?.occupantIds).toEqual(['unit_1'])
   })
+
+  it('tags every covered hex with the given placementId', () => {
+    const board = createEmptyBoard('hex')
+    const next = applyTilePlacement(board, [{ q: 0, r: 0 }, { q: 1, r: 0 }], 'water', 'tile_A')
+    expect(getTile(next, { q: 0, r: 0 })?.placementId).toBe('tile_A')
+    expect(getTile(next, { q: 1, r: 0 })?.placementId).toBe('tile_A')
+  })
+
+  it('leaves placementId undefined when none is given', () => {
+    const board = createEmptyBoard('hex')
+    const next = applyTilePlacement(board, [{ q: 0, r: 0 }], 'water')
+    expect(getTile(next, { q: 0, r: 0 })?.placementId).toBeUndefined()
+  })
 })
 
 describe('seedStartingWaterTiles', () => {
@@ -318,6 +352,18 @@ describe('seedStartingWaterTiles', () => {
       ]),
     )
     expect(Object.values(board.tiles).every((t) => t.terrain === 'water')).toBe(true)
+  })
+
+  it('tags each hourglass with its own distinct placementId, shared by both of its own hexes', () => {
+    const board = seedStartingWaterTiles(2, domino)
+    const firstTile = [getTile(board, { q: 0, r: 0 }), getTile(board, { q: 1, r: 0 })]
+    const secondTile = [getTile(board, { q: 2, r: 1 }), getTile(board, { q: 3, r: 1 })]
+
+    expect(firstTile[0]?.placementId).toBeDefined()
+    expect(firstTile[0]?.placementId).toBe(firstTile[1]?.placementId)
+    expect(secondTile[0]?.placementId).toBeDefined()
+    expect(secondTile[0]?.placementId).toBe(secondTile[1]?.placementId)
+    expect(firstTile[0]?.placementId).not.toBe(secondTile[0]?.placementId)
   })
 
   it('chains 3 shapes for 3 players via the same (2,1) offset applied cumulatively', () => {

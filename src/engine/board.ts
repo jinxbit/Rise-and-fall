@@ -5,7 +5,8 @@ export function createEmptyBoard(shape: BoardShape): Board {
   return { shape, tiles: {} }
 }
 
-export function setTile(board: Board, coord: Coordinate, terrain: Terrain): Board {
+/** `placementId` (see Tile.placementId) is only meaningful when actually placing a tile — see applyTilePlacement in ./boardGeneration.ts; omit it for any other terrain change. */
+export function setTile(board: Board, coord: Coordinate, terrain: Terrain, placementId?: string): Board {
   const key = coordKey(coord)
   const existing = board.tiles[key]
   const tile: Tile = {
@@ -13,6 +14,7 @@ export function setTile(board: Board, coord: Coordinate, terrain: Terrain): Boar
     coord,
     terrain,
     occupantIds: existing?.occupantIds ?? [],
+    placementId,
   }
   return {
     ...board,

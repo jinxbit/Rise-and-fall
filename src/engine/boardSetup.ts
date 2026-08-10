@@ -202,7 +202,8 @@ export function placeTile(
   }
 
   const placedCells = placedShapeCells(tierContent.shapeCells, anchor, rotationSteps)
-  const board = applyTilePlacement(state.board, placedCells, tierContent.terrain)
+  const { id: placementId, idSequence } = nextSequenceId(state, 'tile')
+  const board = applyTilePlacement(state.board, placedCells, tierContent.terrain, placementId)
   const tilesRemainingInTier = boardSetup.tilesRemainingInTier - 1
 
   let nextBoardSetup: BoardSetupState = {
@@ -212,7 +213,7 @@ export function placeTile(
   }
   nextBoardSetup = skipExhaustedTiers(nextBoardSetup, content)
 
-  let nextState: GameState = { ...state, board, boardSetup: nextBoardSetup }
+  let nextState: GameState = { ...state, board, boardSetup: nextBoardSetup, idSequence }
   nextState = beginUnitPlacementIfTilesDone(nextState, state.turnOrder)
 
   return { ok: true, state: nextState }

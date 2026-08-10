@@ -167,10 +167,14 @@ matching the `level` 0-4 elevation/cliff system above.
 
 **Sea-placement-only rules** (Water's `placesOn: null` is the one tier
 that can land on untiled holes at all, so it's the only one these apply
-to): a new Sea tile must touch at least 2 Sea tiles already on the board
-(`touchesEnoughExistingTerrain()`), and a placement may never seal off
-an area of empty hexes with no path out to the rest of the unplaced
-board (`wouldEncloseEmptyHexes()`) — both in `src/engine/boardGeneration.ts`.
+to): a new Sea tile must touch at least 2 *distinct* Sea tiles already on
+the board — two hexes bordering the same earlier tile only count once,
+so a new tile can't attach along just one existing tile's edge
+(`touchesEnoughExistingTerrain()`, using `Tile.placementId` to tell which
+hexes came from the same physical placement) — and a placement may never
+seal off an area of empty hexes with no path out to the rest of the
+unplaced board (`wouldEncloseEmptyHexes()`) — both in
+`src/engine/boardGeneration.ts`.
 
 **No-space rule, simplified per ruling:** rather than the original
 "relocate a minimal set of already-placed tiles to open up room" search,

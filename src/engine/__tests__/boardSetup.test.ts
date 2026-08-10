@@ -388,6 +388,34 @@ describe('placeTile — water-expansion-only extra rules (placesOn: null)', () =
     if (!result.ok) expect(result.error).toContain('seal off')
     expect(getTile(state.board, { q: 0, r: 1 })).toBeUndefined()
   })
+
+  it('rejects a Sea placement touching 2 hexes of the SAME earlier tile — the reported bug (counting hexes, not tiles)', () => {
+    // (0,1) and (1,1) are two standalone dummy Sea tiles (no shared
+    // placementId — as if from earlier, separate placements) positioned
+    // only to let the first real placement below satisfy the touching
+    // rule on its own; they're deliberately not adjacent to the second
+    // placement's cells, so they can't contribute to it.
+    let state = makeSetupState({
+      board: boardOf([[0, 1, 'water'], [1, 1, 'water']]),
+      boardSetup: { tileTierQueue: ['water'], tilesRemainingInTier: 5, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+    })
+
+    // The first tile: domino at (0,0)-(1,0), touching both dummy tiles above.
+    const first = placeTile(state, 'p1', { q: 0, r: 0 }, 0, waterContent)
+    expect(first.ok).toBe(true)
+    if (!first.ok) return
+    state = first.state
+
+    // (0,0) and (1,0) now share ONE real placementId from that single
+    // placement. (1,-1) and (2,-1) — a second domino — are each adjacent
+    // to a hex of that same tile ((0,0) and/or (1,0)) and nothing else:
+    // 2 touching HEXES, but only 1 touching TILE.
+    const second = placeTile(state, 'p2', { q: 1, r: -1 }, 0, waterContent)
+
+    expect(second.ok).toBe(false)
+    if (!second.ok) expect(second.error).toContain('at least 2 Sea tiles')
+    expect(getTile(state.board, { q: 1, r: -1 })).toBeUndefined()
+  })
 })
 
 describe('checkTilePlacementLegality', () => {

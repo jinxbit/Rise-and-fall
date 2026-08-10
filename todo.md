@@ -2168,3 +2168,55 @@ it doesn't gate on whose turn it is) and a new
 renders both covered ghost cells red with the Confirm button disabled
 and the reason visible; a placement satisfying every rule renders green
 with Confirm enabled. 365 tests total (was 357); `tsc -b`/`oxlint`/`npm run build` all clean.
+
+## 47. Fixed: "touch 2 Sea tiles" was counting hexes, not physical tiles
+
+Bug report with a real game state: a Sea tile got placed touching only
+one earlier tile — via 2 of *that one tile's* hexes, both adjacent to a
+single cell of the new tile.
+
+Traced the exact reported placement (anchor `(8,0)`) against the real
+board and confirmed `touchesEnoughExistingTerrain()` was working exactly
+as built: it counted 2 distinct *hexes* (`(6,1)`/`(6,2)`), not noticing
+both belonged to the same earlier tile placement. Asked which reading of
+"touch at least 2 Sea tiles" was intended — 2 distinct hexes (current
+behavior) vs. 2 distinct physical tile pieces vs. 2 of the new tile's own
+cells each independently touching something — user confirmed: 2 distinct
+physical tiles. Two adjacent hexes of one earlier Sea tile should only
+count as touching that one tile, not two.
+
+This needed real data: the board had no memory of which hexes came from
+the same placement. Added `Tile.placementId?: string` (`types.ts`) — set
+by `applyTilePlacement()`/`seedStartingWaterTiles()`
+(`boardGeneration.ts`) whenever a tile is actually placed, `undefined`
+for a hex from before this field existed or built directly with
+`setTile()` in a test. `setTile()`/`applyTilePlacement()` both take an
+optional `placementId` — omitted for rule 4's virtual/hypothetical
+placements (never read there, since those never touch the water tier at
+all — it always short-circuits). `seedStartingWaterTiles()` doesn't have
+`GameState`/`idSequence` access (it builds a fresh board from scratch,
+before anything else exists), so it just tags each hourglass with a
+simple per-anchor index (`seed_0`, `seed_1`, ...) — no collision risk
+since nothing else exists yet to collide with. `boardSetup.ts`'s
+`placeTile()` generates a real one via `nextSequenceId()` for every real
+placement (any tier, not just water — simpler than special-casing, and
+harmless since nothing reads it outside water).
+
+`touchesEnoughExistingTerrain()` (renamed internally to
+`adjacentExistingTilePlacementCount`) now counts distinct
+`placementId`s among the new placement's neighboring hexes of the target
+terrain, falling back to a hex's own coordinate as a standalone
+single-hex "tile" when `placementId` is `undefined` — so an
+already-persisted game (or a test board built with raw `setTile()`) still
+gets a sane, non-crashing count instead of every untagged hex wrongly
+merging into one.
+
+Added coverage in `boardGeneration.test.ts`: `applyTilePlacement()`
+tags/doesn't tag hexes as expected, `seedStartingWaterTiles()` gives each
+hourglass its own distinct id, and — the core fix —
+`touchesEnoughExistingTerrain()` now correctly tells "2 hexes, 1 tile"
+(false) apart from "2 hexes, 2 tiles" (true). Added an integration test
+in `boardSetup.test.ts` that places a real tile via `placeTile()` (a real
+generated `placementId`), then attempts a second real placement touching
+2 hexes of that same tile — reproducing the exact reported bug end to
+end. 371 tests total (was 365); `tsc -b`/`oxlint`/`npm run build` all clean.

@@ -71,9 +71,17 @@ export function isLegalTilePlacement(board: Board, placedCells: Coordinate[], pl
   })
 }
 
-/** Sets every hex in `placedCells` to `terrain`, covering (converting) whatever was there before. Does not check legality — call isLegalTilePlacement first. */
-export function applyTilePlacement(board: Board, placedCells: Coordinate[], terrain: Terrain): Board {
-  return placedCells.reduce((nextBoard, cell) => setTile(nextBoard, cell, terrain), board)
+/**
+ * Sets every hex in `placedCells` to `terrain`, covering (converting)
+ * whatever was there before. Does not check legality — call
+ * isLegalTilePlacement first. `placementId`, when given, tags every one of
+ * these hexes as belonging to the same physical tile (see
+ * Tile.placementId) — omit it for a virtual/hypothetical placement (e.g.
+ * rule 4's room-checking simulations in canPlaceRemainingTiles below),
+ * since nothing reads placementId outside the real, committed board.
+ */
+export function applyTilePlacement(board: Board, placedCells: Coordinate[], terrain: Terrain, placementId?: string): Board {
+  return placedCells.reduce((nextBoard, cell) => setTile(nextBoard, cell, terrain, placementId), board)
 }
 
 // --- extra base-terrain (water expansion) placement rules ---------------------
@@ -86,24 +94,37 @@ export function applyTilePlacement(board: Board, placedCells: Coordinate[], terr
 // satisfy isLegalTilePlacement — they only add these two extra checks, and
 // boardSetup.ts's placeTile() only calls them when `placesOn === null`.
 
-/** How many distinct hexes of `terrain` already on `board` are adjacent to `placedCells` (cells within `placedCells` itself don't count — they're untiled until this placement is applied). */
-function adjacentExistingTerrainCount(board: Board, placedCells: Coordinate[], terrain: Terrain): number {
+/**
+ * How many distinct existing *tiles* (physical placements, not hexes — see
+ * Tile.placementId) of `terrain` on `board` are adjacent to `placedCells`.
+ * Two neighboring hexes from the same earlier placement (e.g. two hexes of
+ * one multi-hex Sea tile) count once, not twice — a new tile bordering
+ * only one earlier tile's edge, even along several of its hexes, hasn't
+ * actually connected to a second tile. A hex with no `placementId` (an
+ * already-persisted game from before this field existed, or a test board
+ * built directly with setTile()) falls back to its own coordinate as a
+ * standalone, single-hex "tile," so those boards still get a sane count
+ * instead of every undefined hex wrongly merging into one.
+ */
+function adjacentExistingTilePlacementCount(board: Board, placedCells: Coordinate[], terrain: Terrain): number {
   const placedKeys = new Set(placedCells.map(coordKey))
-  const neighborKeys = new Set<string>()
+  const tileIds = new Set<string>()
 
   for (const cell of placedCells) {
     for (const neighbor of neighborCoords(board, cell)) {
       const key = coordKey(neighbor)
       if (placedKeys.has(key)) continue
-      if (getTile(board, neighbor)?.terrain === terrain) neighborKeys.add(key)
+      const tile = getTile(board, neighbor)
+      if (tile?.terrain !== terrain) continue
+      tileIds.add(tile.placementId ?? key)
     }
   }
-  return neighborKeys.size
+  return tileIds.size
 }
 
-/** Whether `placedCells`, plus the existing tiles of `terrain` already on `board`, together touch at least `minCount` distinct existing hexes of `terrain` — e.g. "a new Sea tile must touch at least 2 Sea tiles already present." */
+/** Whether `placedCells` touches at least `minCount` distinct existing *tiles* (not just hexes) of `terrain` already on `board` — e.g. "a new Sea tile must touch at least 2 Sea tiles already present." */
 export function touchesEnoughExistingTerrain(board: Board, placedCells: Coordinate[], terrain: Terrain, minCount: number): boolean {
-  return adjacentExistingTerrainCount(board, placedCells, terrain) >= minCount
+  return adjacentExistingTilePlacementCount(board, placedCells, terrain) >= minCount
 }
 
 /**
@@ -373,9 +394,12 @@ export function seedStartingWaterTiles(playerCount: number, hourglassCells: Coor
     }
   }
 
-  for (const anchor of anchors) {
+  // Each anchor is its own physical hourglass tile (see Tile.placementId) —
+  // seeding starts from a fresh empty board, so a simple per-anchor index is
+  // enough to keep every one of them distinct from every other.
+  anchors.forEach((anchor, i) => {
     const cells = placedShapeCells(hourglassCells, anchor, 0)
-    board = applyTilePlacement(board, cells, 'water')
-  }
+    board = applyTilePlacement(board, cells, 'water', `seed_${i}`)
+  })
   return board
 }
