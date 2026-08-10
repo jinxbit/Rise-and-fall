@@ -1056,3 +1056,30 @@ income/produce/trade (always true), create/transform (mirrors legal
 targets), trade-resource (buy/sell affordability), and move (legal
 destinations exist). 266 tests total (was 259); `tsc -b`/`oxlint`/
 `npm run build` all clean.
+
+## 23. Verified entry #22's fix against the exact reported shape (Nomad → Temple, real content) and pinned it with a real-content regression test
+
+Follow-up report: "I was able to transform a nomad to temple in the
+first [round] (although the transformation did not occur). This should
+be an error" — the same silent-no-op shape as `#22`, but against the
+real Temple action rather than a synthetic fixture.
+
+Reproduced it directly against `content/units.json`'s real Transform to
+Temple effect (`cost: { stone: 2 }`, self-location, Plain/Mountain only)
+with a fresh round-1 Nomad at the real starting 0/0/0 resources: both
+`applyResolveUnitAction` (rejects with `ok: false`, no Temple created,
+`resolvedUnitIdsThisTurn` untouched) and `isActionAvailableForUnit`
+(reports the option unavailable, so the radial menu renders it disabled)
+already behave correctly — entry `#22`'s fix, generic across every
+create/transform/convert/trade-resource/move action rather than
+special-cased to the originally-reported Nomad→City case, already
+covers this. No engine or UI change was needed.
+
+Added a permanent regression test anyway
+(`unitActions.realContent.test.ts`), since the previous entry's coverage
+only exercised this shape through hand-built fixture content, not the
+real JSON — confirms `applyUnitActionEffect` returns the *exact same
+state reference* (not just an equivalent one) for a real, unaffordable
+Transform to Temple, which is the specific property
+`applyResolveUnitAction` depends on to detect the no-op. 267 tests total
+(was 266); `tsc -b`/`oxlint`/`npm run build` all clean.
