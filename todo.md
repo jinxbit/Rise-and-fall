@@ -1860,3 +1860,52 @@ other test file's fixture just drops the now-nonexistent `unitLimits:
 {}` field (mechanical, no behavior asserted). 328 tests total (was
 332 — decline.test.ts is 3 tests instead of the old file's 7, nothing
 else changed count); `tsc -b`/`oxlint`/`npm run build` all clean.
+
+## 40. Board generation rule 4 (no-space), simplified: reject instead of relocating tiles
+
+Per ruling (requested simplification): rather than the original
+no-space rule — when a tile can't legally be placed anywhere, move one
+or more already-placed *uncovered* tiles elsewhere to open up room,
+using the fewest tiles moved — `placeTile()` now just checks, right
+after applying a placement, whether every one of the tier's own
+*remaining* tiles (same shape, same `placesOn`) would still have
+*somewhere* legal to go. If not, the whole placement is rejected
+outright (same "illegal placement" outcome as any other rejected
+`PLACE_TILE`) and the player has to choose a different anchor/rotation
+instead — no tile-relocation search needed at all.
+
+New `hasAnyLegalPlacement(board, shapeCells, placesOn)` in
+`boardGeneration.ts`: every legal placement's own anchor cell (local
+`{0,0}` — every real shape in `content/terrain.json` follows this
+convention, confirmed by inspection) must itself land on a hex the
+shape is allowed to cover, so the search only needs to try anchoring
+each cell of each of the 6 rotations onto each currently-tiled hex with
+a qualifying terrain — no need to search the otherwise-unbounded plane
+of empty coordinates. `placesOn: null` (water) is the one terrain with
+no such hexes to anchor against, but the board is unbounded, so there's
+always room somewhere for it and the function short-circuits to `true`
+without searching. `placeTile()` (`boardSetup.ts`) calls this with the
+*post*-placement board (matching "after a tile is placed..." from the
+request) and only when the tier has tiles left to place afterward — the
+very last tile in a tier obviously doesn't need to leave room for
+itself.
+
+One pre-existing `boardSetup.test.ts` fixture broke under the new check
+and needed a fix, not a new bug: a test asserting a single placement
+*succeeds* had `tilesRemainingInTier: 3` (2 more owed afterward) but a
+board with only exactly enough water for the one placement being made —
+previously harmless, since nothing checked ahead; now correctly caught
+as "would strand the other 2." Fixed by giving it a second disjoint
+water pair elsewhere on the board, preserving everything the test
+actually asserts.
+
+7 new tests: `boardGeneration.test.ts` covers `hasAnyLegalPlacement`
+directly (always-true for `placesOn: null`, false with no qualifying
+hexes at all, false with qualifying hexes present but none adjacent to
+each other, true with a legal spot available, and true for a placement
+that only fits after rotation); `boardSetup.test.ts` covers the
+integration — `placeTile` rejecting a placement that would strand the
+tier's last tile, and allowing the same shape/tier when a legal spot
+remains. 335 tests total (was 328); `tsc -b`/`oxlint`/`npm run build`
+all clean. Also updated `PROJECT_PLAN.md`'s stale "not yet built" note
+on this exact item to reflect the simplified rule now shipped.

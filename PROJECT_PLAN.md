@@ -152,9 +152,12 @@ decisions get made.
             by a new `src/engine/actionTargeting.ts`), decline, and
             purchase, plus a `'completed'` winner banner. Also not yet
             click-tested end-to-end against a live Supabase project.
-      - [ ] Not yet built: rule 4's no-space/move-tiles search
-            (`placeTile()` currently just rejects an illegal placement
-            outright).
+      - [x] Rule 4 (no-space), simplified per ruling: rather than the
+            original "relocate a minimal set of already-placed tiles"
+            search, `placeTile()` now just rejects a placement outright if
+            it would leave nowhere left for the tier's own remaining tiles
+            to legally go (`hasAnyLegalPlacement()` in
+            `src/engine/boardGeneration.ts` — see `todo.md`).
 - [x] Expand the unit test suite in `src/engine/__tests__/` to cover
       every action and edge case as it's implemented — 220 tests, including
       a pass against the real `content/*.json` files, not just synthetic

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   applyTilePlacement,
+  hasAnyLegalPlacement,
   isLegalTilePlacement,
   placedShapeCells,
   rotateShape,
@@ -110,6 +111,39 @@ describe('isLegalTilePlacement', () => {
       const board = boardOf([[0, 0, 'forest'], [1, 0, 'forest']])
       expect(isLegalTilePlacement(board, [{ q: 0, r: 0 }, { q: 1, r: 0 }], ['water'])).toBe(false)
     })
+  })
+})
+
+describe('hasAnyLegalPlacement', () => {
+  const domino = [{ q: 0, r: 0 }, { q: 1, r: 0 }]
+
+  it('is always true for placesOn: null (water) — the board is unbounded, so there is always room somewhere', () => {
+    const board = boardOf([[0, 0, 'plain']])
+    expect(hasAnyLegalPlacement(board, domino, null)).toBe(true)
+  })
+
+  it('is false when no hex on the board has a qualifying terrain at all', () => {
+    const board = boardOf([[0, 0, 'forest']])
+    expect(hasAnyLegalPlacement(board, domino, ['water'])).toBe(false)
+  })
+
+  it('is false when qualifying hexes exist but none of them are adjacent to another', () => {
+    // Three isolated water hexes, none neighboring another — a 2-cell
+    // domino can never land on two of them at once.
+    const board = boardOf([[0, 0, 'water'], [5, 5, 'water'], [-3, 2, 'water']])
+    expect(hasAnyLegalPlacement(board, domino, ['water'])).toBe(false)
+  })
+
+  it('is true when a legal placement exists somewhere on the board', () => {
+    const board = boardOf([[0, 0, 'water'], [1, 0, 'water'], [5, 5, 'water']])
+    expect(hasAnyLegalPlacement(board, domino, ['water'])).toBe(true)
+  })
+
+  it('finds a placement that only fits after rotation', () => {
+    // (2,2)-(2,3) are adjacent along the {0,1} direction, not the domino's
+    // own unrotated {1,0} offset — only a rotated placement can cover both.
+    const board = boardOf([[2, 2, 'water'], [2, 3, 'water']])
+    expect(hasAnyLegalPlacement(board, domino, ['water'])).toBe(true)
   })
 })
 

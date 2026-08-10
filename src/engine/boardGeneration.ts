@@ -75,6 +75,43 @@ export function applyTilePlacement(board: Board, placedCells: Coordinate[], terr
   return placedCells.reduce((nextBoard, cell) => setTile(nextBoard, cell, terrain), board)
 }
 
+/**
+ * Whether `shapeCells` (a tier's one shape, in its own local coordinates,
+ * unrotated) could still be legally placed *somewhere* on `board`, in any
+ * of the 6 rotations — rule 4's simplified no-space check (see
+ * boardSetup.ts's placeTile): rather than searching for a minimal set of
+ * already-placed tiles to relocate to open up room, a placement that would
+ * leave zero legal spots anywhere for the tier's own remaining tiles is
+ * rejected outright, and the player has to choose a different placement
+ * instead.
+ *
+ * Every legal placement's own anchor cell (local `{0,0}` by convention —
+ * see rotateShape's doc comment) must itself land on a hex the shape is
+ * allowed to cover, so it's enough to try anchoring each cell of each
+ * rotation onto each currently-tiled hex with a qualifying terrain — no
+ * need to search the (otherwise unbounded) plane of empty coordinates.
+ * `placesOn: null` (water) is the one case with no such hexes to anchor
+ * against at all, but the board is unbounded, so there's always room
+ * somewhere and this returns true immediately without searching.
+ */
+export function hasAnyLegalPlacement(board: Board, shapeCells: Coordinate[], placesOn: Terrain[] | null): boolean {
+  if (placesOn === null) return true
+
+  const candidateHexes = Object.values(board.tiles).filter((tile) => placesOn.includes(tile.terrain))
+
+  for (let rotation = 0; rotation < 6; rotation++) {
+    const rotatedCells = rotateShape(shapeCells, rotation)
+    for (const hex of candidateHexes) {
+      for (const localCell of rotatedCells) {
+        const anchor: Coordinate = { q: hex.coord.q - localCell.q, r: hex.coord.r - localCell.r }
+        const placed = placedShapeCells(shapeCells, anchor, rotation)
+        if (isLegalTilePlacement(board, placed, placesOn)) return true
+      }
+    }
+  }
+  return false
+}
+
 // --- starting water tiles ------------------------------------------------------
 
 /**

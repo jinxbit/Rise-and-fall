@@ -195,7 +195,11 @@ describe('placeTile', () => {
 
   it('places the tile, converts the covered hexes, and advances to the next player', () => {
     const state = makeSetupState({
-      board: boardOf([[0, 0, 'water'], [1, 0, 'water']]),
+      // A second disjoint water pair elsewhere, since tilesRemainingInTier
+      // (3) claims 2 more tiles are still owed after this one — otherwise
+      // rule 4's no-space check (see hasAnyLegalPlacement) would correctly
+      // reject this placement for stranding them with nowhere left to go.
+      board: boardOf([[0, 0, 'water'], [1, 0, 'water'], [10, 0, 'water'], [11, 0, 'water']]),
       boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 3, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
     })
 
@@ -270,6 +274,33 @@ describe('placeTile', () => {
     expect(result.state.boardSetup?.tileTierQueue).toEqual([])
     expect(result.state.boardSetup?.unitsRemainingByPlayerId).toEqual({ p1: ['city', 'nomad', 'ship'], p2: ['city', 'nomad', 'ship'] })
     expect(currentUnitPlacerId(result.state)).toBe('p1')
+  })
+
+  it("rejects a placement that would leave nowhere legal for the tier's remaining tiles to go (rule 4, simplified)", () => {
+    const state = makeSetupState({
+      // Two isolated water hexes, neither adjacent to the other or to the
+      // (0,0)-(1,0) pair — once that pair is claimed, the domino shape has
+      // nowhere left to land for the 2nd of 2 required tiles.
+      board: boardOf([[0, 0, 'water'], [1, 0, 'water'], [5, 5, 'water'], [8, 8, 'water']]),
+      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 2, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+    })
+
+    const result = placeTile(state, 'p1', { q: 0, r: 0 }, 0, content)
+
+    expect(result.ok).toBe(false)
+    // Nothing leaked through: the board is untouched.
+    expect(getTile(state.board, { q: 0, r: 0 })?.terrain).toBe('water')
+  })
+
+  it('allows the same placement once a legal spot remains for the rest of the tier', () => {
+    const state = makeSetupState({
+      board: boardOf([[0, 0, 'water'], [1, 0, 'water'], [5, 5, 'water'], [6, 5, 'water']]),
+      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 2, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+    })
+
+    const result = placeTile(state, 'p1', { q: 0, r: 0 }, 0, content)
+
+    expect(result.ok).toBe(true)
   })
 
   it('is rejected outside the boardSetup status', () => {
