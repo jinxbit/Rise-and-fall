@@ -1645,3 +1645,53 @@ needs to actually be applied to the live Supabase project — I can't run
 `supabase db push` or reach the SQL editor from here. Until it's
 applied, adding a second local player to a hotseat game will fail
 against the still-live `unique (game_id, user_id)` constraint.
+
+## 35. Bug fix: a Nomad could "Produce Resource" on Plain (and City "Generate Income"/Ship "Trade" likewise) for zero payout, consuming its turn for nothing
+
+Reported: a Nomad standing on Plain could pick Produce Resource even
+though Plain isn't one of its producing terrains (`resourceByTerrain`
+in content/units.json only has `forest`/`mountain` entries) — the
+action was offered, and resolving it "succeeded" (ended the unit's
+turn) despite producing nothing.
+
+Root cause: `isActionAvailableForUnit` (actionTargeting.ts, gates which
+options the radial action menu offers) treated `income`/`produce`/
+`trade` as unconditionally available, on the reasoning that — unlike
+create/transform/convert/trade-resource/move — they have no cost or
+required target that could make them illegal. True, but incomplete:
+their *terrain or adjacency* can still make them pay out nothing, which
+is exactly as much a precondition as an unaffordable cost is for the
+other action types. `applyResolveUnitAction` (applyAction.ts) mirrored
+the same gap: a zero-payout produce/income/trade still counted as
+"resolved" instead of being rejected like a failed create/transform
+already was.
+
+Fixed both ends by computing the real payout instead of just asking
+"is this legal": pulled `applyIncome`/`applyProduce`/`applyTrade`'s
+arithmetic out into three exported pure functions in unitActions.ts —
+`computeIncomeGold`, `computeProduceAmounts`, `computeTradeGold` — used
+by both the real apply functions (unchanged behavior there) and by
+`isActionAvailableForUnit`, which now returns available only when the
+computed payout is actually nonzero. On the dispatch side, this made
+`ACTION_TYPES_WITH_PRECONDITIONS` (the set of action types eligible for
+the "did this actually change the state?" rejection check) cover every
+single action type there is — all 8 members of `UnitActionEffect` — so
+the set itself became dead weight; removed it and made the "state
+didn't change → not resolved" check unconditional instead. Verified
+this doesn't accidentally start rejecting a resource-capped gain (e.g.
+producing wood while already at the cap): `creditResource` only
+short-circuits to the *same* state reference when the nominal amount is
+`<= 0` — a capped-but-positive gain still returns a new (if
+numerically-unchanged) state object, so it still correctly resolves,
+matching the existing "a capped gain isn't lost, just clamped" design.
+
+Both engine test files that had explicitly encoded the old "always
+available"/"always succeeds" behavior got rewritten to assert the
+opposite, plus new coverage for the "available/succeeds once the
+terrain or adjacency actually pays out" side: `actionTargeting.test.ts`
+now has separate income/produce/trade cases instead of one combined
+"always true" one; `applyAction.test.ts` replaces its "does NOT reject
+income for zero payout" test with one confirming it now IS rejected,
+plus a new one confirming the same income succeeds normally once the
+unit is standing on a producing terrain. 332 tests total (was 329);
+`tsc -b`/`oxlint`/`npm run build` all clean.

@@ -329,19 +329,38 @@ describe("legalConvertTargets, targetOwner: 'own' (City upgrading an adjacent No
 })
 
 describe('isActionAvailableForUnit', () => {
-  it('income/produce/trade are always available, even when their payout would be zero', () => {
+  it('income is unavailable on a terrain/adjacency that pays out nothing, available where it does (bug: a City could "Generate Income" on a terrain not in goldByTerrain and still consume its turn for 0 gold)', () => {
     const incomeAction: UnitAction = { id: 'a', name: 'Income', description: '', effect: { actionType: 'income', goldByTerrain: { forest: 3 } } }
-    const produceAction: UnitAction = { id: 'b', name: 'Produce', description: '', effect: { actionType: 'produce', resourceByTerrain: { forest: { wood: 1 } } } }
-    const tradeAction: UnitAction = { id: 'c', name: 'Trade', description: '', effect: { actionType: 'trade', goldPerCity: 1 } }
     const unit = makeUnit('p1', 'city', { q: 0, r: 0 })
-    // On Plain, not Forest, so income/produce would both yield nothing —
-    // still reported as available, since neither action has a cost or a
-    // required target that could make it illegal.
-    const state = makeState({ board: boardOf([[0, 0, 'plain']]), units: [unit], players: [makePlayer('p1')] })
 
-    expect(isActionAvailableForUnit(state, 'p1', unit, incomeAction, emptyContent)).toBe(true)
-    expect(isActionAvailableForUnit(state, 'p1', unit, produceAction, emptyContent)).toBe(true)
-    expect(isActionAvailableForUnit(state, 'p1', unit, tradeAction, emptyContent)).toBe(true)
+    const onPlain = makeState({ board: boardOf([[0, 0, 'plain']]), units: [unit], players: [makePlayer('p1')] })
+    expect(isActionAvailableForUnit(onPlain, 'p1', unit, incomeAction, emptyContent)).toBe(false)
+
+    const onForest = { ...onPlain, board: boardOf([[0, 0, 'forest']]) }
+    expect(isActionAvailableForUnit(onForest, 'p1', unit, incomeAction, emptyContent)).toBe(true)
+  })
+
+  it('produce is unavailable on a terrain not in resourceByTerrain, available on one that is (bug: a Nomad could "Produce Resource" on Plain, which has no entry, and still consume its turn for nothing)', () => {
+    const produceAction: UnitAction = { id: 'b', name: 'Produce', description: '', effect: { actionType: 'produce', resourceByTerrain: { forest: { wood: 1 } } } }
+    const unit = makeUnit('p1', 'nomad', { q: 0, r: 0 })
+
+    const onPlain = makeState({ board: boardOf([[0, 0, 'plain']]), units: [unit], players: [makePlayer('p1')] })
+    expect(isActionAvailableForUnit(onPlain, 'p1', unit, produceAction, emptyContent)).toBe(false)
+
+    const onForest = { ...onPlain, board: boardOf([[0, 0, 'forest']]) }
+    expect(isActionAvailableForUnit(onForest, 'p1', unit, produceAction, emptyContent)).toBe(true)
+  })
+
+  it("trade is unavailable with no City in the Ship's sea area, available with one", () => {
+    const tradeAction: UnitAction = { id: 'c', name: 'Trade', description: '', effect: { actionType: 'trade', goldPerCity: 1 } }
+    const ship = makeUnit('p1', 'ship', { q: 0, r: 0 })
+
+    const alone = makeState({ board: boardOf([[0, 0, 'water']]), units: [ship], players: [makePlayer('p1')] })
+    expect(isActionAvailableForUnit(alone, 'p1', ship, tradeAction, emptyContent)).toBe(false)
+
+    const city = makeUnit('p2', 'city', { q: 1, r: 0 })
+    const withCity = { ...alone, board: boardOf([[0, 0, 'water'], [1, 0, 'plain']]), units: [ship, city] }
+    expect(isActionAvailableForUnit(withCity, 'p1', ship, tradeAction, emptyContent)).toBe(true)
   })
 
   it('create/transform/convert mirror their legal-targets query — unavailable with no legal target', () => {

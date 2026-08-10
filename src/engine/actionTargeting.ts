@@ -1,6 +1,15 @@
 import { getTile, neighborCoords } from './board'
 import { legalMoveDestinations } from './movement'
-import { canAffordCost, crossesCliff, hasReachedSupplyCap, isCreationAllowedOnTerrain, unitsAt } from './unitActions'
+import {
+  canAffordCost,
+  computeIncomeGold,
+  computeProduceAmounts,
+  computeTradeGold,
+  crossesCliff,
+  hasReachedSupplyCap,
+  isCreationAllowedOnTerrain,
+  unitsAt,
+} from './unitActions'
 import type { ConvertEffect, CreateEffect, TransformEffect, UnitAction, UnitContent } from './unitContent'
 import type { Coordinate, GameState, Unit } from './types'
 
@@ -78,19 +87,24 @@ export function legalConvertTargets(state: GameState, playerId: string, unit: Un
  * ../components/HexBoard.tsx) before the player even picks one, so a
  * choice that's guaranteed to be rejected by RESOLVE_UNIT_ACTION (see
  * applyResolveUnitAction in ./applyAction.ts) never gets offered as if it
- * were live. income/produce/trade have no cost or required target, so
- * they're always available even when their numeric payout would be zero
- * (e.g. no adjacent qualifying units) — same "always succeeds" rule
- * applyResolveUnitAction uses to decide which action types can fail at
- * all.
+ * were live. income/produce/trade have no cost or required target, but
+ * they're only actually available when their numeric payout would be
+ * nonzero (e.g. a Nomad's Produce Resource on Plain, where
+ * resourceByTerrain has no entry, isn't a legal choice at all) — mirrors
+ * ACTION_TYPES_WITH_PRECONDITIONS in applyAction.ts, which now rejects
+ * that same zero-payout attempt if submitted anyway.
  */
 export function isActionAvailableForUnit(state: GameState, playerId: string, unit: Unit, action: UnitAction, content: UnitContent): boolean {
   const effect = action.effect
   switch (effect.actionType) {
     case 'income':
-    case 'produce':
+      return computeIncomeGold(state, playerId, unit, effect) > 0
+    case 'produce': {
+      const amounts = computeProduceAmounts(state, unit, effect)
+      return !!amounts && (['gold', 'wood', 'stone'] as const).some((key) => (amounts[key] ?? 0) > 0)
+    }
     case 'trade':
-      return true
+      return computeTradeGold(state, unit, effect) > 0
     case 'create':
       return legalCreateTargets(state, playerId, unit, effect, content).length > 0
     case 'transform':

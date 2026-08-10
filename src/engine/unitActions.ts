@@ -124,13 +124,15 @@ export function isCreationAllowedOnTerrain(targetUnit: string, terrain: Terrain)
 
 // --- per-actionType handlers, one acting unit at a time ---------------------
 
-function applyIncome(
-  state: GameState,
-  playerId: string,
-  unit: Unit,
-  effect: IncomeEffect,
-  resourceCaps: Partial<Record<keyof Resources, number | null>>,
-): GameState {
+/**
+ * How much gold an `income` effect would actually pay out right now —
+ * shared by applyIncome below and actionTargeting.ts's
+ * isActionAvailableForUnit, so an Income action with nothing to pay (wrong
+ * terrain, no qualifying neighbors) is computed identically wherever it's
+ * asked about, rather than duplicating this arithmetic a second time just
+ * to answer "would this do anything".
+ */
+export function computeIncomeGold(state: GameState, playerId: string, unit: Unit, effect: IncomeEffect): number {
   let gold = 0
 
   if (effect.goldByTerrain) {
@@ -151,7 +153,24 @@ function applyIncome(
     }
   }
 
-  return creditResource(state, playerId, 'gold', gold, resourceCaps)
+  return gold
+}
+
+function applyIncome(
+  state: GameState,
+  playerId: string,
+  unit: Unit,
+  effect: IncomeEffect,
+  resourceCaps: Partial<Record<keyof Resources, number | null>>,
+): GameState {
+  return creditResource(state, playerId, 'gold', computeIncomeGold(state, playerId, unit, effect), resourceCaps)
+}
+
+/** What a `produce` effect would actually pay out on the unit's current tile, or undefined if its terrain isn't in `resourceByTerrain` at all — shared with isActionAvailableForUnit, same reasoning as computeIncomeGold above. */
+export function computeProduceAmounts(state: GameState, unit: Unit, effect: ProduceEffect): Partial<Record<keyof Resources, number>> | undefined {
+  const tile = getTile(state.board, unit.coord)
+  if (!tile) return undefined
+  return effect.resourceByTerrain[tile.terrain]
 }
 
 function applyProduce(
@@ -161,9 +180,7 @@ function applyProduce(
   effect: ProduceEffect,
   resourceCaps: Partial<Record<keyof Resources, number | null>>,
 ): GameState {
-  const tile = getTile(state.board, unit.coord)
-  if (!tile) return state
-  const amounts = effect.resourceByTerrain[tile.terrain]
+  const amounts = computeProduceAmounts(state, unit, effect)
   if (!amounts) return state
 
   let nextState = state
@@ -175,21 +192,17 @@ function applyProduce(
 }
 
 /**
- * Per ruling: no own/enemy split — goldPerCity per City adjacent to any hex
- * in the Ship's whole contiguous sea area (every water hex reachable from
- * the Ship without leaving water), not just the hex the Ship itself sits
- * on. A City counts even if it sits across a cliff edge from the water —
- * cliffs block *movement/targeting* between hexes, not this area-wide
- * adjacency scan. Each City is counted once no matter how many sea hexes
- * it borders.
+ * How much gold a Ship's `trade` effect would actually pay out — per
+ * ruling, no own/enemy split, goldPerCity per City adjacent to any hex in
+ * the Ship's whole contiguous sea area (every water hex reachable from the
+ * Ship without leaving water), not just the hex the Ship itself sits on. A
+ * City counts even if it sits across a cliff edge from the water — cliffs
+ * block *movement/targeting* between hexes, not this area-wide adjacency
+ * scan. Each City is counted once no matter how many sea hexes it borders.
+ * Shared with isActionAvailableForUnit, same reasoning as
+ * computeIncomeGold above.
  */
-function applyTrade(
-  state: GameState,
-  playerId: string,
-  unit: Unit,
-  effect: TradeEffect,
-  resourceCaps: Partial<Record<keyof Resources, number | null>>,
-): GameState {
+export function computeTradeGold(state: GameState, unit: Unit, effect: TradeEffect): number {
   const seaArea = connectedTerrainRegion(state.board, unit.coord)
   const cityIds = new Set<string>()
   for (const coord of seaArea) {
@@ -197,7 +210,17 @@ function applyTrade(
       if (neighbor.kind === 'city') cityIds.add(neighbor.id)
     }
   }
-  return creditResource(state, playerId, 'gold', cityIds.size * effect.goldPerCity, resourceCaps)
+  return cityIds.size * effect.goldPerCity
+}
+
+function applyTrade(
+  state: GameState,
+  playerId: string,
+  unit: Unit,
+  effect: TradeEffect,
+  resourceCaps: Partial<Record<keyof Resources, number | null>>,
+): GameState {
+  return creditResource(state, playerId, 'gold', computeTradeGold(state, unit, effect), resourceCaps)
 }
 
 /** Per ruling: creation can never cross a cliff, always respects the target kind's supply cap, and can never target Water/Glacier unless the created kind is the one sole kind allowed there (see isCreationAllowedOnTerrain). */

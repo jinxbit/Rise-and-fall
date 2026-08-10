@@ -661,7 +661,7 @@ describe('RESOLVE_UNIT_ACTION rejects an action whose cost/target preconditions 
     expect(result.state.actionHistory).toHaveLength(state.actionHistory.length + 1)
   })
 
-  it('does NOT reject income just because its payout happens to be zero — that is still a valid resolved turn', () => {
+  it("rejects income whose payout would be zero (bug: a Nomad on Plain could \"Generate Income\" — goldByTerrain only has forest — and still consume its turn for 0 gold)", () => {
     const state = makeSingleNomadState()
 
     const result = applyAction(
@@ -670,9 +670,25 @@ describe('RESOLVE_UNIT_ACTION rejects an action whose cost/target preconditions 
       nomadContent,
     )
 
+    expect(result.ok).toBe(false)
+    // Nothing about the input state leaked through: the unit is still free to act.
+    expect(state.units).toHaveLength(1)
+    expect(state.resolvedUnitIdsThisTurn).toEqual([])
+  })
+
+  it('the same income succeeds once the terrain actually pays out', () => {
+    const state = makeSingleNomadState()
+    const onForest: GameState = { ...state, board: setTile(state.board, { q: 0, r: 0 }, 'forest') }
+
+    const result = applyAction(
+      onForest,
+      { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [{ unitId: 'nomad_a', actionId: 'generate-income' }] },
+      nomadContent,
+    )
+
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    expect(result.state.players.find((p) => p.id === 'p1')!.resources.gold).toBe(0)
+    expect(result.state.players.find((p) => p.id === 'p1')!.resources.gold).toBe(3)
     // Same "only acting unit" auto-end-turn case as above.
     expect(result.state.actionHistory.at(-1)?.action.type).toBe('RESOLVE_UNIT_ACTION')
     expect(result.state.actionHistory).toHaveLength(state.actionHistory.length + 1)
