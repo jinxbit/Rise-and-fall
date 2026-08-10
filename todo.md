@@ -1192,3 +1192,58 @@ correctly and that the achievements panel shows a claimed achievement
 with its claimer, an unclaimed one labeled as such, and the correct
 buyback price for the given claim count. 281 tests total (was 279);
 `tsc -b`/`oxlint`/`npm run build` all clean.
+
+## 26. Unit markers now render a pictogram instead of a letter, with City/Temple as a rectangle
+
+Design work first, drafted and reviewed as a standalone Artifact mockup
+before touching any code: every unit kind's on-board marker used to be
+a colour disc with a one/two-letter text label (Merchant/Mountaineer
+had just been disambiguated to "Mr"/"Mt" in entry `#24`, but it was
+still letters to parse, not shapes to recognize). Iterated on a
+silhouette-based alternative in that mockup — including a redraw of the
+Nomad glyph after the first version (a plain bowed triangle) tested as
+too generic at 14px, fixed by cutting a doorway notch into it — then,
+once approved, wired the final set into the real app:
+
+- `components/unitIcons.ts` (new): `UNIT_ICONS`, one small array of
+  basic shapes (polygon/rect/path/circle) per unit kind on a shared
+  24×24 grid — City a battlement block, Temple a pediment over
+  columns, Nomad a tent with a door cutout, Merchant a drawstring coin
+  bag, Mountaineer twin peaks with a summit flag, Ship a hull with an
+  off-centre sail. Kept in its own module (not `HexBoard.tsx`, which
+  only exports components) so React Fast Refresh isn't disabled for
+  that file — same reasoning as `unitKindLabel.ts` before it, which
+  this entry deletes now that nothing reads it.
+- `HexBoard.tsx`: unit markers now draw a rectangle (rounded corners)
+  for City/Temple and a circle for the four mobile kinds — `STATIC_UNIT_KINDS`
+  in `unitIcons.ts` — so the marker's own outline says "this is a
+  building" before the glyph inside it does. Each glyph renders twice
+  (a white copy scaled up from center behind, the ink-black glyph on
+  top) to build a soft halo that stays legible against any player
+  colour without per-icon color tuning — proportional to icon size
+  rather than a fixed stroke width, so it holds up from a 40px marker
+  down to 14px. `UnitMarker.label: string` is now `UnitMarker.kind:
+  string`, since the marker no longer needs pre-formatted text — just
+  the raw unit kind, same value `RoundView.tsx`/`BoardSetupView.tsx`
+  already had on hand.
+- Follow-up request: "make the whole glyph larger" — the icon now
+  fills 82% of the marker's own diameter (was ~62% in the first
+  in-app pass), leaving just enough margin that it doesn't touch the
+  marker's ring.
+
+Added `components/__tests__/HexBoard.test.tsx` (new — this file had no
+tests of its own before): confirms City/Temple render as a rounded
+`<rect>` and the other four kinds as a `<circle>`, confirms each unit
+gets exactly one nested icon-glyph `<svg viewBox="0 0 24 24">`, and
+confirms an unrecognized kind renders an empty glyph rather than
+throwing (`UNIT_ICONS[kind] ?? []`). Also visually spot-checked outside
+the test suite via `react-dom/server` + the sandbox's Chromium, since
+this sandbox has no live app to click through — confirmed the glyphs,
+halo, and rectangle/circle split all render correctly at both the
+default in-game size and zoomed in. 284 tests total (was 281); `tsc -b`/
+`oxlint`/`npm run build` all clean.
+
+Unrelated to this entry: pulled in three content-only commits pushed
+directly to `main` outside this session (`7f33839`, `ba49750`,
+`28e416e`) updating `achievements.json`/`units.json`'s `victoryPoints`
+— real score tuning, no code changes, nothing to reconcile.

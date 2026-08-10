@@ -1,6 +1,8 @@
 import { isCliffEdge } from '../engine/cliffs'
 import type { Board, Coordinate, Terrain } from '../engine/types'
 import { coordKey } from '../engine/types'
+import type { IconShape } from './unitIcons'
+import { STATIC_UNIT_KINDS, UNIT_ICONS } from './unitIcons'
 
 // Pointy-top axial hex rendering. Matches the axial convention used
 // throughout src/engine (HEX_DIRECTIONS in ../engine/board.ts, the shape
@@ -80,9 +82,44 @@ export interface GhostCell {
 export interface UnitMarker {
   coord: Coordinate
   color: string
-  label: string
+  /** Selects both the pictogram (see unitIcons.ts) and the marker shape (rectangle for City/Temple, circle otherwise). */
+  kind: string
   /** Draws a bright ring around the unit — e.g. "this unit can still act this turn, click it." */
   highlighted?: boolean
+}
+
+/** Renders one icon's shapes at a single fill colour — called twice per glyph (see UnitGlyph) to build the white-halo-behind-black-ink effect. */
+function renderIconShapes(kind: string, fill: string) {
+  const shapes = UNIT_ICONS[kind] ?? []
+  return shapes.map((shape: IconShape, i) => {
+    switch (shape.kind) {
+      case 'polygon':
+        return <polygon key={i} points={shape.points} fill={fill} />
+      case 'rect':
+        return <rect key={i} x={shape.x} y={shape.y} width={shape.width} height={shape.height} rx={shape.rx} fill={fill} />
+      case 'path':
+        return <path key={i} d={shape.d} fill={fill} fillRule={shape.fillRule} />
+      case 'circle':
+        return <circle key={i} cx={shape.cx} cy={shape.cy} r={shape.r} fill={fill} />
+    }
+  })
+}
+
+/**
+ * A unit kind's pictogram, centered at (x, y) at `size` pixels square. The
+ * white copy is drawn first, scaled up from the center so it peeks out as a
+ * halo around the black copy on top — proportional to icon size (not a
+ * fixed stroke width), so it holds up whether the icon renders at 40px or
+ * 14px. See unitIcons.ts's doc comment for why this lives here rather than
+ * per-shape strokes (seam artifacts where shapes touch/overlap).
+ */
+function UnitGlyph({ kind, x, y, size }: { kind: string; x: number; y: number; size: number }) {
+  return (
+    <svg x={x - size / 2} y={y - size / 2} width={size} height={size} viewBox="0 0 24 24" pointerEvents="none">
+      <g transform="translate(12,12) scale(1.18) translate(-12,-12)">{renderIconShapes(kind, '#ffffff')}</g>
+      <g>{renderIconShapes(kind, '#14161a')}</g>
+    </svg>
+  )
 }
 
 export interface ActionMenuOption {
@@ -248,6 +285,8 @@ export function HexBoard(props: {
       })}
       {(props.units ?? []).map((unit, i) => {
         const { x, y } = axialToPixel(unit.coord, size)
+        const markerSize = size * 0.8
+        const glyphSize = markerSize * 0.82
         return (
           <g key={i} pointerEvents="none">
             {unit.highlighted && (
@@ -255,17 +294,21 @@ export function HexBoard(props: {
                 <animate attributeName="opacity" values="1;0.35;1" dur="1.4s" repeatCount="indefinite" />
               </circle>
             )}
-            <circle cx={x} cy={y} r={size * 0.4} fill={unit.color} stroke="#000" strokeWidth={1} />
-            <text
-              x={x}
-              y={y}
-              textAnchor="middle"
-              dominantBaseline="central"
-              fontSize={unit.label.length > 1 ? size * 0.3 : size * 0.4}
-              fill="#000"
-            >
-              {unit.label}
-            </text>
+            {STATIC_UNIT_KINDS.has(unit.kind) ? (
+              <rect
+                x={x - markerSize / 2}
+                y={y - markerSize / 2}
+                width={markerSize}
+                height={markerSize}
+                rx={markerSize * 0.15}
+                fill={unit.color}
+                stroke="#000"
+                strokeWidth={1}
+              />
+            ) : (
+              <circle cx={x} cy={y} r={markerSize / 2} fill={unit.color} stroke="#000" strokeWidth={1} />
+            )}
+            <UnitGlyph kind={unit.kind} x={x} y={y} size={glyphSize} />
           </g>
         )
       })}
