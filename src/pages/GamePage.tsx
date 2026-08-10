@@ -4,7 +4,7 @@ import { BoardSetupView } from '../components/BoardSetupView'
 import { RoundView } from '../components/RoundView'
 import { resolveAchievementContent, resolveBoardGenerationContent, resolveUnitContent } from '../content/resolveContent'
 import type { Action } from '../engine/actions'
-import { applyAction } from '../engine/applyAction'
+import { applyActionAndFastForwardTiles } from '../engine/applyAction'
 import { buildGameLog } from '../engine/gameLog'
 import { replayActions } from '../engine/replay'
 import type { ActionResult, GameState as EngineGameState, Coordinate } from '../engine/types'
@@ -192,7 +192,7 @@ export function GamePage() {
   }
 
   async function submitAction(action: Action) {
-    const result = await writeWithRetry((state) => applyAction(state, action, unitContent, achievementContent, boardGenerationContent))
+    const result = await writeWithRetry((state) => applyActionAndFastForwardTiles(state, action, unitContent, achievementContent, boardGenerationContent))
     setActionError(result.ok ? null : result.error)
   }
 

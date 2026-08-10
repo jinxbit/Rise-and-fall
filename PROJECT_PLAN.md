@@ -159,6 +159,12 @@ decisions get made.
             to legally go (`canPlaceRemainingTiles()` in
             `src/engine/boardGeneration.ts`, a greedy check across *all*
             remaining tiles, not just the next one — see `todo.md` #43).
+      - [x] Once a tier's remaining tiles have only one possible legal
+            arrangement left, they're auto-placed instead of making players
+            confirm a foregone conclusion (`findForcedPlacement()` in
+            `src/engine/boardGeneration.ts`,
+            `applyActionAndFastForwardTiles()` in
+            `src/engine/applyAction.ts` — see `todo.md` #44).
 - [x] Expand the unit test suite in `src/engine/__tests__/` to cover
       every action and edge case as it's implemented — 220 tests, including
       a pass against the real `content/*.json` files, not just synthetic

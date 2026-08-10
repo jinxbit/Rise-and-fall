@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { applyAction } from '../applyAction'
-import { createEmptyBoard, setTile } from '../board'
+import { applyAction, applyActionAndFastForwardTiles } from '../applyAction'
+import { createEmptyBoard, getTile, setTile } from '../board'
 import type { BoardGenerationContent } from '../boardGenerationContent'
 import { EMPTY_BOARD_GENERATION_CONTENT } from '../boardGenerationContent'
 import { cardIdFor, syncCardZonesWithBoard } from '../cards'
@@ -737,5 +737,105 @@ describe('applyAction — PLACE_TILE/PLACE_UNIT dispatch during boardSetup', () 
     const result = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') })
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.error).toContain('not active')
+  })
+})
+
+describe('applyActionAndFastForwardTiles', () => {
+  const domino = [{ q: 0, r: 0 }, { q: 1, r: 0 }]
+
+  function makeForcedChainState(): GameState {
+    const lobby = createNewGame({
+      gameId: 'game_1',
+      playMode: 'hotseat',
+      board: [
+        [0, 0], [1, 0],
+        [5, 5], [6, 5], [7, 5], [8, 5],
+      ].reduce((b, [q, r]) => setTile(b, { q, r }, 'water'), createEmptyBoard('hex')),
+      players: [
+        { id: 'p1', authUserId: 'auth_1', displayName: 'Alice', color: 'red' },
+        { id: 'p2', authUserId: 'auth_2', displayName: 'Bob', color: 'blue' },
+      ],
+    })
+    return {
+      ...lobby,
+      status: 'boardSetup',
+      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 3, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+    }
+  }
+
+  const boardGenerationContent: BoardGenerationContent = {
+    startingWaterShapeCells: [],
+    tiers: [{ terrain: 'plain', shapeCells: domino, placesOn: ['water'], poolSize: 3 }],
+  }
+
+  it('auto-places the rest of a tier once only one way remains, cycling turn order for the skipped decisions', () => {
+    const state = makeForcedChainState()
+
+    // p1 manually places the (0,0)-(1,0) domino. That leaves the (5,5)-
+    // (6,5)-(7,5)-(8,5) chain with exactly one way to place the 2 tiles
+    // still owed (see findForcedPlacement's tests) — no real decision left,
+    // so both should auto-place instead of waiting on p2 and p1 again.
+    const result = applyActionAndFastForwardTiles(
+      state,
+      { type: 'PLACE_TILE', playerId: 'p1', anchor: { q: 0, r: 0 }, rotationSteps: 0 },
+      undefined,
+      undefined,
+      boardGenerationContent,
+    )
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    for (const [q, r] of [[0, 0], [1, 0], [5, 5], [6, 5], [7, 5], [8, 5]]) {
+      expect(getTile(result.state.board, { q, r })?.terrain).toBe('plain')
+    }
+
+    // Tier's pool (3) is fully spent -> tile placement is over.
+    expect(result.state.boardSetup?.tileTierQueue).toEqual([])
+
+    // 3 PLACE_TILE entries: the manual one plus the 2 fast-forwarded ones,
+    // attributed in turn order (p1 manual, then p2, then p1 again).
+    const placeTileActions = result.state.actionHistory.filter((entry) => entry.action.type === 'PLACE_TILE')
+    expect(placeTileActions).toHaveLength(3)
+    expect(placeTileActions.map((entry) => entry.action.playerId)).toEqual(['p1', 'p2', 'p1'])
+  })
+
+  it("doesn't fast-forward while more than one legal arrangement remains", () => {
+    const lobby = createNewGame({
+      gameId: 'game_1',
+      playMode: 'hotseat',
+      board: [
+        [0, 0], [1, 0],
+        [5, 5], [6, 5],
+        [10, 5], [11, 5],
+        [15, 5], [16, 5],
+      ].reduce((b, [q, r]) => setTile(b, { q, r }, 'water'), createEmptyBoard('hex')),
+      players: [
+        { id: 'p1', authUserId: 'auth_1', displayName: 'Alice', color: 'red' },
+        { id: 'p2', authUserId: 'auth_2', displayName: 'Bob', color: 'blue' },
+      ],
+    })
+    const state: GameState = {
+      ...lobby,
+      status: 'boardSetup',
+      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 3, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+    }
+    const content: BoardGenerationContent = { startingWaterShapeCells: [], tiers: [{ terrain: 'plain', shapeCells: domino, placesOn: ['water'], poolSize: 3 }] }
+
+    // Three fully independent, interchangeable pairs remain after p1's
+    // placement, but only 2 tiles are still owed — which 2 of the 3 pairs
+    // get used isn't determined, so nothing should auto-place.
+    const result = applyActionAndFastForwardTiles(
+      state,
+      { type: 'PLACE_TILE', playerId: 'p1', anchor: { q: 0, r: 0 }, rotationSteps: 0 },
+      undefined,
+      undefined,
+      content,
+    )
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.state.boardSetup?.tilesRemainingInTier).toBe(2)
+    expect(result.state.actionHistory.filter((entry) => entry.action.type === 'PLACE_TILE')).toHaveLength(1)
   })
 })

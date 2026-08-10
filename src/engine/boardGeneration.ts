@@ -142,6 +142,113 @@ export function canPlaceRemainingTiles(
   return true
 }
 
+function cellKey(c: Coordinate): string {
+  return `${c.q},${c.r}`
+}
+
+interface CandidatePlacement {
+  cells: Coordinate[]
+  anchor: Coordinate
+  rotationSteps: number
+}
+
+/** Every distinct legal placement of `shapeCells` on `board` (deduped by covered cell-set — a symmetric shape can reach the same cells via more than one rotation/anchor pair). */
+function findAllLegalPlacements(board: Board, shapeCells: Coordinate[], placesOn: Terrain[]): CandidatePlacement[] {
+  const candidateHexes = Object.values(board.tiles).filter((tile) => placesOn.includes(tile.terrain))
+  const seen = new Set<string>()
+  const placements: CandidatePlacement[] = []
+
+  for (let rotation = 0; rotation < 6; rotation++) {
+    const rotatedCells = rotateShape(shapeCells, rotation)
+    for (const hex of candidateHexes) {
+      for (const localCell of rotatedCells) {
+        const anchor: Coordinate = { q: hex.coord.q - localCell.q, r: hex.coord.r - localCell.r }
+        const cells = placedShapeCells(shapeCells, anchor, rotation)
+        if (!isLegalTilePlacement(board, cells, placesOn)) continue
+        const key = cells.map(cellKey).sort().join('|')
+        if (seen.has(key)) continue
+        seen.add(key)
+        placements.push({ cells, anchor, rotationSteps: rotation })
+      }
+    }
+  }
+  return placements
+}
+
+/**
+ * Finds up to `limit` distinct ways to choose `count` pairwise-disjoint
+ * placements out of `placements` (each combo is a set — order doesn't
+ * matter). Stops as soon as `limit` combos are found, since
+ * findForcedPlacement only needs to tell "exactly one" apart from "more
+ * than one," not enumerate every combo.
+ */
+function findDisjointCombos(placements: CandidatePlacement[], count: number, limit: number): CandidatePlacement[][] {
+  const results: CandidatePlacement[][] = []
+  const chosen: CandidatePlacement[] = []
+
+  function backtrack(startIndex: number, usedCells: Set<string>): void {
+    if (results.length >= limit) return
+    if (chosen.length === count) {
+      results.push([...chosen])
+      return
+    }
+    for (let i = startIndex; i < placements.length && results.length < limit; i++) {
+      const placement = placements[i]
+      if (placement.cells.some((c) => usedCells.has(cellKey(c)))) continue
+      const nextUsed = new Set(usedCells)
+      for (const c of placement.cells) nextUsed.add(cellKey(c))
+      chosen.push(placement)
+      backtrack(i + 1, nextUsed)
+      chosen.pop()
+    }
+  }
+
+  backtrack(0, new Set())
+  return results
+}
+
+/**
+ * A legal placement guaranteed to be part of it if and only if there is
+ * exactly one way left to place all `count` of this tier's remaining tiles
+ * (as a set — which physical tile goes where doesn't matter, only which
+ * hexes end up covered) — i.e. the "decision" isn't really a decision
+ * anymore, since every other option has already been ruled out. Returns
+ * `null` when zero or multiple such combos exist, or for `placesOn: null`
+ * (water), which is never forced since the board is unbounded.
+ *
+ * Once a combo of `count` disjoint placements is the *only* one, fixing
+ * any single member of it and re-deriving the forced combo for the
+ * remaining `count - 1` always reproduces the rest of that same combo (a
+ * second combo for the remainder would combine with the fixed member to
+ * form a second full combo, contradicting uniqueness) — so it's safe to
+ * apply the returned placement and re-run this check for what's left,
+ * same as boardSetup.ts's applyAction cascade does.
+ *
+ * Capped at 60 distinct legal placements before attempting the combo
+ * search: a shape with that much room to work with almost never turns out
+ * to be forced anyway (many independent placements exist), so this bound
+ * just skips the expensive search in the case it wouldn't have paid off,
+ * without changing the outcome for any board small enough to plausibly be
+ * forced.
+ */
+export function findForcedPlacement(
+  board: Board,
+  shapeCells: Coordinate[],
+  placesOn: Terrain[] | null,
+  count: number,
+): { anchor: Coordinate; rotationSteps: number } | null {
+  if (placesOn === null || count <= 0) return null
+
+  const placements = findAllLegalPlacements(board, shapeCells, placesOn)
+  if (placements.length > 60) return null
+
+  const combos = findDisjointCombos(placements, count, 2)
+  if (combos.length !== 1) return null
+
+  const [chosen] = combos[0]
+  return { anchor: chosen.anchor, rotationSteps: chosen.rotationSteps }
+}
+
 // --- starting water tiles ------------------------------------------------------
 
 /**

@@ -2017,3 +2017,62 @@ later one) and an integration case in `boardSetup.test.ts` reproducing
 the reported bug's shape: a placement that leaves room for only one of
 two still-owed tiles is now rejected, where it previously wasn't. 340
 tests total (was 336); `tsc -b`/`oxlint`/`npm run build` all clean.
+
+## 44. Auto-place a tier's remaining tiles once there's only one legal way left
+
+Follow-up to #43: "if a tile is placed and after that there is only a
+single way all other tiles from the terrain can be placed, just fast
+forward the placement (skipping players' decisions, but respecting
+player order)."
+
+**`findForcedPlacement()`** (`src/engine/boardGeneration.ts`) answers
+"is there exactly one way left to place all of this tier's remaining
+tiles" — not just whether room exists (that's `canPlaceRemainingTiles()`
+from #43), but whether the *set* of hexes each remaining tile ends up
+covering is uniquely determined. It enumerates every distinct legal
+placement (deduped by covered cell-set, since a symmetric shape can
+reach the same cells via more than one rotation), then backtracks for
+disjoint combinations of `count` of them, stopping the moment a second
+combo turns up — "is it unique" only needs telling one apart from more
+than one, never a full enumeration. Capped at 60 distinct legal
+placements before attempting that search: a shape with that much open
+room essentially never turns out forced anyway, so the cap just skips
+paying for the search in the case where it wouldn't have found anything,
+without changing the answer for any board small enough to plausibly be
+forced.
+
+**Wiring this into live play needed a real design fix, not just a call
+site.** The obvious approach — cascade inside `applyAction()` itself,
+logging each auto-placement as its own `actionHistory` entry via a
+recursive `applyAction()` call — breaks event sourcing: `replayActions()`
+(`src/engine/replay.ts`) calls `applyAction()` once per already-logged
+entry, so replaying a fast-forwarded entry would trigger the cascade
+*again* and collide with the next real logged entry (the hexes it tries
+to place on are already covered). Caught this by tracing through what
+replay would actually do with the resulting log, not just by running the
+new tests.
+
+Fixed by keeping `applyAction()` a pure one-action-in/one-log-entry-out
+reducer (unchanged from before this todo item) and adding a new wrapper,
+`applyActionAndFastForwardTiles()`, that live callers use instead: it
+calls `applyAction()` for the real submitted action, then — only for
+PLACE_TILE — keeps asking `findForcedPlacement()` what's forced next and
+submitting *that* through `applyAction()` too (attributed to
+`currentTilePlacerId()`, so turn order still advances correctly through
+the skipped decisions), until nothing's forced anymore. Every placement,
+human or auto, still lands its own ordinary `actionHistory` entry;
+replay just replays that flat list of entries with the plain
+`applyAction()`, no cascading needed since there's nothing left to
+decide by the time replay gets there. `GamePage.tsx`'s `submitAction`
+now calls this wrapper instead of `applyAction()` directly; nothing else
+(replay, undo, the round-mechanics call sites) changed.
+
+Added `findForcedPlacement()` coverage in `boardGeneration.test.ts`
+(unique vs. ambiguous single-tile and 2-tile cases, including the
+shared-cell-chain shape from #43's tests) and `applyActionAndFastForwardTiles()`
+integration coverage in `applyAction.test.ts`: a manual placement that
+makes the rest of the tier forced correctly cascades through both
+remaining tiles with the right player attribution and turn order, and a
+manual placement that leaves real ambiguity (3 independent pairs, 2
+tiles owed) correctly does *not* auto-place anything. 347 tests total
+(was 340); `tsc -b`/`oxlint`/`npm run build` all clean.

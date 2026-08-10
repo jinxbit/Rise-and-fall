@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   applyTilePlacement,
   canPlaceRemainingTiles,
+  findForcedPlacement,
   isLegalTilePlacement,
   placedShapeCells,
   rotateShape,
@@ -168,6 +169,53 @@ describe('canPlaceRemainingTiles', () => {
     const board = boardOf([[0, 0, 'water'], [1, 0, 'water'], [2, 0, 'water'], [3, 0, 'water']])
     expect(canPlaceRemainingTiles(board, domino, ['water'], 'plain', 2)).toBe(true)
     expect(canPlaceRemainingTiles(board, domino, ['water'], 'plain', 3)).toBe(false)
+  })
+})
+
+describe('findForcedPlacement', () => {
+  const domino = [{ q: 0, r: 0 }, { q: 1, r: 0 }]
+
+  it('is null for placesOn: null (water) — never forced, the board is unbounded', () => {
+    const board = boardOf([[0, 0, 'plain']])
+    expect(findForcedPlacement(board, domino, null, 3)).toBeNull()
+  })
+
+  it('is null when more than one legal spot exists for a single remaining tile', () => {
+    const board = boardOf([[0, 0, 'water'], [1, 0, 'water'], [5, 5, 'water'], [6, 5, 'water']])
+    expect(findForcedPlacement(board, domino, ['water'], 1)).toBeNull()
+  })
+
+  it('finds the one legal spot when exactly one exists for a single remaining tile', () => {
+    const board = boardOf([[0, 0, 'water'], [1, 0, 'water']])
+    const forced = findForcedPlacement(board, domino, ['water'], 1)
+    expect(forced).not.toBeNull()
+    if (!forced) return
+    const cells = placedShapeCells(domino, forced.anchor, forced.rotationSteps)
+    expect(new Set(cells.map((c) => `${c.q},${c.r}`))).toEqual(new Set(['0,0', '1,0']))
+  })
+
+  it('is null when more than one combo of 2 disjoint placements exists', () => {
+    // Three fully independent pairs but only 2 tiles are owed — which 2 of
+    // the 3 get used isn't determined.
+    const board = boardOf([
+      [0, 0, 'water'], [1, 0, 'water'],
+      [5, 5, 'water'], [6, 5, 'water'],
+      [10, 5, 'water'], [11, 5, 'water'],
+    ])
+    expect(findForcedPlacement(board, domino, ['water'], 2)).toBeNull()
+  })
+
+  it('finds the forced placement when a shared-cell chain leaves only one disjoint combo for 2 remaining tiles', () => {
+    // (5,5)-(6,5)-(7,5)-(8,5): the only two disjoint dominoes are
+    // (5,5)-(6,5) and (7,5)-(8,5) — (6,5)-(7,5) overlaps both, so it can
+    // never be part of a valid pair. Exactly one way to place both.
+    const board = boardOf([[5, 5, 'water'], [6, 5, 'water'], [7, 5, 'water'], [8, 5, 'water']])
+    const forced = findForcedPlacement(board, domino, ['water'], 2)
+    expect(forced).not.toBeNull()
+    if (!forced) return
+    const cells = placedShapeCells(domino, forced.anchor, forced.rotationSteps)
+    const key = cells.map((c) => `${c.q},${c.r}`).sort().join('|')
+    expect(['5,5|6,5', '7,5|8,5']).toContain(key)
   })
 })
 

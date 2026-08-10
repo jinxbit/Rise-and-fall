@@ -1,15 +1,16 @@
-import type { Action, LoggedAction, UnitActionAssignment } from './actions'
+import type { Action, LoggedAction, PlaceTileAction, UnitActionAssignment } from './actions'
 import type { AchievementContent } from './achievementContent'
 import { EMPTY_ACHIEVEMENT_CONTENT } from './achievementContent'
 import { updateAchievementClaims } from './achievements'
 import { moveCard, syncCardZonesWithBoard } from './cards'
 import { eliminatePlayersWithNoCardToDecline } from './elimination'
+import { findForcedPlacement } from './boardGeneration'
 import { calculatePurchaseCost } from './purchaseCost'
 import { spendResource } from './resources'
 import { beginActionsPhase, beginPostActionsPhase, beginPurchasePhase, finishRound, skipEmptyDeclinePurchasers } from './round'
 import { EMPTY_BOARD_GENERATION_CONTENT } from './boardGenerationContent'
 import type { BoardGenerationContent } from './boardGenerationContent'
-import { placeTile, placeUnit } from './boardSetup'
+import { currentTilePlacerId, placeTile, placeUnit } from './boardSetup'
 import type { ActionResult, GameState } from './types'
 import { EMPTY_UNIT_CONTENT } from './unitContent'
 import type { UnitContent } from './unitContent'
@@ -47,6 +48,17 @@ export type { ActionResult } from './types'
  * comment) via a thin wrapper around the actual dispatch logic below, so
  * every caller gets this for free without each individual apply* handler
  * needing to remember to do it.
+ *
+ * Deliberately stays a pure one-action-in, one-log-entry-out reducer —
+ * replayActions() (./replay.ts) calls this once per already-logged entry
+ * to reconstruct state, so anything this function did *beyond* the given
+ * action (like also deciding what to submit next) would run again on
+ * every replay of an entry that was itself such a follow-up, colliding
+ * with the next real logged entry. Live callers that want PLACE_TILE's
+ * forced-follow-up fast-forwarding (see applyActionAndFastForwardTiles
+ * below) call that wrapper instead — it's still just repeated calls to
+ * this same function under the hood, so every fast-forwarded placement
+ * gets its own perfectly ordinary actionHistory entry.
  */
 export function applyAction(
   state: GameState,
@@ -60,6 +72,65 @@ export function applyAction(
 
   const loggedAction: LoggedAction = { action, turn: result.state.turn, timestamp: new Date().toISOString() }
   return { ok: true, state: { ...result.state, actionHistory: [...result.state.actionHistory, loggedAction] } }
+}
+
+/**
+ * Live-submission wrapper around applyAction(): applies `action`, then —
+ * if it was a PLACE_TILE — keeps fast-forwarding further tile placements
+ * for as long as the tier's remaining tiles have only one possible way
+ * left for all of them to go (see findForcedPlacement in
+ * ./boardGeneration.ts, rolling naturally into a newly-forced next tier
+ * too). A placement that isn't really a decision anymore doesn't need a
+ * player to confirm it — but player order still matters for bookkeeping
+ * (whose turn advances, when the tier/unit-placement phase transitions),
+ * so each fast-forwarded tile is still attributed to whichever player's
+ * turn it actually is (currentTilePlacerId) and submitted through
+ * applyAction() itself, landing its own ordinary actionHistory entry, same
+ * as if that player had placed it themselves.
+ *
+ * This is the function UI/API callers should use to submit a PLACE_TILE
+ * (see GamePage.tsx's submitAction) — applyAction() itself intentionally
+ * doesn't do this (see its own doc comment for why).
+ */
+export function applyActionAndFastForwardTiles(
+  state: GameState,
+  action: Action,
+  unitContent: UnitContent = EMPTY_UNIT_CONTENT,
+  achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT,
+  boardGenerationContent: BoardGenerationContent = EMPTY_BOARD_GENERATION_CONTENT,
+): ActionResult {
+  const result = applyAction(state, action, unitContent, achievementContent, boardGenerationContent)
+  if (!result.ok || action.type !== 'PLACE_TILE') return result
+
+  let nextState = result.state
+  for (
+    let forced = nextTileFastForward(nextState, boardGenerationContent);
+    forced;
+    forced = nextTileFastForward(nextState, boardGenerationContent)
+  ) {
+    const cascadeResult = applyAction(nextState, forced, unitContent, achievementContent, boardGenerationContent)
+    if (!cascadeResult.ok) break // defensive only — findForcedPlacement's own combo is always legal by construction
+    nextState = cascadeResult.state
+  }
+  return { ok: true, state: nextState }
+}
+
+/** The next forced PLACE_TILE action to submit, or null once no longer forced — see applyActionAndFastForwardTiles. */
+function nextTileFastForward(state: GameState, boardGenerationContent: BoardGenerationContent): PlaceTileAction | null {
+  const boardSetup = state.boardSetup
+  if (state.status !== 'boardSetup' || !boardSetup || boardSetup.tileTierQueue.length === 0) return null
+  if (boardSetup.tilesRemainingInTier <= 0) return null
+
+  const tierContent = boardGenerationContent.tiers.find((t) => t.terrain === boardSetup.tileTierQueue[0])
+  if (!tierContent) return null
+
+  const forced = findForcedPlacement(state.board, tierContent.shapeCells, tierContent.placesOn, boardSetup.tilesRemainingInTier)
+  if (!forced) return null
+
+  const playerId = currentTilePlacerId(state)
+  if (!playerId) return null
+
+  return { type: 'PLACE_TILE', playerId, anchor: forced.anchor, rotationSteps: forced.rotationSteps }
 }
 
 function dispatchAction(
