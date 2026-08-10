@@ -49,6 +49,15 @@ export interface ConvertEffect {
   /** If set, the target unit's kind changes to this (e.g. nomad -> merchant); otherwise only ownership changes, same as before this field existed (the 'enemy' case). */
   resultUnit?: string
   cost: ActionCost
+  /**
+   * Per ruling, Temple's Convert Enemy Unit costs a different amount of
+   * gold depending on the target's kind (e.g. cheaper for a Nomad, pricier
+   * for a Ship) — keyed by unit kind id, checked/paid instead of `cost`
+   * once the target is known. `cost` remains the fallback for a kind with
+   * no entry here (and is what an 'own' conversion like City's still
+   * uses, since only 'enemy' conversions vary by target today).
+   */
+  costByTargetKind?: Record<string, ActionCost>
 }
 
 export interface IncomeEffect {

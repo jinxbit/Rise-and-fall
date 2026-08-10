@@ -834,6 +834,61 @@ describe('applyUnitActionEffect — convert (Temple)', () => {
 
     expect(next.units.find((u) => u.id === enemyTemple.id)!.ownerId).toBe('p2')
   })
+
+  describe('costByTargetKind — cost varies by the target unit\'s own kind', () => {
+    const actionWithVaryingCost: UnitAction = {
+      id: 'convert-enemy-unit',
+      name: 'Convert Enemy Unit',
+      description: '',
+      effect: {
+        actionType: 'convert',
+        targetHex: { location: 'adj' },
+        targetOwner: 'enemy',
+        targetMobileOnly: true,
+        cost: { gold: 999 }, // fallback, should never be used — every mobile kind below has its own entry
+        costByTargetKind: { nomad: { gold: 2 }, mountaineer: { gold: 3 }, merchant: { gold: 5 }, ship: { gold: 5 } },
+      },
+    }
+    const content: UnitContent = {
+      ...emptyContent,
+      movementByKind: {
+        nomad: { isMobile: true, terrains: [], canCrossCliffs: false },
+        ship: { isMobile: true, terrains: ['water'], canCrossCliffs: false },
+        temple: { isMobile: false, terrains: [], canCrossCliffs: false },
+      },
+    }
+
+    it('charges the cost keyed by the target\'s kind, not the flat fallback cost', () => {
+      const board = boardOf([[0, 0, 'plain'], [1, 0, 'plain']])
+      const state = makeState({
+        board,
+        players: [makePlayer('p1', { resources: { gold: 2, wood: 0, stone: 0 } }), makePlayer('p2')],
+        units: [makeUnit('p1', 'temple', { q: 0, r: 0 }), makeUnit('p2', 'nomad', { q: 1, r: 0 })],
+      })
+      const [temple, enemyUnit] = state.units
+
+      const next = applyUnitActionEffect(state, 'p1', 'temple', actionWithVaryingCost, { [temple.id]: enemyUnit.coord }, content)
+
+      expect(next.units.find((u) => u.id === enemyUnit.id)!.ownerId).toBe('p1')
+      expect(next.players.find((p) => p.id === 'p1')!.resources.gold).toBe(0)
+    })
+
+    it('rejects when the player can afford the flat cost but not this specific target\'s cost', () => {
+      const board = boardOf([[0, 0, 'plain'], [1, 0, 'plain']])
+      const state = makeState({
+        board,
+        players: [makePlayer('p1', { resources: { gold: 4, wood: 0, stone: 0 } }), makePlayer('p2')],
+        units: [makeUnit('p1', 'temple', { q: 0, r: 0 }), makeUnit('p2', 'ship', { q: 1, r: 0 })],
+      })
+      const [temple, enemyShip] = state.units
+
+      // 4 gold isn't enough for a Ship (costs 5).
+      const next = applyUnitActionEffect(state, 'p1', 'temple', actionWithVaryingCost, { [temple.id]: enemyShip.coord }, content)
+
+      expect(next.units.find((u) => u.id === enemyShip.id)!.ownerId).toBe('p2')
+      expect(next.players.find((p) => p.id === 'p1')!.resources.gold).toBe(4)
+    })
+  })
 })
 
 describe("applyUnitActionEffect — convert, 'own' (City upgrading an adjacent Nomad)", () => {

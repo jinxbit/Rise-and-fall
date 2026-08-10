@@ -78,13 +78,19 @@
         {
           "id": "convert-enemy-unit",
           "name": "Convert Enemy Unit",
-          "description": "Convert an adjacent enemy unit to your control. Only mobile units can be converted.",
+          "description": "Convert an adjacent enemy unit to your control. Only mobile units can be converted. Costs gold depending on the target: 2 for a Nomad, 3 for a Mountaineer, 5 for a Merchant or Ship.",
           "effect": {
             "actionType": "convert",
             "targetHex": { "location": "adj" },
             "targetOwner": "enemy",
             "targetMobileOnly": true,
-            "cost": { "gold": 0, "wood": 0, "stone": 0 }
+            "cost": { "gold": 0, "wood": 0, "stone": 0 },
+            "costByTargetKind": {
+              "nomad": { "gold": 2 },
+              "mountaineer": { "gold": 3 },
+              "merchant": { "gold": 5 },
+              "ship": { "gold": 5 }
+            }
           }
         },
         {

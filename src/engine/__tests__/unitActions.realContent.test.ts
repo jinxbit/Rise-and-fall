@@ -341,4 +341,77 @@ describe('real content/units.json + terrain.json + resources.json', () => {
     const toForest = applyUnitActionEffect(state, 'p1', 'mountaineer', action, { [mountaineer.id]: { q: -1, r: 0 } }, content)
     expect(toForest.units[0].coord).toEqual({ q: -1, r: 0 }) // every other terrain still works
   })
+
+  it("Temple's Convert Enemy Unit charges the real per-target-kind gold cost (2 Nomad, 3 Mountaineer, 5 Merchant/Ship)", () => {
+    // Temple at (0,0), one enemy on each of 4 of its 6 neighboring hexes —
+    // all genuinely adjacent, unlike a straight line out from the temple.
+    let board = createEmptyBoard('hex')
+    for (const [q, r] of [[0, 0], [1, 0], [1, -1], [0, -1], [-1, 0]] as const) board = setTile(board, { q, r }, 'plain')
+    const temple: Unit = { id: 'temple', ownerId: 'p1', kind: 'temple', coord: { q: 0, r: 0 }, movement: content.movementByKind.temple, traits: [] }
+    const enemyUnit = (kind: string, coord: { q: number; r: number }): Unit => ({
+      id: `enemy_${kind}`,
+      ownerId: 'p2',
+      kind,
+      coord,
+      movement: content.movementByKind[kind],
+      traits: [],
+    })
+    const enemies = [
+      enemyUnit('nomad', { q: 1, r: 0 }),
+      enemyUnit('mountaineer', { q: 1, r: -1 }),
+      enemyUnit('merchant', { q: 0, r: -1 }),
+      enemyUnit('ship', { q: -1, r: 0 }),
+    ]
+
+    const state: GameState = {
+      gameId: 'g',
+      playMode: 'hotseat',
+      status: 'active',
+      turn: 1,
+      activePlayerId: null,
+      roundPhase: 'actions',
+      chosenCardIdByPlayerId: {},
+      pendingPlayerIds: [],
+      resolvedUnitIdsThisTurn: [],
+      turnOrder: ['p1', 'p2'],
+      board,
+      players: [makePlayer('p1', { gold: 3, wood: 0, stone: 0 }), makePlayer('p2')],
+      units: [temple, ...enemies],
+      cards: {},
+      resourceBank: { gold: 1000, wood: 1000, stone: 1000 },
+      winnerPlayerIds: [],
+      claimedByAchievementId: {},
+      achievementsClaimedThisRound: 0,
+      boardSetup: null,
+      idSequence: 0,
+      actionHistory: [],
+    }
+
+    const action = findAction('temple', 'convert-enemy-unit', content)
+
+    // 3 gold: too little for the Mountaineer (3 leaves 0, but let's confirm
+    // the exact charge instead) — spend it converting the Nomad (costs 2).
+    const afterNomad = applyUnitActionEffect(state, 'p1', 'temple', action, { [temple.id]: { q: 1, r: 0 } }, content)
+    expect(afterNomad.units.find((u) => u.id === 'enemy_nomad')!.ownerId).toBe('p1')
+    expect(afterNomad.players.find((p) => p.id === 'p1')!.resources.gold).toBe(1)
+
+    // Not enough gold left (1) for the Mountaineer (costs 3) — rejected.
+    const afterMountaineerAttempt = applyUnitActionEffect(afterNomad, 'p1', 'temple', action, { [temple.id]: { q: 1, r: -1 } }, content)
+    expect(afterMountaineerAttempt.units.find((u) => u.id === 'enemy_mountaineer')!.ownerId).toBe('p2')
+    expect(afterMountaineerAttempt.players.find((p) => p.id === 'p1')!.resources.gold).toBe(1)
+
+    // Fully funded: Mountaineer costs 3, Merchant/Ship cost 5 each.
+    const funded = { ...state, players: [makePlayer('p1', { gold: 3 + 5 + 5, wood: 0, stone: 0 }), makePlayer('p2')] }
+    const afterMountaineer = applyUnitActionEffect(funded, 'p1', 'temple', action, { [temple.id]: { q: 1, r: -1 } }, content)
+    expect(afterMountaineer.units.find((u) => u.id === 'enemy_mountaineer')!.ownerId).toBe('p1')
+    expect(afterMountaineer.players.find((p) => p.id === 'p1')!.resources.gold).toBe(10)
+
+    const afterMerchant = applyUnitActionEffect(afterMountaineer, 'p1', 'temple', action, { [temple.id]: { q: 0, r: -1 } }, content)
+    expect(afterMerchant.units.find((u) => u.id === 'enemy_merchant')!.ownerId).toBe('p1')
+    expect(afterMerchant.players.find((p) => p.id === 'p1')!.resources.gold).toBe(5)
+
+    const afterShip = applyUnitActionEffect(afterMerchant, 'p1', 'temple', action, { [temple.id]: { q: -1, r: 0 } }, content)
+    expect(afterShip.units.find((u) => u.id === 'enemy_ship')!.ownerId).toBe('p1')
+    expect(afterShip.players.find((p) => p.id === 'p1')!.resources.gold).toBe(0)
+  })
 })

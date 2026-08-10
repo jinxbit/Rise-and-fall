@@ -263,6 +263,33 @@ describe('legalConvertTargets', () => {
 
     expect(legalConvertTargets(state, 'p1', unit, effect, emptyContent)).toEqual([])
   })
+
+  it("costByTargetKind: filters per-target affordability instead of one flat cost for the whole action (Temple's Convert Enemy Unit costs more for pricier targets)", () => {
+    const effectWithVaryingCost: ConvertEffect = {
+      ...effect,
+      cost: { gold: 999 },
+      costByTargetKind: { nomad: { gold: 2 }, ship: { gold: 5 } },
+    }
+    const content: UnitContent = {
+      ...emptyContent,
+      movementByKind: {
+        nomad: { isMobile: true, terrains: [], canCrossCliffs: false },
+        ship: { isMobile: true, terrains: ['water'], canCrossCliffs: false },
+      },
+    }
+    const board = boardOf([[0, 0, 'plain'], [1, 0, 'plain'], [-1, 0, 'plain']])
+    const unit = makeUnit('p1', 'temple', { q: 0, r: 0 })
+    const enemyNomad = makeUnit('p2', 'nomad', { q: 1, r: 0 }, { isMobile: true })
+    const enemyShip = makeUnit('p2', 'ship', { q: -1, r: 0 }, { isMobile: true })
+    const state = makeState({
+      board,
+      units: [unit, enemyNomad, enemyShip],
+      players: [makePlayer('p1', { resources: { gold: 3, wood: 0, stone: 0 } }), makePlayer('p2')],
+    })
+
+    // 3 gold affords the Nomad (2) but not the Ship (5) — only the Nomad's hex is legal.
+    expect(legalConvertTargets(state, 'p1', unit, effectWithVaryingCost, content)).toEqual([{ q: 1, r: 0 }])
+  })
 })
 
 describe("legalConvertTargets, targetOwner: 'own' (City upgrading an adjacent Nomad)", () => {

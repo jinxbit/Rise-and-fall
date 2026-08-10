@@ -314,7 +314,8 @@ function applyConvert(state: GameState, playerId: string, unit: Unit, effect: Co
   const resultKind = effect.resultUnit ?? targetUnit.kind
   if (resultKind !== targetUnit.kind && hasReachedSupplyCap(state, playerId, resultKind, content.unitSupplyCaps)) return state
 
-  const afterCost = tryPayCost(state, playerId, effect.cost)
+  const cost = effect.costByTargetKind?.[targetUnit.kind] ?? effect.cost
+  const afterCost = tryPayCost(state, playerId, cost)
   if (!afterCost) return state
 
   const units = afterCost.units.map((u) =>

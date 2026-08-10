@@ -2382,3 +2382,39 @@ regression in `unitActions.realContent.test.ts` confirming a Mountaineer
 can no longer move onto Water but still can onto every other terrain in
 its list. 389 tests total (was 388); `tsc -b`/`oxlint`/`npm run build`
 all clean.
+
+## 51. Temple's Convert Enemy Unit now costs gold, varying by the target's kind
+
+User supplied the real costs: 2 gold for a Nomad, 3 for a Mountaineer, 5
+for a Merchant or Ship. Previously flat-costed at `{gold:0,wood:0,stone:0}`
+(a placeholder).
+
+`ConvertEffect.cost` (`unitContent.ts`) is a single flat `ActionCost` —
+fine for City's "own" upgrade conversions (always the same cost
+regardless of which Nomad gets upgraded), but Temple's "enemy" steal
+needs a different cost per *target* kind. Added an optional
+`costByTargetKind?: Record<string, ActionCost>` alongside it, checked
+first and falling back to `cost` when the target's kind has no entry.
+
+This meant `legalConvertTargets()`'s affordability check
+(`actionTargeting.ts`) could no longer happen once, up front, for the
+whole action — it now has to run per candidate hex, after the target
+(and therefore its cost) is known, so a target the player can't afford
+correctly drops out of the legal-target list while an affordable one
+right next to it doesn't. `applyConvert()` (`unitActions.ts`) resolves
+the same per-target cost before paying it.
+
+`content/units.json`'s `convert-enemy-unit` now sets
+`costByTargetKind: { nomad: 2, mountaineer: 3, merchant: 5, ship: 5 }`
+(all gold) — `targetMobileOnly: true` means these 4 kinds are the only
+ones this action can ever target, so the table is exhaustive; `cost`
+stays as an unused fallback.
+
+Added coverage in `unitActions.test.ts` (charges the per-kind cost, not
+the flat fallback; rejects when affordable overall but not for this
+specific target), `actionTargeting.test.ts` (per-target affordability
+filtering, not a single up-front check), and a real-content regression
+in `unitActions.realContent.test.ts` converting one of each of the 4
+real target kinds in sequence and checking the exact gold balance after
+each. 393 tests total (was 389); `tsc -b`/`oxlint`/`npm run build` all
+clean.

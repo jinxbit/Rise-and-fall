@@ -65,7 +65,7 @@ export function legalTransformTargets(state: GameState, playerId: string, unit: 
 
 export function legalConvertTargets(state: GameState, playerId: string, unit: Unit, effect: ConvertEffect, content: UnitContent): Coordinate[] {
   const player = state.players.find((p) => p.id === playerId)
-  if (!player || !canAffordCost(player.resources, effect.cost)) return []
+  if (!player) return []
 
   return neighborCoords(state.board, unit.coord).filter((coord) => {
     if (crossesCliff(state, unit.coord, coord, content.terrainLevels)) return false
@@ -76,6 +76,11 @@ export function legalConvertTargets(state: GameState, playerId: string, unit: Un
     )
     if (!target) return false
     if (effect.targetMobileOnly && !content.movementByKind[target.kind]?.isMobile) return false
+    // Cost can vary by the target's own kind (e.g. Temple's Convert Enemy
+    // Unit — see ConvertEffect.costByTargetKind), so affordability has to
+    // be checked per candidate target, not once up front for the whole action.
+    const cost = effect.costByTargetKind?.[target.kind] ?? effect.cost
+    if (!canAffordCost(player.resources, cost)) return false
     const resultKind = effect.resultUnit ?? target.kind
     if (resultKind !== target.kind && hasReachedSupplyCap(state, playerId, resultKind, content.unitSupplyCaps)) return false
     return true
