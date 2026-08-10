@@ -166,7 +166,7 @@ describe('RoundView — player status summary and achievements panel', () => {
     expect(screen.getByText('Remaining: City 2, Temple 2, Nomad 3, Merchant 2, Mountaineer 2, Ship 2')).toBeInTheDocument()
   })
 
-  it("shows each player's current score, computed live from achievements/board-count/terrain-control — not just at game end", () => {
+  it("shows each player's current score, computed live from claimed achievements — not just at game end (see the next test for terrain-control)", () => {
     const state = makeState() // claimedByAchievementId: { 'city-mastery': 'p2' }
     const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
 
@@ -192,6 +192,48 @@ describe('RoundView — player status summary and achievements panel', () => {
 
     expect(screen.getByText('Score 0')).toBeInTheDocument() // p1: nothing claimed
     expect(screen.getByText('Score 5')).toBeInTheDocument() // p2: claimed city-mastery, worth 5 VP
+  })
+
+  it("includes terrain-control VP in each player's current score, not just achievements", () => {
+    // The previous test's board is empty (createEmptyBoard, no units), so
+    // it never actually exercised the terrain-control term despite its own
+    // title claiming to — this one does, with a real 2-hex Plain region p1
+    // holds a unit majority in and p2 has no presence in at all.
+    let state = makeState()
+    state = {
+      ...state,
+      board: setTile(setTile(state.board, { q: 0, r: 0 }, 'plain'), { q: 1, r: 0 }, 'plain'),
+      units: [
+        { id: 'u1', ownerId: 'p1', kind: 'nomad', coord: { q: 0, r: 0 }, movement: { isMobile: true, terrains: ['plain'], canCrossCliffs: false }, traits: [] },
+        { id: 'u2', ownerId: 'p1', kind: 'nomad', coord: { q: 1, r: 0 }, movement: { isMobile: true, terrains: ['plain'], canCrossCliffs: false }, traits: [] },
+      ],
+    }
+    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
+
+    render(
+      <RoundView
+        state={state}
+        players={players}
+        myPlayerId="p1"
+        unitContent={EMPTY_UNIT_CONTENT}
+        achievementContent={{ ...EMPTY_ACHIEVEMENT_CONTENT, achievementVictoryPoints: { 'city-mastery': 5 }, terrainVictoryPoints: { plain: 3 } }}
+        turnReview={null}
+        showHistory={false}
+        onToggleHistory={() => {}}
+        gameLog={[]}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+
+    // p1: majority (2 units) in a 2-hex Plain region at 3 VP/hex -> 6, plus nothing from achievements.
+    expect(screen.getByText('Score 6')).toBeInTheDocument()
+    // p2: claimed city-mastery (5 VP), no board presence at all -> no terrain-control VP.
+    expect(screen.getByText('Score 5')).toBeInTheDocument()
   })
 
   it('renders the achievements panel last, after the board and the log — not near the top with the rest of the status summary', () => {

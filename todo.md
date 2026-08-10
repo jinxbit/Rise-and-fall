@@ -1909,3 +1909,43 @@ tier's last tile, and allowing the same shape/tier when a legal spot
 remains. 335 tests total (was 328); `tsc -b`/`oxlint`/`npm run build`
 all clean. Also updated `PROJECT_PLAN.md`'s stale "not yet built" note
 on this exact item to reflect the simplified rule now shipped.
+
+## 41. Investigated: terrain scoring values aren't in place yet; the player-display score math is correct
+
+Asked whether terrain scoring values were in place, and flagged the
+player display's score as possibly not accounting for terrain control.
+
+**Values: not in place.** `content/terrain.json`'s `victoryPoints` is
+`0` for all five terrains (`water`/`plain`/`forest`/`mountain`/
+`glacier`) — still the section-1 placeholder `PROJECT_PLAN.md` already
+calls out ("the real per-unit/per-terrain/per-achievement VP numbers
+are still placeholders — the rule itself is settled"). Only
+`scoresAs` (Glacier merging into Mountain for region purposes) has a
+real, non-default value. Didn't invent numbers to fill this in — that's
+a game-balance decision for the user to make, not something to guess at.
+
+**Display math: correct, not the bug.** Traced the whole path —
+`RoundView.tsx`'s `currentScoreByPlayerId` calls
+`calculateTerrainControlVP(state.board, state.units,
+achievementContent.terrainVictoryPoints, achievementContent.terrainScoresAs)`
+exactly as `victoryPoints.ts`'s `sumVP` expects, and
+`resolveAchievementContent()` (`content/resolveContent.ts`) does read
+`terrainType.victoryPoints`/`terrainType.scoresAs` for every terrain
+into `AchievementContent`. Confirmed this actually works end to end
+(not just by reading the code) with a new RTL test: a real 2-hex Plain
+region, a 2-unit majority for one player, and `terrainVictoryPoints: {
+plain: 3 }` — the displayed score correctly comes out to `6`
+(3 VP × 2 hexes). With every terrain's real VP at 0, that same
+calculation still runs correctly — it just always contributes 0, which
+reads identically to "not accounting for terrain control" without
+actually being that.
+
+Caught a mislabeled existing test in the process: an existing "computed
+live from achievements/board-count/terrain-control" test never actually
+exercised the terrain-control or board-count terms at all — its board
+was `createEmptyBoard('hex')` with zero units, so those terms always
+had nothing to compute over. Retitled it to what it actually covers
+(achievements only) rather than leaving a misleadingly-broad claim
+sitting next to a test that now genuinely covers the terrain-control
+case. 336 tests total (was 335); `tsc -b`/`oxlint`/`npm run build` all
+clean.
