@@ -113,6 +113,25 @@ export function resolveMapTemplateBoard(templateId: string): Board | null {
   return board
 }
 
+export interface AchievementSummary {
+  id: string
+  name: string
+  description: string
+  unitId: string
+  victoryPoints: number
+}
+
+/** Every achievement in the game, for display (see AchievementsPanel in RoundView.tsx) — name/description aren't part of AchievementContent since the engine itself never needs them, only the id/unitId/victoryPoints mapping. */
+export function listAchievements(): AchievementSummary[] {
+  return achievementsJson.achievements.map((a) => ({
+    id: a.id,
+    name: a.name,
+    description: a.description,
+    unitId: a.unitId,
+    victoryPoints: a.victoryPoints,
+  }))
+}
+
 export function resolveAchievementContent(): AchievementContent {
   const unitKindByAchievementId: Record<string, string> = {}
   const achievementVictoryPoints: Record<string, number> = {}

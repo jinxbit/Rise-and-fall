@@ -3,6 +3,7 @@ import { isActionAvailableForUnit, legalConvertTargets, legalCreateTargets, lega
 import { legalMoveDestinations } from '../engine/movement'
 import { calculatePurchaseCost } from '../engine/purchaseCost'
 import type { AchievementContent } from '../engine/achievementContent'
+import { listAchievements } from '../content/resolveContent'
 import type { Coordinate, GameState, RoundPhase } from '../engine/types'
 import type { UnitAction, UnitContent } from '../engine/unitContent'
 import type { PlayerRow } from '../lib/dbTypes'
@@ -10,12 +11,10 @@ import type { GhostCell, UnitMarker } from './HexBoard'
 import { HexBoard } from './HexBoard'
 import { unitKindLabel } from './unitKindLabel'
 
+const ACHIEVEMENTS = listAchievements()
+
 function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1)
-}
-
-function prettifyId(id: string): string {
-  return id.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
 function playerName(players: PlayerRow[], playerId: string | null): string {
@@ -58,10 +57,11 @@ function PlayersStrip({ state, players, myPlayerId }: { state: GameState; player
     <div className="flex flex-wrap gap-2 text-xs text-neutral-400">
       {state.players.map((player) => {
         const row = players.find((p) => p.id === player.id)
+        const handKinds = player.handCardIds.map((cardId) => state.cards[cardId]?.kind).filter((kind): kind is string => Boolean(kind))
         return (
           <div
             key={player.id}
-            className={`flex items-center gap-2 rounded-md border px-2 py-1 ${
+            className={`flex flex-wrap items-center gap-2 rounded-md border px-2 py-1 ${
               player.id === myPlayerId ? 'border-indigo-600' : 'border-neutral-800'
             } ${player.eliminated ? 'opacity-40' : ''}`}
           >
@@ -71,7 +71,7 @@ function PlayersStrip({ state, players, myPlayerId }: { state: GameState; player
             <span>Gold {player.resources.gold}</span>
             <span>Wood {player.resources.wood}</span>
             <span>Stone {player.resources.stone}</span>
-            <span>Hand {player.handCardIds.length}</span>
+            <span>Hand: {handKinds.length > 0 ? handKinds.map(capitalize).join(', ') : 'empty'}</span>
             <span>Decline {player.declineCardIds.length}</span>
           </div>
         )
@@ -80,16 +80,37 @@ function PlayersStrip({ state, players, myPlayerId }: { state: GameState; player
   )
 }
 
-function AchievementsStrip({ state, players }: { state: GameState; players: PlayerRow[] }) {
-  const claimed = Object.entries(state.claimedByAchievementId)
-  if (claimed.length === 0) return null
+/**
+ * Every achievement in the game (not just claimed ones), plus the current
+ * gold price to buy a card back from decline — grouped together since both
+ * move in lockstep with the same number (achievements claimed so far, see
+ * calculatePurchaseCost), not because they're otherwise related.
+ */
+function AchievementsPanel({ state, players, achievementContent }: { state: GameState; players: PlayerRow[]; achievementContent: AchievementContent }) {
+  const achievementsClaimed = Object.keys(state.claimedByAchievementId).length
+  const buybackPrice = calculatePurchaseCost(achievementsClaimed, achievementContent.purchaseCostTable)
+
   return (
-    <div className="flex flex-wrap gap-2 text-xs text-amber-400">
-      {claimed.map(([achievementId, playerId]) => (
-        <span key={achievementId} className="rounded-md border border-amber-700/50 bg-amber-500/10 px-2 py-1">
-          {prettifyId(achievementId)} → {playerName(players, playerId)}
-        </span>
-      ))}
+    <div className="flex flex-col gap-2 rounded-md border border-neutral-800 p-3 text-xs">
+      <p className="text-neutral-400">
+        Buy back from decline: <span className="font-medium text-neutral-200">{buybackPrice} gold</span>
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {ACHIEVEMENTS.map((achievement) => {
+          const claimedBy = state.claimedByAchievementId[achievement.id] ?? null
+          return (
+            <span
+              key={achievement.id}
+              title={achievement.description}
+              className={`rounded-md border px-2 py-1 ${
+                claimedBy ? 'border-amber-700/50 bg-amber-500/10 text-amber-400' : 'border-neutral-800 text-neutral-500'
+              }`}
+            >
+              {achievement.name} ({achievement.victoryPoints} VP) — {claimedBy ? playerName(players, claimedBy) : 'unclaimed'}
+            </span>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -367,7 +388,7 @@ export function RoundView(props: {
     <div className="flex flex-col gap-4">
       <PhaseBanner state={state} />
       <PlayersStrip state={state} players={players} myPlayerId={myPlayerId} />
-      <AchievementsStrip state={state} players={players} />
+      <AchievementsPanel state={state} players={players} achievementContent={achievementContent} />
 
       {state.roundPhase === 'selectCards' && (
         <SelectCardsPanel state={state} players={players} myPlayerId={myPlayerId} onChooseCard={props.onChooseCard} />

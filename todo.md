@@ -1152,3 +1152,43 @@ Merchant via the real `create-merchant` action/cost; and an
 `applyAction.test.ts` test asserting a resolved Income's log entry
 contains both the action name and "+3 gold". 279 tests total (was 267);
 `tsc -b`/`oxlint`/`npm run build` all clean.
+
+## 25. Player status shows hand contents, plus a full achievements display and the current decline buyback price
+
+Two UX requests: show which units a player still has in hand (not just
+a count), and add a display for achievements (all of them, not just
+claimed ones) and the current gold price to buy a card back from
+decline.
+
+`PlayersStrip` (`RoundView.tsx`) now resolves each player's
+`handCardIds` to their card's `kind` (via `state.cards`) and renders
+"Hand: Nomad, Ship" instead of "Hand 2" — "Hand: empty" once nothing's
+left. This is exactly the information a player needs to plan around:
+which kinds they can still choose to play this round-cycle, not merely
+how many.
+
+The old `AchievementsStrip` (claimed achievements only, shown as raw
+id-derived text like "city-mastery → Bob") is replaced by
+`AchievementsPanel`, always visible, listing every achievement in the
+game — a new `listAchievements()` (`content/resolveContent.ts`) exposes
+name/description/unitId/victoryPoints for display, since
+`AchievementContent` (the engine's content input) deliberately only
+carries what the rules engine itself needs (id→unitId/VP), not display
+text. Each achievement renders its name, VP value, and either who
+claimed it or "unclaimed"; hovering shows its description via a native
+`title` tooltip. The panel also shows the current decline buyback price
+(`calculatePurchaseCost` against `state.claimedByAchievementId`'s
+count) up front, always — previously this was only computed inside
+`PurchasePanel` and only visible to the active player during their own
+purchase-phase turn.
+
+Added `src/components/__tests__/RoundView.test.tsx` — this is the
+project's first component-level test, using `@testing-library/react`
+(already a devDependency, previously unused) against `jsdom` to
+actually render `RoundView` and assert on the real DOM output, rather
+than relying on an eyeballed dev-server check that this sandbox can't
+run (no live Supabase). Confirms both players' hand-kind lists render
+correctly and that the achievements panel shows a claimed achievement
+with its claimer, an unclaimed one labeled as such, and the correct
+buyback price for the given claim count. 281 tests total (was 279);
+`tsc -b`/`oxlint`/`npm run build` all clean.
