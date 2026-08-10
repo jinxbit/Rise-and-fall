@@ -893,3 +893,41 @@ acting unit has their whole turn end the moment they resolve it, even
 cascading all the way to finishing the actions phase when they were the
 last player pending. 258 tests total (was 256); `tsc -b`/`oxlint`/
 `npm run build` all clean.
+
+## 20. Cliff hexsides rendered on the board — black, wide
+
+Cliff edges (`isCliffEdge` in `src/engine/cliffs.ts` — a hexside between
+two tiles whose terrain elevation levels differ by more than 1) affect
+movement/adjacency for every unit except those with `canCrossCliffs`,
+but were never actually drawn anywhere — `HexBoard.tsx` had no cliff
+rendering at all. Requested: draw them, black and wide, so they're
+actually visible during play.
+
+Added directly to `HexBoard.tsx`: a `TERRAIN_LEVEL` lookup mirroring
+content/terrain.json's `level` field (same "just enough for this one
+rendering decision" role `TERRAIN_COLOR` already plays in this file, so
+no new prop/plumbing through every caller). For each tile, checks 3 of
+its 6 axial neighbor directions (`CLIFF_CHECK_DIRECTIONS` — half of
+`HEX_DIRECTIONS`, enough to visit every undirected hex-to-hex edge
+exactly once across the whole board, since each of the other 3
+directions is some neighboring tile's mirror of one of these) and, where
+`isCliffEdge` is true, draws the shared edge as a black (`#000000`),
+4px-wide line — noticeably heavier than every other stroke already on
+the board (hex borders at 1-2px, ghost-cell/selection outlines at 2px).
+The edge geometry (`hexEdgeSegment`) is derived from the two hex
+centers: perpendicular to the line between them, centered on its
+midpoint, with the same length as one hex's own side (a regular
+hexagon's side length equals its circumradius).
+
+Verified with a standalone HTML/SVG reproduction of the same math (this
+sandbox can't run the real app against live Supabase, so this is the
+closest available check) — a mountain hex ringed by water on one side
+and plain on the other, screenshotted via a locally-installed
+`playwright-core` pointed at the pre-installed Chromium — confirmed all
+6 surrounding edges render as cliffs (mountain-water: levels 3 vs 0,
+diff 3; mountain-plain: levels 3 vs 1, diff 2 — both `> 1`), including a
+first read that undercounted them at low screenshot resolution before a
+zoomed-in crop confirmed the thick black line really is present on every
+cliff edge, not just the visually-higher-contrast water ones. `tsc -b`/
+`oxlint`/`npm run build`/full vitest suite (258 tests, unaffected) all
+clean.

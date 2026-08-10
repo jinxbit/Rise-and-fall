@@ -1,3 +1,4 @@
+import { isCliffEdge } from '../engine/cliffs'
 import type { Board, Coordinate, Terrain } from '../engine/types'
 import { coordKey } from '../engine/types'
 
@@ -13,6 +14,32 @@ const TERRAIN_COLOR: Record<Terrain, string> = {
   mountain: '#57534e',
   glacier: '#a5f3fc',
 }
+
+/**
+ * Mirrors content/terrain.json's `level` field (elevation) — duplicated
+ * here rather than threaded in as a prop since it's only ever used for
+ * this one rendering decision (which hexsides to draw as cliffs), the
+ * same "just enough for drawing" role TERRAIN_COLOR above already plays.
+ */
+const TERRAIN_LEVEL: Record<Terrain, number> = {
+  water: 0,
+  plain: 1,
+  forest: 2,
+  mountain: 3,
+  glacier: 4,
+}
+
+/**
+ * Half of the 6 axial neighbor directions (see HEX_DIRECTIONS in
+ * ../engine/board.ts) — enough to visit every undirected hex-to-hex edge
+ * exactly once while iterating every tile, since each of the other 3
+ * directions is some neighboring tile's mirror of one of these.
+ */
+const CLIFF_CHECK_DIRECTIONS: Coordinate[] = [
+  { q: 1, r: 0 },
+  { q: 1, r: -1 },
+  { q: 0, r: -1 },
+]
 
 const SQRT3 = Math.sqrt(3)
 
@@ -30,6 +57,19 @@ function hexPoints(cx: number, cy: number, size: number): string {
     points.push(`${cx + size * Math.cos(angle)},${cy + size * Math.sin(angle)}`)
   }
   return points.join(' ')
+}
+
+/** The line segment where two adjacent hexes' polygons touch — perpendicular to the line between their centers, centered on its midpoint, as long as one hex's edge (regular-hexagon side length equals its circumradius). */
+function hexEdgeSegment(ax: number, ay: number, bx: number, by: number, radius: number): { x1: number; y1: number; x2: number; y2: number } {
+  const dx = bx - ax
+  const dy = by - ay
+  const dist = Math.hypot(dx, dy) || 1
+  const px = -dy / dist
+  const py = dx / dist
+  const mx = (ax + bx) / 2
+  const my = (ay + by) / 2
+  const half = radius / 2
+  return { x1: mx - px * half, y1: my - py * half, x2: mx + px * half, y2: my + py * half }
 }
 
 export interface GhostCell {
@@ -133,6 +173,20 @@ export function HexBoard(props: {
 
   const actionMenuCenter = props.actionMenu ? axialToPixel(props.actionMenu.coord, size) : null
 
+  const cliffEdges: { x1: number; y1: number; x2: number; y2: number }[] = []
+  for (const { coord, x, y } of pixels) {
+    const tile = props.board.tiles[coordKey(coord)]
+    if (!tile) continue
+    for (const dir of CLIFF_CHECK_DIRECTIONS) {
+      const neighborCoord = { q: coord.q + dir.q, r: coord.r + dir.r }
+      const neighborTile = props.board.tiles[coordKey(neighborCoord)]
+      if (!neighborTile) continue
+      if (!isCliffEdge(TERRAIN_LEVEL[tile.terrain], TERRAIN_LEVEL[neighborTile.terrain])) continue
+      const { x: nx, y: ny } = axialToPixel(neighborCoord, size)
+      cliffEdges.push(hexEdgeSegment(x, y, nx, ny, size - 1))
+    }
+  }
+
   return (
     <svg
       viewBox={`${minX} ${minY} ${maxX - minX} ${maxY - minY}`}
@@ -154,6 +208,19 @@ export function HexBoard(props: {
           />
         )
       })}
+      {cliffEdges.map((edge, i) => (
+        <line
+          key={`cliff-${i}`}
+          x1={edge.x1}
+          y1={edge.y1}
+          x2={edge.x2}
+          y2={edge.y2}
+          stroke="#000000"
+          strokeWidth={4}
+          strokeLinecap="round"
+          pointerEvents="none"
+        />
+      ))}
       {pixels.map(({ coord, x, y }) => {
         const ghost = ghostByKey.get(coordKey(coord))
         if (!ghost) return null
