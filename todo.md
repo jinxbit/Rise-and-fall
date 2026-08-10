@@ -1823,3 +1823,40 @@ made the two look connected. Both `decline.ts`'s own doc comment and
 existing, tested behavior (`decline.test.ts`), so left as-is — flagged
 back to the user rather than "fixing" documented, deliberate game rules
 without confirming that's actually what's wanted.
+
+## 39. Rules change: decline now triggers only on an achievement claim, not a unit-supply limit
+
+Following up on #38's investigation — confirmed as a deliberate rule
+change, not a misunderstanding this time: `isDeclineTriggered`
+(`engine/decline.ts`) no longer checks whether any player reached a
+per-kind unit supply limit (rule 1/2's original trigger); it now simply
+checks `state.achievementsClaimedThisRound > 0`. Since achievements can
+each only ever be claimed once for the whole game
+(`claimedByAchievementId`) and `achievementsClaimedThisRound` resets to
+0 every round, this can never re-trigger off the same claim twice,
+matching the request.
+
+This made `GameState.unitLimits` entirely dead: it existed solely to
+feed the old trigger check, nothing else ever read it (the *real*
+per-kind creation cap enforced during play is a separate value,
+`UnitContent.unitSupplyCaps`, resolved independently and passed to
+`applyCreate`/`applyConvert` — same source JSON, different pipeline).
+Removed it end to end rather than leaving unused scaffolding: the field
+itself off `GameState`, `createNewGame`'s `unitLimits` param,
+`gameGenesis.ts`'s call into it, and `resolveContent.ts`'s
+`resolveUnitLimits` (now nothing calls it). `decline.ts` lost
+`getUnitLimit`/`countUnitsOfKind` alongside the old trigger logic — the
+whole file is now four lines.
+
+`decline.test.ts` rewritten from scratch around the new one-line rule
+(was/still is 3 tests, now about `achievementsClaimedThisRound`
+directly rather than constructing units at a supply cap).
+`round.test.ts`'s three decline-phase tests that used to manufacture a
+triggering condition via `cityUnits` at a fake `unitLimits` cap now just
+set `achievementsClaimedThisRound` directly on the fixture state — one
+of them already needed to for the *card-count* rule (5) and gets
+simpler for losing the now-redundant unit-limit setup entirely. Every
+other test file's fixture just drops the now-nonexistent `unitLimits:
+{}` field (mechanical, no behavior asserted). 328 tests total (was
+332 — decline.test.ts is 3 tests instead of the old file's 7, nothing
+else changed count); `tsc -b`/`oxlint`/`npm run build` all clean.

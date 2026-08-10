@@ -9,7 +9,7 @@
 // actionHistory.slice(0, -1) against this genesis (see replayActions in
 // ../engine/replay.ts) to step the game back one action.
 
-import { resolveBoardGenerationContent, resolveMapTemplateBoard, resolveResourceBank, resolveUnitLimits } from '../content/resolveContent'
+import { resolveBoardGenerationContent, resolveMapTemplateBoard, resolveResourceBank } from '../content/resolveContent'
 import { createEmptyBoard } from '../engine/board'
 import { createNewGame, startGame, startGameWithPresetBoard } from '../engine/createGame'
 import type { GameState } from '../engine/types'
@@ -27,7 +27,6 @@ export function buildGenesisState(game: GameRow, players: PlayerRow[]): GameStat
       color: p.color,
     })),
     resourceBank: resolveResourceBank(players.length),
-    unitLimits: resolveUnitLimits(players.length),
   })
 
   if (game.map_template_id) {

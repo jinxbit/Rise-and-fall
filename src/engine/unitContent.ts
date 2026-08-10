@@ -6,7 +6,7 @@ import type { Resources, UnitMovement } from './types'
  * `effect` loosely typed on purpose, since the engine doesn't import the
  * JSON — a caller resolves it into this shape and passes it to
  * applyAction's `unitContent` param, same pattern as createNewGame's
- * `resourceBank`/`unitLimits`).
+ * `resourceBank`).
  */
 
 export interface ActionCost {

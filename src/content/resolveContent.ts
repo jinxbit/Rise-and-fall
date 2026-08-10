@@ -76,15 +76,6 @@ export function resolveResourceBank(playerCount: number): Resources {
   return { gold: bank.gold ?? 0, wood: bank.wood ?? 0, stone: bank.stone ?? 0 }
 }
 
-export function resolveUnitLimits(playerCount: number): Record<string, number> {
-  const key = String(playerCount)
-  const limits: Record<string, number> = {}
-  for (const unit of unitsJson.units) {
-    limits[unit.id] = unit.supply.byPlayerCount[key as keyof typeof unit.supply.byPlayerCount] ?? 0
-  }
-  return limits
-}
-
 export interface MapTemplateSummary {
   id: string
   name: string

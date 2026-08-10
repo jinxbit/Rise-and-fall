@@ -5,21 +5,9 @@ import { applyAction } from '../applyAction'
 import { createEmptyBoard } from '../board'
 import { cardIdFor, moveCard, UNIT_KINDS } from '../cards'
 import { createNewGame } from '../createGame'
-import { getUnitLimit } from '../decline'
 import { finishRound } from '../round'
 import type { GameState, Unit } from '../types'
 import type { UnitContent } from '../unitContent'
-
-function makeUnit(ownerId: string, kind: string, id: string): Unit {
-  return {
-    id,
-    ownerId,
-    kind,
-    coord: { q: 0, r: 0 },
-    movement: { isMobile: false, terrains: [], canCrossCliffs: false },
-    traits: [],
-  }
-}
 
 // These round-flow tests are about phase/turn sequencing, not action
 // outcomes (see unitActions.test.ts for those) — nobody here ever
@@ -142,12 +130,9 @@ describe('round flow', () => {
     expect(result.state.turn).toBe(1)
   })
 
-  it('inserts a decline phase when a player reaches their unit limit, then returns to purchase', () => {
-    const unitLimits = { city: 2 }
-    const cityUnits: Unit[] = Array.from({ length: unitLimits.city }, (_, i) => makeUnit('p1', 'city', `p1_city_${i}`))
+  it('inserts a decline phase when an achievement was claimed this round, then returns to purchase', () => {
     const base = makeActiveGameWithFullHands()
-    const state = { ...base, units: [...base.units, ...cityUnits], unitLimits }
-    expect(getUnitLimit(state, 'city')).toBe(2)
+    const state = { ...base, achievementsClaimedThisRound: 1 }
 
     let result = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') })
     if (!result.ok) throw new Error('setup failed')
@@ -176,10 +161,8 @@ describe('round flow', () => {
   })
 
   it('rejects moving a card to decline that is not in hand or discard', () => {
-    const unitLimits = { city: 2 }
-    const cityUnits: Unit[] = Array.from({ length: unitLimits.city }, (_, i) => makeUnit('p1', 'city', `p1_city_${i}`))
     const base = makeActiveGameWithFullHands()
-    const state = { ...base, units: [...base.units, ...cityUnits], unitLimits }
+    const state = { ...base, achievementsClaimedThisRound: 1 }
 
     let result = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') })
     if (!result.ok) throw new Error('setup failed')
@@ -300,10 +283,8 @@ describe('round flow', () => {
   })
 
   it('requires each player to decline achievementsClaimedThisRound cards (min 1) before advancing', () => {
-    const unitLimits = { city: 2 }
-    const cityUnits: Unit[] = Array.from({ length: unitLimits.city }, (_, i) => makeUnit('p1', 'city', `p1_city_${i}`))
     const base = makeActiveGameWithFullHands()
-    const state = { ...base, units: [...base.units, ...cityUnits], unitLimits, achievementsClaimedThisRound: 2 }
+    const state = { ...base, achievementsClaimedThisRound: 2 }
 
     let result = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') })
     if (!result.ok) throw new Error('setup failed')

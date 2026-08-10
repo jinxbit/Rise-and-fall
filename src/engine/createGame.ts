@@ -18,12 +18,10 @@ const EMPTY_RESOURCES: Resources = { gold: 0, wood: 0, stone: 0 }
  * rule 5 — nobody has any units on the board yet.
  *
  * `resourceBank` should be content/resources.json's `globalSupply.
- * byPlayerCount` looked up for `players.length`, and `unitLimits` should be
- * content/units.json's `supply.byPlayerCount` per unit kind (same value
- * across every player count) — the engine stays content-agnostic (see
- * UNIT_KINDS in ./cards.ts), so the caller resolves both. Both are optional
- * and default to empty (no limit/no resources) so existing callers/tests
- * that don't touch them aren't forced to pass them.
+ * byPlayerCount` looked up for `players.length` — the engine stays
+ * content-agnostic (see UNIT_KINDS in ./cards.ts), so the caller resolves
+ * it. Optional and defaults to empty (no resources) so existing
+ * callers/tests that don't touch it aren't forced to pass it.
  */
 export function createNewGame(params: {
   gameId: string
@@ -31,7 +29,6 @@ export function createNewGame(params: {
   board: Board
   players: PlayerSeed[]
   resourceBank?: Resources
-  unitLimits?: Record<string, number>
 }): GameState {
   const cards: Record<string, Card> = {}
   const players: Player[] = params.players.map((seed) => {
@@ -72,7 +69,6 @@ export function createNewGame(params: {
     units: [],
     cards,
     resourceBank: params.resourceBank ?? { ...EMPTY_RESOURCES },
-    unitLimits: params.unitLimits ?? {},
     winnerPlayerIds: [],
     claimedByAchievementId: {},
     achievementsClaimedThisRound: 0,

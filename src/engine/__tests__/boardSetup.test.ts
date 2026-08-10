@@ -55,7 +55,6 @@ function makeSetupState(overrides: Partial<GameState> = {}): GameState {
     units: [],
     cards,
     resourceBank: { gold: 1000, wood: 1000, stone: 1000 },
-    unitLimits: {},
     winnerPlayerIds: [],
     claimedByAchievementId: {},
     achievementsClaimedThisRound: 0,
