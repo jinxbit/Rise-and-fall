@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { getTile } from '../engine/board'
-import { isLegalTilePlacement, placedShapeCells } from '../engine/boardGeneration'
+import { placedShapeCells } from '../engine/boardGeneration'
 import type { BoardGenerationContent } from '../engine/boardGenerationContent'
-import { currentTilePlacerId, currentUnitPlacerId, isLegalStartingUnitPlacement } from '../engine/boardSetup'
+import { checkTilePlacementLegality, currentTilePlacerId, currentUnitPlacerId, isLegalStartingUnitPlacement } from '../engine/boardSetup'
 import type { Board, Coordinate, GameState } from '../engine/types'
 import type { PlayerRow } from '../lib/dbTypes'
 import type { GhostCell } from './HexBoard'
@@ -68,7 +68,8 @@ function TilePlacementPanel(props: {
   }
 
   const placedCells = anchor ? placedShapeCells(tierContent.shapeCells, anchor, rotation) : []
-  const legal = anchor ? isLegalTilePlacement(state.board, placedCells, tierContent.placesOn) : false
+  const legalityError = anchor ? checkTilePlacementLegality(state, anchor, rotation, boardGenerationContent) : null
+  const legal = anchor !== null && legalityError === null
   const ghostCells: GhostCell[] = placedCells.map((coord) => ({ coord, legal }))
   const extraCoords = paddedEmptyCoords(state.board, 4)
 
@@ -116,6 +117,7 @@ function TilePlacementPanel(props: {
               <button onClick={() => setAnchor(null)} className="text-neutral-500 underline hover:text-neutral-300">
                 Cancel
               </button>
+              {legalityError && <span className="text-red-400">{legalityError}</span>}
             </>
           )}
         </div>

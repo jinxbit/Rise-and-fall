@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { createEmptyBoard, getTile, setTile } from '../board'
 import type { BoardGenerationContent, TileTierContent } from '../boardGenerationContent'
-import { beginBoardSetup, beginBoardSetupWithPresetBoard, currentTilePlacerId, currentUnitPlacerId, placeTile, placeUnit } from '../boardSetup'
+import {
+  beginBoardSetup,
+  beginBoardSetupWithPresetBoard,
+  checkTilePlacementLegality,
+  currentTilePlacerId,
+  currentUnitPlacerId,
+  placeTile,
+  placeUnit,
+} from '../boardSetup'
 import { isLegalTilePlacement, placedShapeCells, touchesEnoughExistingTerrain, wouldEncloseEmptyHexes } from '../boardGeneration'
 import { cardIdFor, createPlayerCards } from '../cards'
 import type { Board, Card, Coordinate, GameState, Player, Terrain } from '../types'
@@ -379,6 +387,68 @@ describe('placeTile — water-expansion-only extra rules (placesOn: null)', () =
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.error).toContain('seal off')
     expect(getTile(state.board, { q: 0, r: 1 })).toBeUndefined()
+  })
+})
+
+describe('checkTilePlacementLegality', () => {
+  // Previewing legality (e.g. for the board-setup UI's placement ghost)
+  // must agree with what placeTile() itself would actually do — these
+  // mirror placeTile()'s own describe blocks above, checking the preview
+  // catches the exact same things instead of drifting out of sync with it.
+  const content: BoardGenerationContent = { startingWaterShapeCells: domino, tiers: [tier('plain', ['water'], 3)] }
+
+  it('returns null for a legal placement', () => {
+    const state = makeSetupState({
+      board: boardOf([[0, 0, 'water'], [1, 0, 'water']]),
+      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 1, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+    })
+    expect(checkTilePlacementLegality(state, { q: 0, r: 0 }, 0, content)).toBeNull()
+  })
+
+  it('flags an illegal covering placement', () => {
+    const state = makeSetupState({
+      board: boardOf([[0, 0, 'forest'], [1, 0, 'forest']]),
+      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 1, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+    })
+    expect(checkTilePlacementLegality(state, { q: 0, r: 0 }, 0, content)).toContain('Illegal')
+  })
+
+  it("flags a placement that would leave nowhere legal for the tier's remaining tiles (rule 4)", () => {
+    const state = makeSetupState({
+      board: boardOf([[0, 0, 'water'], [1, 0, 'water'], [5, 5, 'water'], [8, 8, 'water']]),
+      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 2, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+    })
+    expect(checkTilePlacementLegality(state, { q: 0, r: 0 }, 0, content)).toContain('no legal spot')
+  })
+
+  it('flags a Sea placement touching fewer than 2 existing Sea tiles — the reported bug (ghost shown legal/green when it was not)', () => {
+    const state = makeSetupState({
+      board: boardOf([[0, 0, 'water']]),
+      boardSetup: { tileTierQueue: ['water'], tilesRemainingInTier: 5, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+    })
+    const waterContent: BoardGenerationContent = { startingWaterShapeCells: domino, tiers: [tier('water', null, 5)] }
+    expect(checkTilePlacementLegality(state, { q: 1, r: 0 }, 0, waterContent)).toContain('at least 2 Sea tiles')
+  })
+
+  it('flags a Sea placement that would seal off an empty area', () => {
+    const state = makeSetupState({
+      board: boardOf([
+        [1, 0, 'water'], [1, -1, 'water'], [0, -1, 'water'], [-1, 0, 'water'], [-1, 1, 'water'],
+      ]),
+      boardSetup: { tileTierQueue: ['water'], tilesRemainingInTier: 5, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+    })
+    const waterContent: BoardGenerationContent = { startingWaterShapeCells: domino, tiers: [tier('water', null, 5)] }
+    expect(checkTilePlacementLegality(state, { q: 0, r: 1 }, 0, waterContent)).toContain('seal off')
+  })
+
+  it("doesn't depend on whose turn it is — only whether the placement itself would be legal", () => {
+    const state = makeSetupState({
+      board: boardOf([[0, 0, 'water'], [1, 0, 'water']]),
+      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 1, tilePlacerIndex: 1, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+    })
+    // It's p2's turn (tilePlacerIndex 1), but the preview still evaluates
+    // the placement itself, since the UI needs this before a player acts.
+    expect(checkTilePlacementLegality(state, { q: 0, r: 0 }, 0, content)).toBeNull()
   })
 })
 

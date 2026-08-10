@@ -2128,3 +2128,43 @@ and a ring left open with a gap) and `placeTile()` integration coverage
 in `boardSetup.test.ts` (reject for too few touching Sea tiles, reject
 for sealing off an empty pocket, allow a placement satisfying both).
 357 tests total (was 347); `tsc -b`/`oxlint`/`npm run build` all clean.
+
+## 46. Fixed: placement ghost showed green even when illegal (e.g. #45's touching rule)
+
+Bug report: during board setup, the to-be-placed tile preview showed
+green (legal) even when it couldn't actually be placed — e.g. when it
+didn't touch 2 existing Sea tiles.
+
+Root cause: `BoardSetupView.tsx`'s ghost-legality check only called
+`isLegalTilePlacement()` (the basic covering/holes rule) — it never knew
+about #43's rule 4 (room for the rest of the tier) or #45's two
+Sea-only rules (touching, enclosure), so any placement that failed one
+of *those* but passed basic covering rendered green and had its Confirm
+button enabled, even though submitting it would just bounce off
+`placeTile()`'s rejection.
+
+Fixed by extracting `placeTile()`'s legality checks (everything before
+it actually mutates the board) into a new exported
+`checkTilePlacementLegality(state, anchor, rotationSteps, content)` in
+`boardSetup.ts`, returning the same error string `placeTile()` would (or
+`null` if legal) — `placeTile()` now calls it too, so there's exactly
+one place these rules live instead of two copies that could drift out
+of sync again. `BoardSetupView.tsx` uses it for the ghost/Confirm-button
+legality instead of the narrower one-rule check, and now also surfaces
+the specific rejection reason as text next to the Confirm button (e.g.
+"A new Sea tile must touch at least 2 Sea tiles already on the board")
+instead of just a disabled button with no explanation.
+
+Also added `data-coord`/`data-ghost-coord` attributes to `HexBoard.tsx`'s
+hex and ghost `<polygon>` elements — small, non-behavioral, but needed to
+click a specific hex and assert a specific ghost's color in an RTL test;
+worth keeping since any future board-setup UI test will want the same
+hook.
+
+Added `checkTilePlacementLegality()` coverage in `boardSetup.test.ts`
+(mirroring each of `placeTile()`'s own rejection cases, plus confirming
+it doesn't gate on whose turn it is) and a new
+`BoardSetupView.test.tsx`: clicking a hex that fails the touching rule
+renders both covered ghost cells red with the Confirm button disabled
+and the reason visible; a placement satisfying every rule renders green
+with Confirm enabled. 365 tests total (was 357); `tsc -b`/`oxlint`/`npm run build` all clean.

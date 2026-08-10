@@ -107,6 +107,70 @@ export function currentUnitPlacerId(state: GameState): string | null {
   return state.turnOrder[boardSetup.unitPlacerIndex % state.turnOrder.length]
 }
 
+/**
+ * Whether `anchor`/`rotationSteps` would currently be a legal placement for
+ * the tier at the front of the tile-placement queue — every rule
+ * placeTile() itself enforces before applying anything (covering
+ * legality, water's extra touch/enclosure rules, and rule 4's
+ * remaining-room check), so callers that only want to *preview* legality
+ * (e.g. the board-setup UI, deciding whether to show a placement ghost as
+ * legal) can reuse the exact same rules instead of drifting out of sync
+ * with them. Returns the same error placeTile() would if this exact
+ * placement were submitted, or `null` if it's legal. Whose turn it is
+ * isn't part of this — that's placeTile()'s own separate check, since it's
+ * about who may act, not whether the placement itself is legal.
+ */
+export function checkTilePlacementLegality(
+  state: GameState,
+  anchor: Coordinate,
+  rotationSteps: number,
+  content: BoardGenerationContent,
+): string | null {
+  const boardSetup = state.boardSetup
+  if (state.status !== 'boardSetup' || !boardSetup || boardSetup.tileTierQueue.length === 0) {
+    return 'Tile placement is not currently active'
+  }
+
+  const tierTerrain = boardSetup.tileTierQueue[0]
+  const tierContent = findTierContent(content, tierTerrain)
+  if (!tierContent) {
+    return `No board-generation content for tier '${tierTerrain}'`
+  }
+
+  const placedCells = placedShapeCells(tierContent.shapeCells, anchor, rotationSteps)
+  if (!isLegalTilePlacement(state.board, placedCells, tierContent.placesOn)) {
+    return 'Illegal tile placement'
+  }
+
+  // Two extra rules that only apply to the base terrain (placesOn: null —
+  // only Water's expansion tiles land on untiled holes at all): a new Sea
+  // tile must touch existing Sea, and can never wall off empty hexes with
+  // no way out.
+  if (tierContent.placesOn === null) {
+    if (!touchesEnoughExistingTerrain(state.board, placedCells, tierContent.terrain, WATER_EXPANSION_MIN_TOUCHING)) {
+      return `A new Sea tile must touch at least ${WATER_EXPANSION_MIN_TOUCHING} Sea tiles already on the board`
+    }
+    if (wouldEncloseEmptyHexes(state.board, placedCells)) {
+      return 'This placement would seal off an empty area with no way out'
+    }
+  }
+
+  const tilesRemainingInTier = boardSetup.tilesRemainingInTier - 1
+  if (tilesRemainingInTier > 0) {
+    const board = applyTilePlacement(state.board, placedCells, tierContent.terrain)
+    // Rule 4 (simplified — see canPlaceRemainingTiles's doc comment): rather
+    // than relocating already-placed tiles to open up room, a placement
+    // that wouldn't leave room for every remaining tile of this tier is
+    // rejected outright, same as any other illegal placement — the player
+    // has to pick a different anchor/rotation instead.
+    if (!canPlaceRemainingTiles(board, tierContent.shapeCells, tierContent.placesOn, tierContent.terrain, tilesRemainingInTier)) {
+      return 'This placement would leave no legal spot for the rest of this tier'
+    }
+  }
+
+  return null
+}
+
 /** PLACE_TILE: places one tile of the current tier (see PlaceTileAction in ./actions.ts). */
 export function placeTile(
   state: GameState,
@@ -127,44 +191,19 @@ export function placeTile(
     return { ok: false, error: "It is not this player's turn to place a tile" }
   }
 
-  const tierTerrain = boardSetup.tileTierQueue[0]
-  const tierContent = findTierContent(content, tierTerrain)
+  const legalityError = checkTilePlacementLegality(state, anchor, rotationSteps, content)
+  if (legalityError) {
+    return { ok: false, error: legalityError }
+  }
+
+  const tierContent = findTierContent(content, boardSetup.tileTierQueue[0])
   if (!tierContent) {
-    return { ok: false, error: `No board-generation content for tier '${tierTerrain}'` }
+    return { ok: false, error: `No board-generation content for tier '${boardSetup.tileTierQueue[0]}'` }
   }
 
   const placedCells = placedShapeCells(tierContent.shapeCells, anchor, rotationSteps)
-  if (!isLegalTilePlacement(state.board, placedCells, tierContent.placesOn)) {
-    return { ok: false, error: 'Illegal tile placement' }
-  }
-
-  // Two extra rules that only apply to the base terrain (placesOn: null —
-  // only Water's expansion tiles land on untiled holes at all): a new Sea
-  // tile must touch existing Sea, and can never wall off empty hexes with
-  // no way out.
-  if (tierContent.placesOn === null) {
-    if (!touchesEnoughExistingTerrain(state.board, placedCells, tierContent.terrain, WATER_EXPANSION_MIN_TOUCHING)) {
-      return { ok: false, error: `A new Sea tile must touch at least ${WATER_EXPANSION_MIN_TOUCHING} Sea tiles already on the board` }
-    }
-    if (wouldEncloseEmptyHexes(state.board, placedCells)) {
-      return { ok: false, error: 'This placement would seal off an empty area with no way out' }
-    }
-  }
-
   const board = applyTilePlacement(state.board, placedCells, tierContent.terrain)
   const tilesRemainingInTier = boardSetup.tilesRemainingInTier - 1
-
-  // Rule 4 (simplified — see canPlaceRemainingTiles's doc comment): rather
-  // than relocating already-placed tiles to open up room, a placement that
-  // wouldn't leave room for every remaining tile of this tier is rejected
-  // outright, same as any other illegal placement — the player has to pick
-  // a different anchor/rotation instead.
-  if (
-    tilesRemainingInTier > 0 &&
-    !canPlaceRemainingTiles(board, tierContent.shapeCells, tierContent.placesOn, tierContent.terrain, tilesRemainingInTier)
-  ) {
-    return { ok: false, error: 'This placement would leave no legal spot for the rest of this tier' }
-  }
 
   let nextBoardSetup: BoardSetupState = {
     ...boardSetup,
