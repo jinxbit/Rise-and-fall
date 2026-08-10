@@ -1769,3 +1769,57 @@ headless-Chromium screenshot of both a short label ("+3 Gold") and the
 longest realistic one ("-5 Gold, +1 Wood") confirmed both now render as
 a normal, fully-legible pill. 332 tests unchanged; `tsc -b`/`oxlint`/
 `npm run build` all clean.
+
+## 38. Bug fix: a Convert action's legal-target indicator was invisible; mountain/plain terrain colors
+
+Reported: picking a City's Convert action didn't show which hex was
+targetable. Root cause: the "legal target" indicator was a small white
+dot drawn in a hex's center — fine for Create/Transform, whose targets
+are always empty hexes, but Convert's target is, by definition, a hex
+with a unit already standing on it. Units render *after* ghost cells in
+HexBoard's draw order, so the unit's own plate (also a light,
+near-white color) painted directly over the dot, hiding it completely
+rather than just making it hard to see.
+
+Fixed per the report's own suggestion: replaced the center dot with a
+whole-hex highlight (translucent green fill + green stroke), mirroring
+the illegal-target hex highlight (red) that already existed right next
+to it. Since a hexagon's corners extend well past a unit's circular
+plate, the highlight stays visible around the unit regardless of
+whatever's drawn on top of it in the center — confirmed via a
+headless-browser screenshot of a City with a Nomad standing on the only
+legal Convert target, showing a clearly visible green-outlined hex with
+the Nomad still legible inside it. `RoundView.test.tsx`'s existing
+Convert-targeting test updated to look for the new green hex
+(`polygon[fill="rgba(34,197,94,0.25)"]`) instead of the old white dot.
+
+Also requested: mountain terrain recolored to a clean grey (`#57534e`,
+a warm stone tone easy to mistake for muddy, → `#71717a`, unambiguous
+grey) and plain recolored to a lighter green (`#3f6212`, a dark
+olive, → `#65a30d`, same hue family, clearly lighter/more vivid) — both
+single-line changes in `HexBoard.tsx`'s `TERRAIN_COLOR` map, the only
+place terrain colors are defined. Verified with a side-by-side
+screenshot of all five terrains.
+
+No test changes needed for the color swap (nothing asserts on the
+literal hex values). 332 tests total (unchanged); `tsc -b`/`oxlint`/
+`npm run build` all clean.
+
+**Investigated, not changed**: a third report — "decline seems to have
+triggered for a unit that was completely placed on the board; it
+should only trigger when an achievement is claimed" — turned out not to
+be a bug. `isDeclineTriggered` (`engine/decline.ts`) fires per rule 1/2:
+*any* player reaching their per-kind unit supply limit, independent of
+achievements — achievement claims only affect a separate rule (5): how
+many cards a pending player must decline *that round*
+(`beginDeclinePhase`'s `Math.max(1, achievementsClaimedThisRound)`), not
+whether decline triggers at all. The pasted game state confirms this
+fired correctly: player `0a2152ea...` has exactly 8 Nomads on the
+board, matching `unitLimits.nomad: 8` — the same supply-cap threshold
+that also happens to be what `nomad-mastery` claims against
+(`claimedByAchievementId` shows exactly that), which is presumably what
+made the two look connected. Both `decline.ts`'s own doc comment and
+`todo.md` #5 (multi-card decline) describe this as intentional,
+existing, tested behavior (`decline.test.ts`), so left as-is — flagged
+back to the user rather than "fixing" documented, deliberate game rules
+without confirming that's actually what's wanted.

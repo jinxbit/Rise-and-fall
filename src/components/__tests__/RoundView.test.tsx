@@ -312,10 +312,10 @@ describe("RoundView — City's Convert to Merchant/Mountaineer (bug report: \"no
     expect(convertOption).toBeTruthy()
     fireEvent.click(convertOption!)
 
-    // Selecting the action must enter targeting mode — a ghost dot over the
-    // legal (adjacent, own-Nomad) hex — not resolve immediately.
+    // Selecting the action must enter targeting mode — the legal (adjacent,
+    // own-Nomad) hex highlighted green — not resolve immediately.
     expect(onResolveUnit).not.toHaveBeenCalled()
-    expect(container.querySelectorAll('circle[fill="#ffffff"]')).toHaveLength(1)
+    expect(container.querySelectorAll('polygon[fill="rgba(34,197,94,0.25)"]')).toHaveLength(1)
 
     fireEvent.click(container.querySelectorAll('svg > polygon')[1])
 

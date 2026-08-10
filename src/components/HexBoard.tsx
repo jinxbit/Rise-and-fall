@@ -11,9 +11,9 @@ import { STATIC_UNIT_KINDS, UNIT_ICONS } from './unitIcons'
 
 const TERRAIN_COLOR: Record<Terrain, string> = {
   water: '#075985',
-  plain: '#3f6212',
+  plain: '#65a30d',
   forest: '#065f46',
-  mountain: '#57534e',
+  mountain: '#71717a',
   glacier: '#a5f3fc',
 }
 
@@ -316,15 +316,18 @@ export function HexBoard(props: {
       {pixels.map(({ coord, x, y }) => {
         const ghost = ghostByKey.get(coordKey(coord))
         if (!ghost) return null
-        if (ghost.legal) {
-          return <circle key={`ghost-${coordKey(coord)}`} cx={x} cy={y} r={size * 0.16} fill="#ffffff" pointerEvents="none" />
-        }
+        // A small center dot used to mark a legal target, but a Convert's
+        // target hex always already has a unit standing on it — the unit's
+        // own plate (drawn after this, on top) completely covered the dot,
+        // making it invisible rather than just hard to see. Highlighting the
+        // whole hex instead still shows past the unit's circular plate, at
+        // the hex's own corners, regardless of what's drawn on top of it.
         return (
           <polygon
             key={`ghost-${coordKey(coord)}`}
             points={hexPoints(x, y, size - 1)}
-            fill="rgba(239,68,68,0.2)"
-            stroke="#ef4444"
+            fill={ghost.legal ? 'rgba(34,197,94,0.25)' : 'rgba(239,68,68,0.2)'}
+            stroke={ghost.legal ? '#22c55e' : '#ef4444'}
             strokeWidth={2}
             pointerEvents="none"
           />
