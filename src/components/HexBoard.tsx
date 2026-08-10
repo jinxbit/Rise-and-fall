@@ -85,6 +85,15 @@ export function HexBoard(props: {
   actionMenu?: ActionMenu
   selectedCoord?: Coordinate | null
   interactive?: boolean
+  /**
+   * Restricts which hexes actually respond to hover/click while
+   * `interactive` — a hex not in this list renders inert (no pointer
+   * cursor, `onHexClick` never fires for it) instead of inviting a click
+   * that's guaranteed to be rejected. Omit to make every hex clickable,
+   * which is still correct for flows like tile placement where any hex
+   * (tiled or not) can become a new anchor.
+   */
+  clickableCoords?: Coordinate[]
   onHexClick?: (coord: Coordinate) => void
   size?: number
 }) {
@@ -94,6 +103,8 @@ export function HexBoard(props: {
   for (const tile of Object.values(props.board.tiles)) allCoords.set(coordKey(tile.coord), tile.coord)
   for (const c of props.extraCoords ?? []) allCoords.set(coordKey(c), c)
   for (const g of props.ghostCells ?? []) allCoords.set(coordKey(g.coord), g.coord)
+
+  const clickableKeys = props.clickableCoords ? new Set(props.clickableCoords.map(coordKey)) : null
 
   const coords = [...allCoords.values()]
   if (coords.length === 0) {
@@ -130,6 +141,7 @@ export function HexBoard(props: {
       {pixels.map(({ coord, x, y }) => {
         const tile = props.board.tiles[coordKey(coord)]
         const selected = props.selectedCoord?.q === coord.q && props.selectedCoord?.r === coord.r
+        const clickable = props.interactive && (clickableKeys === null || clickableKeys.has(coordKey(coord)))
         return (
           <polygon
             key={coordKey(coord)}
@@ -137,20 +149,23 @@ export function HexBoard(props: {
             fill={tile ? TERRAIN_COLOR[tile.terrain] : 'transparent'}
             stroke={selected ? '#eab308' : '#3f3f46'}
             strokeWidth={selected ? 2 : 1}
-            className={props.interactive ? 'cursor-pointer hover:opacity-80' : undefined}
-            onClick={props.onHexClick ? () => props.onHexClick?.(coord) : undefined}
+            className={clickable ? 'cursor-pointer hover:opacity-80' : undefined}
+            onClick={clickable && props.onHexClick ? () => props.onHexClick?.(coord) : undefined}
           />
         )
       })}
       {pixels.map(({ coord, x, y }) => {
         const ghost = ghostByKey.get(coordKey(coord))
         if (!ghost) return null
+        if (ghost.legal) {
+          return <circle key={`ghost-${coordKey(coord)}`} cx={x} cy={y} r={size * 0.16} fill="#ffffff" pointerEvents="none" />
+        }
         return (
           <polygon
             key={`ghost-${coordKey(coord)}`}
             points={hexPoints(x, y, size - 1)}
-            fill={ghost.legal ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}
-            stroke={ghost.legal ? '#22c55e' : '#ef4444'}
+            fill="rgba(239,68,68,0.2)"
+            stroke="#ef4444"
             strokeWidth={2}
             pointerEvents="none"
           />

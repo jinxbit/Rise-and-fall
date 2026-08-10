@@ -198,7 +198,14 @@ function UnitPlacementPanel(props: {
         </div>
       )}
 
-      <HexBoard board={state.board} ghostCells={ghostCells} units={units} interactive={isMyTurn} onHexClick={handleHexClick} />
+      <HexBoard
+        board={state.board}
+        ghostCells={ghostCells}
+        clickableCoords={ghostCells.map((g) => g.coord)}
+        units={units}
+        interactive={isMyTurn}
+        onHexClick={handleHexClick}
+      />
     </div>
   )
 }

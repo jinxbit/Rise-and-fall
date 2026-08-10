@@ -679,3 +679,44 @@ the trimmed history, confirm the unit's gone and the board matches
 genesis exactly). 243 tests total (was 237); `tsc -b`/`oxlint`/
 `npm run build` all clean. Not click-tested in a browser — same sandbox
 limitation as all prior UI work here.
+
+## 15. Hex marking: white dot instead of green highlight + illegal hexes no longer invite a click
+
+Two requested UI fixes, both in `HexBoard.tsx`.
+
+**White dot instead of green highlight.** A legal `GhostCell` (used for
+tile-placement preview, starting-unit placement candidates, and action
+targeting alike) used to render as a translucent green hex overlay
+(fill + stroke). Now renders as a small white dot centered on the hex
+instead. Illegal ghost cells are unchanged (still a red hex overlay —
+only asked to replace the green one).
+
+**Bug: Glacier looked highlighted/clickable during City/Nomad starting
+placement, even though it's illegal there.** Root cause wasn't the
+legality rule itself — `isLegalStartingUnitPlacement` (`boardSetup.ts`)
+has excluded Glacier since it was first written, confirmed via `git log`.
+It was that `HexBoard`'s `interactive` flag applies the
+`cursor-pointer hover:opacity-80` styling (and wires up `onHexClick`) to
+*every* hex uniformly, legal or not — so hovering/clicking Glacier looked
+exactly as inviting as a legal hex, even though clicking it would just
+get rejected server-side. Added a new `clickableCoords?: Coordinate[]`
+prop: when given, only listed hexes get the hover/pointer treatment and
+fire `onHexClick`; omitted (the default), every hex stays clickable,
+which is still correct for tile placement (any hex, tiled or not, can
+become a new anchor — there's no fixed "legal anchor list" to restrict
+to). `BoardSetupView.tsx`'s starting-unit panel now passes its legal-
+placement coords as `clickableCoords`, so Glacier (or any other illegal
+hex) is inert during City/Nomad placement — no hover affordance, no
+click.
+
+Scope note: `RoundView.tsx`'s action-targeting board clicks already
+gated the actual dispatch in JS (`legalTargets.some(...)` before
+committing) — only the CSS hover affordance was ever imprecise there too,
+same underlying issue — but only the reported unit-placement case was
+fixed; `RoundView` wasn't touched, since it wasn't what was reported and
+this keeps the change minimal.
+
+No engine changes, no test changes — purely `HexBoard.tsx`/
+`BoardSetupView.tsx` rendering. `tsc -b`/`oxlint`/`npm run build`/full
+vitest suite (243 tests, unaffected) all clean. Not click-tested in a
+browser — same sandbox limitation as all prior UI work here.
