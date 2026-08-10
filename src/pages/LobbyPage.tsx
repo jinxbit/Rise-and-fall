@@ -4,11 +4,13 @@ import { useAuth } from '../hooks/useAuth'
 import { listMapTemplates } from '../content/resolveContent'
 import { buildGenesisState } from '../lib/gameGenesis'
 import {
+  addLocalPlayer,
   getGameByRoomCode,
   getGameState,
   insertGameState,
   joinGame,
   listPlayers,
+  removePlayer,
   setGameStatus,
   subscribeToGame,
   subscribeToPlayers,
@@ -24,6 +26,7 @@ export function LobbyPage() {
   const [players, setPlayers] = useState<PlayerRow[]>([])
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [newPlayerName, setNewPlayerName] = useState('')
 
   const load = useCallback(async () => {
     if (!roomCode) return
@@ -58,7 +61,9 @@ export function LobbyPage() {
   const user = session.user
   const isSeated = players.some((p) => p.user_id === user.id)
   const isCreator = game.created_by === user.id
+  const isHotseat = game.play_mode === 'hotseat'
   const canStart = isCreator && players.length >= game.min_players && game.status === 'lobby'
+  const canAddPlayer = isHotseat && isCreator && game.status === 'lobby' && players.length < game.max_players
 
   async function handleJoin() {
     if (!game) return
@@ -78,6 +83,37 @@ export function LobbyPage() {
       await load()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to join')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** Hotseat: the host seats another local player under their own account — see gameApi.ts's addLocalPlayer for why this needs no separate sign-in. */
+  async function handleAddLocalPlayer() {
+    if (!game) return
+    const displayName = newPlayerName.trim()
+    if (displayName.length === 0) return
+    setError(null)
+    setBusy(true)
+    try {
+      await addLocalPlayer({ game, hostUserId: user.id, displayName })
+      setNewPlayerName('')
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to add player')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleRemovePlayer(playerId: string) {
+    setError(null)
+    setBusy(true)
+    try {
+      await removePlayer(playerId)
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to remove player')
     } finally {
       setBusy(false)
     }
@@ -125,13 +161,56 @@ export function LobbyPage() {
           <li key={p.id} className="flex items-center gap-3 rounded-md border border-neutral-800 p-2">
             <span className="h-3 w-3 rounded-full" style={{ backgroundColor: p.color }} />
             {p.avatar_url && <img src={p.avatar_url} alt="" className="h-6 w-6 rounded-full" />}
-            <span>{p.display_name}</span>
-            {p.user_id === game.created_by && <span className="text-xs text-neutral-500">(host)</span>}
+            <span className="flex-1">{p.display_name}</span>
+            {!isHotseat && p.user_id === game.created_by && <span className="text-xs text-neutral-500">(host)</span>}
+            {isHotseat && isCreator && game.status === 'lobby' && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void handleRemovePlayer(p.id)}
+                title={`Remove ${p.display_name}`}
+                className="text-xs text-neutral-500 hover:text-red-400 disabled:opacity-50"
+              >
+                Remove
+              </button>
+            )}
           </li>
         ))}
       </ul>
 
-      {!isSeated && (
+      {isHotseat && isCreator && game.status === 'lobby' && (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault()
+            void handleAddLocalPlayer()
+          }}
+          className="flex gap-2"
+        >
+          <input
+            value={newPlayerName}
+            onChange={(e) => setNewPlayerName(e.target.value)}
+            placeholder="Local player name"
+            disabled={busy || !canAddPlayer}
+            className="flex-1 rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 disabled:opacity-50"
+          />
+          <button
+            type="submit"
+            disabled={busy || !canAddPlayer || newPlayerName.trim().length === 0}
+            className="rounded-md border border-neutral-700 px-4 py-2 font-medium hover:border-neutral-500 disabled:opacity-50"
+          >
+            Add player
+          </button>
+        </form>
+      )}
+
+      {isHotseat && !isCreator && !isSeated && (
+        <p className="text-sm text-neutral-500">
+          This is a hotseat game, played from a single device — ask the host to add you as a local player from their
+          screen.
+        </p>
+      )}
+
+      {!isHotseat && !isSeated && (
         <button
           disabled={busy}
           onClick={() => void handleJoin()}

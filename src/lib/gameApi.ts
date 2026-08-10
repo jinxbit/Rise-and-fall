@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { nextSeatIndex } from './seatIndex'
 import type { GameRow, GameStateRow, PlayerRow } from './dbTypes'
 import type { GameState as EngineGameState, PlayMode } from '../engine/types'
 
@@ -98,7 +99,7 @@ export async function joinGame(params: {
     throw new Error('This game is full.')
   }
 
-  const seatIndex = existingPlayers.length
+  const seatIndex = nextSeatIndex(existingPlayers)
   const { data, error } = await supabase
     .from('players')
     .insert({
@@ -114,6 +115,50 @@ export async function joinGame(params: {
 
   if (error) throw error
   return data as PlayerRow
+}
+
+/**
+ * Hotseat's answer to joinGame(): the one signed-in host seats another
+ * *local* player under their own user_id — see 0003_hotseat_local_players.sql
+ * for why that no longer collides with `unique (game_id, user_id)`. No
+ * separate auth identity needed per seat, which is the whole point of
+ * pass-and-play on a single device.
+ */
+export async function addLocalPlayer(params: { game: GameRow; hostUserId: string; displayName: string }): Promise<PlayerRow> {
+  if (params.game.play_mode !== 'hotseat') {
+    throw new Error('Local players can only be added to a hotseat game.')
+  }
+  if (params.game.status !== 'lobby') {
+    throw new Error('This game has already started.')
+  }
+
+  const existingPlayers = await listPlayers(params.game.id)
+  if (existingPlayers.length >= params.game.max_players) {
+    throw new Error('This game is full.')
+  }
+
+  const seatIndex = nextSeatIndex(existingPlayers)
+  const { data, error } = await supabase
+    .from('players')
+    .insert({
+      game_id: params.game.id,
+      user_id: params.hostUserId,
+      display_name: params.displayName,
+      avatar_url: null,
+      seat_index: seatIndex,
+      color: PLAYER_COLORS[seatIndex % PLAYER_COLORS.length],
+    })
+    .select()
+    .single()
+
+  if (error) throw error
+  return data as PlayerRow
+}
+
+/** Removes a seated player — used pre-start to undo a mis-added hotseat local player (LobbyPage.tsx). RLS only allows deleting your own row (0003_hotseat_local_players.sql), which for hotseat covers every local player the host added. */
+export async function removePlayer(playerId: string): Promise<void> {
+  const { error } = await supabase.from('players').delete().eq('id', playerId)
+  if (error) throw error
 }
 
 export async function setGameStatus(gameId: string, status: GameRow['status']): Promise<void> {

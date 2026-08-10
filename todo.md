@@ -1569,3 +1569,79 @@ dropped where it was purely redundant with an existing state assertion
 (round.ts's purchase-skip test). `log.ts` and `GameEvent`'s old
 "persisted forever" doc comment are gone; 319 tests total (was 313);
 `tsc -b`/`oxlint`/`npm run build` all clean.
+
+## 34. Real hotseat: multiple local players, pass-and-play, on one signed-in device
+
+Requested: play hotseat with several players sharing a single browser —
+add players without each needing their own login, and handle
+simultaneous phases (choosing cards, declining) sensibly on one shared
+screen. Chose to fix `hotseat` mode's actual behavior rather than add a
+fourth `PlayMode` — it already existed as a selectable option and had
+its own row in `games.play_mode`'s check constraint, but was
+mechanically identical to `live`/`async` under the hood: every physical
+player still needed their own Discord login, even sharing one device,
+because `players` had `unique (game_id, user_id)` — one seat per auth
+identity, full stop.
+
+`supabase/migrations/0003_hotseat_local_players.sql` drops that
+constraint (`unique (game_id, seat_index)` alone still guarantees no
+two players occupy the same seat) and adds a `delete` RLS policy for
+`players` (there wasn't one at all before — removing a mis-added local
+player was silently denied) scoped to `user_id = auth.uid()`, same
+self-only pattern as the existing insert/update policies.
+
+New `gameApi.ts` functions: `addLocalPlayer(game, hostUserId,
+displayName)` seats another player under the *host's own* user_id — no
+separate sign-in, which is the entire point — validated against
+`play_mode === 'hotseat'`, `status === 'lobby'`, and `max_players`, same
+checks `joinGame` already made. `removePlayer(playerId)` undoes a
+mis-added one pre-start. Both needed a real "next free seat" calculation
+instead of `existingPlayers.length` — once a seat can be removed,
+indices aren't contiguous, and reusing `.length` after a removal
+collides with a still-taken higher seat_index. Pulled that into its own
+`lib/seatIndex.ts` purely so `nextSeatIndex` could be unit tested at
+all: `gameApi.ts` imports the live Supabase client at module load, which
+throws in the test environment without a real project config (`.env.local`
+isn't set for `vitest run` here), so anything meant to be testable in
+isolation can't live in that file.
+
+`LobbyPage.tsx`: hotseat games show a "Local player name" + Add button
+(host only, pre-start) instead of the live/async "Join this game"
+button, plus a Remove link per seated player. The generic "(host)"
+badge is suppressed for hotseat, since every seat there shares the same
+`user_id` and the badge would otherwise show on all of them.
+
+`GamePage.tsx`'s actual pass-and-play mechanic: new `engine/turnOrder.ts`
+exports `currentActorId(state)`, unifying board-setup's existing
+`currentTilePlacerId`/`currentUnitPlacerId` with the round cycle's
+`pendingPlayerIds[0]` into one "who must act right now, regardless of
+game status" answer. GamePage tracks a separate `hotseatActivePlayerId`
+(who the device is currently handed to — nothing to do with auth
+identity) and shows a full-screen "Pass the device to <Name> — I'm
+ready, continue" gate instead of the board/hand UI whenever
+`currentActorId` differs from it, for every phase alike — simultaneous
+ones (selectCards, decline) naturally get handled the same way as
+turn-order ones, one player at a time, since `pendingPlayerIds[0]`
+already means "next to act" either way; no phase-specific gating logic
+needed. `me` (which `PlayerRow` the UI acts as) resolves from
+`hotseatActivePlayerId` for hotseat instead of the auth-derived lookup
+every other mode uses. This game has no hidden information by design
+(see `GameEvent`'s doc comment) — the gate is a deliberate hand-off
+courtesy for a shared physical device, not information hiding, so it
+needed no engine changes at all: multiple `PlayerRow`s sharing one
+`authUserId` was already fine at that layer (`Player.id` is the seat's
+own uuid, `authUserId` is purely informational — see gameGenesis.ts).
+
+6 new tests: `turnOrder.test.ts` (`currentActorId` across boardSetup's
+two sub-phases, every active-status phase via `pendingPlayerIds`, the
+`activePlayerId` fallback, and lobby/completed) and `seatIndex.test.ts`
+(`nextSeatIndex` — contiguous roster, a gap left by a removed seat,
+order-independence). 329 tests total (was 319); `tsc -b`/`oxlint`/`npm
+run build` all clean; visually confirmed the pass-the-device gate and
+lobby's add/remove-player UI via a screenshot.
+
+**Not done by me**: the new migration (`0003_hotseat_local_players.sql`)
+needs to actually be applied to the live Supabase project — I can't run
+`supabase db push` or reach the SQL editor from here. Until it's
+applied, adding a second local player to a hotseat game will fail
+against the still-live `unique (game_id, user_id)` constraint.

@@ -9,6 +9,7 @@ import { buildGameLog } from '../engine/gameLog'
 import { replayActions } from '../engine/replay'
 import type { ActionResult, GameState as EngineGameState, Coordinate } from '../engine/types'
 import { buildTurnReview, findReviewWindowStart } from '../engine/turnReview'
+import { currentActorId } from '../engine/turnOrder'
 import { useAuth } from '../hooks/useAuth'
 import type { GameRow, PlayerRow } from '../lib/dbTypes'
 import { buildGenesisState } from '../lib/gameGenesis'
@@ -42,9 +43,18 @@ export function GamePage() {
   const [copiedStateJson, setCopiedStateJson] = useState(false)
   const [undoing, setUndoing] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
+  /**
+   * Hotseat pass-and-play: which seated player the shared device is
+   * currently "handed to" — distinct from auth identity, since every
+   * hotseat seat shares one signed-in host's user_id (see gameApi.ts's
+   * addLocalPlayer). Null until confirmed via the pass-the-device gate
+   * below, and reset whenever a fresh room loads.
+   */
+  const [hotseatActivePlayerId, setHotseatActivePlayerId] = useState<string | null>(null)
 
   useEffect(() => {
     if (!roomCode) return
+    setHotseatActivePlayerId(null)
     void (async () => {
       const foundGame = await getGameByRoomCode(roomCode)
       setGame(foundGame)
@@ -83,7 +93,17 @@ export function GamePage() {
   const unitContent = useMemo(() => resolveUnitContent(players.length), [players.length])
   const achievementContent = useMemo(() => resolveAchievementContent(), [])
 
-  const me = players.find((p) => p.user_id === session?.user.id)
+  const isHotseat = game?.play_mode === 'hotseat'
+  /**
+   * Whichever seated player must act next (see engine/turnOrder.ts) — used
+   * to know who the pass-the-device gate should hand the shared device to.
+   * Only meaningful for hotseat; live/async each run on their own device,
+   * so there's nothing to gate.
+   */
+  const pendingActorId = gameState ? currentActorId(gameState) : null
+  const needsHotseatGate = isHotseat && pendingActorId !== null && pendingActorId !== hotseatActivePlayerId
+
+  const me = isHotseat ? players.find((p) => p.id === hotseatActivePlayerId) : players.find((p) => p.user_id === session?.user.id)
 
   /**
    * "What happened since I last acted" (see engine/turnReview.ts) — reviewed
@@ -271,7 +291,21 @@ export function GamePage() {
 
       {!gameState && <p className="text-neutral-400">Setting up the game…</p>}
 
-      {gameState?.status === 'boardSetup' && (
+      {needsHotseatGate && pendingActorId && (
+        <div className="flex flex-col items-center gap-4 rounded-md border border-neutral-800 p-12 text-center">
+          <p className="text-sm text-neutral-400">Pass the device to</p>
+          <p className="text-3xl font-semibold">{players.find((p) => p.id === pendingActorId)?.display_name ?? 'the next player'}</p>
+          <button
+            type="button"
+            onClick={() => setHotseatActivePlayerId(pendingActorId)}
+            className="rounded-md bg-indigo-600 px-6 py-2 font-medium text-white hover:bg-indigo-500"
+          >
+            I&apos;m ready — continue
+          </button>
+        </div>
+      )}
+
+      {!needsHotseatGate && gameState?.status === 'boardSetup' && (
         <BoardSetupView
           state={gameState}
           players={players}
@@ -295,7 +329,7 @@ export function GamePage() {
         </div>
       )}
 
-      {gameState?.status === 'active' && (
+      {!needsHotseatGate && gameState?.status === 'active' && (
         <RoundView
           state={gameState}
           players={players}
