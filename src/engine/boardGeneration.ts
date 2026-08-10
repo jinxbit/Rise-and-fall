@@ -1,5 +1,6 @@
-import { createEmptyBoard, getTile, setTile } from './board'
+import { createEmptyBoard, getTile, neighborCoords, setTile } from './board'
 import type { Board, Coordinate, Terrain } from './types'
+import { coordKey } from './types'
 
 // --- shape geometry ----------------------------------------------------------
 
@@ -75,6 +76,82 @@ export function applyTilePlacement(board: Board, placedCells: Coordinate[], terr
   return placedCells.reduce((nextBoard, cell) => setTile(nextBoard, cell, terrain), board)
 }
 
+// --- extra base-terrain (water expansion) placement rules ---------------------
+//
+// `placesOn: null` (Water) is the only terrain that can land on untiled
+// holes at all (see isLegalTilePlacement above), which is what makes it
+// need its own extra rules once there's existing Sea to check against: a
+// new Sea tile must touch existing Sea, and can never trap empty hexes
+// with nowhere left to go. Both assume `placedCells` is already known to
+// satisfy isLegalTilePlacement — they only add these two extra checks, and
+// boardSetup.ts's placeTile() only calls them when `placesOn === null`.
+
+/** How many distinct hexes of `terrain` already on `board` are adjacent to `placedCells` (cells within `placedCells` itself don't count — they're untiled until this placement is applied). */
+function adjacentExistingTerrainCount(board: Board, placedCells: Coordinate[], terrain: Terrain): number {
+  const placedKeys = new Set(placedCells.map(coordKey))
+  const neighborKeys = new Set<string>()
+
+  for (const cell of placedCells) {
+    for (const neighbor of neighborCoords(board, cell)) {
+      const key = coordKey(neighbor)
+      if (placedKeys.has(key)) continue
+      if (getTile(board, neighbor)?.terrain === terrain) neighborKeys.add(key)
+    }
+  }
+  return neighborKeys.size
+}
+
+/** Whether `placedCells`, plus the existing tiles of `terrain` already on `board`, together touch at least `minCount` distinct existing hexes of `terrain` — e.g. "a new Sea tile must touch at least 2 Sea tiles already present." */
+export function touchesEnoughExistingTerrain(board: Board, placedCells: Coordinate[], terrain: Terrain, minCount: number): boolean {
+  return adjacentExistingTerrainCount(board, placedCells, terrain) >= minCount
+}
+
+/**
+ * Whether placing `placedCells` would seal off any untiled hex into a
+ * pocket with no path out to the unbounded exterior — "you cannot close
+ * off a zone containing empty spaces."
+ *
+ * Determined exactly, not heuristically: within the bounding box of every
+ * tiled hex (existing tiles + `placedCells`) expanded by one hex of
+ * margin, that margin ring is guaranteed tile-free (nothing can exist
+ * outside the box it was computed from), so it's genuinely connected to
+ * the true, infinite exterior. Flood-filling untiled hexes inward from
+ * that margin finds every hex still open to the outside; any untiled hex
+ * inside the box the flood fill never reaches is enclosed.
+ */
+export function wouldEncloseEmptyHexes(board: Board, placedCells: Coordinate[]): boolean {
+  const tiledKeys = new Set(Object.keys(board.tiles))
+  for (const cell of placedCells) tiledKeys.add(coordKey(cell))
+
+  const allTiledCoords = [...Object.values(board.tiles).map((t) => t.coord), ...placedCells]
+  const minQ = Math.min(...allTiledCoords.map((c) => c.q)) - 1
+  const maxQ = Math.max(...allTiledCoords.map((c) => c.q)) + 1
+  const minR = Math.min(...allTiledCoords.map((c) => c.r)) - 1
+  const maxR = Math.max(...allTiledCoords.map((c) => c.r)) + 1
+  const inBox = (c: Coordinate) => c.q >= minQ && c.q <= maxQ && c.r >= minR && c.r <= maxR
+
+  const reachedFromOutside = new Set<string>()
+  const stack: Coordinate[] = []
+  for (let q = minQ; q <= maxQ; q++) stack.push({ q, r: minR }, { q, r: maxR })
+  for (let r = minR; r <= maxR; r++) stack.push({ q: minQ, r }, { q: maxQ, r })
+
+  while (stack.length > 0) {
+    const cell = stack.pop()!
+    const key = coordKey(cell)
+    if (reachedFromOutside.has(key) || tiledKeys.has(key) || !inBox(cell)) continue
+    reachedFromOutside.add(key)
+    stack.push(...neighborCoords(board, cell))
+  }
+
+  for (let q = minQ; q <= maxQ; q++) {
+    for (let r = minR; r <= maxR; r++) {
+      const key = coordKey({ q, r })
+      if (!tiledKeys.has(key) && !reachedFromOutside.has(key)) return true
+    }
+  }
+  return false
+}
+
 /**
  * Finds one legal placement of `shapeCells` somewhere on `board`, in any of
  * the 6 rotations, or `null` if none exists. Every legal placement's own
@@ -142,10 +219,6 @@ export function canPlaceRemainingTiles(
   return true
 }
 
-function cellKey(c: Coordinate): string {
-  return `${c.q},${c.r}`
-}
-
 interface CandidatePlacement {
   cells: Coordinate[]
   anchor: Coordinate
@@ -165,7 +238,7 @@ function findAllLegalPlacements(board: Board, shapeCells: Coordinate[], placesOn
         const anchor: Coordinate = { q: hex.coord.q - localCell.q, r: hex.coord.r - localCell.r }
         const cells = placedShapeCells(shapeCells, anchor, rotation)
         if (!isLegalTilePlacement(board, cells, placesOn)) continue
-        const key = cells.map(cellKey).sort().join('|')
+        const key = cells.map(coordKey).sort().join('|')
         if (seen.has(key)) continue
         seen.add(key)
         placements.push({ cells, anchor, rotationSteps: rotation })
@@ -194,9 +267,9 @@ function findDisjointCombos(placements: CandidatePlacement[], count: number, lim
     }
     for (let i = startIndex; i < placements.length && results.length < limit; i++) {
       const placement = placements[i]
-      if (placement.cells.some((c) => usedCells.has(cellKey(c)))) continue
+      if (placement.cells.some((c) => usedCells.has(coordKey(c)))) continue
       const nextUsed = new Set(usedCells)
-      for (const c of placement.cells) nextUsed.add(cellKey(c))
+      for (const c of placement.cells) nextUsed.add(coordKey(c))
       chosen.push(placement)
       backtrack(i + 1, nextUsed)
       chosen.pop()

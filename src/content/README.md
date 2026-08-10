@@ -149,7 +149,11 @@ tile, then forest, then mountain, then glacier — fully exhausting one
 tier's supply (per `limits.byPlayerCount` above) before the next tier
 begins. There's no concept of a player's own territory — any player may
 place their tile anywhere on the board that's legal, not just near their
-own units/tiles.
+own units/tiles. If a placement leaves only one possible way left for
+the rest of the tier's tiles to go, that's not a real decision anymore —
+the engine places them automatically instead of making players confirm
+a foregone conclusion, still respecting turn order for bookkeeping (see
+`findForcedPlacement()`/`applyActionAndFastForwardTiles()`).
 
 **Placement rule:** a tile may only be placed where every hex it covers
 is *currently* the one terrain type immediately below it in the
@@ -161,15 +165,19 @@ tier: each tier can only ever claim part of the area the tier below it
 covered, so the map narrows in area as it rises in elevation — visibly
 matching the `level` 0-4 elevation/cliff system above.
 
-**No-space rule:** if a tile can't legally be placed anywhere because
-there isn't enough contiguous space of the correct lower tier, one or
-more already-placed tiles must be *moved* (picked up and placed again
-elsewhere, following the same placement rule) to open up room — using
-the fewest possible tiles moved to make the pending placement legal.
-Confirmed: only a currently-uncovered tile (nothing placed on top of any
-of its hexes) is eligible to be moved — a buried tile can't be moved at
-all, not even as part of a cascade, so the set of candidates is always
-just the board's current topmost tiles.
+**Sea-placement-only rules** (Water's `placesOn: null` is the one tier
+that can land on untiled holes at all, so it's the only one these apply
+to): a new Sea tile must touch at least 2 Sea tiles already on the board
+(`touchesEnoughExistingTerrain()`), and a placement may never seal off
+an area of empty hexes with no path out to the rest of the unplaced
+board (`wouldEncloseEmptyHexes()`) — both in `src/engine/boardGeneration.ts`.
+
+**No-space rule, simplified per ruling:** rather than the original
+"relocate a minimal set of already-placed tiles to open up room" search,
+a placement that wouldn't leave room for *every* remaining tile of the
+tier — not just the next one — is rejected outright, same as any other
+illegal placement; the player has to pick a different placement instead
+(`canPlaceRemainingTiles()`).
 
 **1c. Unit placement.** Once every tile is placed, a new starting player
 is chosen. Starting with them, in turn order, each player places one of

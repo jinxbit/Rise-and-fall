@@ -1,5 +1,13 @@
 import { getTile } from './board'
-import { applyTilePlacement, canPlaceRemainingTiles, isLegalTilePlacement, placedShapeCells, seedStartingWaterTiles } from './boardGeneration'
+import {
+  applyTilePlacement,
+  canPlaceRemainingTiles,
+  isLegalTilePlacement,
+  placedShapeCells,
+  seedStartingWaterTiles,
+  touchesEnoughExistingTerrain,
+  wouldEncloseEmptyHexes,
+} from './boardGeneration'
 import type { BoardGenerationContent, TileTierContent } from './boardGenerationContent'
 import { syncCardZonesWithBoard } from './cards'
 import { nextSequenceId } from './idSequence'
@@ -9,6 +17,9 @@ import type { UnitContent } from './unitContent'
 
 /** Per ruling: every player's three starting units, one of each kind. */
 const STARTING_UNIT_KINDS = ['city', 'nomad', 'ship'] as const
+
+/** Per ruling: a new Sea (water expansion) tile must touch at least this many Sea tiles already on the board. */
+const WATER_EXPANSION_MIN_TOUCHING = 2
 
 function findTierContent(content: BoardGenerationContent, terrain: Terrain): TileTierContent | undefined {
   return content.tiers.find((t) => t.terrain === terrain)
@@ -125,6 +136,19 @@ export function placeTile(
   const placedCells = placedShapeCells(tierContent.shapeCells, anchor, rotationSteps)
   if (!isLegalTilePlacement(state.board, placedCells, tierContent.placesOn)) {
     return { ok: false, error: 'Illegal tile placement' }
+  }
+
+  // Two extra rules that only apply to the base terrain (placesOn: null —
+  // only Water's expansion tiles land on untiled holes at all): a new Sea
+  // tile must touch existing Sea, and can never wall off empty hexes with
+  // no way out.
+  if (tierContent.placesOn === null) {
+    if (!touchesEnoughExistingTerrain(state.board, placedCells, tierContent.terrain, WATER_EXPANSION_MIN_TOUCHING)) {
+      return { ok: false, error: `A new Sea tile must touch at least ${WATER_EXPANSION_MIN_TOUCHING} Sea tiles already on the board` }
+    }
+    if (wouldEncloseEmptyHexes(state.board, placedCells)) {
+      return { ok: false, error: 'This placement would seal off an empty area with no way out' }
+    }
   }
 
   const board = applyTilePlacement(state.board, placedCells, tierContent.terrain)

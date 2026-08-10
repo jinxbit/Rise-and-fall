@@ -2076,3 +2076,55 @@ remaining tiles with the right player attribution and turn order, and a
 manual placement that leaves real ambiguity (3 independent pairs, 2
 tiles owed) correctly does *not* auto-place anything. 347 tests total
 (was 340); `tsc -b`/`oxlint`/`npm run build` all clean.
+
+## 45. Two more starting-water-placement rules: touch 2 Sea tiles, never enclose empty space
+
+"There are two additional rules related to the initial water placement:
+the added Sea tile must touch at least 2 Sea tiles already present in the
+World. You cannot close off a zone containing empty spaces."
+
+Both are new checks in `src/engine/boardGeneration.ts`, wired into
+`boardSetup.ts`'s `placeTile()` only when `tierContent.placesOn === null`
+(only Water's expansion tier lands on untiled holes at all — every other
+tier's normal covering rule already implies contiguity with what's below
+it, so these don't apply there):
+
+- **`touchesEnoughExistingTerrain(board, placedCells, terrain, minCount)`**
+  counts the distinct existing hexes of `terrain` adjacent to
+  `placedCells` (cells inside the new placement itself don't count — they're
+  still holes) and checks it against `minCount`. `boardSetup.ts` calls it
+  with `minCount: 2` via a new `WATER_EXPANSION_MIN_TOUCHING` constant.
+- **`wouldEncloseEmptyHexes(board, placedCells)`** answers "you cannot
+  close off a zone containing empty spaces" exactly, not heuristically:
+  it takes the bounding box of every tiled hex (existing + the new
+  placement) expanded by one hex of margin — that margin ring is
+  guaranteed tile-free by construction, so it's genuinely connected to
+  the true, infinite exterior — then flood-fills untiled hexes inward
+  from the margin. Any untiled hex inside the box the flood fill never
+  reaches is sealed off with nowhere to go, and the placement is
+  rejected.
+
+Fixed a pre-existing doc/implementation drift while updating
+`content/README.md`'s board-generation section for these two new rules:
+its "No-space rule" paragraph still described the *original*
+already-placed-tiles-get-relocated design, even though #43 had already
+replaced that with the simplified outright-rejection version. Reworded
+it to match what `canPlaceRemainingTiles()` actually does, and added a
+line about #44's forced-placement fast-forwarding too, which the doc
+was also missing.
+
+The existing end-to-end real-content test in `boardSetup.test.ts`
+("runs a small real board-setup sequence...") placed its two
+water-expansion tiles deliberately far from the seeded starting water,
+specifically *to avoid* interacting with other tiles — that placement is
+now illegal under the new touching rule. Replaced it with a small
+brute-force search helper (`findAnyValidWaterExpansionPlacement`) that
+finds any placement satisfying all the real rules near the seeded water,
+instead of hand-computing exact hourglass-shape coordinates.
+
+Added direct coverage for both new functions in `boardGeneration.test.ts`
+(minimum-touching-count edge cases, a ring-closing single-hex enclosure,
+and a ring left open with a gap) and `placeTile()` integration coverage
+in `boardSetup.test.ts` (reject for too few touching Sea tiles, reject
+for sealing off an empty pocket, allow a placement satisfying both).
+357 tests total (was 347); `tsc -b`/`oxlint`/`npm run build` all clean.

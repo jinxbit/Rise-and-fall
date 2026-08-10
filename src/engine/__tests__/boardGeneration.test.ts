@@ -7,6 +7,8 @@ import {
   placedShapeCells,
   rotateShape,
   seedStartingWaterTiles,
+  touchesEnoughExistingTerrain,
+  wouldEncloseEmptyHexes,
 } from '../boardGeneration'
 import { createEmptyBoard, getTile, setTile } from '../board'
 import type { Board, Coordinate, Terrain } from '../types'
@@ -216,6 +218,60 @@ describe('findForcedPlacement', () => {
     const cells = placedShapeCells(domino, forced.anchor, forced.rotationSteps)
     const key = cells.map((c) => `${c.q},${c.r}`).sort().join('|')
     expect(['5,5|6,5', '7,5|8,5']).toContain(key)
+  })
+})
+
+describe('touchesEnoughExistingTerrain', () => {
+  it('counts a single touching hex as not enough for a minimum of 2', () => {
+    const board = boardOf([[0, 0, 'water']])
+    // (1,0)-(2,0): only (1,0) neighbors the existing water hex at (0,0).
+    const placedCells = [{ q: 1, r: 0 }, { q: 2, r: 0 }]
+    expect(touchesEnoughExistingTerrain(board, placedCells, 'water', 1)).toBe(true)
+    expect(touchesEnoughExistingTerrain(board, placedCells, 'water', 2)).toBe(false)
+  })
+
+  it('counts 2 distinct existing hexes as enough for a minimum of 2', () => {
+    // (0,0) and (1,-1) are both neighbors of (1,0).
+    const board = boardOf([[0, 0, 'water'], [1, -1, 'water']])
+    const placedCells = [{ q: 1, r: 0 }, { q: 2, r: 0 }]
+    expect(touchesEnoughExistingTerrain(board, placedCells, 'water', 2)).toBe(true)
+  })
+
+  it('only counts a qualifying terrain, not any tile', () => {
+    const board = boardOf([[0, 0, 'plain'], [1, -1, 'plain']])
+    const placedCells = [{ q: 1, r: 0 }, { q: 2, r: 0 }]
+    expect(touchesEnoughExistingTerrain(board, placedCells, 'water', 1)).toBe(false)
+  })
+
+  it("doesn't count a neighbor that's itself part of the new placement", () => {
+    // Every cell here neighbors another cell in the same placement, but
+    // none of them are *existing* board tiles.
+    const board = createEmptyBoard('hex')
+    const placedCells = [{ q: 0, r: 0 }, { q: 1, r: 0 }]
+    expect(touchesEnoughExistingTerrain(board, placedCells, 'water', 1)).toBe(false)
+  })
+})
+
+describe('wouldEncloseEmptyHexes', () => {
+  it('is false when nothing gets sealed off', () => {
+    const board = boardOf([[5, 5, 'water']])
+    expect(wouldEncloseEmptyHexes(board, [{ q: 6, r: 5 }])).toBe(false)
+  })
+
+  it('is true when the placement completes a ring around a single empty hex', () => {
+    // 5 of (0,0)'s 6 neighbors are already tiled; placing the 6th
+    // (0,1) fully encloses (0,0) itself with nowhere left to escape to.
+    const board = boardOf([
+      [1, 0, 'water'], [1, -1, 'water'], [0, -1, 'water'], [-1, 0, 'water'], [-1, 1, 'water'],
+    ])
+    expect(wouldEncloseEmptyHexes(board, [{ q: 0, r: 1 }])).toBe(true)
+  })
+
+  it('is false when a ring is left with a gap, still open to the exterior', () => {
+    // Only 5 of (0,0)'s 6 neighbors get tiled (4 existing + 1 placed) —
+    // the 6th, (0,1), stays open, so (0,0) still escapes through it.
+    const board = boardOf([[1, 0, 'water'], [1, -1, 'water'], [0, -1, 'water'], [-1, 0, 'water']])
+    expect(wouldEncloseEmptyHexes(board, [{ q: -1, r: 1 }])).toBe(false)
   })
 })
 

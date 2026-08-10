@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { createEmptyBoard, getTile, setTile } from '../board'
 import type { BoardGenerationContent, TileTierContent } from '../boardGenerationContent'
 import { beginBoardSetup, beginBoardSetupWithPresetBoard, currentTilePlacerId, currentUnitPlacerId, placeTile, placeUnit } from '../boardSetup'
+import { isLegalTilePlacement, placedShapeCells, touchesEnoughExistingTerrain, wouldEncloseEmptyHexes } from '../boardGeneration'
 import { cardIdFor, createPlayerCards } from '../cards'
-import type { Card, Coordinate, GameState, Player, Terrain } from '../types'
+import type { Board, Card, Coordinate, GameState, Player, Terrain } from '../types'
 import type { UnitContent } from '../unitContent'
 import terrainJson from '../../content/terrain.json'
 
@@ -333,6 +334,54 @@ describe('placeTile', () => {
   })
 })
 
+describe('placeTile — water-expansion-only extra rules (placesOn: null)', () => {
+  const waterContent: BoardGenerationContent = { startingWaterShapeCells: domino, tiers: [tier('water', null, 5)] }
+
+  it('rejects a Sea placement that touches fewer than 2 existing Sea tiles', () => {
+    const state = makeSetupState({
+      board: boardOf([[0, 0, 'water']]),
+      boardSetup: { tileTierQueue: ['water'], tilesRemainingInTier: 5, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+    })
+
+    // (1,0)-(2,0): only (1,0) touches the lone existing water hex at (0,0).
+    const result = placeTile(state, 'p1', { q: 1, r: 0 }, 0, waterContent)
+
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toContain('at least 2 Sea tiles')
+    expect(getTile(state.board, { q: 1, r: 0 })).toBeUndefined()
+  })
+
+  it('allows a Sea placement that touches 2 existing Sea tiles and encloses nothing', () => {
+    const state = makeSetupState({
+      board: boardOf([[0, 0, 'water'], [1, -1, 'water']]),
+      boardSetup: { tileTierQueue: ['water'], tilesRemainingInTier: 5, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+    })
+
+    // (1,0)-(2,0): both (0,0) and (1,-1) neighbor (1,0).
+    const result = placeTile(state, 'p1', { q: 1, r: 0 }, 0, waterContent)
+
+    expect(result.ok).toBe(true)
+  })
+
+  it('rejects a Sea placement that would seal off an empty area with no way out', () => {
+    // 5 of (0,0)'s 6 neighbors are already Sea; completing the ring via the
+    // 6th, (0,1), would seal (0,0) itself off with nowhere left to escape
+    // to — even though it comfortably touches 2+ existing Sea tiles.
+    const state = makeSetupState({
+      board: boardOf([
+        [1, 0, 'water'], [1, -1, 'water'], [0, -1, 'water'], [-1, 0, 'water'], [-1, 1, 'water'],
+      ]),
+      boardSetup: { tileTierQueue: ['water'], tilesRemainingInTier: 5, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+    })
+
+    const result = placeTile(state, 'p1', { q: 0, r: 1 }, 0, waterContent)
+
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toContain('seal off')
+    expect(getTile(state.board, { q: 0, r: 1 })).toBeUndefined()
+  })
+})
+
 describe('placeUnit', () => {
   function unitPlacementState(overrides: Partial<GameState> = {}): GameState {
     return makeSetupState({
@@ -446,6 +495,22 @@ describe('placeUnit', () => {
   })
 })
 
+/** Brute-force search (small board, test-only) for any placement of `shapeCells` that satisfies isLegalTilePlacement plus the water-expansion-only rules (touches >=2 existing Sea, doesn't enclose empty hexes). */
+function findAnyValidWaterExpansionPlacement(board: Board, shapeCells: Coordinate[]): { anchor: Coordinate; rotationSteps: number } {
+  for (let q = -5; q <= 20; q++) {
+    for (let r = -5; r <= 20; r++) {
+      for (let rotationSteps = 0; rotationSteps < 6; rotationSteps++) {
+        const cells = placedShapeCells(shapeCells, { q, r }, rotationSteps)
+        if (!isLegalTilePlacement(board, cells, null)) continue
+        if (!touchesEnoughExistingTerrain(board, cells, 'water', 2)) continue
+        if (wouldEncloseEmptyHexes(board, cells)) continue
+        return { anchor: { q, r }, rotationSteps }
+      }
+    }
+  }
+  throw new Error('No valid water-expansion placement found in search range')
+}
+
 describe('against real content/terrain.json', () => {
   it('runs a small real board-setup sequence end to end without errors', () => {
     const water = terrainJson.terrainTypes.find((t) => t.id === 'water')!
@@ -466,11 +531,16 @@ describe('against real content/terrain.json', () => {
     let state = beginBoardSetup(base, content)
     expect(state.boardSetup?.tileTierQueue).toEqual(['water', 'plain'])
 
-    // Place both water-expansion tiles somewhere clearly away from the seeded hourglasses.
-    let result = placeTile(state, 'p1', { q: 100, r: 100 }, 0, content)
+    // Water-expansion tiles must touch existing Sea (see WATER_EXPANSION_MIN_TOUCHING)
+    // and can't seal off empty hexes, so search near the seeded hourglasses
+    // instead of placing far away like before those rules existed.
+    let placement = findAnyValidWaterExpansionPlacement(state.board, waterExpansionCells)
+    let result = placeTile(state, 'p1', placement.anchor, placement.rotationSteps, content)
     if (!result.ok) throw new Error(`setup failed: ${result.error}`)
     state = result.state
-    result = placeTile(state, 'p2', { q: 200, r: 200 }, 0, content)
+
+    placement = findAnyValidWaterExpansionPlacement(state.board, waterExpansionCells)
+    result = placeTile(state, 'p2', placement.anchor, placement.rotationSteps, content)
     if (!result.ok) throw new Error(`setup failed: ${result.error}`)
     state = result.state
 

@@ -165,6 +165,12 @@ decisions get made.
             `src/engine/boardGeneration.ts`,
             `applyActionAndFastForwardTiles()` in
             `src/engine/applyAction.ts` — see `todo.md` #44).
+      - [x] Two extra rules for Water's own expansion tiles (the one tier
+            that can land on untiled holes at all): a new Sea tile must
+            touch at least 2 existing Sea tiles, and can never seal off an
+            area of empty hexes with no way out
+            (`touchesEnoughExistingTerrain()`/`wouldEncloseEmptyHexes()`
+            in `src/engine/boardGeneration.ts` — see `todo.md` #45).
 - [x] Expand the unit test suite in `src/engine/__tests__/` to cover
       every action and edge case as it's implemented — 220 tests, including
       a pass against the real `content/*.json` files, not just synthetic
