@@ -383,7 +383,7 @@ describe('applyResolveUnitAction — unit actions resolve in order, one at a tim
   })
 })
 
-describe('RESOLVE_UNIT_ACTION resolves immediately; PASS_ACTIONS is the only thing that ends the turn', () => {
+describe('RESOLVE_UNIT_ACTION resolves immediately; the turn ends via PASS_ACTIONS or automatically once every unit has acted', () => {
   const twoCityContent: UnitContent = {
     actionsByKind: {
       city: [{ id: 'generate-income', name: 'Generate Income', description: '', effect: { actionType: 'income', goldByTerrain: { forest: 3 } } }],
@@ -512,6 +512,61 @@ describe('RESOLVE_UNIT_ACTION resolves immediately; PASS_ACTIONS is the only thi
     const lobbyState = makeActiveGame()
     const result = applyAction(lobbyState, { type: 'PASS_ACTIONS', playerId: 'p1' })
     expect(result.ok).toBe(false)
+  })
+
+  it('resolving the last unassigned unit ends the turn automatically — no PASS_ACTIONS needed', () => {
+    const state = makeTwoCitiesState()
+    const firstUnit = applyAction(
+      state,
+      { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [{ unitId: 'city_a', actionId: 'generate-income' }] },
+      twoCityContent,
+    )
+    if (!firstUnit.ok) throw new Error('setup failed')
+    // Still p1's turn — city_b hasn't acted yet.
+    expect(firstUnit.state.pendingPlayerIds).toEqual(['p1', 'p2'])
+
+    const lastUnit = applyAction(
+      firstUnit.state,
+      { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [{ unitId: 'city_b', actionId: 'generate-income' }] },
+      twoCityContent,
+    )
+    expect(lastUnit.ok).toBe(true)
+    if (!lastUnit.ok) return
+    // Both of p1's cities' income applied...
+    expect(lastUnit.state.players.find((p) => p.id === 'p1')!.resources.gold).toBe(6)
+    // ...and the turn ended on its own: card discarded, next player up,
+    // resolvedUnitIdsThisTurn reset for p2's fresh turn.
+    const p1 = lastUnit.state.players.find((p) => p.id === 'p1')!
+    expect(p1.discardCardIds).toContain(cardIdFor('p1', 'city'))
+    expect(lastUnit.state.pendingPlayerIds).toEqual(['p2'])
+    expect(lastUnit.state.activePlayerId).toBe('p2')
+    expect(lastUnit.state.resolvedUnitIdsThisTurn).toEqual([])
+    // Still just the one RESOLVE_UNIT_ACTION entry for this last resolve — no separate PASS_ACTIONS was dispatched.
+    expect(lastUnit.state.actionHistory).toHaveLength(firstUnit.state.actionHistory.length + 1)
+    expect(lastUnit.state.actionHistory.at(-1)?.action.type).toBe('RESOLVE_UNIT_ACTION')
+  })
+
+  it("resolving a player's only acting unit ends their turn immediately, finishing the actions phase", () => {
+    const state = makeTwoCitiesState()
+    let result = applyAction(state, { type: 'PASS_ACTIONS', playerId: 'p1' })
+    if (!result.ok) throw new Error('setup failed')
+    expect(result.state.pendingPlayerIds).toEqual(['p2'])
+
+    // p2 has just city_c — resolving it is p2's whole turn.
+    result = applyAction(
+      result.state,
+      { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2', unitActions: [{ unitId: 'city_c', actionId: 'generate-income' }] },
+      twoCityContent,
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.state.players.find((p) => p.id === 'p2')!.resources.gold).toBe(3)
+    // Both players are done — the actions phase itself finished and moved
+    // on (discard-zone assertions belong to the dedicated PASS_ACTIONS
+    // test above; here both hands were also empty of anything else, so
+    // finishRound's empty-hand recycle already moved the discarded card
+    // straight back to hand by the time this settles).
+    expect(result.state.roundPhase).not.toBe('actions')
   })
 })
 

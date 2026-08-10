@@ -860,3 +860,36 @@ last right now. No engine changes; this is purely `GamePage.tsx`'s
 write-orchestration layer. `tsc -b`/`oxlint`/`npm run build`/full vitest
 suite (256 tests, unaffected — no test coverage exists for this file,
 consistent with the rest of the UI layer) all clean.
+
+## 19. Turn ends automatically once every unit has acted — no Pass click needed
+
+Requested: once a player has resolved an action for every one of their
+acting units (kind matching the played card), there's nothing left to
+decide, so the turn should end on its own instead of still requiring a
+Pass click.
+
+Factored the turn-ending bookkeeping (card hand -> currentlyPlayed ->
+discard, advance `pendingPlayerIds`, reset `resolvedUnitIdsThisTurn`,
+possibly cascade into decline/purchase) out of `applyPassActions` into a
+shared `finishActionsTurn()` (`applyAction.ts`). `applyResolveUnitAction`
+now calls it itself, right after resolving, whenever every one of the
+player's units of the played kind is in `resolvedUnitIdsThisTurn` —
+still exactly one `actionHistory` entry either way (this is the same
+`RESOLVE_UNIT_ACTION` dispatch simply also finishing the turn, not a
+separate logged action), and PASS_ACTIONS remains available for the
+"leave some units idle on purpose" case #17 was actually about.
+
+No UI changes needed: `RoundView.tsx`'s `ActionsPanel` already renders
+"Waiting for the other player" the moment `pendingPlayerIds[0]` isn't the
+current player, so once the engine auto-advances the turn, the Pass
+button disappears on its own along with the rest of that player's
+actions-phase UI — the reactive `state` → render pipeline from #17 just
+handles it.
+
+Added direct coverage: resolving a player's last unassigned unit ends
+the turn without any `PASS_ACTIONS` dispatch (card discarded, next
+player up, still one `actionHistory` entry); a player with only one
+acting unit has their whole turn end the moment they resolve it, even
+cascading all the way to finishing the actions phase when they were the
+last player pending. 258 tests total (was 256); `tsc -b`/`oxlint`/
+`npm run build` all clean.
