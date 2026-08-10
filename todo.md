@@ -821,3 +821,42 @@ sandbox limitation as all prior UI work here; the live cross-unit-
 visibility behavior (seeing an earlier unit's resource gain before
 choosing a later unit's action) is especially worth a manual check on a
 real deployment.
+
+## 18. "Second player has to refresh to choose their card" — fixed by retrying instead of erroring on write conflicts
+
+Reported: during the simultaneous select-cards phase, once one player
+chose their card, the other player couldn't choose theirs without a
+manual browser refresh.
+
+Investigated without live Supabase access (same sandbox limitation noted
+throughout this file), so this is a best-diagnosis fix, not a confirmed-
+by-reproduction one — worth a real 2-browser check. Realtime sync itself
+already has to work for the game to be playable at all up through board
+setup (both players place tiles/units turn by turn, which the earlier
+playtest log this session started from proves happened), so a wholesale
+"Realtime is broken" theory didn't fit a bug reported specifically at
+select-cards. What does fit: `game_state.version`-guarded writes
+(`writeGameState` in `gameApi.ts`) are optimistic concurrency, and two
+players choosing their own, entirely independent cards in the same
+simultaneous phase is the textbook case where both writes land close
+together — whichever arrives second loses the version race even though
+it's not actually in conflict with the first (each player is only ever
+writing their own choice). `GamePage.tsx`'s old `submitAction` treated
+that loss as terminal: refetch, show "someone else acted first, please
+try again," stop — leaving the second player's own valid click needing
+to be manually retried (or, from a confused player's perspective, "just
+refresh the page").
+
+Fix: replaced the single-attempt write in both `submitAction` and
+`handleUndo` with a shared `writeWithRetry()` — recomputes the action
+against freshly refetched state and writes again, up to
+`MAX_WRITE_RETRIES` (3) times, only surfacing an error if it keeps
+losing that many times in a row. For `handleUndo` specifically, this
+meant recomputing "genesis + history minus last" fresh on *each* retry
+attempt (not once up front), since a retry is replaying against newer
+state than what was on screen when the button was clicked — correct
+anyway, since "undo the last action" should mean whatever's actually
+last right now. No engine changes; this is purely `GamePage.tsx`'s
+write-orchestration layer. `tsc -b`/`oxlint`/`npm run build`/full vitest
+suite (256 tests, unaffected — no test coverage exists for this file,
+consistent with the rest of the UI layer) all clean.

@@ -7,7 +7,7 @@ import type { Action } from '../engine/actions'
 import { applyAction } from '../engine/applyAction'
 import { appendLog } from '../engine/log'
 import { replayActions } from '../engine/replay'
-import type { GameState as EngineGameState, Coordinate } from '../engine/types'
+import type { ActionResult, GameState as EngineGameState, Coordinate } from '../engine/types'
 import { useAuth } from '../hooks/useAuth'
 import type { GameRow, PlayerRow } from '../lib/dbTypes'
 import { buildGenesisState } from '../lib/gameGenesis'
@@ -23,6 +23,21 @@ const ACTION_DESCRIPTION: Record<Action['type'], string> = {
   PURCHASE_CARD: 'purchasing a card',
   PASS_PURCHASE: 'passing on purchasing',
 }
+
+/**
+ * Two players' writes racing the game_state row's optimistic-concurrency
+ * `version` check is the COMMON case, not a rare edge case — e.g. both
+ * players choosing their card in the same simultaneous select-cards phase
+ * routinely land within milliseconds of each other. Whoever's write
+ * doesn't land first isn't in any real conflict with the other's action
+ * (their own choice is still entirely valid against the fresher state) —
+ * so retrying against the latest state should just work, silently, rather
+ * than surfacing a "someone else acted first, try again" error that the
+ * player has to notice and manually retry (or, worse, just reach for a
+ * full page refresh). Capped so a genuinely stuck case still surfaces an
+ * error instead of hanging.
+ */
+const MAX_WRITE_RETRIES = 3
 
 export function GamePage() {
   const { roomCode } = useParams<{ roomCode: string }>()
@@ -76,29 +91,45 @@ export function GamePage() {
   const unitContent = useMemo(() => resolveUnitContent(players.length), [players.length])
   const achievementContent = useMemo(() => resolveAchievementContent(), [])
 
-  async function submitAction(action: Action) {
-    if (!game || !gameState || version === null) return
-
-    const result = applyAction(gameState, action, unitContent, achievementContent, boardGenerationContent)
-    if (!result.ok) {
-      setActionError(result.error)
-      return
+  /**
+   * Writes whatever `computeNext` derives from the current state, retrying
+   * against freshly refetched state (up to MAX_WRITE_RETRIES times) if the
+   * write loses the optimistic-concurrency race — see MAX_WRITE_RETRIES's
+   * comment for why this needs to be a transparent retry, not just an
+   * error the player has to notice and act on themselves. Always leaves
+   * `gameState`/`version` reflecting the latest known state, win or lose,
+   * so the UI never sits on stale data after a failed attempt.
+   */
+  async function writeWithRetry(computeNext: (state: EngineGameState) => ActionResult): Promise<ActionResult> {
+    if (!game || !gameState || version === null) {
+      return { ok: false, error: 'Game not loaded yet' }
     }
-    setActionError(null)
+    let state = gameState
+    let ver = version
+    for (let attempt = 0; attempt < MAX_WRITE_RETRIES; attempt++) {
+      const result = computeNext(state)
+      if (!result.ok) return result
 
-    const wrote = await writeGameState(game.id, result.state, version)
-    if (!wrote) {
-      const fresh = await getGameState(game.id)
-      if (fresh) {
-        setGameState(fresh.state)
-        setVersion(fresh.version)
+      const wrote = await writeGameState(game.id, result.state, ver)
+      if (wrote) {
+        setGameState(result.state)
+        setVersion(ver + 1)
+        return result
       }
-      setActionError('Someone else acted first — the board refreshed, please try again.')
-      return
-    }
 
-    setGameState(result.state)
-    setVersion(version + 1)
+      const fresh = await getGameState(game.id)
+      if (!fresh) return { ok: false, error: 'Game state disappeared unexpectedly.' }
+      state = fresh.state
+      ver = fresh.version
+      setGameState(fresh.state)
+      setVersion(fresh.version)
+    }
+    return { ok: false, error: "Couldn't sync with the other player's moves — please try again." }
+  }
+
+  async function submitAction(action: Action) {
+    const result = await writeWithRetry((state) => applyAction(state, action, unitContent, achievementContent, boardGenerationContent))
+    setActionError(result.ok ? null : result.error)
   }
 
   /**
@@ -111,38 +142,33 @@ export function GamePage() {
    * "step back one action" needs no separate undo stack, just a shorter
    * replay. Logs a note about what got undone (not itself a logged action —
    * it doesn't re-enter actionHistory, so it can't itself be undone).
+   * Recomputed fresh on each writeWithRetry attempt (not just once up
+   * front), since a retry replays against newer state than what
+   * `gameState` held when the button was clicked.
    */
   async function handleUndo() {
-    if (!game || !gameState || version === null || gameState.actionHistory.length === 0 || !me) return
+    if (!me || !game) return
     setUndoing(true)
     try {
-      const genesis = buildGenesisState(game, players)
-      const undoneEntry = gameState.actionHistory[gameState.actionHistory.length - 1]
-      const previousHistory = gameState.actionHistory.slice(0, -1)
-      let undoneState = replayActions(genesis, previousHistory, unitContent, achievementContent, boardGenerationContent)
-      undoneState = {
-        ...undoneState,
-        log: appendLog(
-          undoneState,
-          me.id,
-          `Player ${me.id} undid the last action: Player ${undoneEntry.action.playerId} ${ACTION_DESCRIPTION[undoneEntry.action.type]}`,
-        ),
-      }
-
-      const wrote = await writeGameState(game.id, undoneState, version)
-      if (!wrote) {
-        const fresh = await getGameState(game.id)
-        if (fresh) {
-          setGameState(fresh.state)
-          setVersion(fresh.version)
+      const result = await writeWithRetry((state) => {
+        if (state.actionHistory.length === 0) {
+          return { ok: false, error: 'Nothing left to undo.' }
         }
-        setActionError('Someone else acted first — the board refreshed, please try again.')
-        return
-      }
-
-      setActionError(null)
-      setGameState(undoneState)
-      setVersion(version + 1)
+        const genesis = buildGenesisState(game, players)
+        const undoneEntry = state.actionHistory[state.actionHistory.length - 1]
+        const previousHistory = state.actionHistory.slice(0, -1)
+        let undoneState = replayActions(genesis, previousHistory, unitContent, achievementContent, boardGenerationContent)
+        undoneState = {
+          ...undoneState,
+          log: appendLog(
+            undoneState,
+            me.id,
+            `Player ${me.id} undid the last action: Player ${undoneEntry.action.playerId} ${ACTION_DESCRIPTION[undoneEntry.action.type]}`,
+          ),
+        }
+        return { ok: true, state: undoneState }
+      })
+      setActionError(result.ok ? null : result.error)
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Failed to undo')
     } finally {
