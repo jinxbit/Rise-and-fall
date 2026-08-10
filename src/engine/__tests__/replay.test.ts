@@ -102,7 +102,7 @@ describe('actionHistory + replayActions — round phase', () => {
   }
   const roundUnitContent: UnitContent = { ...unitContent, actionsByKind: { city: [cityIncomeAction] } }
 
-  function makePlayer(id: string, cards: Card[]): Player {
+  function makePlayer(id: string, cards: Card[], declineCardIds: string[] = []): Player {
     return {
       id,
       authUserId: null,
@@ -112,7 +112,7 @@ describe('actionHistory + replayActions — round phase', () => {
       currentlyPlayedCardId: null,
       discardCardIds: [],
       supplyCardIds: cards.map((c) => c.id),
-      declineCardIds: [],
+      declineCardIds,
       eliminated: false,
       resources: { gold: 0, wood: 0, stone: 0 },
     }
@@ -167,5 +167,80 @@ describe('actionHistory + replayActions — round phase', () => {
 
     const replayed = replayActions(genesis, finalState.actionHistory, roundUnitContent)
     expect(stripTimestamps(replayed)).toEqual(stripTimestamps(finalState))
+  })
+
+  // Bug report: "Can't undo a pass on purchasing a card from decline." Undo
+  // (GamePage.tsx's handleUndo) is exactly replayActions(genesis,
+  // actionHistory.slice(0, -1)) — this drives a real game to a
+  // round-closing PASS_PURCHASE (p1 has a card in decline already, so their
+  // purchase choice is real, not auto-skipped) and confirms replaying up to
+  // but not including it reconstructs the exact pre-pass purchase-phase
+  // state, with no replay error.
+  it('a round-ending PASS_PURCHASE can be undone: replaying everything before it reconstructs the pre-pass purchase-phase state', () => {
+    const turnOrder = ['p1', 'p2']
+    const cards: Record<string, Card> = {}
+    const p1Cards = createPlayerCards('p1')
+    const p2Cards = createPlayerCards('p2')
+    for (const c of [...p1Cards, ...p2Cards]) cards[c.id] = c
+    const board = setTile(setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'plain'), { q: 5, r: 0 }, 'plain')
+    const lobby = createNewGame({
+      gameId: 'g3',
+      playMode: 'hotseat',
+      board,
+      players: [
+        { id: 'p1', authUserId: null, displayName: 'Alice', color: 'red' },
+        { id: 'p2', authUserId: null, displayName: 'Bob', color: 'blue' },
+      ],
+      resourceBank: { gold: 100, wood: 100, stone: 100 },
+    })
+    const active: GameState = {
+      ...lobby,
+      board,
+      players: [
+        makePlayer('p1', p1Cards.filter((c) => c.kind === 'city'), [cardIdFor('p1', 'nomad')]),
+        makePlayer('p2', p2Cards.filter((c) => c.kind === 'city')),
+      ],
+      cards,
+      turnOrder,
+      units: [
+        { id: 'city_a', ownerId: 'p1', kind: 'city', coord: { q: 0, r: 0 }, movement: unitContent.movementByKind.city, traits: [] },
+        // p2 needs a unit of their own too — otherwise beginSelectCardsPhase
+        // eliminates them for having no card to choose, and this fixture
+        // needs both players cycling through the actions phase to reach a
+        // real (not immediately-finished) purchase phase.
+        { id: 'city_b', ownerId: 'p2', kind: 'city', coord: { q: 5, r: 0 }, movement: unitContent.movementByKind.city, traits: [] },
+      ],
+      status: 'active',
+    }
+    const genesis = beginSelectCardsPhase(syncCardZonesWithBoard(active))
+
+    let state = genesis
+    for (const action of [
+      { type: 'CHOOSE_CARD' as const, playerId: 'p1', cardId: cardIdFor('p1', 'city') },
+      { type: 'CHOOSE_CARD' as const, playerId: 'p2', cardId: cardIdFor('p2', 'city') },
+      { type: 'PASS_ACTIONS' as const, playerId: 'p1' },
+      { type: 'PASS_ACTIONS' as const, playerId: 'p2' },
+    ]) {
+      const result = applyAction(state, action, roundUnitContent)
+      if (!result.ok) throw new Error(`setup failed at ${action.type}: ${result.error}`)
+      state = result.state
+    }
+    // p1 has a card in decline, so they land in the purchase phase with a
+    // real choice; p2 doesn't, and is auto-skipped (see
+    // skipEmptyDeclinePurchasers in round.ts).
+    expect(state.roundPhase).toBe('purchase')
+    expect(state.pendingPlayerIds).toEqual(['p1', 'p2'])
+    const stateBeforePass = state
+
+    const passResult = applyAction(state, { type: 'PASS_PURCHASE', playerId: 'p1' }, roundUnitContent)
+    if (!passResult.ok) throw new Error('PASS_PURCHASE failed: ' + passResult.error)
+    // p2's auto-skip plus p1's pass empties the purchase queue, so this
+    // single PASS_PURCHASE also closes out the round (finishRound runs).
+    expect(passResult.state.roundPhase).toBe('selectCards')
+
+    const previousHistory = passResult.state.actionHistory.slice(0, -1)
+    const undone = replayActions(genesis, previousHistory, roundUnitContent)
+
+    expect(stripTimestamps(undone)).toEqual(stripTimestamps(stateBeforePass))
   })
 })

@@ -1309,3 +1309,47 @@ standing quadruped with donkey ears from a 14px marker up through a
 needed: `HexBoard.test.tsx`'s marker tests check glyph count/plate
 colour/shape, not any kind's specific geometry. `tsc -b`/`oxlint`/
 `npm run build` all clean, 285 tests still passing.
+
+## 29. Two reported bugs investigated — neither reproduces against current `main`; added permanent regression tests for both anyway
+
+1. "Can't undo a pass on purchasing a card from decline."
+2. "City can't transform Nomad into Mountaineer or Merchant — choosing
+   the action doesn't lead to a follow-up selection of which unit to
+   transform."
+
+Neither reproduced. For each, built the most faithful reproduction the
+sandbox allows (no live Supabase, so no way to click through the actual
+deployed app) and it worked correctly both times:
+
+- **(1)**: drove a real 2-player game through `applyAction` — both
+  choose their City card, both pass actions, land in the purchase phase
+  with p1 owing a real decision (a card already sitting in their
+  decline), p1 passes purchasing. Since p2 has nothing in decline they
+  auto-skip (`skipEmptyDeclinePurchasers`), so p1's `PASS_PURCHASE` is
+  also the action that closes out the round. Simulated exactly what
+  `GamePage.tsx`'s `handleUndo` does — `replayActions(genesis,
+  actionHistory.slice(0, -1))` — and it reconstructs the exact
+  pre-pass purchase-phase state with no replay error.
+- **(2)**: rendered the real `RoundView` (not a synthetic fixture — the
+  real `content/units.json` actions) with a City adjacent to the
+  player's own Nomad and enough gold, and simulated actual clicks:
+  City → "Convert to Merchant" in the radial menu → confirmed a ghost
+  dot appears over the Nomad's hex and `onResolveUnit` is *not* called
+  yet (i.e. targeting mode was entered, not an immediate resolve) →
+  clicked the Nomad's hex → confirmed `onResolveUnit('city1',
+  'create-merchant', { q: 1, r: 0 })` fires. The full click-through
+  works exactly as designed.
+
+Added both as permanent regression tests anyway, since they're real
+coverage of scenarios that weren't exercised before (`replay.test.ts`
+had no test undoing a round-*ending* action; `RoundView.test.tsx` had
+no test simulating actual clicks through the City's own-Nomad convert
+flow end to end) — `replay.test.ts`'s new `round phase` test and
+`RoundView.test.tsx`'s new describe block. 287 tests total (was 285);
+`tsc -b`/`oxlint`/`npm run build` all clean.
+
+Since neither bug reproduces on `main`, the likely explanation is a
+stale build (the reporter testing an older deployed version, or a
+cached bundle) rather than a live defect — flagged back to the user
+rather than guessing at a speculative fix for code that already behaves
+correctly under test.
