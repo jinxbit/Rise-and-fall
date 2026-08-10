@@ -931,3 +931,43 @@ zoomed-in crop confirmed the thick black line really is present on every
 cliff edge, not just the visually-higher-contrast water ones. `tsc -b`/
 `oxlint`/`npm run build`/full vitest suite (258 tests, unaffected) all
 clean.
+
+## 21. A played card for a kind with no units left could get recycled back into hand — fixed
+
+Reported: a player with no Ship units still had the Ship card offered as
+a choosable option in the select-cards phase.
+
+Root cause was an interaction between two already-correct-in-isolation
+pieces. `syncCardZonesWithBoard` (rules 5/6, `cards.ts`) deliberately
+leaves a card alone while it's in `discard` — a just-played card sitting
+there is normal, mid-round-cycle, regardless of whether its owner still
+has a unit of that kind; only the next recycle or play should move it.
+`finishRound`'s round-10/11 recycle (`round.ts`) does exactly that: once
+a player's hand is empty, their whole discard pile deals back into hand
+verbatim — but "verbatim" was the bug. If one of those discarded cards
+belonged to a kind the player no longer has any units of (e.g. they
+played their Ship's card, and that Ship was transformed/converted away
+before round end), the blind recycle dealt it straight into hand as a
+choosable option, in violation of rule 5/6, since nothing re-validated
+it against the board on the way.
+
+Fix: `finishRound` now calls `syncCardZonesWithBoard` immediately after
+the recycle step, whenever anything was recycled. Any wrongly-recycled
+card (kind with no backing unit) gets corrected straight back to supply;
+every correctly-recycled card (kind the player still has units of) is
+left in hand, untouched — same function already used everywhere else in
+the engine for this exact rule, just not previously reached from this
+call site.
+
+Added a direct regression test reproducing the reported shape: a player
+with real units for every kind except City, whose hand (including a
+discarded City card) empties out at round end — confirms the City card
+lands in supply, not hand, while every other kind's card is correctly
+recycled into hand as normal. Had to fix an unrelated test along the
+way: `round.test.ts`'s existing recycle test happened to pick the City
+card as its "played card" too, on a fixture where neither player has a
+City unit — exactly the bug this fixes, so its old "stays in hand"
+assertion was actually asserting the bug. Switched it to a Ship card
+(a kind the fixture's players do have) so it tests what it always meant
+to: recycle + first-player rotation, not this interaction. 259 tests
+total (was 258); `tsc -b`/`oxlint`/`npm run build` all clean.

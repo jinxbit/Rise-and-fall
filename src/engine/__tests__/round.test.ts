@@ -6,6 +6,7 @@ import { createEmptyBoard } from '../board'
 import { cardIdFor, moveCard, UNIT_KINDS } from '../cards'
 import { createNewGame } from '../createGame'
 import { getUnitLimit } from '../decline'
+import { finishRound } from '../round'
 import type { GameState, Unit } from '../types'
 import type { UnitContent } from '../unitContent'
 
@@ -406,7 +407,12 @@ describe('round flow', () => {
     let state = makeActiveGameWithFullHands()
     const p1Index = state.players.findIndex((p) => p.id === 'p1')
     let p1 = state.players[p1Index]
-    const [keepCardId, ...restCardIds] = [...p1.handCardIds]
+    // Keep a card for a kind p1 actually has a unit for (Ship, seeded by
+    // makeActiveGameWithFullHands) — using the City card here would trip
+    // the exact bug #21 fixes: p1 has no City unit in this fixture, so a
+    // recycled City card should land back in supply, not hand.
+    const keepCardId = cardIdFor('p1', 'ship')
+    const restCardIds = p1.handCardIds.filter((id) => id !== keepCardId)
     for (const cardId of restCardIds) {
       p1 = moveCard(p1, cardId, 'discard')
     }
@@ -448,5 +454,48 @@ describe('round flow', () => {
     if (!result.ok) return
 
     expect(result.state.turnOrder).toEqual(['p1', 'p2'])
+  })
+})
+
+describe('finishRound re-syncs recycled cards against the board (rule 5/6 + rule 10/11 interaction)', () => {
+  // Reproduces the reported bug: a player's hand empties out at round end
+  // (rule 10) while their discard still holds a card for a unit kind they
+  // no longer have any units of (e.g. it was played earlier the same round,
+  // and that unit was lost/transformed away in between). The blind
+  // discard -> hand recycle (rule 11) used to deal it straight back into
+  // hand as a choosable option next round, even though rule 5/6 says a
+  // card with no backing unit belongs in supply. finishRound must re-sync
+  // against the board after recycling, not just move discard verbatim.
+  it("recycles a card for a kind the player still has units of into hand, but sends one for a kind they don't back to supply", () => {
+    // p1/p2 have real units for every non-City kind (temple, nomad,
+    // merchant, mountaineer, ship — see makeActiveGameWithFullHands) but
+    // neither has a City unit.
+    let state = makeActiveGameWithFullHands()
+    const p1Index = state.players.findIndex((p) => p.id === 'p1')
+    let p1 = state.players[p1Index]
+    // Simulate: p1 played their City card earlier this round (now sitting
+    // in discard, per rule 3/4), and everything else in hand got played
+    // too, leaving hand empty going into round-end.
+    for (const cardId of [...p1.handCardIds]) {
+      p1 = moveCard(p1, cardId, 'discard')
+    }
+    const players = [...state.players]
+    players[p1Index] = p1
+    state = { ...state, players }
+
+    const result = finishRound(state)
+
+    const p1After = result.players.find((p) => p.id === 'p1')!
+    expect(p1After.discardCardIds).toHaveLength(0)
+    // City: no unit backing it -> supply, never dealt into hand.
+    expect(p1After.supplyCardIds).toContain(cardIdFor('p1', 'city'))
+    expect(p1After.handCardIds).not.toContain(cardIdFor('p1', 'city'))
+    // Ship (and every other kind p1 actually has a unit of): recycled into
+    // hand as normal.
+    expect(p1After.handCardIds).toContain(cardIdFor('p1', 'ship'))
+    expect(p1After.handCardIds).toContain(cardIdFor('p1', 'temple'))
+    expect(p1After.handCardIds).toContain(cardIdFor('p1', 'nomad'))
+    expect(p1After.handCardIds).toContain(cardIdFor('p1', 'merchant'))
+    expect(p1After.handCardIds).toContain(cardIdFor('p1', 'mountaineer'))
   })
 })

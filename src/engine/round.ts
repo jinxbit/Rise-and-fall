@@ -1,5 +1,6 @@
 import type { AchievementContent } from './achievementContent'
 import { EMPTY_ACHIEVEMENT_CONTENT } from './achievementContent'
+import { syncCardZonesWithBoard } from './cards'
 import { isDeclineTriggered } from './decline'
 import { eliminatePlayersWithNoCardToDecline, eliminatePlayersWithNoCardToPlay } from './elimination'
 import { appendLog } from './log'
@@ -135,6 +136,15 @@ export function finishRound(state: GameState, achievementContent: AchievementCon
   let nextState: GameState = { ...state, players }
 
   if (anyRecycled) {
+    // A card recycled above represents whatever kind its owner discarded
+    // it as, regardless of whether they still have a unit of that kind —
+    // e.g. a Ship card played the same turn its only Ship transformed away
+    // still ends up in discard (see cards.ts's syncCardZonesWithBoard,
+    // which only ever moves hand<->supply, never touches discard).
+    // Re-syncing here catches exactly that: any recycled card for a
+    // now-absent kind moves straight back to supply instead of sitting in
+    // hand as a false choice.
+    nextState = syncCardZonesWithBoard(nextState)
     nextState = { ...nextState, log: appendLog(nextState, null, "A player's discard was recycled into their hand") }
 
     const turnOrder =
