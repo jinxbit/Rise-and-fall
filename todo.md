@@ -1353,3 +1353,38 @@ stale build (the reporter testing an older deployed version, or a
 cached bundle) rather than a live defect — flagged back to the user
 rather than guessing at a speculative fix for code that already behaves
 correctly under test.
+
+## 30. Player status summary: remaining unit supply, live score, and the achievements panel moved to the bottom
+
+Three requests: show each player's remaining unit supply (not just
+which kinds are still in hand), show each player's current score
+(previously only computed once at game end), and move the achievements
+panel out from the top of the page.
+
+`PlayersStrip` (`RoundView.tsx`) gained two things per player:
+- **Remaining**: for each of the six kinds (`UNIT_KINDS`, `cards.ts`),
+  `unitSupplyCaps[kind] − (that player's units of that kind currently
+  on the board)` — how many more of that kind they could still build
+  before hitting their personal supply cap. Skips a kind entirely if
+  `unitContent` doesn't define a cap for it (matches `EMPTY_UNIT_CONTENT`
+  gracefully — no "Remaining" line rendered at all rather than a row of
+  zeros).
+- **Score**: a new `currentScoreByPlayerId` sums the same three VP
+  sources `finishRound` already uses for the end-of-game winner check
+  (`calculateAchievementVP`, `calculateBoardCountVP`,
+  `calculateTerrainControlVP`, combined via `sumVP`) — computed live off
+  the current `GameState` on every render, not just once when the game
+  ends, so players can track their standing mid-game.
+
+`AchievementsPanel` moved from right after `PlayersStrip` (top of the
+page) to the very last element in `RoundView`, after the board and the
+log — it's reference material a player checks occasionally, not
+something that needs to compete with the phase-specific action panel
+for top-of-page attention every render.
+
+Added three new tests to `RoundView.test.tsx`: remaining-supply text
+matches cap-minus-on-board per kind per player; score text reflects a
+claimed achievement's VP value (and 0 for a player with nothing
+claimed); and a DOM-order assertion that the achievements panel is the
+very last child of the page, after the board. 290 tests total (was
+287); `tsc -b`/`oxlint`/`npm run build` all clean.

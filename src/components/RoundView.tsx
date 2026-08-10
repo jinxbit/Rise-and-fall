@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react'
 import { isActionAvailableForUnit, legalConvertTargets, legalCreateTargets, legalTransformTargets } from '../engine/actionTargeting'
+import { UNIT_KINDS } from '../engine/cards'
 import { legalMoveDestinations } from '../engine/movement'
 import { calculatePurchaseCost } from '../engine/purchaseCost'
+import { calculateTerrainControlVP } from '../engine/scoring'
+import { calculateAchievementVP, calculateBoardCountVP, sumVP } from '../engine/victoryPoints'
 import type { AchievementContent } from '../engine/achievementContent'
 import { listAchievements } from '../content/resolveContent'
 import type { Coordinate, GameState, RoundPhase } from '../engine/types'
@@ -51,12 +54,41 @@ function PhaseBanner({ state }: { state: GameState }) {
   )
 }
 
-function PlayersStrip({ state, players, myPlayerId }: { state: GameState; players: PlayerRow[]; myPlayerId: string | null }) {
+/** Current total VP for every player, from the same three sources (achievements, board count, terrain control) finishRound uses for the end-of-game score — computed live from the current state rather than only once at game end. */
+function currentScoreByPlayerId(state: GameState, achievementContent: AchievementContent): Record<string, number> {
+  return sumVP(
+    calculateAchievementVP(state.claimedByAchievementId, achievementContent.achievementVictoryPoints),
+    calculateBoardCountVP(state.units, achievementContent.unitBoardCountVP),
+    calculateTerrainControlVP(state.board, state.units, achievementContent.terrainVictoryPoints, achievementContent.terrainScoresAs),
+  )
+}
+
+function PlayersStrip({
+  state,
+  players,
+  myPlayerId,
+  unitContent,
+  achievementContent,
+}: {
+  state: GameState
+  players: PlayerRow[]
+  myPlayerId: string | null
+  unitContent: UnitContent
+  achievementContent: AchievementContent
+}) {
+  const scoreByPlayerId = currentScoreByPlayerId(state, achievementContent)
+
   return (
     <div className="flex flex-wrap gap-2 text-xs text-neutral-400">
       {state.players.map((player) => {
         const row = players.find((p) => p.id === player.id)
         const handKinds = player.handCardIds.map((cardId) => state.cards[cardId]?.kind).filter((kind): kind is string => Boolean(kind))
+        const remainingByKind = UNIT_KINDS.map((kind) => {
+          const cap = unitContent.unitSupplyCaps[kind]
+          if (cap === undefined) return null
+          const onBoard = state.units.filter((u) => u.ownerId === player.id && u.kind === kind).length
+          return `${capitalize(kind)} ${Math.max(0, cap - onBoard)}`
+        }).filter((entry): entry is string => entry !== null)
         return (
           <div
             key={player.id}
@@ -67,11 +99,13 @@ function PlayersStrip({ state, players, myPlayerId }: { state: GameState; player
             <span className="h-2 w-2 rounded-full" style={{ backgroundColor: row?.color ?? '#a3a3a3' }} />
             <span className="text-neutral-200">{row?.display_name ?? player.id}</span>
             {player.eliminated && <span>(eliminated)</span>}
+            <span className="font-medium text-neutral-200">Score {scoreByPlayerId[player.id] ?? 0}</span>
             <span>Gold {player.resources.gold}</span>
             <span>Wood {player.resources.wood}</span>
             <span>Stone {player.resources.stone}</span>
             <span>Hand: {handKinds.length > 0 ? handKinds.map(capitalize).join(', ') : 'empty'}</span>
             <span>Decline {player.declineCardIds.length}</span>
+            {remainingByKind.length > 0 && <span>Remaining: {remainingByKind.join(', ')}</span>}
           </div>
         )
       })}
@@ -386,8 +420,7 @@ export function RoundView(props: {
   return (
     <div className="flex flex-col gap-4">
       <PhaseBanner state={state} />
-      <PlayersStrip state={state} players={players} myPlayerId={myPlayerId} />
-      <AchievementsPanel state={state} players={players} achievementContent={achievementContent} />
+      <PlayersStrip state={state} players={players} myPlayerId={myPlayerId} unitContent={unitContent} achievementContent={achievementContent} />
 
       {state.roundPhase === 'selectCards' && (
         <SelectCardsPanel state={state} players={players} myPlayerId={myPlayerId} onChooseCard={props.onChooseCard} />
@@ -419,6 +452,7 @@ export function RoundView(props: {
       />
 
       <LogPanel state={state} />
+      <AchievementsPanel state={state} players={players} achievementContent={achievementContent} />
     </div>
   )
 }

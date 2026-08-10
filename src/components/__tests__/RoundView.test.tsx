@@ -121,6 +121,94 @@ describe('RoundView — player status summary and achievements panel', () => {
     // ...and the buyback price reflects the one achievement claimed so far (index 0 of the table).
     expect(screen.getByText('5 gold')).toBeInTheDocument()
   })
+
+  it("shows each player's remaining unit supply per kind (cap minus units currently on the board)", () => {
+    const state = makeState()
+    state.units = [
+      { id: 'u1', ownerId: 'p1', kind: 'nomad', coord: { q: 0, r: 0 }, movement: { isMobile: true, terrains: [], canCrossCliffs: false }, traits: [] },
+    ]
+    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
+    const unitContent: UnitContent = {
+      ...EMPTY_UNIT_CONTENT,
+      unitSupplyCaps: { city: 2, temple: 2, nomad: 3, merchant: 2, mountaineer: 2, ship: 2 },
+    }
+
+    render(
+      <RoundView
+        state={state}
+        players={players}
+        myPlayerId="p1"
+        unitContent={unitContent}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+
+    // p1 has 1 of 3 Nomads built, everything else untouched.
+    expect(screen.getByText('Remaining: City 2, Temple 2, Nomad 2, Merchant 2, Mountaineer 2, Ship 2')).toBeInTheDocument()
+    // p2 has built nothing at all — full supply remaining across the board.
+    expect(screen.getByText('Remaining: City 2, Temple 2, Nomad 3, Merchant 2, Mountaineer 2, Ship 2')).toBeInTheDocument()
+  })
+
+  it("shows each player's current score, computed live from achievements/board-count/terrain-control — not just at game end", () => {
+    const state = makeState() // claimedByAchievementId: { 'city-mastery': 'p2' }
+    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
+
+    render(
+      <RoundView
+        state={state}
+        players={players}
+        myPlayerId="p1"
+        unitContent={EMPTY_UNIT_CONTENT}
+        achievementContent={{ ...EMPTY_ACHIEVEMENT_CONTENT, achievementVictoryPoints: { 'city-mastery': 5 } }}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+
+    expect(screen.getByText('Score 0')).toBeInTheDocument() // p1: nothing claimed
+    expect(screen.getByText('Score 5')).toBeInTheDocument() // p2: claimed city-mastery, worth 5 VP
+  })
+
+  it('renders the achievements panel last, after the board and the log — not near the top with the rest of the status summary', () => {
+    const state = makeState()
+    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
+
+    const { container } = render(
+      <RoundView
+        state={state}
+        players={players}
+        myPlayerId="p1"
+        unitContent={EMPTY_UNIT_CONTENT}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+
+    const root = container.firstElementChild!
+    const children = [...root.children]
+    const achievementsIndex = children.findIndex((el) => el.textContent?.includes('Buy back from decline'))
+    const boardIndex = children.findIndex((el) => el.textContent?.includes('Board has not been generated yet'))
+    expect(achievementsIndex).toBeGreaterThan(-1)
+    expect(boardIndex).toBeGreaterThan(-1)
+    // The achievements panel is the very last child, after the board.
+    expect(achievementsIndex).toBe(children.length - 1)
+    expect(achievementsIndex).toBeGreaterThan(boardIndex)
+  })
 })
 
 function buildRealUnitContent(): UnitContent {
