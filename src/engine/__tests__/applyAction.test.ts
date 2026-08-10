@@ -383,6 +383,138 @@ describe('applyResolveUnitAction — unit actions resolve in order, one at a tim
   })
 })
 
+describe('RESOLVE_UNIT_ACTION resolves immediately; PASS_ACTIONS is the only thing that ends the turn', () => {
+  const twoCityContent: UnitContent = {
+    actionsByKind: {
+      city: [{ id: 'generate-income', name: 'Generate Income', description: '', effect: { actionType: 'income', goldByTerrain: { forest: 3 } } }],
+    },
+    movementByKind: {},
+    terrainLevels: { water: 0, plain: 1, forest: 2, mountain: 3, glacier: 4 },
+    resourceCaps: { gold: null, wood: 5, stone: 5 },
+    unitSupplyCaps: {},
+  }
+
+  // Both players get a real City unit + card (not just p1, per
+  // applyResolveUnitAction's other fixture above) so pendingPlayerIds stays
+  // ['p1', 'p2'] throughout rather than p2 being eliminated for having no
+  // card to choose — keeps p1 finishing their turn from cascading into
+  // finishRound's discard-recycle, which would otherwise obscure the
+  // discard-zone assertions below.
+  function makeTwoCitiesState(): GameState {
+    const board = setTile(setTile(setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'forest'), { q: 5, r: 0 }, 'forest'), { q: 10, r: 0 }, 'forest')
+    const cityA: Unit = { id: 'city_a', ownerId: 'p1', kind: 'city', coord: { q: 0, r: 0 }, movement: { isMobile: false, terrains: [], canCrossCliffs: false }, traits: [] }
+    const cityB: Unit = { id: 'city_b', ownerId: 'p1', kind: 'city', coord: { q: 5, r: 0 }, movement: { isMobile: false, terrains: [], canCrossCliffs: false }, traits: [] }
+    const cityC: Unit = { id: 'city_c', ownerId: 'p2', kind: 'city', coord: { q: 10, r: 0 }, movement: { isMobile: false, terrains: [], canCrossCliffs: false }, traits: [] }
+    const lobby = createNewGame({
+      gameId: 'game_4',
+      playMode: 'hotseat',
+      board,
+      players: [
+        { id: 'p1', authUserId: null, displayName: 'Alice', color: 'red' },
+        { id: 'p2', authUserId: null, displayName: 'Bob', color: 'blue' },
+      ],
+      resourceBank: { gold: 100, wood: 100, stone: 100 },
+    })
+    const active: GameState = { ...lobby, board, units: [cityA, cityB, cityC], status: 'active' }
+    const selecting = beginSelectCardsPhase(syncCardZonesWithBoard(active))
+    let result = applyAction(selecting, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') })
+    if (!result.ok) throw new Error('setup failed')
+    result = applyAction(result.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') })
+    if (!result.ok) throw new Error('setup failed')
+    return result.state
+  }
+
+  it('resolving one unit applies its effect immediately but leaves the turn open', () => {
+    const state = makeTwoCitiesState()
+
+    const result = applyAction(
+      state,
+      { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [{ unitId: 'city_a', actionId: 'generate-income' }] },
+      twoCityContent,
+    )
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    // The effect already applied...
+    expect(result.state.players.find((p) => p.id === 'p1')!.resources.gold).toBe(3)
+    expect(result.state.resolvedUnitIdsThisTurn).toEqual(['city_a'])
+    // ...but the turn itself hasn't ended: still p1's turn, card not yet discarded.
+    expect(result.state.roundPhase).toBe('actions')
+    expect(result.state.pendingPlayerIds).toEqual(['p1', 'p2'])
+    expect(result.state.activePlayerId).toBe('p1')
+    const p1 = result.state.players.find((p) => p.id === 'p1')!
+    expect(p1.discardCardIds).not.toContain(cardIdFor('p1', 'city'))
+  })
+
+  it('rejects re-resolving the same unit twice in the same turn', () => {
+    const state = makeTwoCitiesState()
+    const first = applyAction(
+      state,
+      { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [{ unitId: 'city_a', actionId: 'generate-income' }] },
+      twoCityContent,
+    )
+    if (!first.ok) throw new Error('setup failed')
+
+    const second = applyAction(
+      first.state,
+      { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [{ unitId: 'city_a', actionId: 'generate-income' }] },
+      twoCityContent,
+    )
+    expect(second.ok).toBe(false)
+    // Gold only credited once, from the first resolve.
+    expect(first.state.players.find((p) => p.id === 'p1')!.resources.gold).toBe(3)
+  })
+
+  it('rejects a RESOLVE_UNIT_ACTION that resolves nothing at all (empty list, or every unit already acted)', () => {
+    const state = makeTwoCitiesState()
+    const empty = applyAction(state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [] }, twoCityContent)
+    expect(empty.ok).toBe(false)
+  })
+
+  it('PASS_ACTIONS ends the turn: moves the card to discard and advances to the next player', () => {
+    const state = makeTwoCitiesState()
+    const resolved = applyAction(
+      state,
+      { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [{ unitId: 'city_a', actionId: 'generate-income' }] },
+      twoCityContent,
+    )
+    if (!resolved.ok) throw new Error('setup failed')
+
+    const passed = applyAction(resolved.state, { type: 'PASS_ACTIONS', playerId: 'p1' })
+    expect(passed.ok).toBe(true)
+    if (!passed.ok) return
+    // city_b was never resolved — Pass leaves it idle rather than erroring.
+    expect(passed.state.units).toHaveLength(3)
+    const p1 = passed.state.players.find((p) => p.id === 'p1')!
+    expect(p1.discardCardIds).toContain(cardIdFor('p1', 'city'))
+    expect(passed.state.resolvedUnitIdsThisTurn).toEqual([])
+    // p2 is still pending — the round doesn't finish yet.
+    expect(passed.state.pendingPlayerIds).toEqual(['p2'])
+    expect(passed.state.activePlayerId).toBe('p2')
+  })
+
+  it('PASS_ACTIONS adds exactly one actionHistory entry regardless of how many units it leaves idle', () => {
+    const state = makeTwoCitiesState()
+    const passed = applyAction(state, { type: 'PASS_ACTIONS', playerId: 'p1' })
+    expect(passed.ok).toBe(true)
+    if (!passed.ok) return
+    expect(passed.state.actionHistory).toHaveLength(state.actionHistory.length + 1)
+    expect(passed.state.actionHistory.at(-1)?.action.type).toBe('PASS_ACTIONS')
+  })
+
+  it('rejects PASS_ACTIONS out of turn order', () => {
+    const state = makeTwoCitiesState()
+    const result = applyAction(state, { type: 'PASS_ACTIONS', playerId: 'p2' })
+    expect(result.ok).toBe(false)
+  })
+
+  it('rejects PASS_ACTIONS outside the actions phase', () => {
+    const lobbyState = makeActiveGame()
+    const result = applyAction(lobbyState, { type: 'PASS_ACTIONS', playerId: 'p1' })
+    expect(result.ok).toBe(false)
+  })
+})
+
 describe('applyAction — PLACE_TILE/PLACE_UNIT dispatch during boardSetup', () => {
   function makeBoardSetupState(): GameState {
     const lobby = createNewGame({

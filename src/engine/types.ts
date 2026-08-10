@@ -247,6 +247,18 @@ export interface GameState {
   chosenCardIdByPlayerId: Record<string, string | null>
   /** Players, in turn order, still owed a turn in the current phase. */
   pendingPlayerIds: string[]
+  /**
+   * Unit ids the current active player has already resolved an action for
+   * during their turn of the `actions` phase (see RESOLVE_UNIT_ACTION in
+   * ./applyAction.ts, which resolves immediately per unit rather than
+   * batching a player's whole turn behind one submission) — prevents the
+   * same unit acting twice this turn, and lets the UI know which of the
+   * player's acting units are still unassigned. Reset to `[]` at the start
+   * of each player's turn in the actions phase (beginActionsPhase for the
+   * first player, PASS_ACTIONS for each subsequent one — see ./round.ts).
+   * Meaningless outside the actions phase.
+   */
+  resolvedUnitIdsThisTurn: string[]
   /** Ordered turn sequence, e.g. player ids in seating order. turnOrder[0] is the current first player. */
   turnOrder: string[]
   board: Board

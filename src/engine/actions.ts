@@ -5,12 +5,16 @@ import type { Coordinate } from './types'
 // (seed the starting water tiles, players place the rest tier by tier,
 // then place their three starting units) — every other action below
 // requires `status: 'active'`, matching the round sequence in ./round.ts:
-// CHOOSE_CARD (phase 1, simultaneous), RESOLVE_UNIT_ACTION (phase 2, turn
-// order — movement is just another unit-kind action resolved here, like
-// create/transform/convert; see applyMove in ./unitActions.ts),
-// MOVE_TO_DECLINE (phase 3, simultaneous, only reachable when triggered),
-// PURCHASE_CARD / PASS_PURCHASE (phase 4, turn order). Recycle-check and
-// round-end are automatic engine bookkeeping, not player actions.
+// CHOOSE_CARD (phase 1, simultaneous), RESOLVE_UNIT_ACTION / PASS_ACTIONS
+// (phase 2, turn order — movement is just another unit-kind action
+// resolved here, like create/transform/convert; see applyMove in
+// ./unitActions.ts. RESOLVE_UNIT_ACTION resolves one unit immediately and
+// can be submitted any number of times for the same player's turn;
+// PASS_ACTIONS is the one action that actually ends that turn — see both
+// in ./applyAction.ts), MOVE_TO_DECLINE (phase 3, simultaneous, only
+// reachable when triggered), PURCHASE_CARD / PASS_PURCHASE (phase 4, turn
+// order). Recycle-check and round-end are automatic engine bookkeeping,
+// not player actions.
 
 /**
  * Places one tile of the current tier (src/engine/boardGenerationContent.ts's
@@ -60,11 +64,32 @@ export interface ResolveUnitActionAction {
    * one in the list (not batched by action id). This is what lets one
    * unit's effect be visible to a later unit's action in the same
    * submission — e.g. a Nomad producing a resource, then a second Nomad
-   * spending it to convert — matching whatever order the player actually
-   * assigned them in. A unit not listed here (or given an id that isn't
-   * one of the kind's actions) simply does nothing this round.
+   * spending it to convert. The UI only ever submits one assignment at a
+   * time (resolved immediately as the player picks it — see RoundView.tsx
+   * — rather than staged behind a batch submit), so in practice that
+   * ordering guarantee mostly matters across *separate* RESOLVE_UNIT_ACTION
+   * calls now, which is naturally preserved simply by dispatching them in
+   * the order the player made each choice. A unit already in
+   * `GameState.resolvedUnitIdsThisTurn`, or given an id that isn't one of
+   * the kind's actions, is skipped — same "does nothing" outcome as a unit
+   * never assigned at all. Doesn't end the player's turn — see
+   * PassActionsAction below.
    */
   unitActions: UnitActionAssignment[]
+}
+
+/**
+ * Round step 2's turn-ending action: whatever units the player already
+ * resolved via RESOLVE_UNIT_ACTION stand as chosen; every other acting
+ * unit of the played card's kind simply does nothing this round (already
+ * the default outcome for any unit not resolved — Pass doesn't need to
+ * enumerate them). Moves the chosen card hand -> currentlyPlayed ->
+ * discard and advances `pendingPlayerIds` to the next player — the one
+ * action in this phase that can end it and move on to decline/purchase.
+ */
+export interface PassActionsAction {
+  type: 'PASS_ACTIONS'
+  playerId: string
 }
 
 export interface MoveToDeclineAction {
@@ -89,6 +114,7 @@ export type Action =
   | PlaceUnitAction
   | ChooseCardAction
   | ResolveUnitActionAction
+  | PassActionsAction
   | MoveToDeclineAction
   | PurchaseCardAction
   | PassPurchaseAction

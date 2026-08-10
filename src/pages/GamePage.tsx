@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom'
 import { BoardSetupView } from '../components/BoardSetupView'
 import { RoundView } from '../components/RoundView'
 import { resolveAchievementContent, resolveBoardGenerationContent, resolveUnitContent } from '../content/resolveContent'
-import type { Action, UnitActionAssignment } from '../engine/actions'
+import type { Action } from '../engine/actions'
 import { applyAction } from '../engine/applyAction'
 import { appendLog } from '../engine/log'
 import { replayActions } from '../engine/replay'
@@ -18,6 +18,7 @@ const ACTION_DESCRIPTION: Record<Action['type'], string> = {
   PLACE_UNIT: 'placing a starting unit',
   CHOOSE_CARD: 'choosing a card',
   RESOLVE_UNIT_ACTION: 'resolving an action',
+  PASS_ACTIONS: 'passing on remaining actions',
   MOVE_TO_DECLINE: 'moving a card to decline',
   PURCHASE_CARD: 'purchasing a card',
   PASS_PURCHASE: 'passing on purchasing',
@@ -233,9 +234,13 @@ export function GamePage() {
             if (!me) return
             void submitAction({ type: 'CHOOSE_CARD', playerId: me.id, cardId })
           }}
-          onResolveUnitAction={(unitActions: UnitActionAssignment[]) => {
+          onResolveUnit={(unitId, actionId, target) => {
             if (!me) return
-            void submitAction({ type: 'RESOLVE_UNIT_ACTION', playerId: me.id, unitActions })
+            void submitAction({ type: 'RESOLVE_UNIT_ACTION', playerId: me.id, unitActions: [{ unitId, actionId, target }] })
+          }}
+          onPassActions={() => {
+            if (!me) return
+            void submitAction({ type: 'PASS_ACTIONS', playerId: me.id })
           }}
           onMoveToDecline={(cardId) => {
             if (!me) return

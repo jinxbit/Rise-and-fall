@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import type { UnitActionAssignment } from '../engine/actions'
 import { legalConvertTargets, legalCreateTargets, legalTransformTargets } from '../engine/actionTargeting'
 import { legalMoveDestinations } from '../engine/movement'
 import { calculatePurchaseCost } from '../engine/purchaseCost'
@@ -33,17 +32,11 @@ function actionNeedsTargeting(effect: UnitAction['effect']): boolean {
  * `idle`: nothing selected. `menu`: a unit was clicked — its action
  * options are showing as a radial menu around it on the board. `targeting`:
  * an action needing a target hex was picked from that menu — the next
- * legal-hex click on the board completes the assignment.
+ * legal-hex click on the board resolves it immediately (see onResolveUnit
+ * in RoundView below — there's no local staging/submit step; each pick is
+ * its own RESOLVE_UNIT_ACTION dispatch, applied right away).
  */
 type ActionUiMode = { kind: 'idle' } | { kind: 'menu'; unitId: string } | { kind: 'targeting'; unitId: string; actionId: string }
-
-interface ActionsUiState {
-  /** Ordered, already-confirmed per-unit assignments — resolution order matches this order exactly (see applyResolveUnitAction in ../engine/applyAction.ts). */
-  assignments: UnitActionAssignment[]
-  mode: ActionUiMode
-}
-
-const EMPTY_ACTIONS_UI: ActionsUiState = { assignments: [], mode: { kind: 'idle' } }
 
 function PhaseBanner({ state }: { state: GameState }) {
   const phaseLabel: Record<RoundPhase, string> = {
@@ -149,12 +142,9 @@ function ActionsPanel(props: {
   state: GameState
   players: PlayerRow[]
   myPlayerId: string | null
-  unitContent: UnitContent
-  assignments: UnitActionAssignment[]
-  onUndo: () => void
-  onResolve: () => void
+  onPassActions: () => void
 }) {
-  const { state, players, myPlayerId, unitContent, assignments, onUndo, onResolve } = props
+  const { state, players, myPlayerId, onPassActions } = props
   const activePlayerId = state.pendingPlayerIds[0] ?? null
   const isMyTurn = activePlayerId !== null && activePlayerId === myPlayerId
 
@@ -167,53 +157,21 @@ function ActionsPanel(props: {
   if (!card) return <p className="text-red-400">No chosen card found for this player.</p>
 
   const actingUnits = state.units.filter((u) => u.ownerId === myPlayerId && u.kind === card.kind)
-  const actions = unitContent.actionsByKind[card.kind] ?? []
-  const remaining = actingUnits.filter((u) => !assignments.some((a) => a.unitId === u.id))
+  const remaining = actingUnits.filter((u) => !state.resolvedUnitIdsThisTurn.includes(u.id))
 
   return (
     <div className="flex flex-col gap-3 text-sm">
       <p className="font-medium text-indigo-400">
-        Your turn — playing {capitalize(card.kind)}. Click a highlighted unit on the board to choose its action; a
-        unit left alone does nothing this round.
+        Your turn — playing {capitalize(card.kind)}. Click a highlighted unit on the board to choose its action — it
+        resolves immediately. {remaining.length} of {actingUnits.length} unit{actingUnits.length === 1 ? '' : 's'} still need
+        {remaining.length === 1 ? 's' : ''} one (a unit left alone does nothing this round).
       </p>
 
       {actingUnits.length === 0 && <p className="text-neutral-500">No units of this kind to act.</p>}
-      {actingUnits.length > 0 && remaining.length === 0 && (
-        <p className="text-neutral-500">Every unit has an action assigned.</p>
-      )}
-
-      {assignments.length > 0 && (
-        <ol className="flex flex-col gap-1 text-xs text-neutral-400">
-          <span className="text-neutral-500">Resolves in this order:</span>
-          {assignments.map((a, i) => {
-            const unit = state.units.find((u) => u.id === a.unitId)
-            const action = actions.find((x) => x.id === a.actionId)
-            return (
-              <li key={`${a.unitId}-${i}`}>
-                {i + 1}. {unit ? `${capitalize(unit.kind)} at (${unit.coord.q},${unit.coord.r})` : a.unitId} →{' '}
-                <span className="text-neutral-200">{action?.name ?? a.actionId}</span>
-                {a.target && (
-                  <span>
-                    {' '}
-                    → target ({a.target.q},{a.target.r})
-                  </span>
-                )}
-              </li>
-            )
-          })}
-        </ol>
-      )}
 
       <div className="flex gap-2">
-        <button
-          disabled={assignments.length === 0}
-          onClick={onUndo}
-          className="rounded-md border border-neutral-700 px-3 py-1 hover:border-neutral-500 disabled:opacity-40"
-        >
-          Undo last
-        </button>
-        <button onClick={onResolve} className="rounded-md bg-indigo-600 px-3 py-1 font-medium text-white hover:bg-indigo-500">
-          Resolve actions
+        <button onClick={onPassActions} className="rounded-md bg-indigo-600 px-3 py-1 font-medium text-white hover:bg-indigo-500">
+          {remaining.length > 0 ? `Pass (leave ${remaining.length} idle)` : 'Pass / end turn'}
         </button>
       </div>
     </div>
@@ -312,17 +270,18 @@ export function RoundView(props: {
   unitContent: UnitContent
   achievementContent: AchievementContent
   onChooseCard: (cardId: string) => void
-  onResolveUnitAction: (unitActions: UnitActionAssignment[]) => void
+  onResolveUnit: (unitId: string, actionId: string, target?: Coordinate) => void
+  onPassActions: () => void
   onMoveToDecline: (cardId: string) => void
   onPurchaseCard: (cardId: string) => void
   onPassPurchase: () => void
 }) {
   const { state, players, myPlayerId, unitContent, achievementContent } = props
-  const [ui, setUi] = useState<ActionsUiState>(EMPTY_ACTIONS_UI)
+  const [mode, setMode] = useState<ActionUiMode>({ kind: 'idle' })
 
   const turnKey = `${state.turn}:${state.roundPhase}:${state.pendingPlayerIds[0] ?? ''}`
   useEffect(() => {
-    setUi(EMPTY_ACTIONS_UI)
+    setMode({ kind: 'idle' })
   }, [turnKey])
 
   const isMyActionTurn = state.roundPhase === 'actions' && state.pendingPlayerIds[0] === myPlayerId
@@ -331,12 +290,12 @@ export function RoundView(props: {
   const myActingUnits =
     isMyActionTurn && myCard && myPlayerId ? state.units.filter((u) => u.ownerId === myPlayerId && u.kind === myCard.kind) : []
   const actionsForKind = myCard ? (unitContent.actionsByKind[myCard.kind] ?? []) : []
-  const availableUnits = myActingUnits.filter((u) => !ui.assignments.some((a) => a.unitId === u.id))
+  const availableUnits = myActingUnits.filter((u) => !state.resolvedUnitIdsThisTurn.includes(u.id))
 
-  const menuUnitId = ui.mode.kind === 'menu' ? ui.mode.unitId : null
+  const menuUnitId = mode.kind === 'menu' ? mode.unitId : null
   const menuUnit = menuUnitId ? (myActingUnits.find((u) => u.id === menuUnitId) ?? null) : null
-  const targetingUnitId = ui.mode.kind === 'targeting' ? ui.mode.unitId : null
-  const targetingActionId = ui.mode.kind === 'targeting' ? ui.mode.actionId : null
+  const targetingUnitId = mode.kind === 'targeting' ? mode.unitId : null
+  const targetingActionId = mode.kind === 'targeting' ? mode.actionId : null
   const targetingUnit = targetingUnitId ? (myActingUnits.find((u) => u.id === targetingUnitId) ?? null) : null
   const targetingAction = targetingActionId ? (actionsForKind.find((a) => a.id === targetingActionId) ?? null) : null
 
@@ -359,33 +318,25 @@ export function RoundView(props: {
     const action = actionsForKind.find((a) => a.id === actionId)
     if (!action) return
     if (actionNeedsTargeting(action.effect)) {
-      setUi((prev) => ({ ...prev, mode: { kind: 'targeting', unitId: menuUnit.id, actionId } }))
+      setMode({ kind: 'targeting', unitId: menuUnit.id, actionId })
     } else {
-      setUi((prev) => ({ assignments: [...prev.assignments, { unitId: menuUnit.id, actionId }], mode: { kind: 'idle' } }))
+      props.onResolveUnit(menuUnit.id, actionId)
+      setMode({ kind: 'idle' })
     }
   }
 
   function handleBoardClick(coord: Coordinate) {
     if (targetingUnit && targetingAction && legalTargets.some((c) => c.q === coord.q && c.r === coord.r)) {
-      setUi((prev) => ({
-        assignments: [...prev.assignments, { unitId: targetingUnit.id, actionId: targetingAction.id, target: coord }],
-        mode: { kind: 'idle' },
-      }))
+      props.onResolveUnit(targetingUnit.id, targetingAction.id, coord)
+      setMode({ kind: 'idle' })
       return
     }
     const clickedUnit = availableUnits.find((u) => u.coord.q === coord.q && u.coord.r === coord.r)
     if (clickedUnit) {
-      setUi((prev) => {
-        if (prev.mode.kind === 'menu' && prev.mode.unitId === clickedUnit.id) return { ...prev, mode: { kind: 'idle' } }
-        return { ...prev, mode: { kind: 'menu', unitId: clickedUnit.id } }
-      })
+      setMode((prev) => (prev.kind === 'menu' && prev.unitId === clickedUnit.id ? { kind: 'idle' } : { kind: 'menu', unitId: clickedUnit.id }))
       return
     }
-    setUi((prev) => ({ ...prev, mode: { kind: 'idle' } }))
-  }
-
-  function undoLast() {
-    setUi((prev) => ({ ...prev, assignments: prev.assignments.slice(0, -1) }))
+    setMode({ kind: 'idle' })
   }
 
   const availableUnitIds = new Set(availableUnits.map((u) => u.id))
@@ -415,15 +366,7 @@ export function RoundView(props: {
         <SelectCardsPanel state={state} players={players} myPlayerId={myPlayerId} onChooseCard={props.onChooseCard} />
       )}
       {state.roundPhase === 'actions' && (
-        <ActionsPanel
-          state={state}
-          players={players}
-          myPlayerId={myPlayerId}
-          unitContent={unitContent}
-          assignments={ui.assignments}
-          onUndo={undoLast}
-          onResolve={() => props.onResolveUnitAction(ui.assignments)}
-        />
+        <ActionsPanel state={state} players={players} myPlayerId={myPlayerId} onPassActions={props.onPassActions} />
       )}
       {state.roundPhase === 'decline' && (
         <DeclinePanel state={state} players={players} myPlayerId={myPlayerId} onMoveToDecline={props.onMoveToDecline} />

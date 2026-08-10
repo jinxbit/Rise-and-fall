@@ -752,3 +752,72 @@ would "pass" for the wrong reason. Used Mountain(level 3) next to
 Glacier(diff 1, no cliff) instead, so each new test isolates the Glacier/
 Mountaineer rule from the unrelated cliff rule. 249 tests total (was
 243); `tsc -b`/`oxlint`/`npm run build` all clean.
+
+## 17. Immediate per-unit action resolution + a Pass button, replacing the batch "Resolve actions" submit
+
+Two related requests, both about the `actions` phase (round step 2).
+
+**Drop the "Resolve actions" button — resolve each unit's choice
+immediately.** Previously a player staged an ordered list of per-unit
+assignments client-side (`RoundView.tsx`'s local `ui.assignments`) and
+submitted the whole batch in one `RESOLVE_UNIT_ACTION` dispatch, which
+also happened to be what ended their turn. Now that global Undo (#14)
+covers "I misclicked," there's no need for that staging — each pick
+(after any needed target click) dispatches its own `RESOLVE_UNIT_ACTION`
+immediately, applied and logged right away. This also makes cross-unit
+visibility more honest: a Nomad's Produce Resource is now visibly applied
+to `resources` *before* the player even opens the next Nomad's menu to
+decide what it does with the result, rather than only after a blind
+batch submit.
+
+**Add a Pass button for whichever units didn't get an action.** Splitting
+resolution out per-unit meant something else had to take over "end my
+turn" — added a new `PASS_ACTIONS` action (`actions.ts`/`applyAction.ts`):
+moves the chosen card hand → currentlyPlayed → discard and advances
+`pendingPlayerIds`, same bookkeeping `RESOLVE_UNIT_ACTION` used to do
+unconditionally on every call. Whatever units weren't individually
+resolved simply do nothing this round — already every unit's default
+outcome, so Pass doesn't need to enumerate them — and it's exactly **one**
+`actionHistory`/log entry regardless of how many units it leaves idle, as
+requested.
+
+Engine mechanics: `RESOLVE_UNIT_ACTION` (`applyResolveUnitAction` in
+`applyAction.ts`) no longer touches `pendingPlayerIds` or card zones at
+all — it only applies the given unit(s)' effects, records them in a new
+`GameState.resolvedUnitIdsThisTurn: string[]` (reset in
+`beginActionsPhase` for the first player, in the new `applyPassActions`
+for each next one), and checks achievement claims. A unit already in
+`resolvedUnitIdsThisTurn` is skipped (can't act twice), and the call is
+rejected outright if nothing in the list actually resolved — "do nothing"
+is Pass's job now, not a vacuous `unitActions: []` dispatch that used to
+silently end the turn. `unitActions` stays a list (ordering/multi-unit
+support intact, still exercised by the existing "resolution order is
+real" tests) even though the UI only ever submits one assignment at a
+time now.
+
+UI: `RoundView.tsx`'s `ActionsPanel` dropped its local assignment list,
+`onUndo`/`onResolve` props, and the ordered "resolves in this order"
+preview — replaced by one `onPassActions` prop and a live count read
+straight from `state.resolvedUnitIdsThisTurn` ("2 of 3 units still need
+one"). `RoundView`'s top-level UI state shrank from `{assignments, mode}`
+to just `mode` (the radial-menu/targeting interaction state, which still
+needs to exist client-side since a targeted action needs a second click
+before it can dispatch).
+
+Test fallout was concentrated in `round.test.ts`: every test there used
+to call `RESOLVE_UNIT_ACTION` with an empty `unitActions: []` purely as a
+"pass through this turn" placeholder (relying on the old
+always-ends-the-turn behavior) — all 12 such call-pairs became direct
+`PASS_ACTIONS` dispatches instead, which is both simpler and a more
+faithful description of what those tests actually needed. Added a new
+`applyAction.test.ts` describe block with direct coverage of the split:
+resolving one unit applies immediately without ending the turn, re-
+resolving the same unit twice is rejected, an empty/fully-already-
+resolved list is rejected, `PASS_ACTIONS` moves the card and advances
+`pendingPlayerIds`, and it's exactly one `actionHistory` entry no matter
+how many units it left idle. 256 tests total (was 249); `tsc -b`/
+`oxlint`/`npm run build` all clean. Not click-tested in a browser — same
+sandbox limitation as all prior UI work here; the live cross-unit-
+visibility behavior (seeing an earlier unit's resource gain before
+choosing a later unit's action) is especially worth a manual check on a
+real deployment.

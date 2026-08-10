@@ -86,6 +86,8 @@ function dispatchAction(
       return applyChooseCard(state, action.playerId, action.cardId)
     case 'RESOLVE_UNIT_ACTION':
       return applyResolveUnitAction(state, action.playerId, action.unitActions, unitContent, achievementContent)
+    case 'PASS_ACTIONS':
+      return applyPassActions(state, action.playerId, achievementContent)
     case 'MOVE_TO_DECLINE':
       return applyMoveToDecline(state, action.playerId, action.cardId, achievementContent)
     case 'PURCHASE_CARD':
@@ -135,17 +137,25 @@ function applyChooseCard(state: GameState, playerId: string, cardId: string): Ac
 }
 
 /**
- * Round step 2 (rules 3 & 4): in turn order, resolve each player's chosen
- * card. `unitActions` is an ORDERED list of per-unit action assignments —
- * each is resolved fully, one unit at a time, before the next begins (see
- * applyUnitActionEffect in ./unitActions.ts, called once per assignment
- * restricted to just that one unit id) — not batched by action id. This
- * matters: it's what lets one unit's effect (e.g. a Nomad producing a
- * resource) be visible to a later unit's action in the same submission
- * (e.g. a second Nomad spending it to convert to a City), in whatever
- * order the player actually assigned them. Also checks for newly-claimed
- * achievements afterward (see updateAchievementClaims in
- * ./achievements.ts), since create/convert/a destroySelf transform can
+ * Round step 2, rules 3 & 4's action part: resolves one or more of the
+ * active player's units immediately — applied and logged right away, not
+ * staged behind a later submit — which is what lets one unit's effect
+ * (e.g. a Nomad producing a resource) be visible before the player even
+ * chooses a later unit's action (e.g. a second Nomad spending it to
+ * convert), and lets a global Undo roll back exactly one unit's action
+ * instead of a whole turn. Does NOT end the player's turn: `pendingPlayerIds`
+ * and the chosen card's zone are untouched here — see PASS_ACTIONS
+ * (applyPassActions below), the one action that ends it. `unitActions` is
+ * usually a single assignment (the UI submits one per pick — see
+ * RoundView.tsx) but stays a list for flexibility/ordering when it isn't;
+ * each entry resolves fully (via applyUnitActionEffect in ./unitActions.ts,
+ * restricted to just that one unit id) before the next begins. A unit
+ * already in `resolvedUnitIdsThisTurn`, or given an id that isn't one of
+ * the kind's actions, is skipped. Rejects if nothing in the list actually
+ * resolved, so a no-op can never produce a vacuous actionHistory entry —
+ * "do nothing this turn" is PASS_ACTIONS's job, not an empty list here.
+ * Also checks for newly-claimed achievements (see updateAchievementClaims
+ * in ./achievements.ts), since create/convert/a destroySelf transform can
  * change how many of a kind a player controls.
  */
 function applyResolveUnitAction(
@@ -162,10 +172,6 @@ function applyResolveUnitAction(
     return { ok: false, error: "It is not this player's turn to resolve their action" }
   }
 
-  const playerIndex = state.players.findIndex((p) => p.id === playerId)
-  if (playerIndex === -1) {
-    return { ok: false, error: `Unknown player: ${playerId}` }
-  }
   const cardId = state.chosenCardIdByPlayerId[playerId]
   if (!cardId) {
     return { ok: false, error: 'Player has no chosen card to resolve' }
@@ -177,31 +183,71 @@ function applyResolveUnitAction(
   const actionsForKind = unitContent.actionsByKind[card.kind] ?? []
 
   let nextState: GameState = state
+  const resolvedUnitIds: string[] = []
   const resolvedActionNames: string[] = []
   for (const assignment of unitActions) {
+    if (state.resolvedUnitIdsThisTurn.includes(assignment.unitId)) continue
     const unitAction = actionsForKind.find((a) => a.id === assignment.actionId)
     if (!unitAction) continue
     const targets = assignment.target ? { [assignment.unitId]: assignment.target } : {}
     nextState = applyUnitActionEffect(nextState, playerId, card.kind, unitAction, targets, unitContent, [assignment.unitId])
+    resolvedUnitIds.push(assignment.unitId)
     if (!resolvedActionNames.includes(unitAction.name)) resolvedActionNames.push(unitAction.name)
   }
 
-  // Rule 3 then 4: hand -> currently played -> discard. Re-look-up the
-  // player, since applyUnitActionEffect may have changed their resources
-  // (or, via card-zone sync, other zones) above.
-  const player = nextState.players.find((p) => p.id === playerId)
+  if (resolvedUnitIds.length === 0) {
+    return { ok: false, error: 'No unit action was resolved (already acted this turn, or not a legal action for this card)' }
+  }
+
+  nextState = { ...nextState, resolvedUnitIdsThisTurn: [...nextState.resolvedUnitIdsThisTurn, ...resolvedUnitIds] }
+  nextState = {
+    ...nextState,
+    log: appendLog(nextState, playerId, `Player ${playerId}'s ${card.kind} resolved ${resolvedActionNames.join(', ')}`),
+  }
+  nextState = updateAchievementClaims(nextState, achievementContent, unitContent.unitSupplyCaps)
+
+  return { ok: true, state: nextState }
+}
+
+/**
+ * Round step 2's turn-ending action (see PassActionsAction in ./actions.ts):
+ * whatever the player already resolved via RESOLVE_UNIT_ACTION stands;
+ * every other acting unit of the played card's kind simply does nothing
+ * this round — already the default outcome for a unit never resolved, so
+ * there's nothing to enumerate here. Moves the chosen card hand ->
+ * currently played -> discard (rules 3 & 4) and advances
+ * `pendingPlayerIds` to the next player, resetting `resolvedUnitIdsThisTurn`
+ * for their fresh turn.
+ */
+function applyPassActions(state: GameState, playerId: string, achievementContent: AchievementContent): ActionResult {
+  if (state.roundPhase !== 'actions') {
+    return { ok: false, error: 'Not in the action-resolution phase' }
+  }
+  if (state.pendingPlayerIds[0] !== playerId) {
+    return { ok: false, error: "It is not this player's turn to pass" }
+  }
+
+  const cardId = state.chosenCardIdByPlayerId[playerId]
+  if (!cardId) {
+    return { ok: false, error: 'Player has no chosen card to resolve' }
+  }
+  const player = state.players.find((p) => p.id === playerId)
   if (!player) {
     return { ok: false, error: `Unknown player: ${playerId}` }
   }
+
   let nextPlayer = moveCard(player, cardId, 'currentlyPlayed')
   nextPlayer = moveCard(nextPlayer, cardId, 'discard')
-  const players = nextState.players.map((p) => (p.id === playerId ? nextPlayer : p))
+  const players = state.players.map((p) => (p.id === playerId ? nextPlayer : p))
 
-  const actionSummary = resolvedActionNames.length > 0 ? ` (${resolvedActionNames.join(', ')})` : ''
-  nextState = { ...nextState, players, pendingPlayerIds: nextState.pendingPlayerIds.slice(1) }
-  nextState = { ...nextState, log: appendLog(nextState, playerId, `Player ${playerId} played ${card.name}${actionSummary}`) }
+  let nextState: GameState = {
+    ...state,
+    players,
+    pendingPlayerIds: state.pendingPlayerIds.slice(1),
+    resolvedUnitIdsThisTurn: [],
+  }
+  nextState = { ...nextState, log: appendLog(nextState, playerId, `Player ${playerId} passed on resolving further actions`) }
   nextState = { ...nextState, activePlayerId: nextState.pendingPlayerIds[0] ?? null }
-  nextState = updateAchievementClaims(nextState, achievementContent, unitContent.unitSupplyCaps)
 
   if (nextState.pendingPlayerIds.length === 0) {
     nextState = beginPostActionsPhase(nextState, achievementContent)

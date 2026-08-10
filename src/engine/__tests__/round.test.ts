@@ -20,10 +20,11 @@ function makeUnit(ownerId: string, kind: string, id: string): Unit {
   }
 }
 
-// Just enough content to let RESOLVE_UNIT_ACTION resolve a City's card in
-// these round-flow tests — the effect itself (income with no terrain set)
-// is a harmless no-op here, since these tests are about phase/turn
-// sequencing, not action outcomes (see unitActions.test.ts for those).
+// These round-flow tests are about phase/turn sequencing, not action
+// outcomes (see unitActions.test.ts for those) — nobody here ever
+// resolves a real unit action, so this only exists as a harmless filler
+// wherever applyAction's positional unitContent arg needs *something* to
+// reach a later achievementContent arg.
 const testUnitContent: UnitContent = {
   actionsByKind: {
     city: [{ id: 'generate-income', name: 'Generate Income', description: '', effect: { actionType: 'income', goldByTerrain: {} } }],
@@ -89,9 +90,9 @@ describe('round flow', () => {
     expect(result.state.roundPhase).toBe('actions')
     expect(result.state.activePlayerId).toBe('p1')
 
-    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [] }, testUnitContent)
+    result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p1' })
     if (!result.ok) throw new Error('setup failed')
-    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2', unitActions: [] }, testUnitContent)
+    result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p2' })
     expect(result.ok).toBe(true)
     if (!result.ok) return
     // No units are anywhere near the placeholder limit, so decline is
@@ -120,9 +121,9 @@ describe('round flow', () => {
     if (!result.ok) throw new Error('setup failed')
     result = applyAction(result.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') })
     if (!result.ok) throw new Error('setup failed')
-    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [] }, testUnitContent)
+    result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p1' })
     if (!result.ok) throw new Error('setup failed')
-    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2', unitActions: [] }, testUnitContent)
+    result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p2' })
     expect(result.ok).toBe(true)
     if (!result.ok) return
 
@@ -152,9 +153,9 @@ describe('round flow', () => {
     if (!result.ok) throw new Error('setup failed')
     result = applyAction(result.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') })
     if (!result.ok) throw new Error('setup failed')
-    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [] }, testUnitContent)
+    result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p1' })
     if (!result.ok) throw new Error('setup failed')
-    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2', unitActions: [] }, testUnitContent)
+    result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p2' })
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.state.roundPhase).toBe('decline')
@@ -184,9 +185,9 @@ describe('round flow', () => {
     if (!result.ok) throw new Error('setup failed')
     result = applyAction(result.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') })
     if (!result.ok) throw new Error('setup failed')
-    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [] }, testUnitContent)
+    result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p1' })
     if (!result.ok) throw new Error('setup failed')
-    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2', unitActions: [] }, testUnitContent)
+    result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p2' })
     if (!result.ok) throw new Error('setup failed')
     expect(result.state.roundPhase).toBe('decline')
 
@@ -213,9 +214,9 @@ describe('round flow', () => {
     if (!result.ok) throw new Error('setup failed')
     result = applyAction(result.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') })
     if (!result.ok) throw new Error('setup failed')
-    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [] }, testUnitContent)
+    result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p1' })
     if (!result.ok) throw new Error('setup failed')
-    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2', unitActions: [] }, testUnitContent)
+    result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p2' })
     if (!result.ok) throw new Error('setup failed')
     expect(result.state.roundPhase).toBe('purchase')
 
@@ -251,9 +252,9 @@ describe('round flow', () => {
     if (!result.ok) throw new Error('setup failed')
     result = applyAction(result.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') })
     if (!result.ok) throw new Error('setup failed')
-    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [] }, testUnitContent)
+    result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p1' })
     if (!result.ok) throw new Error('setup failed')
-    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2', unitActions: [] }, testUnitContent)
+    result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p2' })
     if (!result.ok) throw new Error('setup failed')
     expect(result.state.roundPhase).toBe('purchase')
 
@@ -279,9 +280,9 @@ describe('round flow', () => {
     if (!result.ok) throw new Error('setup failed')
     result = applyAction(result.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') })
     if (!result.ok) throw new Error('setup failed')
-    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [] }, testUnitContent)
+    result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p1' })
     if (!result.ok) throw new Error('setup failed')
-    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2', unitActions: [] }, testUnitContent)
+    result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p2' })
     if (!result.ok) throw new Error('setup failed')
     expect(result.state.roundPhase).toBe('purchase')
 
@@ -308,9 +309,9 @@ describe('round flow', () => {
     if (!result.ok) throw new Error('setup failed')
     result = applyAction(result.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') })
     if (!result.ok) throw new Error('setup failed')
-    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [] }, testUnitContent)
+    result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p1' })
     if (!result.ok) throw new Error('setup failed')
-    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2', unitActions: [] }, testUnitContent)
+    result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p2' })
     if (!result.ok) throw new Error('setup failed')
     expect(result.state.roundPhase).toBe('decline')
     // 2 achievements claimed this round -> each player owes 2 cards, so p1's id appears twice up front.
@@ -360,13 +361,13 @@ describe('round flow', () => {
       achievementVictoryPoints: { 'city-mastery': 1, 'temple-mastery': 1, 'nomad-mastery': 1 },
     }
 
-    // Neither player has anything in decline, so the purchase phase (and
-    // the game-end check that finishes it) auto-completes as soon as it's
-    // entered, right inside p2's RESOLVE_UNIT_ACTION — achievementContent
-    // must be passed here, not to a since-removed PASS_PURCHASE call.
-    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [] }, testUnitContent, achievementContent)
+    // Neither player has anything in decline, so PASS_ACTIONS (nothing was
+    // individually resolved via RESOLVE_UNIT_ACTION first) walks straight
+    // through the purchase phase and the game-end check that finishes it —
+    // achievementContent must be passed here to reach that check.
+    result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p1' }, testUnitContent, achievementContent)
     if (!result.ok) throw new Error('setup failed')
-    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2', unitActions: [] }, testUnitContent, achievementContent)
+    result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p2' }, testUnitContent, achievementContent)
     expect(result.ok).toBe(true)
     if (!result.ok) return
 
@@ -387,13 +388,12 @@ describe('round flow', () => {
     if (!result.ok) throw new Error('setup failed')
 
     const achievementContent: AchievementContent = { ...EMPTY_ACHIEVEMENT_CONTENT, gameLength: 4 }
-    // Neither player has anything in decline, so the purchase phase
-    // auto-completes right inside p2's RESOLVE_UNIT_ACTION — the below-
-    // gameLength check needs achievementContent passed there, not to a
-    // since-removed PASS_PURCHASE call.
-    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [] }, testUnitContent, achievementContent)
+    // Neither player has anything in decline, so PASS_ACTIONS walks
+    // straight through the purchase phase — the below-gameLength check
+    // needs achievementContent passed here to reach it.
+    result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p1' }, testUnitContent, achievementContent)
     if (!result.ok) throw new Error('setup failed')
-    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2', unitActions: [] }, testUnitContent, achievementContent)
+    result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p2' }, testUnitContent, achievementContent)
     expect(result.ok).toBe(true)
     if (!result.ok) return
 
@@ -418,12 +418,11 @@ describe('round flow', () => {
     if (!result.ok) throw new Error('setup failed')
     result = applyAction(result.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') })
     if (!result.ok) throw new Error('setup failed')
-    // Neither player has anything in decline, so the purchase phase
-    // auto-completes right inside p2's RESOLVE_UNIT_ACTION — no
-    // PASS_PURCHASE needed.
-    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [] }, testUnitContent)
+    // Neither player has anything in decline, so PASS_ACTIONS walks
+    // straight through the purchase phase — no PASS_PURCHASE needed.
+    result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p1' })
     if (!result.ok) throw new Error('setup failed')
-    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2', unitActions: [] }, testUnitContent)
+    result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p2' })
     expect(result.ok).toBe(true)
     if (!result.ok) return
 
@@ -440,12 +439,11 @@ describe('round flow', () => {
     if (!result.ok) throw new Error('setup failed')
     result = applyAction(result.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') })
     if (!result.ok) throw new Error('setup failed')
-    // Neither player has anything in decline, so the purchase phase
-    // auto-completes right inside p2's RESOLVE_UNIT_ACTION — no
-    // PASS_PURCHASE needed.
-    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [] }, testUnitContent)
+    // Neither player has anything in decline, so PASS_ACTIONS walks
+    // straight through the purchase phase — no PASS_PURCHASE needed.
+    result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p1' })
     if (!result.ok) throw new Error('setup failed')
-    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2', unitActions: [] }, testUnitContent)
+    result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p2' })
     expect(result.ok).toBe(true)
     if (!result.ok) return
 

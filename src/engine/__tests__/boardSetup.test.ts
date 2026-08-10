@@ -48,6 +48,7 @@ function makeSetupState(overrides: Partial<GameState> = {}): GameState {
     roundPhase: 'selectCards',
     chosenCardIdByPlayerId: {},
     pendingPlayerIds: [],
+    resolvedUnitIdsThisTurn: [],
     turnOrder,
     board: createEmptyBoard('hex'),
     players,
