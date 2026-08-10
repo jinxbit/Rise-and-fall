@@ -5,7 +5,7 @@ import { legalMoveDestinations } from '../engine/movement'
 import { calculatePurchaseCost } from '../engine/purchaseCost'
 import { calculateTerrainControlVP } from '../engine/scoring'
 import type { TurnReview, UnitReviewEvent } from '../engine/turnReview'
-import { calculateAchievementVP, calculateBoardCountVP, sumVP } from '../engine/victoryPoints'
+import { calculateAchievementVP, calculateBoardCountVP, calculateGoldVP, sumVP } from '../engine/victoryPoints'
 import type { AchievementContent } from '../engine/achievementContent'
 import { listAchievements } from '../content/resolveContent'
 import type { Coordinate, GameEvent, GameState, Resources, RoundPhase } from '../engine/types'
@@ -55,12 +55,13 @@ function PhaseBanner({ state }: { state: GameState }) {
   )
 }
 
-/** Current total VP for every player, from the same three sources (achievements, board count, terrain control) finishRound uses for the end-of-game score — computed live from the current state rather than only once at game end. */
+/** Current total VP for every player, from the same four sources (achievements, board count, terrain control, gold) finishRound uses for the end-of-game score — computed live from the current state rather than only once at game end. */
 function currentScoreByPlayerId(state: GameState, achievementContent: AchievementContent): Record<string, number> {
   return sumVP(
     calculateAchievementVP(state.claimedByAchievementId, achievementContent.achievementVictoryPoints),
     calculateBoardCountVP(state.units, achievementContent.unitBoardCountVP),
     calculateTerrainControlVP(state.board, state.units, achievementContent.terrainVictoryPoints, achievementContent.terrainScoresAs),
+    calculateGoldVP(state.players, achievementContent.goldPerVictoryPoint),
   )
 }
 

@@ -32,12 +32,12 @@ decisions get made.
 ## 1. Nail down the full ruleset
 
 - [x] Document exact win conditions. Most total VP wins (achievements +
-      board-count + terrain-control), no tiebreaker; game ends once
+      board-count + terrain-control + gold), no tiebreaker; game ends once
       `achievements.json`'s `gameLength` target has been claimed and the
       round in progress finishes. See `src/content/README.md`'s
-      `achievements.json` section and `src/engine/victoryPoints.ts`. (The
-      real per-unit/per-terrain/per-achievement VP *numbers* are still
-      placeholders — the rule itself is settled.)
+      `achievements.json` section and `src/engine/victoryPoints.ts`. The
+      real per-unit/per-terrain/per-achievement/per-gold VP numbers are
+      all filled in (see `todo.md` #41/#42/#52).
 - [ ] Finalize the full unit list: stats, abilities, and the six unit
       kinds' special actions/transformations (e.g. merchant transform,
       ship trade — already partially defined in `src/content/units.json`).
@@ -97,16 +97,16 @@ decisions get made.
       by `updateAchievementClaims()` in `src/engine/achievements.ts` after
       every `RESOLVE_UNIT_ACTION`) — `finishRound()` (`src/engine/round.ts`)
       checks the total against `achievementContent.gameLength` and, once
-      met, sums all three VP sources (`sumVP` in
+      met, sums all four VP sources (`sumVP` in
       `src/engine/victoryPoints.ts`) and sets `status: 'completed'` +
       `winnerPlayerIds` instead of starting the next round. Also unblocked
       `PURCHASE_CARD` (`applyPurchaseCard` in `src/engine/applyAction.ts`,
       cost via `calculatePurchaseCost()`) and multi-card decline
       (`beginDeclinePhase` now sizes each player's required decline count
       off `achievementsClaimedThisRound`) — see `todo.md` #2/#3/#5. The VP
-      *numbers* are still placeholder and there's no real board yet, so a
-      finished game today is decided almost entirely by achievement VP —
-      the win-condition logic itself is complete and tested.
+      numbers are real (see `todo.md` #41/#42/#52) and real board
+      generation is implemented below — the win-condition logic itself is
+      complete and tested.
 - [ ] Implement board generation/drafting at game start; wire it into
       `startGame()`. The rules are settled — not just the tile shapes/
       quantities in `content/terrain.json`, but the full procedure (seed

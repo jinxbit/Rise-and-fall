@@ -236,6 +236,40 @@ describe('RoundView — player status summary and achievements panel', () => {
     expect(screen.getByText('Score 5')).toBeInTheDocument()
   })
 
+  it("includes gold VP in each player's current score (bug: gold was not counted as part of the victory point display at all)", () => {
+    let state = makeState()
+    state = {
+      ...state,
+      players: state.players.map((p) => (p.id === 'p1' ? { ...p, resources: { gold: 5, wood: 0, stone: 0 } } : { ...p, resources: { gold: 0, wood: 0, stone: 0 } })),
+    }
+    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
+
+    render(
+      <RoundView
+        state={state}
+        players={players}
+        myPlayerId="p1"
+        unitContent={EMPTY_UNIT_CONTENT}
+        achievementContent={{ ...EMPTY_ACHIEVEMENT_CONTENT, achievementVictoryPoints: { 'city-mastery': 5 }, goldPerVictoryPoint: 2 }}
+        turnReview={null}
+        showHistory={false}
+        onToggleHistory={() => {}}
+        gameLog={[]}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+
+    // p1: 5 gold at 2 gold/point -> 2 VP, nothing claimed -> Score 2.
+    expect(screen.getByText('Score 2')).toBeInTheDocument()
+    // p2: claimed city-mastery (5 VP), 0 gold -> Score 5, unchanged by gold.
+    expect(screen.getByText('Score 5')).toBeInTheDocument()
+  })
+
   it('renders the achievements panel last, after the board and the log — not near the top with the rest of the status summary', () => {
     const state = makeState()
     const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]

@@ -359,6 +359,40 @@ describe('round flow', () => {
     expect(result.state.roundPhase).toBe('purchase')
   })
 
+  it('counts gold toward the end-of-game VP total (bug: gold was not counted as part of the victory point display/total at all)', () => {
+    let state = makeActiveGameWithFullHands()
+    state = {
+      ...state,
+      claimedByAchievementId: { 'city-mastery': 'p1', 'nomad-mastery': 'p2' },
+      players: state.players.map((p) =>
+        p.id === 'p1' ? { ...p, resources: { gold: 0, wood: 0, stone: 0 } } : { ...p, resources: { gold: 10, wood: 0, stone: 0 } },
+      ),
+    }
+
+    let result = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') })
+    if (!result.ok) throw new Error('setup failed')
+    result = applyAction(result.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') })
+    if (!result.ok) throw new Error('setup failed')
+    const achievementContent: AchievementContent = {
+      ...EMPTY_ACHIEVEMENT_CONTENT,
+      gameLength: 2,
+      achievementVictoryPoints: { 'city-mastery': 1, 'nomad-mastery': 1 },
+      goldPerVictoryPoint: 2,
+    }
+
+    result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p1' }, testUnitContent, achievementContent)
+    if (!result.ok) throw new Error('setup failed')
+    result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p2' }, testUnitContent, achievementContent)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(result.state.status).toBe('completed')
+    // Achievement VP alone ties p1 and p2 at 1 each, but p2's 10 gold at
+    // 2 gold/point is worth 5 more VP (p1's 0 gold is worth 0) -> p2 wins
+    // outright, which only happens if gold actually got counted.
+    expect(result.state.winnerPlayerIds).toEqual(['p2'])
+  })
+
   it('does not end the game below gameLength, even with achievements already claimed', () => {
     let state = makeActiveGameWithFullHands()
     state = { ...state, claimedByAchievementId: { 'city-mastery': 'p1' } }

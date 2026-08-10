@@ -2418,3 +2418,42 @@ in `unitActions.realContent.test.ts` converting one of each of the 4
 real target kinds in sequence and checking the exact gold balance after
 each. 393 tests total (was 389); `tsc -b`/`oxlint`/`npm run build` all
 clean.
+
+## 52. Gold now counts toward victory points (4th VP source)
+
+Bug report: "I am pretty sure gold is not counted as part of the
+victory point display." Confirmed — `currentScoreByPlayerId()`
+(`RoundView.tsx`) and `finishRound()`'s end-of-game total
+(`round.ts`) both only ever summed 3 sources (achievements,
+board-count, terrain-control); gold never factored in anywhere, and
+there was no placeholder field for it either (unlike terrain/
+achievement VP, which had real `0`s waiting to be filled — this was a
+genuinely missing source). Asked the user for the exact conversion
+rule: 2 gold = 1 VP (rounded down).
+
+Added `goldVictoryPoints.goldPerPoint` to `achievements.json` (and its
+schema) — `2`, matching the same content-driven pattern every other VP
+source already uses. `AchievementContent.goldPerVictoryPoint` (`number
+| null`, `null` = gold doesn't count, matching `EMPTY_ACHIEVEMENT_CONTENT`'s
+safe-default convention) is resolved from it in `resolveContent.ts`.
+New `calculateGoldVP(players, goldPerVictoryPoint)` in
+`victoryPoints.ts` — `Math.floor(gold / goldPerVictoryPoint)` per
+player, `{}` (0 for everyone) when `null`. Wired into both places that
+were missing it: `round.ts`'s `finishRound()` (the real win check) and
+`RoundView.tsx`'s `currentScoreByPlayerId()` (the live score shown
+during play) — both now sum all 4 sources via the same `sumVP()`.
+
+Corrected a few other stale "three VP sources" references found while
+touching this (`types.ts`'s `winnerPlayerIds` doc comment,
+`content/README.md`'s achievements.json section, `PROJECT_PLAN.md` —
+the latter also still claimed VP numbers were placeholders and there
+was no real board yet, both no longer true since `todo.md` #41/#42 and
+the board-generation work).
+
+Added `calculateGoldVP()` coverage in `victoryPoints.test.ts` (rounds
+down, scores 0 gold as 0 not omitted, `null` scores everyone 0), an
+end-of-game integration test in `round.test.ts` (gold VP tips an
+achievement-VP tie into an outright win — only possible if gold is
+really being counted), and a live-score test in `RoundView.test.tsx`
+mirroring the existing achievement/terrain-control score tests. 399
+tests total (was 393); `tsc -b`/`oxlint`/`npm run build` all clean.

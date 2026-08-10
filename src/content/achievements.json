@@ -8,6 +8,9 @@
   "purchaseCost": {
     "byAchievementCount": [5, 10, 20, 40, 60, 80]
   },
+  "goldVictoryPoints": {
+    "goldPerPoint": 2
+  },
   "achievements": [
     {
       "id": "city-mastery",

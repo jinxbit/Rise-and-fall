@@ -151,5 +151,6 @@ export function resolveAchievementContent(): AchievementContent {
     unitBoardCountVP,
     terrainVictoryPoints,
     terrainScoresAs,
+    goldPerVictoryPoint: achievementsJson.goldVictoryPoints.goldPerPoint,
   }
 }

@@ -25,6 +25,13 @@ export interface AchievementContent {
   terrainVictoryPoints: Record<string, number>
   /** content/terrain.json's scoresAs, keyed by terrain id. */
   terrainScoresAs: Record<string, string>
+  /**
+   * content/achievements.json's goldVictoryPoints.goldPerPoint — how much
+   * held gold is worth 1 victory point (rounded down), the fourth VP
+   * source alongside achievements/board-count/terrain-control. `null`
+   * means gold doesn't count toward VP at all (no content supplied).
+   */
+  goldPerVictoryPoint: number | null
 }
 
 export const EMPTY_ACHIEVEMENT_CONTENT: AchievementContent = {
@@ -35,4 +42,5 @@ export const EMPTY_ACHIEVEMENT_CONTENT: AchievementContent = {
   unitBoardCountVP: {},
   terrainVictoryPoints: {},
   terrainScoresAs: {},
+  goldPerVictoryPoint: null,
 }

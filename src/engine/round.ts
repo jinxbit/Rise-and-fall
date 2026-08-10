@@ -5,7 +5,7 @@ import { isDeclineTriggered } from './decline'
 import { eliminatePlayersWithNoCardToDecline, eliminatePlayersWithNoCardToPlay } from './elimination'
 import { calculateTerrainControlVP } from './scoring'
 import type { GameState } from './types'
-import { calculateAchievementVP, calculateBoardCountVP, determineWinners, sumVP } from './victoryPoints'
+import { calculateAchievementVP, calculateBoardCountVP, calculateGoldVP, determineWinners, sumVP } from './victoryPoints'
 
 /**
  * Round step 1: every player simultaneously picks a card; nobody is
@@ -152,14 +152,15 @@ export function finishRound(state: GameState, achievementContent: AchievementCon
   // Round step 6, game-end: once achievementContent.gameLength total
   // achievements have been claimed (summed across all players), the round
   // in progress (which just finished, above) ends the game — whoever has
-  // the most total VP wins (achievements + board-count + terrain-control),
-  // with no tiebreaker (a tie is a shared win).
+  // the most total VP wins (achievements + board-count + terrain-control +
+  // gold), with no tiebreaker (a tie is a shared win).
   const totalAchievementsClaimed = Object.keys(nextState.claimedByAchievementId).length
   if (totalAchievementsClaimed >= achievementContent.gameLength) {
     const totalVP = sumVP(
       calculateAchievementVP(nextState.claimedByAchievementId, achievementContent.achievementVictoryPoints),
       calculateBoardCountVP(nextState.units, achievementContent.unitBoardCountVP),
       calculateTerrainControlVP(nextState.board, nextState.units, achievementContent.terrainVictoryPoints, achievementContent.terrainScoresAs),
+      calculateGoldVP(nextState.players, achievementContent.goldPerVictoryPoint),
     )
     const activePlayerIds = nextState.players.filter((p) => !p.eliminated).map((p) => p.id)
     const winnerPlayerIds = determineWinners(activePlayerIds, totalVP)

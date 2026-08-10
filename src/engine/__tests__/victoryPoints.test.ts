@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { calculateAchievementVP, calculateBoardCountVP, determineWinners, sumVP } from '../victoryPoints'
-import type { Coordinate, Unit } from '../types'
+import { calculateAchievementVP, calculateBoardCountVP, calculateGoldVP, determineWinners, sumVP } from '../victoryPoints'
+import type { Coordinate, Player, Unit } from '../types'
 
 let unitCounter = 0
 function unitAt(ownerId: string, kind: string, coord: Coordinate = { q: 0, r: 0 }): Unit {
@@ -12,6 +12,22 @@ function unitAt(ownerId: string, kind: string, coord: Coordinate = { q: 0, r: 0 
     coord,
     movement: { isMobile: false, terrains: [], canCrossCliffs: false },
     traits: [],
+  }
+}
+
+function playerWithGold(id: string, gold: number): Player {
+  return {
+    id,
+    authUserId: null,
+    displayName: id,
+    color: 'red',
+    handCardIds: [],
+    currentlyPlayedCardId: null,
+    discardCardIds: [],
+    supplyCardIds: [],
+    declineCardIds: [],
+    eliminated: false,
+    resources: { gold, wood: 0, stone: 0 },
   }
 }
 
@@ -66,6 +82,26 @@ describe('calculateBoardCountVP', () => {
     const vp = calculateBoardCountVP(units, { city: [1, 2, 3], temple: [5] })
 
     expect(vp).toEqual({ p1: 7 })
+  })
+})
+
+describe('calculateGoldVP', () => {
+  it('converts each player\'s held gold at goldPerVictoryPoint, rounded down — the reported bug (gold was not counted toward VP at all)', () => {
+    const players = [playerWithGold('p1', 5), playerWithGold('p2', 4)]
+
+    expect(calculateGoldVP(players, 2)).toEqual({ p1: 2, p2: 2 })
+  })
+
+  it('rounds down rather than up (5 gold at 2/point is 2 VP, not 3)', () => {
+    expect(calculateGoldVP([playerWithGold('p1', 5)], 2)).toEqual({ p1: 2 })
+  })
+
+  it('scores 0 gold as 0 VP, not omitted', () => {
+    expect(calculateGoldVP([playerWithGold('p1', 0)], 2)).toEqual({ p1: 0 })
+  })
+
+  it('scores everyone 0 when goldPerVictoryPoint is null (no gold-VP content supplied)', () => {
+    expect(calculateGoldVP([playerWithGold('p1', 100)], null)).toEqual({})
   })
 })
 

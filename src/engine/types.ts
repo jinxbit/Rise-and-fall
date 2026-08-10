@@ -293,7 +293,7 @@ export interface GameState {
   resourceBank: Resources
   /**
    * The winner(s) once the game ends: whoever has the most total VP
-   * (achievements + board-count + terrain-control — see
+   * (achievements + board-count + terrain-control + gold — see
    * src/engine/victoryPoints.ts). There is no tiebreaker, so this can hold
    * more than one player id on a tie. Empty until the game ends.
    */

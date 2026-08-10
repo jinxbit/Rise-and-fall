@@ -252,18 +252,22 @@ and part of final scoring:
   their full per-player `supply` of that unit type (see `units.json`). Once
   claimed, that achievement is gone for the rest of the game — no other
   player can claim it, even if they also reach full supply later.
-  `victoryPoints` is a placeholder `1` for every achievement until the real
-  VP scoring rules are given.
+  `victoryPoints` is the real per-achievement value (10-25, see
+  `achievements.json`), not a placeholder.
+- `goldVictoryPoints.goldPerPoint` — how much held gold is worth 1 victory
+  point, rounded down (currently `2`: 5 gold held is worth 2 VP). The
+  fourth VP source, alongside achievement/board-count/terrain-control.
 
 Once the target in `gameLength` is reached (by any combination of players),
 the round in progress finishes fully and then the game ends, and whoever
 has the most **total** VP wins — achievement VP + board-count VP (both
-above) + terrain-control VP (`terrain.json`, above) all added together, with
-**no tiebreaker** (a tie stands as a shared win). The three VP sources and
-the winner-determination itself are implemented as pure functions in
-`src/engine/victoryPoints.ts` (`calculateAchievementVP`,
-`calculateBoardCountVP`, `sumVP`, `determineWinners`) and are now wired into
-`finishRound()` (`src/engine/round.ts`, see `todo.md` #3): `GameState.
+above) + terrain-control VP (`terrain.json`, above) + gold VP (above) all
+added together, with **no tiebreaker** (a tie stands as a shared win). The
+four VP sources and the winner-determination itself are implemented as
+pure functions in `src/engine/victoryPoints.ts` (`calculateAchievementVP`,
+`calculateBoardCountVP`, `calculateGoldVP`, `sumVP`, `determineWinners`)
+and are now wired into `finishRound()` (`src/engine/round.ts`, see
+`todo.md` #3): `GameState.
 claimedByAchievementId` tracks claims live, via `updateAchievementClaims()`
 in `src/engine/achievements.ts` — called after every `RESOLVE_UNIT_ACTION`,
 since create/convert/a destroySelf transform are the only things that can

@@ -4,11 +4,12 @@
   "title": "Rise & Fall achievement definitions",
   "description": "The achievement pool and the game-length setting that counts them. Each achievement is tied to one unit type and can be claimed by exactly one player for the whole game — the first player to simultaneously control their full per-player supply of that unit type claims it; it is then unavailable to every other player, even if they later also reach full supply.",
   "type": "object",
-  "required": ["gameLength", "purchaseCost", "achievements"],
+  "required": ["gameLength", "purchaseCost", "goldVictoryPoints", "achievements"],
   "additionalProperties": false,
   "properties": {
     "gameLength": { "$ref": "#/definitions/gameLength" },
     "purchaseCost": { "$ref": "#/definitions/purchaseCost" },
+    "goldVictoryPoints": { "$ref": "#/definitions/goldVictoryPoints" },
     "achievements": {
       "type": "array",
       "items": { "$ref": "#/definitions/achievement" }
@@ -47,6 +48,19 @@
           "type": "array",
           "description": "byAchievementCount[i] is the gold cost once i+1 achievements have been claimed in total across all players (1-indexed: index 0 = after the 1st achievement, index 1 = after the 2nd, etc). Before any achievement has been claimed, cost is 0 (undecided by the rules — treated as free). Since only 6 achievements can ever be claimed, this array never needs more than 6 entries.",
           "items": { "type": "number", "minimum": 0 }
+        }
+      }
+    },
+    "goldVictoryPoints": {
+      "type": "object",
+      "description": "How a player's held gold converts into victory points for the total-VP win check and the live score display — one of the same three VP sources as achievements/board-count/terrain-control, alongside a fourth: gold.",
+      "required": ["goldPerPoint"],
+      "additionalProperties": false,
+      "properties": {
+        "goldPerPoint": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "How much held gold is worth 1 victory point (rounded down) — e.g. 2 means every 2 gold held is worth 1 VP, so 5 gold is worth 2 VP."
         }
       }
     },
