@@ -186,6 +186,45 @@ const ACTION_MENU_BOX_WIDTH_FACTOR = 3.4
 const ACTION_MENU_BOX_HEIGHT_FACTOR = 1.7
 /** Generous enough for the longest realistic history label, e.g. "+1 Wood, -5 Gold". */
 const HISTORY_LABEL_WIDTH_FACTOR = 3.4
+const HISTORY_LABEL_HEIGHT_FACTOR = 0.62
+
+/**
+ * Top-left corner for each unit's history label (see UnitMarker.historyLabel),
+ * keyed by that unit's index in `units` — normally just above-right of the
+ * unit's own hex, but a label is wider than the gap between adjacent hexes,
+ * so two nearby labeled units would otherwise draw right on top of each
+ * other. Each label greedily claims the first vertical "slot" (stacked
+ * downward in `size`-scaled steps) that doesn't overlap a slot an
+ * earlier-indexed unit already claimed at a similar x position — a simple,
+ * deterministic layout, not a general solver, but enough to pull apart the
+ * common case of two or three units near one another.
+ */
+function computeHistoryLabelPositions(units: UnitMarker[], size: number): Map<number, { x: number; y: number }> {
+  const plateSize = size * 0.8
+  const labelWidth = size * HISTORY_LABEL_WIDTH_FACTOR
+  const labelHeight = size * HISTORY_LABEL_HEIGHT_FACTOR
+  const stepY = labelHeight + size * 0.1
+
+  const positions = new Map<number, { x: number; y: number }>()
+  const claimed: { x: number; y: number }[] = []
+
+  units.forEach((unit, i) => {
+    if (!unit.historyLabel) return
+    const { x, y } = axialToPixel(unit.coord, size)
+    const baseX = x + plateSize * 0.4
+    const baseY = y - plateSize * 1.05
+
+    let level = 0
+    while (claimed.some((box) => Math.abs(box.x - baseX) < labelWidth && Math.abs(box.y - (baseY + level * stepY)) < labelHeight)) {
+      level++
+    }
+    const position = { x: baseX, y: baseY + level * stepY }
+    claimed.push(position)
+    positions.set(i, position)
+  })
+
+  return positions
+}
 
 /**
  * Renders a Board as an SVG hex grid, with optional extras for interactive
@@ -248,13 +287,12 @@ export function HexBoard(props: {
     boundsPoints.push({ x: x - menuPad, y: y - menuPad }, { x: x + menuPad, y: y + menuPad })
   }
   // A history-review label (see UnitMarker.historyLabel) sits well outside
-  // its own hex — extend the viewBox so it can't get clipped for a unit
-  // near the board's edge.
-  for (const unit of props.units ?? []) {
-    if (!unit.historyLabel) continue
-    const { x, y } = axialToPixel(unit.coord, size)
-    const plateSize = size * 0.8
-    boundsPoints.push({ x: x + plateSize * 0.4 + size * HISTORY_LABEL_WIDTH_FACTOR, y: y - plateSize * 1.05 })
+  // its own hex, and can get stacked further down still to dodge a nearby
+  // label — extend the viewBox so neither can get clipped for a unit near
+  // the board's edge.
+  const historyLabelPositions = computeHistoryLabelPositions(props.units ?? [], size)
+  for (const { x, y } of historyLabelPositions.values()) {
+    boundsPoints.push({ x: x + size * HISTORY_LABEL_WIDTH_FACTOR, y: y + size * HISTORY_LABEL_HEIGHT_FACTOR })
   }
   const minX = Math.min(...boundsPoints.map((p) => p.x)) - pad
   const maxX = Math.max(...boundsPoints.map((p) => p.x)) + pad
@@ -404,8 +442,13 @@ export function HexBoard(props: {
               strokeWidth={0.75}
             />
             <UnitGlyph kind={unit.kind} x={x} y={y} size={glyphSize} />
-            {unit.historyLabel && (
-              <foreignObject x={x + plateSize * 0.4} y={y - plateSize * 1.05} width={size * HISTORY_LABEL_WIDTH_FACTOR} height={size * 0.62}>
+            {unit.historyLabel && historyLabelPositions.has(i) && (
+              <foreignObject
+                x={historyLabelPositions.get(i)!.x}
+                y={historyLabelPositions.get(i)!.y}
+                width={size * HISTORY_LABEL_WIDTH_FACTOR}
+                height={size * HISTORY_LABEL_HEIGHT_FACTOR}
+              >
                 <div
                   style={{ fontSize: size * 0.28, lineHeight: 1.1 }}
                   // `w-fit`/shrink-to-fit sizing doesn't reliably compute inside

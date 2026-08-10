@@ -73,3 +73,44 @@ describe('HexBoard — unit markers', () => {
     expect(() => render(<HexBoard board={makeBoard()} units={units} />)).not.toThrow()
   })
 })
+
+describe('HexBoard — history-review labels', () => {
+  it("staggers two nearby units' history labels instead of overlapping — the reported bug (adjacent units' production amounts overlapped)", () => {
+    const units: UnitMarker[] = [
+      { coord: { q: 0, r: 0 }, color: '#ef4444', kind: 'nomad', historyLabel: '+1 Wood' },
+      { coord: { q: 1, r: 0 }, color: '#3b82f6', kind: 'nomad', historyLabel: '+1 Stone' },
+    ]
+    const { container } = render(<HexBoard board={makeBoard()} units={units} />)
+
+    const labels = container.querySelectorAll('foreignObject')
+    expect(labels).toHaveLength(2)
+    const [first, second] = [...labels]
+    const firstY = Number(first.getAttribute('y'))
+    const secondY = Number(second.getAttribute('y'))
+    const height = Number(first.getAttribute('height'))
+
+    // Two labels whose x ranges are within a label-width of each other (as
+    // (0,0) and (1,0)'s are) must not vertically overlap — one gets bumped
+    // to a lower stacked slot.
+    expect(Math.abs(firstY - secondY)).toBeGreaterThanOrEqual(height)
+  })
+
+  it("doesn't stagger two units' labels when they're far enough apart to never overlap", () => {
+    const units: UnitMarker[] = [
+      { coord: { q: 0, r: 0 }, color: '#ef4444', kind: 'nomad', historyLabel: '+1 Wood' },
+      { coord: { q: 20, r: 0 }, color: '#3b82f6', kind: 'nomad', historyLabel: '+1 Stone' },
+    ]
+    const { container } = render(<HexBoard board={makeBoard()} units={units} />)
+
+    const labels = [...container.querySelectorAll('foreignObject')]
+    expect(labels).toHaveLength(2)
+    // Both at their normal, unstaggered slot (same y).
+    expect(labels[0].getAttribute('y')).toBe(labels[1].getAttribute('y'))
+  })
+
+  it('renders no label element for a unit with no historyLabel', () => {
+    const units: UnitMarker[] = [{ coord: { q: 0, r: 0 }, color: '#ef4444', kind: 'nomad' }]
+    const { container } = render(<HexBoard board={makeBoard()} units={units} />)
+    expect(container.querySelectorAll('foreignObject')).toHaveLength(0)
+  })
+})

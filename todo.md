@@ -2325,3 +2325,56 @@ end-to-end `RESOLVE_UNIT_ACTION` regression in `applyAction.test.ts`
 mirroring the existing "unaffordable Transform"/"zero-payout Income"
 tests. 384 tests total (was 373); `tsc -b`/`oxlint`/`npm run build` all
 clean.
+
+## 50. Fixed: history-review labels overlapping; "Show history" wrongly disabled at the start of a round
+
+Two UI bug reports from the same board-view code.
+
+**Overlapping labels.** `HexBoard.tsx` drew each unit's history-review
+label (e.g. "+1 Wood") at a fixed offset from its own hex, independent
+of every other unit — but a label (`size * 3.4` wide) is wider than the
+gap between adjacent hexes, so two nearby units with labels always drew
+right on top of each other. Added `computeHistoryLabelPositions()`: each
+labeled unit greedily claims the first vertical slot, stacked downward
+in label-height steps, that doesn't overlap a slot an earlier unit
+already claimed nearby — not a general layout solver, but enough to
+separate the common case of two or three units near each other. The
+board's own bounding-box calculation now accounts for the stacked
+position too, so a bumped-down label can't get clipped off the bottom
+of the SVG.
+
+**"Show history" disabled in the choose-card phase.** `RoundView.tsx`
+disabled the button whenever the computed review had zero events, not
+just when it failed to compute at all. `findReviewWindowStart()`
+(`turnReview.ts`) anchors the reviewed window at "since I myself last
+acted" — which is empty precisely when *I* am the most recent entry in
+`actionHistory`, i.e. right after finishing the last action of a round.
+Since finishing a round always drops the game into the next round's
+`selectCards` phase, whoever acted last every round would find the
+button disabled the moment they saw that phase — not a rare edge case,
+but true once a round for whichever player wraps it up. Changed the
+button to only disable on `!turnReview` (review couldn't be computed at
+all, e.g. very start of the game); a real, empty review is still
+clickable, now showing "Nothing since your last turn." instead of
+silently doing nothing.
+
+Added `computeHistoryLabelPositions()` coverage in `HexBoard.test.tsx`
+(two adjacent units get staggered apart, two far-apart units don't get
+staggered, no label element at all for a unit with none) and updated/
+added `RoundView.test.tsx` coverage for the button's corrected disabled
+condition and the new empty-review hint text. 388 tests total (was
+384); `tsc -b`/`oxlint`/`npm run build` all clean.
+
+Also reported in the same message: "mountaineer is not able to go on
+water." Traced `legalMoveDestinations()` (`movement.ts`) against the
+real `content/units.json` movement profile (`terrains` includes
+`water`, `canCrossCliffs: true`) with a script reproducing the exact
+board layout from the report — a Mountaineer next to a Water hex
+correctly has that hex in its legal move destinations. Didn't change
+anything here — the one restriction that *does* exist is intentional
+and different: a Mountaineer can't be directly *created* on Water
+(`SOLE_CREATABLE_KIND_BY_TERRAIN` in `unitActions.ts` reserves Water for
+Ship, matching the settled ruling), only *moved* there afterward. Asked
+the user for exact repro steps (which unit, which hex, create vs. move)
+before touching this further, rather than guess at a fix for behavior
+that already matches the rules as understood.

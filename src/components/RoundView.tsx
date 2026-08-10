@@ -513,15 +513,20 @@ export function RoundView(props: {
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-3">
         <PhaseBanner state={state} />
-        <button
-          type="button"
-          onClick={props.onToggleHistory}
-          disabled={!turnReview || turnReview.events.length === 0}
-          title="Review what happened on the board since your last turn — movement, new units, resources gathered, income, trades, and conversions."
-          className="rounded-md border border-neutral-700 px-3 py-1 text-xs hover:border-neutral-500 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {showHistory ? 'Hide history' : 'Show history'}
-        </button>
+        <div className="flex items-center gap-2">
+          {showHistory && turnReview && turnReview.events.length === 0 && (
+            <span className="text-xs text-neutral-500">Nothing since your last turn.</span>
+          )}
+          <button
+            type="button"
+            onClick={props.onToggleHistory}
+            disabled={!turnReview}
+            title="Review what happened on the board since your last turn — movement, new units, resources gathered, income, trades, and conversions."
+            className="rounded-md border border-neutral-700 px-3 py-1 text-xs hover:border-neutral-500 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {showHistory ? 'Hide history' : 'Show history'}
+          </button>
+        </div>
       </div>
       <PlayersStrip
         state={state}

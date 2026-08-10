@@ -393,10 +393,9 @@ describe('RoundView — history review toggle', () => {
     )
   }
 
-  it('disables the history button when there is nothing to review, and toggles the label when clicked', () => {
-    const { rerender } = renderWithReview({ events: [], resourceDeltaByPlayerId: {} }, false)
-    const button = screen.getByRole('button', { name: 'Show history' })
-    expect(button).toBeDisabled() // no events yet
+  it('disables the history button only when a review could not be computed at all — not merely because nothing happened (bug: whoever acted last in a round found the button disabled the moment the next round\'s choose-card phase began, since their own last action was the reviewed window\'s empty endpoint)', () => {
+    const { rerender } = renderWithReview(null, false)
+    expect(screen.getByRole('button', { name: 'Show history' })).toBeDisabled() // no review at all (e.g. genesis mismatch)
 
     rerender(
       <RoundView
@@ -405,10 +404,7 @@ describe('RoundView — history review toggle', () => {
         myPlayerId="p1"
         unitContent={EMPTY_UNIT_CONTENT}
         achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
-        turnReview={{
-          events: [{ unitId: 'nomad_a', playerId: 'p1', type: 'produced', to: { q: 0, r: 0 }, resourceDelta: { wood: 2 } }],
-          resourceDeltaByPlayerId: { p1: { gold: 0, wood: 2, stone: 0 } },
-        }}
+        turnReview={{ events: [], resourceDeltaByPlayerId: {} }}
         showHistory={false}
         onToggleHistory={() => {}}
         gameLog={[]}
@@ -420,7 +416,14 @@ describe('RoundView — history review toggle', () => {
         onPassPurchase={() => {}}
       />,
     )
+    // A real, empty review (nothing happened since I last acted) is still
+    // clickable — that's an honest "nothing to show," not "review broken."
     expect(screen.getByRole('button', { name: 'Show history' })).not.toBeDisabled()
+  })
+
+  it('shows a "nothing since your last turn" hint once toggled on with an empty review, instead of silently doing nothing', () => {
+    renderWithReview({ events: [], resourceDeltaByPlayerId: {} }, true)
+    expect(screen.getByText('Nothing since your last turn.')).toBeInTheDocument()
   })
 
   it('calls onToggleHistory when clicked, and shows "Hide history" once toggled on', () => {
