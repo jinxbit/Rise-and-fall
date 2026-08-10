@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { gainResource, spendResource } from '../resources'
+import { gainResource, spendResource, wouldGainResource } from '../resources'
 import type { Resources } from '../types'
 
 const empty: Resources = { gold: 0, wood: 0, stone: 0 }
@@ -45,6 +45,29 @@ describe('gainResource', () => {
 
     expect(resources.gold).toBe(10)
     expect(bank.gold).toBe(0)
+  })
+})
+
+describe('wouldGainResource', () => {
+  it('is true when there is room on both sides', () => {
+    expect(wouldGainResource({ ...empty, wood: 1 }, { ...empty, wood: 10 }, 'wood', 2, 5)).toBe(true)
+  })
+
+  it('is false once the player is already at their cap — the reported bug (Produce stayed enabled at the Wood/Stone cap)', () => {
+    expect(wouldGainResource({ ...empty, wood: 5 }, { ...empty, wood: 10 }, 'wood', 1, 5)).toBe(false)
+  })
+
+  it('is false once the bank is empty, even for an uncapped resource like gold', () => {
+    expect(wouldGainResource({ ...empty, gold: 0 }, { ...empty, gold: 0 }, 'gold', 10, null)).toBe(false)
+  })
+
+  it('is false for a non-positive amount', () => {
+    expect(wouldGainResource({ ...empty, wood: 0 }, { ...empty, wood: 10 }, 'wood', 0, 5)).toBe(false)
+  })
+
+  it('is true right up to the cap, false one past it', () => {
+    expect(wouldGainResource({ ...empty, wood: 4 }, { ...empty, wood: 10 }, 'wood', 1, 5)).toBe(true)
+    expect(wouldGainResource({ ...empty, wood: 5 }, { ...empty, wood: 10 }, 'wood', 1, 5)).toBe(false)
   })
 })
 

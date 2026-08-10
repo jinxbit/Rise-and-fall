@@ -350,6 +350,31 @@ describe('isActionAvailableForUnit', () => {
     expect(isActionAvailableForUnit(onForest, 'p1', unit, produceAction, emptyContent)).toBe(true)
   })
 
+  it("produce is unavailable once the player is already at that resource's cap — the reported bug (Produce stayed clickable and wasted a turn once Wood/Stone hit its cap)", () => {
+    const produceAction: UnitAction = { id: 'b', name: 'Produce', description: '', effect: { actionType: 'produce', resourceByTerrain: { forest: { wood: 1 } } } }
+    const unit = makeUnit('p1', 'nomad', { q: 0, r: 0 })
+    const contentWithCap: UnitContent = { ...emptyContent, resourceCaps: { wood: 5 } }
+    const state = makeState({ board: boardOf([[0, 0, 'forest']]), units: [unit] })
+
+    const atCap = { ...state, players: [makePlayer('p1', { resources: { gold: 0, wood: 5, stone: 0 } })] }
+    expect(isActionAvailableForUnit(atCap, 'p1', unit, produceAction, contentWithCap)).toBe(false)
+
+    const belowCap = { ...state, players: [makePlayer('p1', { resources: { gold: 0, wood: 4, stone: 0 } })] }
+    expect(isActionAvailableForUnit(belowCap, 'p1', unit, produceAction, contentWithCap)).toBe(true)
+  })
+
+  it('produce is unavailable once the shared resource bank is empty, even below the player cap', () => {
+    const produceAction: UnitAction = { id: 'b', name: 'Produce', description: '', effect: { actionType: 'produce', resourceByTerrain: { forest: { wood: 1 } } } }
+    const unit = makeUnit('p1', 'nomad', { q: 0, r: 0 })
+    const state = makeState({
+      board: boardOf([[0, 0, 'forest']]),
+      units: [unit],
+      players: [makePlayer('p1', { resources: { gold: 0, wood: 0, stone: 0 } })],
+      resourceBank: { gold: 1000, wood: 0, stone: 1000 },
+    })
+    expect(isActionAvailableForUnit(state, 'p1', unit, produceAction, emptyContent)).toBe(false)
+  })
+
   it("trade is unavailable with no City in the Ship's sea area, available with one", () => {
     const tradeAction: UnitAction = { id: 'c', name: 'Trade', description: '', effect: { actionType: 'trade', goldPerCity: 1 } }
     const ship = makeUnit('p1', 'ship', { q: 0, r: 0 })
@@ -404,6 +429,26 @@ describe('isActionAvailableForUnit', () => {
     const stocked = { ...poor, players: [makePlayer('p1', { resources: { gold: 2, wood: 0, stone: 1 } })] }
     expect(isActionAvailableForUnit(stocked, 'p1', unit, buyAction, emptyContent)).toBe(true)
     expect(isActionAvailableForUnit(stocked, 'p1', unit, sellAction, emptyContent)).toBe(true)
+  })
+
+  it("trade-resource's buy mode is unavailable once the player is already at the bought resource's cap, even though they can afford it", () => {
+    const buyAction: UnitAction = {
+      id: 'buy',
+      name: 'Buy Wood',
+      description: '',
+      effect: { actionType: 'trade-resource', resource: 'wood', mode: 'buy', resourceAmount: 1, goldPerResource: 2 },
+    }
+    const unit = makeUnit('p1', 'merchant', { q: 0, r: 0 })
+    const contentWithCap: UnitContent = { ...emptyContent, resourceCaps: { wood: 5 } }
+    const atCap = makeState({
+      board: boardOf([[0, 0, 'plain']]),
+      units: [unit],
+      players: [makePlayer('p1', { resources: { gold: 10, wood: 5, stone: 0 } })],
+    })
+    expect(isActionAvailableForUnit(atCap, 'p1', unit, buyAction, contentWithCap)).toBe(false)
+
+    const belowCap = { ...atCap, players: [makePlayer('p1', { resources: { gold: 10, wood: 4, stone: 0 } })] }
+    expect(isActionAvailableForUnit(belowCap, 'p1', unit, buyAction, contentWithCap)).toBe(true)
   })
 
   it('move is unavailable with no legal destination', () => {

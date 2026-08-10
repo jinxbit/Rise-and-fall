@@ -587,6 +587,7 @@ describe('RESOLVE_UNIT_ACTION rejects an action whose cost/target preconditions 
           },
         },
         { id: 'generate-income', name: 'Generate Income', description: '', effect: { actionType: 'income', goldByTerrain: { forest: 3 } } },
+        { id: 'produce-resource', name: 'Produce Resource', description: '', effect: { actionType: 'produce', resourceByTerrain: { forest: { wood: 1 } } } },
       ],
     },
     movementByKind: {},
@@ -690,6 +691,42 @@ describe('RESOLVE_UNIT_ACTION rejects an action whose cost/target preconditions 
     if (!result.ok) return
     expect(result.state.players.find((p) => p.id === 'p1')!.resources.gold).toBe(3)
     // Same "only acting unit" auto-end-turn case as above.
+    expect(result.state.actionHistory.at(-1)?.action.type).toBe('RESOLVE_UNIT_ACTION')
+    expect(result.state.actionHistory).toHaveLength(state.actionHistory.length + 1)
+  })
+
+  it('rejects produce once the player is already at that resource\'s cap (bug: Produce Resource stayed available and consumed the turn for 0 Wood once already at the Wood cap)', () => {
+    const state = makeSingleNomadState()
+    const onForestAtCap: GameState = {
+      ...state,
+      board: setTile(state.board, { q: 0, r: 0 }, 'forest'),
+      players: state.players.map((p) => (p.id === 'p1' ? { ...p, resources: { ...p.resources, wood: 5 } } : p)),
+    }
+
+    const result = applyAction(
+      onForestAtCap,
+      { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [{ unitId: 'nomad_a', actionId: 'produce-resource' }] },
+      nomadContent,
+    )
+
+    expect(result.ok).toBe(false)
+    expect(onForestAtCap.units).toHaveLength(1)
+    expect(onForestAtCap.resolvedUnitIdsThisTurn).toEqual([])
+  })
+
+  it('the same produce succeeds once below the cap', () => {
+    const state = makeSingleNomadState()
+    const onForest: GameState = { ...state, board: setTile(state.board, { q: 0, r: 0 }, 'forest') }
+
+    const result = applyAction(
+      onForest,
+      { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [{ unitId: 'nomad_a', actionId: 'produce-resource' }] },
+      nomadContent,
+    )
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.state.players.find((p) => p.id === 'p1')!.resources.wood).toBe(1)
     expect(result.state.actionHistory.at(-1)?.action.type).toBe('RESOLVE_UNIT_ACTION')
     expect(result.state.actionHistory).toHaveLength(state.actionHistory.length + 1)
   })

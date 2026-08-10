@@ -19,14 +19,35 @@ export function gainResource(
   amount: number,
   playerCap: number | null,
 ): { resources: Resources; bank: Resources } {
-  const bankAvailable = bank[resourceId]
-  const roomUnderCap = playerCap === null ? Infinity : Math.max(0, playerCap - resources[resourceId])
-  const actualGain = Math.max(0, Math.min(amount, bankAvailable, roomUnderCap))
+  const actualGain = actualGainAmount(resources, bank, resourceId, amount, playerCap)
 
   return {
     resources: { ...resources, [resourceId]: resources[resourceId] + actualGain },
     bank: { ...bank, [resourceId]: bank[resourceId] - actualGain },
   }
+}
+
+function actualGainAmount(resources: Resources, bank: Resources, resourceId: keyof Resources, amount: number, playerCap: number | null): number {
+  const bankAvailable = bank[resourceId]
+  const roomUnderCap = playerCap === null ? Infinity : Math.max(0, playerCap - resources[resourceId])
+  return Math.max(0, Math.min(amount, bankAvailable, roomUnderCap))
+}
+
+/**
+ * Whether gaining `amount` of `resourceId` would actually change anything —
+ * false if `amount` isn't positive, the bank has none left to give, or the
+ * player is already at their cap. Shared by gainResource's caller
+ * (creditResource in ./unitActions.ts, so a fully-clamped credit is a
+ * true no-op — same object reference back out — rather than a
+ * value-identical-but-new one that would slip past the "did this action
+ * actually do anything" check in applyResolveUnitAction) and by
+ * isActionAvailableForUnit (./actionTargeting.ts, so the UI never offers
+ * an income/produce/trade/trade-resource option that's guaranteed to
+ * accomplish nothing, e.g. Produce Resource once a capped resource like
+ * Wood or Stone is maxed out).
+ */
+export function wouldGainResource(resources: Resources, bank: Resources, resourceId: keyof Resources, amount: number, playerCap: number | null): boolean {
+  return actualGainAmount(resources, bank, resourceId, amount, playerCap) > 0
 }
 
 /**

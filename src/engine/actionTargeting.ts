@@ -1,5 +1,6 @@
 import { getTile, neighborCoords } from './board'
 import { legalMoveDestinations } from './movement'
+import { wouldGainResource } from './resources'
 import {
   canAffordCost,
   computeIncomeGold,
@@ -88,23 +89,34 @@ export function legalConvertTargets(state: GameState, playerId: string, unit: Un
  * choice that's guaranteed to be rejected by RESOLVE_UNIT_ACTION (see
  * applyResolveUnitAction in ./applyAction.ts) never gets offered as if it
  * were live. income/produce/trade have no cost or required target, but
- * they're only actually available when their numeric payout would be
- * nonzero (e.g. a Nomad's Produce Resource on Plain, where
- * resourceByTerrain has no entry, isn't a legal choice at all) — mirrors
- * ACTION_TYPES_WITH_PRECONDITIONS in applyAction.ts, which now rejects
- * that same zero-payout attempt if submitted anyway.
+ * they're only actually available when they'd actually pay out something
+ * — not just when their nominal effect amount is nonzero (e.g. a Nomad's
+ * Produce Resource on Plain, where resourceByTerrain has no entry, isn't a
+ * legal choice at all), but also when the player's already at that
+ * resource's cap or the shared bank is empty, since either would clamp the
+ * real gain to zero (wouldGainResource, ./resources.ts — the same check
+ * creditResource in ./unitActions.ts uses, so this always agrees with what
+ * RESOLVE_UNIT_ACTION would actually do). trade-resource's buy mode needs
+ * the same check on the resource it would receive, on top of its own
+ * affordability check.
  */
 export function isActionAvailableForUnit(state: GameState, playerId: string, unit: Unit, action: UnitAction, content: UnitContent): boolean {
   const effect = action.effect
+  const player = state.players.find((p) => p.id === playerId)
+  if (!player) return false
+
   switch (effect.actionType) {
     case 'income':
-      return computeIncomeGold(state, playerId, unit, effect) > 0
+      return wouldGainResource(player.resources, state.resourceBank, 'gold', computeIncomeGold(state, playerId, unit, effect), content.resourceCaps.gold ?? null)
     case 'produce': {
       const amounts = computeProduceAmounts(state, unit, effect)
-      return !!amounts && (['gold', 'wood', 'stone'] as const).some((key) => (amounts[key] ?? 0) > 0)
+      if (!amounts) return false
+      return (['gold', 'wood', 'stone'] as const).some((key) =>
+        wouldGainResource(player.resources, state.resourceBank, key, amounts[key] ?? 0, content.resourceCaps[key] ?? null),
+      )
     }
     case 'trade':
-      return computeTradeGold(state, unit, effect) > 0
+      return wouldGainResource(player.resources, state.resourceBank, 'gold', computeTradeGold(state, unit, effect), content.resourceCaps.gold ?? null)
     case 'create':
       return legalCreateTargets(state, playerId, unit, effect, content).length > 0
     case 'transform':
@@ -112,10 +124,9 @@ export function isActionAvailableForUnit(state: GameState, playerId: string, uni
     case 'convert':
       return legalConvertTargets(state, playerId, unit, effect, content).length > 0
     case 'trade-resource': {
-      const player = state.players.find((p) => p.id === playerId)
-      if (!player) return false
       if (effect.mode === 'sell') return player.resources[effect.resource] >= effect.resourceAmount
-      return player.resources.gold >= effect.resourceAmount * effect.goldPerResource
+      if (player.resources.gold < effect.resourceAmount * effect.goldPerResource) return false
+      return wouldGainResource(player.resources, state.resourceBank, effect.resource, effect.resourceAmount, content.resourceCaps[effect.resource] ?? null)
     }
     case 'move':
       return legalMoveDestinations(state, unit, unit.movement, content.terrainLevels).length > 0

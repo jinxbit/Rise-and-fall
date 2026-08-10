@@ -3,7 +3,7 @@ import { syncCardZonesWithBoard } from './cards'
 import { isCliffBetweenTerrains } from './cliffs'
 import { nextSequenceId } from './idSequence'
 import { legalMoveDestinations } from './movement'
-import { gainResource, spendResource } from './resources'
+import { gainResource, spendResource, wouldGainResource } from './resources'
 import type {
   ActionCost,
   ConvertEffect,
@@ -60,10 +60,15 @@ function creditResource(
   amount: number,
   resourceCaps: Partial<Record<keyof Resources, number | null>>,
 ): GameState {
-  if (amount <= 0) return state
   const player = state.players.find((p) => p.id === playerId)
   if (!player) return state
   const cap = resourceCaps[resourceId] ?? null
+  // A fully-clamped credit (nothing left in the bank, or already at cap) is
+  // a true no-op — return the same state reference, not a new-but-
+  // value-identical one, so applyResolveUnitAction's "did this action
+  // actually do anything" check (nextState === beforeState) still catches
+  // it. See wouldGainResource's doc comment.
+  if (!wouldGainResource(player.resources, state.resourceBank, resourceId, amount, cap)) return state
   const { resources, bank } = gainResource(player.resources, state.resourceBank, resourceId, amount, cap)
   return updatePlayerResources(state, playerId, resources, bank)
 }

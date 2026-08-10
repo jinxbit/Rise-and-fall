@@ -2274,3 +2274,54 @@ reported game's first 14 actions end to end through `applyAction()` with
 real `content/terrain.json` — the 14th placement, which used to fail on
 replay, now succeeds. 373 tests total (was 371); `tsc -b`/`oxlint`/`npm run build`
 all clean.
+
+## 49. Fixed: Produce Resource stayed clickable (and wasted a turn) once already at the Wood/Stone cap
+
+Bug report: "the produce resources option should be disabled if resource
+limit is hit."
+
+`actionTargeting.ts`'s `isActionAvailableForUnit()` — which both disables
+an action's radial-menu option and gates whether `RESOLVE_UNIT_ACTION`
+even attempts it — only checked whether Produce's *nominal* effect amount
+was nonzero for the unit's terrain (already fixed for the "wrong
+terrain" case a while back). It never checked whether the player could
+actually receive it: once Wood or Stone is at its player cap (5, per
+`content/resources.json`), or the shared bank is out, `gainResource()`
+(`resources.ts`) silently clamps the real gain to 0 — so Produce stayed
+enabled and clickable, consuming the unit's turn for nothing.
+
+This turned out to be a real engine-level gap too, not just a UI one:
+`applyResolveUnitAction` (`applyAction.ts`) detects a no-op action via
+state *reference* equality (`nextState === beforeState`) so it doesn't
+get marked resolved — but `creditResource()` (`unitActions.ts`) always
+built a new state object via spreads whenever the *nominal* amount was
+positive, even when the *actual* gain clamped to 0. A fully-capped
+credit was therefore a value-identical-but-distinct object, silently
+slipping past the no-op check and getting marked resolved anyway. Same
+gap for Income, Trade, and Trade-Resource's buy mode (all pay through
+the same `creditResource`), though only Produce and buying Wood/Stone
+can actually hit a *player* cap today (Gold's `playerCap` is `null`) —
+bank depletion is the more general case, which mattered in practice too
+(the reported game's `resourceBank` was down to `wood: 10, stone: 10`).
+
+Fixed at the root: added `wouldGainResource()` (`resources.ts`, next to
+`gainResource()`) — true only if crediting would actually move something
+(positive amount, bank has some, player isn't already at cap).
+`creditResource()` now short-circuits to the *same* state reference when
+`wouldGainResource()` is false, so the existing reference-equality no-op
+check catches every one of these cases uniformly, not just Produce.
+`isActionAvailableForUnit()`'s income/produce/trade/trade-resource(buy)
+cases now use the same `wouldGainResource()` check (with the player's
+actual resources/bank/cap), so the UI and the engine always agree on
+what "would actually pay out" means.
+
+Added `wouldGainResource()` unit coverage in `resources.test.ts`,
+`isActionAvailableForUnit()` coverage in `actionTargeting.test.ts`
+(Produce disabled at the Wood cap and once the bank is empty,
+Trade-Resource's buy mode disabled at cap despite being affordable), a
+reference-equality regression test in `unitActions.test.ts` confirming a
+fully-capped Produce returns the exact same state object, and an
+end-to-end `RESOLVE_UNIT_ACTION` regression in `applyAction.test.ts`
+mirroring the existing "unaffordable Transform"/"zero-payout Income"
+tests. 384 tests total (was 373); `tsc -b`/`oxlint`/`npm run build` all
+clean.

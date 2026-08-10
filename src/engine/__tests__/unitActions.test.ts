@@ -229,6 +229,19 @@ describe('applyUnitActionEffect — produce', () => {
 
     expect(next.players.find((p) => p.id === 'p1')!.resources.wood).toBe(0)
   })
+
+  it('returns the exact same state when already at the cap — a true no-op, not just a value-identical one (regression: applyResolveUnitAction detects a no-op via state reference equality, so a fully-clamped credit used to still count as "resolved")', () => {
+    const board = boardOf([[0, 0, 'forest']])
+    const state = makeState({
+      board,
+      players: [makePlayer('p1', { resources: { gold: 0, wood: 5, stone: 0 } }), makePlayer('p2')],
+      units: [makeUnit('p1', 'nomad', { q: 0, r: 0 })],
+    })
+
+    const next = applyUnitActionEffect(state, 'p1', 'nomad', action, {}, emptyContent)
+
+    expect(next).toBe(state)
+  })
 })
 
 describe('applyUnitActionEffect — trade (Ship)', () => {
