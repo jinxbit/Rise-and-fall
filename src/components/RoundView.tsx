@@ -55,11 +55,14 @@ function PhaseBanner({ state }: { state: GameState }) {
   )
 }
 
-/** How much gold is left in the shared bank for players to draw from — see GameState.resourceBank. */
-function BankGold({ state }: { state: GameState }) {
+/** How much of each resource is left in the shared bank for players to draw from — see GameState.resourceBank. */
+function BankResources({ state }: { state: GameState }) {
   return (
-    <p className="text-sm text-neutral-400" title="Gold remaining in the shared bank">
-      Bank: <span className="font-medium text-neutral-200">{state.resourceBank.gold} gold</span>
+    <p className="text-sm text-neutral-400" title="Resources remaining in the shared bank">
+      Bank:{' '}
+      <span className="font-medium text-neutral-200">
+        {state.resourceBank.gold} gold, {state.resourceBank.wood} wood, {state.resourceBank.stone} stone
+      </span>
     </p>
   )
 }
@@ -580,7 +583,7 @@ export function RoundView(props: {
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-4">
           <PhaseBanner state={state} />
-          <BankGold state={state} />
+          <BankResources state={state} />
         </div>
         <div className="flex items-center gap-2">
           {showHistory && turnReview && turnReview.events.length === 0 && (
