@@ -72,6 +72,18 @@ describe('HexBoard — unit markers', () => {
     const units: UnitMarker[] = [{ coord: { q: 0, r: 0 }, color: '#ef4444', kind: 'not-a-real-kind' }]
     expect(() => render(<HexBoard board={makeBoard()} units={units} />)).not.toThrow()
   })
+
+  it("draws Port's own icon (three jetties from a central quay) rather than falling back to an empty glyph", () => {
+    const units: UnitMarker[] = [{ coord: { q: 0, r: 0 }, color: '#ef4444', kind: 'port' }]
+    const { container } = render(<HexBoard board={makeBoard()} units={units} />)
+
+    const glyph = container.querySelector('svg svg[viewBox]')!
+    expect(glyph.children.length).toBeGreaterThan(0)
+    // Static kind (like City/Temple) — the rounded-rect plate, not a circle.
+    const plateRect = container.querySelector(`rect[fill="${NEUTRAL_PLATE_COLOR}"]`)
+    expect(plateRect).toBeTruthy()
+    expect(Number(plateRect!.getAttribute('rx'))).toBeGreaterThan(0)
+  })
 })
 
 describe('HexBoard — stacked units on one hex (e.g. a Ship docked at its own Port)', () => {

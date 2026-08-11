@@ -2852,3 +2852,36 @@ available substitute, and is what actually caught the angle-math bug a
 unit test alone would have missed (the passing HexBoard.test.tsx case
 only exercised one option per group, never triggering the multi-option-
 per-group spread).
+
+## 59. A Port icon — three jetties from a central quay
+
+Requested: Port (The Ports Tale companion piece, #56) had no entry in
+`unitIcons.ts`'s `UNIT_ICONS`, so it silently fell back to the same empty
+glyph an unrecognized kind gets — no crash, just a blank plate. Design
+suggestion from the request itself: a port "stretching on 3 hexsides."
+
+Added a 3-fold radially-symmetric glyph: three slim triangular jetties
+radiating from a small central quay (a rounded square, matching the
+existing hub-and-spoke read), each pointing 120° apart — up, lower-left,
+lower-right. Deliberately not a literal hex outline (the icon canvas is a
+plain 24×24 square, same as every other kind's) but a stylized nod to a
+harbor's piers reaching toward three of a hex's six sides, the way a real
+port faces open water on more than one side. It's also the only 3-fold
+symmetric silhouette in the set — every other icon is either bilaterally
+symmetric (Temple, Mountaineer) or frankly asymmetric (Nomad, Merchant,
+Ship) — so it reads as visually distinct at a glance, not just by
+position. Kept it a single silhouette with no separate "pier head"
+cap detail (unlike an earlier hand-drawn draft that tried rotated cap
+rectangles per pier): at icon scale those details would be sub-pixel
+anyway, and the plain triangular jetties alone already read clearly as
+"port" once rendered — confirmed with the same static-render-and-
+screenshot check as #58 (no Supabase needed), both alone and side-by-side
+with City/Ship for comparison, then zoomed in to check for stray overlap
+at the center where the three shapes meet (none — the quay square, drawn
+last, cleanly covers the convergence point).
+
+One new regression test in `HexBoard.test.tsx`: Port's glyph actually has
+children (not the empty-glyph fallback an unrecognized kind gets) and
+still renders on the static rounded-rect plate (it was already added to
+`STATIC_UNIT_KINDS` in #58, unaffected by this change). 435 tests total
+(was 434); `tsc -b`/`oxlint`/`vitest run`/`npm run build` all clean.

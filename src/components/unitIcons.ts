@@ -64,6 +64,17 @@ export const UNIT_ICONS: Record<string, IconShape[]> = {
     { kind: 'rect', x: 11.6, y: 5, width: 0.9, height: 12 },
     { kind: 'polygon', points: '12.5,6 19,15 12.5,15' },
   ],
+  // Three jetties radiating from a central quay, 120° apart — a stylized
+  // port reaching out to three of a hex's six sides, the way a real
+  // harbor's piers face the open water around it. The only 3-fold
+  // radially-symmetric silhouette in the set, distinguishing it at a
+  // glance from every other (bilaterally symmetric or asymmetric) icon.
+  port: [
+    { kind: 'polygon', points: '13.4,9.8 10.6,9.8 12,2.5' },
+    { kind: 'polygon', points: '13.2,14.3 14.6,11.9 20.2,16.8' },
+    { kind: 'polygon', points: '10.8,14.3 9.4,11.9 3.8,16.8' },
+    { kind: 'rect', x: 9.8, y: 9.8, width: 4.4, height: 4.4, rx: 0.6 },
+  ],
 }
 
 /** City and Temple are immobile structures (never move once placed) — marked with a rectangle instead of the mobile units' circle. Port (The Ports Tale) is likewise immobile once built. */
