@@ -223,9 +223,10 @@ function groupActionMenuOptions(options: ActionMenuOption[]): ActionMenuGroup[] 
 /**
  * Every option's placement angle (radians), walked around the circle
  * group by group. Options within a group are spaced `baseStep` apart —
- * exactly the density a single, ungrouped ring of `totalOptions` options
- * would use — so a group's own options stay visually clustered together;
- * only the transition to the *next* group gets extra breathing room
+ * the density a single, ungrouped ring of `totalOptions` options would
+ * use *after* setting aside room for every group-to-group gap — so a
+ * group's own options stay visually clustered together; only the
+ * transition to the *next* group gets extra breathing room
  * (`GROUP_GAP_DEGREES`, on top of one `baseStep`), so different units'
  * options don't run into each other. Giving a multi-option group its own
  * proportional slice of the full 360° instead (an earlier version of this
@@ -235,6 +236,21 @@ function groupActionMenuOptions(options: ActionMenuOption[]): ActionMenuGroup[] 
  * how many groups there are. With one group (the overwhelmingly common
  * case), this reduces to the plain "evenly spaced around the full circle"
  * formula from before this concept existed.
+ *
+ * `baseStep` must reserve that room up front: a gap is added after every
+ * group, including the last (its own boundary wraps back around to the
+ * first group, which needs the same breathing room as any other
+ * group-to-group seam) — `groups.length` gaps in total, not
+ * `groups.length - 1`. A naive `360 / totalOptions` step, with gaps
+ * layered on top of that unreduced spacing, overshoots a full circle by
+ * exactly `GROUP_GAP_DEGREES * groups.length` degrees — invisible in the
+ * placement of any individual option, but it all lands on the seam where
+ * the ring wraps back to the first option, silently compressing (or, with
+ * enough groups/gap size, even reversing) what should be that seam's own
+ * gap. Bug report: "several elements are overlapping each other" — this
+ * was a Ship sharing its hex with its own Port (The Ports Tale), an
+ * 8-option, 2-group menu, whose wrap seam ended up 26° *narrower* than
+ * every other gap in the ring instead of wider.
  */
 const GROUP_GAP_DEGREES = 26
 
@@ -243,7 +259,8 @@ function computeActionMenuAngles(groups: ActionMenuGroup[]): Map<string, number>
   const totalOptions = groups.reduce((sum, g) => sum + g.options.length, 0)
   if (totalOptions === 0) return angles
 
-  const baseStep = 360 / totalOptions
+  const totalGapDegrees = groups.length > 1 ? groups.length * GROUP_GAP_DEGREES : 0
+  const baseStep = (360 - totalGapDegrees) / totalOptions
   let cursorDegrees = -90
   for (const group of groups) {
     group.options.forEach((option, i) => {

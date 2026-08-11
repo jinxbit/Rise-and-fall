@@ -181,6 +181,43 @@ describe('HexBoard — grouped action menu (more than one unit acting from the s
     fireEvent.click(portBox!)
     expect(onSelect).toHaveBeenCalledWith('port1', 'port-income')
   })
+
+  it("spaces every gap between options evenly around the full circle, including the seam where the ring wraps back to the first option — bug report: \"several elements are overlapping each other\" (a Ship docked at its own Port: 6 Ship options + 2 Port options, the closest real-content grouped menu gets)", () => {
+    const onSelect = vi.fn()
+    // 8 options across 2 groups, matching Ship (6 actions once The Ports
+    // Tale's "Construct a Port" is added) + Port (2 actions) sharing a hex.
+    const options = [
+      ...optionsFor('ship1', 'Ship', ['a', 'b', 'c', 'd', 'e', 'f']),
+      ...optionsFor('port1', 'Port', ['g', 'h']),
+    ]
+    const { container } = render(<HexBoard board={makeBoard()} actionMenu={{ coord: { q: 0, r: 0 }, options, onSelect }} />)
+
+    const lines = [...container.querySelectorAll('g > line')]
+    expect(lines).toHaveLength(8)
+    const angles = lines
+      .map((line) => {
+        const x1 = Number(line.getAttribute('x1'))
+        const y1 = Number(line.getAttribute('y1'))
+        const x2 = Number(line.getAttribute('x2'))
+        const y2 = Number(line.getAttribute('y2'))
+        return ((Math.atan2(y2 - y1, x2 - x1) * 180) / Math.PI + 360) % 360
+      })
+      .sort((a, b) => a - b)
+    const gaps = angles.map((angle, i) => (i === 0 ? angle + 360 - angles[angles.length - 1] : angle - angles[i - 1]))
+
+    // A within-group gap and a between-group gap are two different sizes by
+    // design (the latter includes GROUP_GAP_DEGREES) — but every gap should
+    // be one of those two sizes. The bug reserved no room for the group
+    // gaps up front, overshooting a full circle by exactly
+    // GROUP_GAP_DEGREES * groupCount — invisible everywhere except the seam
+    // where the ring wraps back to the first option, which absorbed the
+    // whole overshoot: for this 6+2 case, a third, distinctly smaller gap
+    // (19°) where the wrap seam should instead have been the *widest* gap
+    // (71°, same as the other group boundary).
+    const uniqueGapSizes = new Set(gaps.map((g) => Math.round(g * 10) / 10))
+    expect(uniqueGapSizes.size).toBeLessThanOrEqual(2)
+    for (const gap of gaps) expect(gap).toBeGreaterThan(0)
+  })
 })
 
 describe('HexBoard — history-review labels', () => {

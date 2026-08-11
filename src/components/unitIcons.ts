@@ -64,6 +64,17 @@ export const UNIT_ICONS: Record<string, IconShape[]> = {
     { kind: 'rect', x: 11.6, y: 5, width: 0.9, height: 12 },
     { kind: 'polygon', points: '12.5,6 19,15 12.5,15' },
   ],
+  // A lighthouse (The Ports Tale) — tapered tower with a banded waist,
+  // lantern room, peaked roof, and light beams fanning out from the top so
+  // it doesn't just read as a generic tower.
+  port: [
+    { kind: 'polygon', points: '7.5,20 16.5,20 14.3,7.5 9.7,7.5' },
+    { kind: 'rect', x: 8.9, y: 13, width: 6.2, height: 1.8 },
+    { kind: 'rect', x: 9.4, y: 3.8, width: 5.2, height: 3.7, rx: 0.4 },
+    { kind: 'polygon', points: '8.7,3.8 15.3,3.8 12,0.8' },
+    { kind: 'polygon', points: '9.4,5.2 3.5,3.2 9.4,6.6' },
+    { kind: 'polygon', points: '14.6,5.2 20.5,3.2 14.6,6.6' },
+  ],
 }
 
 /** City and Temple are immobile structures (never move once placed) — marked with a rectangle instead of the mobile units' circle. Port (The Ports Tale) is likewise immobile once built. */
