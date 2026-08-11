@@ -327,6 +327,50 @@ describe('RoundView — player status summary and achievements panel', () => {
   })
 })
 
+describe('RoundView — "Expand board" toggle', () => {
+  it('hides the full player roster and achievements panel, and brings them back, without touching the compact current-player bar', () => {
+    const state = makeState()
+    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
+
+    render(
+      <RoundView
+        state={state}
+        players={players}
+        myPlayerId="p1"
+        unitContent={EMPTY_UNIT_CONTENT}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        turnReview={null}
+        showHistory={false}
+        onToggleHistory={() => {}}
+        gameLog={[]}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+
+    // Bob never appears in the compact current-player bar (only p1/Alice
+    // does) — so Bob is only findable at all while the full roster shows.
+    expect(screen.getByText('Bob')).toBeInTheDocument()
+    expect(screen.getByText('Buy back from decline:', { exact: false })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand board' }))
+
+    expect(screen.queryByText('Bob')).not.toBeInTheDocument()
+    expect(screen.queryByText('Buy back from decline:', { exact: false })).not.toBeInTheDocument()
+    // The compact current-player bar (Alice) stays put throughout.
+    expect(screen.getByText('Alice')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show player status' }))
+
+    expect(screen.getByText('Bob')).toBeInTheDocument()
+    expect(screen.getByText('Buy back from decline:', { exact: false })).toBeInTheDocument()
+  })
+})
+
 describe('RoundView — player detail panel (click a player chip for more info)', () => {
   it("is collapsed until a player's chip is clicked, then shows their full VP breakdown, cards by zone, unit counts, and resources — and collapses again on a second click", () => {
     let state = makeState()

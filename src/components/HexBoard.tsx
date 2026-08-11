@@ -301,6 +301,8 @@ export function HexBoard(props: {
   clickableCoords?: Coordinate[]
   onHexClick?: (coord: Coordinate) => void
   size?: number
+  /** Raises the board's max on-screen height (see RoundView.tsx's "Expand board" toggle, used once the player status sidebar is hidden and there's more room to fill). Default false — the normal 70vh cap. */
+  expanded?: boolean
 }) {
   const size = props.size ?? 22
 
@@ -364,7 +366,7 @@ export function HexBoard(props: {
   return (
     <svg
       viewBox={`${minX} ${minY} ${maxX - minX} ${maxY - minY}`}
-      className="max-h-[70vh] w-full rounded-md border border-neutral-800 bg-neutral-950"
+      className={`w-full rounded-md border border-neutral-800 bg-neutral-950 ${props.expanded ? 'max-h-[92vh]' : 'max-h-[70vh]'}`}
     >
       {pixels.map(({ coord, x, y }) => {
         const tile = props.board.tiles[coordKey(coord)]
