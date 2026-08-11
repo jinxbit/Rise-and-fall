@@ -79,7 +79,23 @@ function makeGenesis(units: Unit[], board: GameState['board']): GameState {
     ],
     resourceBank: { gold: 1000, wood: 1000, stone: 1000 },
   })
-  const active: GameState = { ...lobby, board, players: [makePlayer('p1', p1Cards), makePlayer('p2', p2Cards)], cards, turnOrder: ['p1', 'p2'], units, status: 'active' }
+  // Most callers only give p1 any units, leaving p2 with an empty hand —
+  // beginSelectCardsPhase would eliminate them for that, and since
+  // eliminatePlayer now ends the game outright once only one player
+  // remains (elimination.ts), that would complete the game before this
+  // genesis is even returned. So p2 is excluded up front (not in
+  // turnOrder, marked eliminated) unless the caller actually gave them a
+  // unit.
+  const p2HasAUnit = units.some((u) => u.ownerId === 'p2')
+  const active: GameState = {
+    ...lobby,
+    board,
+    players: [makePlayer('p1', p1Cards), { ...makePlayer('p2', p2Cards), eliminated: !p2HasAUnit }],
+    cards,
+    turnOrder: p2HasAUnit ? ['p1', 'p2'] : ['p1'],
+    units,
+    status: 'active',
+  }
   return beginSelectCardsPhase(syncCardZonesWithBoard(active))
 }
 

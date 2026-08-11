@@ -4,7 +4,7 @@ import { createEmptyBoard } from '../board'
 import { cardIdFor, moveCard } from '../cards'
 import { createNewGame } from '../createGame'
 import { eliminatePlayer, eliminatePlayersWithNoCardToDecline, eliminatePlayersWithNoCardToPlay } from '../elimination'
-import { beginSelectCardsPhase } from '../round'
+import { beginDeclinePhase, beginSelectCardsPhase } from '../round'
 import type { GameState, Player, Unit } from '../types'
 
 function makePlayer(id: string, overrides: Partial<Player> = {}): Player {
@@ -283,7 +283,12 @@ describe('elimination wired into round phases', () => {
     return { ...lobby, status: 'active' }
   }
 
-  it('eliminates a player with an empty hand at select-cards start, and continues with the other', () => {
+  // Feature request: "The game should finish immediately when there is
+  // only a single player left" — bug report was a game stuck active with
+  // one player remaining. eliminatePlayer (./elimination.ts) now ends the
+  // game the instant an elimination leaves at most one player standing, so
+  // p2 here doesn't get a further turn at all — the game is already over.
+  it('eliminates a player with an empty hand at select-cards start — if that leaves only one player, the game ends immediately with them as the winner', () => {
     const state = makeTwoPlayerGame()
     const p2Index = state.players.findIndex((p) => p.id === 'p2')
     let p2 = state.players[p2Index]
@@ -301,21 +306,28 @@ describe('elimination wired into round phases', () => {
     expect(p1After.eliminated).toBe(true)
     expect(p2After.eliminated).toBe(false)
     expect(result.turnOrder).toEqual(['p2'])
+    expect(result.status).toBe('completed')
+    expect(result.winnerPlayerIds).toEqual(['p2'])
+    // Left exactly where the elimination happened — no separate "advance to
+    // the next phase" step runs once the game has already ended.
     expect(result.roundPhase).toBe('selectCards')
     expect(result.pendingPlayerIds).toEqual(['p2'])
   })
 
-  it('advances straight to the actions phase if every player is eliminated at select-cards start', () => {
+  it('ends the game with no winner if every player is eliminated simultaneously at select-cards start', () => {
     const state = makeTwoPlayerGame()
 
     const result = beginSelectCardsPhase(state)
 
     expect(result.players.every((p) => p.eliminated)).toBe(true)
     expect(result.turnOrder).toEqual([])
-    expect(result.roundPhase).toBe('actions')
+    expect(result.status).toBe('completed')
+    expect(result.winnerPlayerIds).toEqual([])
+    // Does NOT chain into the actions phase — the game is already over.
+    expect(result.roundPhase).toBe('selectCards')
   })
 
-  it('cascades an elimination via applyMoveToDecline when the next player has nothing to decline', () => {
+  it('cascades an elimination via applyMoveToDecline when the next player has nothing to decline, ending the game since only one player is left', () => {
     const base = makeTwoPlayerGame()
     const p1Index = base.players.findIndex((p) => p.id === 'p1')
     let p1 = base.players[p1Index]
@@ -339,7 +351,25 @@ describe('elimination wired into round phases', () => {
     if (!result.ok) return
     const p2After = result.state.players.find((p) => p.id === 'p2')!
     expect(p2After.eliminated).toBe(true)
-    // Everyone pending is now gone, so the phase advances straight to purchase.
-    expect(result.state.roundPhase).toBe('purchase')
+    expect(result.state.status).toBe('completed')
+    expect(result.state.winnerPlayerIds).toEqual(['p1'])
+    // Does NOT chain into the purchase phase — the game is already over.
+    expect(result.state.roundPhase).toBe('decline')
+  })
+
+  it("beginDeclinePhase's own initial elimination pass ends the game (no winner) if it eliminates every pending player, and does not chain into the purchase phase", () => {
+    const state = makeTwoPlayerGame()
+    // Both players' cards are still in supply — nothing in hand or discard
+    // for either — so beginDeclinePhase's own eliminatePlayersWithNoCardToDecline
+    // pass eliminates them both, right at phase start.
+    const declining: GameState = { ...state, achievementsClaimedThisRound: 1 }
+
+    const result = beginDeclinePhase(declining)
+
+    expect(result.players.every((p) => p.eliminated)).toBe(true)
+    expect(result.status).toBe('completed')
+    expect(result.winnerPlayerIds).toEqual([])
+    // Does NOT chain into the purchase phase — the game is already over.
+    expect(result.roundPhase).toBe('decline')
   })
 })

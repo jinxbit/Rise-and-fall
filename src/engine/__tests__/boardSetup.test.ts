@@ -568,7 +568,18 @@ describe('placeUnit', () => {
   })
 
   it('transitions to active status and begins round 1 once every player has placed all three units', () => {
+    // p2's unitsRemainingByPlayerId is already empty (they're done), so
+    // their three units need to actually be on the board too — otherwise
+    // they'd have no cards in hand once round 1's beginSelectCardsPhase
+    // runs, get eliminated for it, and (since eliminatePlayer now ends the
+    // game outright once only one player remains — see elimination.ts)
+    // leave the game 'completed' instead of the 'active' this test expects.
     let state = unitPlacementState({
+      units: [
+        { id: 'p2_city', ownerId: 'p2', kind: 'city', coord: { q: 10, r: 0 }, movement: { isMobile: false, terrains: [], canCrossCliffs: false }, traits: [] },
+        { id: 'p2_nomad', ownerId: 'p2', kind: 'nomad', coord: { q: 11, r: 0 }, movement: { isMobile: true, terrains: [], canCrossCliffs: false }, traits: [] },
+        { id: 'p2_ship', ownerId: 'p2', kind: 'ship', coord: { q: 12, r: 0 }, movement: { isMobile: true, terrains: [], canCrossCliffs: false }, traits: [] },
+      ],
       boardSetup: {
         tileTierQueue: [],
         tilesRemainingInTier: 0,

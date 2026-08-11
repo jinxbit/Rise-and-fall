@@ -8,6 +8,18 @@ import type { GameState, Resources } from './types'
  * determineWinners in ./victoryPoints.ts should pass only non-eliminated
  * player ids). Achievements they've already claimed are NOT revoked. All
  * of their gold/wood/stone is returned to the shared bank.
+ *
+ * Also ends the game immediately once this elimination leaves at most one
+ * player standing — bug report: "a game with only one player remaining
+ * didn't finish." No VP comparison needed (unlike the normal gameLength
+ * win check in round.ts's finishRound): the sole survivor trivially wins
+ * outright, and if this elimination wipes out the very last player too
+ * (an all-players-simultaneously-eliminated edge case), the game still
+ * ends, just with nobody to declare (`winnerPlayerIds: []`). Callers that
+ * chain straight into the next round phase once every pending player has
+ * been resolved (beginSelectCardsPhase/beginDeclinePhase in ./round.ts,
+ * applyMoveToDecline in ./applyAction.ts) must check `status` before doing
+ * so — completed here means stop, not "safe to advance."
  */
 export function eliminatePlayer(state: GameState, playerId: string): GameState {
   const playerIndex = state.players.findIndex((p) => p.id === playerId)
@@ -31,6 +43,11 @@ export function eliminatePlayer(state: GameState, playerId: string): GameState {
   // player (if any) becomes active.
   const activePlayerId =
     state.roundPhase === 'selectCards' || state.roundPhase === 'decline' ? null : (pendingPlayerIds[0] ?? null)
+
+  const remainingPlayerIds = players.filter((p) => !p.eliminated).map((p) => p.id)
+  if (remainingPlayerIds.length <= 1) {
+    return { ...state, players, units, turnOrder, pendingPlayerIds, activePlayerId, resourceBank, status: 'completed', winnerPlayerIds: remainingPlayerIds }
+  }
 
   return { ...state, players, units, turnOrder, pendingPlayerIds, activePlayerId, resourceBank }
 }

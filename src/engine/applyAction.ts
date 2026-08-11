@@ -391,7 +391,11 @@ function applyMoveToDecline(state: GameState, playerId: string, cardId: string, 
   // to decline for a required card they haven't supplied yet.
   nextState = eliminatePlayersWithNoCardToDecline(nextState)
 
-  if (nextState.pendingPlayerIds.length === 0) {
+  // That elimination may have already ended the game outright
+  // (eliminatePlayer's last-player-standing check, ./elimination.ts) — skip
+  // chaining into the purchase phase in that case, same as round.ts's own
+  // post-elimination chain points.
+  if (nextState.status !== 'completed' && nextState.pendingPlayerIds.length === 0) {
     nextState = beginPurchasePhase(nextState, achievementContent)
   }
   return { ok: true, state: nextState }

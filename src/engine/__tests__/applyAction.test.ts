@@ -235,10 +235,22 @@ describe('applyResolveUnitAction — different units of the same kind may choose
       ],
       resourceBank: { gold: 100, wood: 100, stone: 100 },
     })
-    // p2 has no units at all, so their hand is empty and beginSelectCardsPhase
-    // eliminates them immediately (rule: no card to choose) — leaving p1 the
-    // only pending player, which is all this test needs.
-    const active: GameState = { ...lobby, board, units: [cityA, cityB], status: 'active' }
+    // p2 never gets a real turn in this fixture — it's not testing multi-
+    // player interaction at all, just p1's own action resolution — so p2 is
+    // excluded up front (not in turnOrder, marked eliminated) rather than
+    // given no cards and left for beginSelectCardsPhase to eliminate: since
+    // eliminatePlayer ends the game outright once only one player remains
+    // (elimination.ts), letting the engine eliminate p2 here would complete
+    // the game before this test's own CHOOSE_CARD/RESOLVE_UNIT_ACTION ever
+    // ran.
+    const active: GameState = {
+      ...lobby,
+      board,
+      units: [cityA, cityB],
+      status: 'active',
+      turnOrder: ['p1'],
+      players: lobby.players.map((p) => (p.id === 'p2' ? { ...p, eliminated: true } : p)),
+    }
     const selecting = beginSelectCardsPhase(syncCardZonesWithBoard(active))
     const chosen = applyAction(selecting, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') })
     if (!chosen.ok) throw new Error('setup failed')
@@ -325,7 +337,16 @@ describe('applyResolveUnitAction — unit actions resolve in order, one at a tim
       ],
       resourceBank: { gold: 100, wood: 100, stone: 100 },
     })
-    const active: GameState = { ...lobby, board, units: [nomadA, nomadB], status: 'active' }
+    // p2 excluded up front, same reasoning as makeTwoCitiesState above —
+    // eliminating them for real (no cards) would end the game outright.
+    const active: GameState = {
+      ...lobby,
+      board,
+      units: [nomadA, nomadB],
+      status: 'active',
+      turnOrder: ['p1'],
+      players: lobby.players.map((p) => (p.id === 'p2' ? { ...p, eliminated: true } : p)),
+    }
     const selecting = beginSelectCardsPhase(syncCardZonesWithBoard(active))
     const chosen = applyAction(selecting, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'nomad') })
     if (!chosen.ok) throw new Error('setup failed')
@@ -609,9 +630,16 @@ describe('RESOLVE_UNIT_ACTION rejects an action whose cost/target preconditions 
       ],
       resourceBank: { gold: 100, wood: 100, stone: 100 },
     })
-    // p2 has no units, so they're eliminated for having no card to choose —
-    // leaves p1 the only pending player, same trick as the fixtures above.
-    const active: GameState = { ...lobby, board, units: [nomad], status: 'active' }
+    // p2 excluded up front, same reasoning as makeTwoCitiesState above —
+    // eliminating them for real (no cards) would end the game outright.
+    const active: GameState = {
+      ...lobby,
+      board,
+      units: [nomad],
+      status: 'active',
+      turnOrder: ['p1'],
+      players: lobby.players.map((p) => (p.id === 'p2' ? { ...p, eliminated: true } : p)),
+    }
     const selecting = beginSelectCardsPhase(syncCardZonesWithBoard(active))
     const chosen = applyAction(selecting, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'nomad') })
     if (!chosen.ok) throw new Error('setup failed')

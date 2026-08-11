@@ -2569,3 +2569,49 @@ replaying everything but the closing action. 408 tests total (was
 wiring test coverage — engine/component tests only), so this specific
 fix is verified by code reading plus the engine-level replay
 invariant it relies on, not a dedicated UI test.
+
+## 56. A game with only one player left never finished
+
+Bug report: "there is only one player remaining, but the game didn't
+finish." `eliminatePlayer()` (elimination.ts) marked a player
+eliminated but never checked how many players that left — a 2+ player
+game where every other player got eliminated (rule: no card to
+choose/decline) just carried on with the sole survivor taking turns
+forever, `status` stuck `'active'`.
+
+Fixed at the one real chokepoint: `eliminatePlayer()` now ends the
+game the instant an elimination leaves at most one player standing —
+`status: 'completed'`, `winnerPlayerIds` set to whoever's left (the
+sole survivor trivially wins outright, no VP comparison needed; the
+degenerate simultaneous-elimination-of-everyone case ends the game
+with no winner, `winnerPlayerIds: []`, rather than not at all). Its
+three callers that chain straight into the next round phase once every
+pending player is resolved — `beginSelectCardsPhase`/`beginDeclinePhase`
+(round.ts) and `applyMoveToDecline` (applyAction.ts) — each needed a
+`status !== 'completed'` guard added to their "advance to the next
+phase" check, since a just-completed game must stop there, not
+chain forward as if the phase had merely finished normally.
+
+This exposed a widespread test-fixture pattern across the suite: many
+fixtures deliberately gave only one of two seated players any real
+units/cards, relying on the OTHER player being harmlessly
+auto-eliminated at genesis (empty hand, "no card to choose") to get a
+cheap single-active-player state for testing. That auto-elimination
+now also ends the game, which broke 27 tests across 5 files
+(`applyAction.test.ts`, `boardSetup.test.ts`, `gameLog.test.ts`,
+`turnReview.test.ts`, `RoundView.test.tsx`) whose whole point was
+everything AFTER that setup step. Fixed each fixture to either give
+the second player a real placeholder unit, or (for fixtures that
+never wanted a second real participant at all) exclude them up front
+— `turnOrder: ['p1']`, marked `eliminated: true` from the start —
+rather than let the engine eliminate them into game-ending territory.
+
+Added dedicated coverage in `elimination.test.ts`: the last-player-
+standing win at select-cards-phase start, the same at decline-phase
+start (both `beginSelectCardsPhase`/`beginDeclinePhase`'s own initial
+elimination pass), the everyone-eliminated-simultaneously edge case
+(no winner) at both those same phase starts, and the
+`applyMoveToDecline` per-card elimination cascade — each confirming
+`status`/`winnerPlayerIds` land correctly AND that the state does NOT
+chain into the next round phase once completed. 409 tests total (was
+408); `tsc -b`/`oxlint`/`vitest run`/`npm run build` all clean.

@@ -433,7 +433,20 @@ describe("RoundView — City's Convert to Merchant/Mountaineer (bug report: \"no
       ],
       resourceBank: { gold: 100, wood: 100, stone: 100 },
     })
-    let active: GameState = { ...lobby, board, units: [city, nomad], status: 'active' }
+    // p2 never gets units here — this test only exercises p1's own
+    // City-Convert flow — so p2 is excluded up front (not in turnOrder,
+    // marked eliminated) rather than left for beginSelectCardsPhase to
+    // eliminate naturally: eliminatePlayer now ends the game outright once
+    // only one player remains (elimination.ts), which would otherwise
+    // complete the game before this test's own actions even run.
+    let active: GameState = {
+      ...lobby,
+      board,
+      units: [city, nomad],
+      status: 'active',
+      turnOrder: ['p1'],
+      players: lobby.players.map((p) => (p.id === 'p2' ? { ...p, eliminated: true } : p)),
+    }
     active = { ...active, players: active.players.map((p) => (p.id === 'p1' ? { ...p, resources: { gold: 5, wood: 5, stone: 5 } } : p)) }
     const selecting = beginSelectCardsPhase(syncCardZonesWithBoard(active))
     const chosen = applyAction(selecting, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }, content)

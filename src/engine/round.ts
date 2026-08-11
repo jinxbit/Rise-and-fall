@@ -23,7 +23,13 @@ export function beginSelectCardsPhase(state: GameState): GameState {
     achievementsClaimedThisRound: 0,
   }
   const afterEliminations = eliminatePlayersWithNoCardToPlay(started)
-  return afterEliminations.pendingPlayerIds.length === 0 ? beginActionsPhase(afterEliminations) : afterEliminations
+  // An elimination just above may have already ended the game outright
+  // (eliminatePlayer's last-player-standing check, ./elimination.ts) — that
+  // takes priority over chaining into the next phase, even though every
+  // pending player has technically been resolved.
+  return afterEliminations.status !== 'completed' && afterEliminations.pendingPlayerIds.length === 0
+    ? beginActionsPhase(afterEliminations)
+    : afterEliminations
 }
 
 /** Round step 2: resolve each player's chosen card, in turn order. */
@@ -63,7 +69,9 @@ export function beginDeclinePhase(state: GameState, achievementContent: Achievem
     activePlayerId: null,
   }
   const afterEliminations = eliminatePlayersWithNoCardToDecline(started)
-  return afterEliminations.pendingPlayerIds.length === 0
+  // See beginSelectCardsPhase's matching comment: a just-completed game
+  // (last-player-standing) must not chain into the purchase phase.
+  return afterEliminations.status !== 'completed' && afterEliminations.pendingPlayerIds.length === 0
     ? beginPurchasePhase(afterEliminations, achievementContent)
     : afterEliminations
 }

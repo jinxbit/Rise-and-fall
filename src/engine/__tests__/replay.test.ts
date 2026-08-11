@@ -127,7 +127,13 @@ describe('actionHistory + replayActions — round phase', () => {
       for (const c of playerCards) cards[c.id] = c
       return makePlayer(id, playerCards)
     })
-    const board = setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'plain')
+    // p2 needs a unit of their own too — otherwise syncCardZonesWithBoard
+    // leaves their hand empty, eliminatePlayersWithNoCardToPlay eliminates
+    // them right at genesis, and (since eliminatePlayer now ends the game
+    // outright once only one player remains — see elimination.ts) this
+    // genesis would already be status: 'completed' before any test action
+    // runs at all.
+    const board = setTile(setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'plain'), { q: 5, r: 0 }, 'plain')
     const lobby = createNewGame({
       gameId: 'g2',
       playMode: 'hotseat',
@@ -143,7 +149,10 @@ describe('actionHistory + replayActions — round phase', () => {
       board,
       players,
       cards,
-      units: [{ id: 'city_a', ownerId: 'p1', kind: 'city', coord: { q: 0, r: 0 }, movement: unitContent.movementByKind.city, traits: [] }],
+      units: [
+        { id: 'city_a', ownerId: 'p1', kind: 'city', coord: { q: 0, r: 0 }, movement: unitContent.movementByKind.city, traits: [] },
+        { id: 'city_b', ownerId: 'p2', kind: 'city', coord: { q: 5, r: 0 }, movement: unitContent.movementByKind.city, traits: [] },
+      ],
       status: 'active',
     }
     return beginSelectCardsPhase(syncCardZonesWithBoard(active))
@@ -155,15 +164,17 @@ describe('actionHistory + replayActions — round phase', () => {
 
     const step1 = applyAction(genesis, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }, roundUnitContent)
     if (!step1.ok) throw new Error(step1.error)
+    const step1b = applyAction(step1.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') }, roundUnitContent)
+    if (!step1b.ok) throw new Error(step1b.error)
     const step2 = applyAction(
-      step1.state,
+      step1b.state,
       { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [{ unitId: 'city_a', actionId: 'generate-income' }] },
       roundUnitContent,
     )
     if (!step2.ok) throw new Error(step2.error)
 
     const finalState = step2.state
-    expect(finalState.actionHistory.map((entry) => entry.action.type)).toEqual(['CHOOSE_CARD', 'RESOLVE_UNIT_ACTION'])
+    expect(finalState.actionHistory.map((entry) => entry.action.type)).toEqual(['CHOOSE_CARD', 'CHOOSE_CARD', 'RESOLVE_UNIT_ACTION'])
     expect(finalState.players.find((p) => p.id === 'p1')!.resources.gold).toBe(2)
 
     const replayed = replayActions(genesis, finalState.actionHistory, roundUnitContent)
