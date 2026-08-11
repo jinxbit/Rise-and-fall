@@ -330,11 +330,11 @@ export function GamePage() {
   if (!game) return <div className="p-8 text-neutral-400">Looking for room {roomCode}…</div>
 
   return (
-    <div className="mx-auto flex max-w-4xl flex-col gap-6 p-8">
-      <header className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Room {game.room_code}</h1>
-        <div className="flex items-center gap-4">
-          <ul className="flex gap-3 text-sm text-neutral-400">
+    <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 p-8 lg:max-w-6xl xl:max-w-7xl">
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-2xl font-semibold">Room {game.room_code}</h1>
+          <ul className="flex flex-wrap gap-3 text-sm text-neutral-400">
             {players.map((p) => (
               <li key={p.id} className="flex items-center gap-1">
                 <span className="h-2 w-2 rounded-full" style={{ backgroundColor: p.color }} />
@@ -342,11 +342,17 @@ export function GamePage() {
               </li>
             ))}
           </ul>
+        </div>
+        {/* Three loose groups, left to right: leaving the game (Main menu),
+            the related Undo/Redo pair, and the JSON inspector — a separate,
+            lower-priority diagnostic tool. Each gets a bit of extra margin
+            from the next group rather than running together in one row. */}
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={() => navigate('/')}
             title="Leave this game and return to the main menu — the game itself keeps going, you can rejoin from the room code."
-            className="rounded-md border border-neutral-700 px-3 py-1 text-sm hover:border-neutral-500"
+            className="mr-2 rounded-md border border-neutral-700 px-3 py-1 text-sm hover:border-neutral-500"
           >
             Main menu
           </button>
@@ -357,7 +363,7 @@ export function GamePage() {
             title="Undo the last action — any player can do this, at any time, even after the game has ended."
             className="rounded-md border border-neutral-700 px-3 py-1 text-sm hover:border-neutral-500 disabled:opacity-50"
           >
-            {undoing ? 'Undoing…' : 'Undo last action'}
+            {undoing ? 'Undoing…' : 'Undo'}
           </button>
           <button
             type="button"
@@ -372,7 +378,8 @@ export function GamePage() {
             type="button"
             disabled={!gameState}
             onClick={() => setShowStateJson((v) => !v)}
-            className="rounded-md border border-neutral-700 px-3 py-1 text-sm hover:border-neutral-500 disabled:opacity-50"
+            title="Inspect the raw game state JSON — mainly useful for debugging or filing a bug report."
+            className="ml-2 rounded-md border border-neutral-700 px-3 py-1 text-sm hover:border-neutral-500 disabled:opacity-50"
           >
             {showStateJson ? 'Hide' : 'Show'} game state JSON
           </button>
