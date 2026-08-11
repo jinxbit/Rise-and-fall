@@ -233,6 +233,7 @@ function finishActionsTurn(state: GameState, playerId: string, achievementConten
     players,
     pendingPlayerIds: state.pendingPlayerIds.slice(1),
     resolvedUnitIdsThisTurn: [],
+    unitsCreatedThisTurn: [],
   }
   nextState = { ...nextState, activePlayerId: nextState.pendingPlayerIds[0] ?? null }
 
@@ -266,6 +267,16 @@ function finishActionsTurn(state: GameState, playerId: string, achievementConten
  * finishActionsTurn) — no separate PASS_ACTIONS needed once there's
  * genuinely nothing left to decide. Still exactly one actionHistory entry
  * either way, since that's just this same dispatch's result.
+ *
+ * Tale "companion piece" support: a unit whose kind isn't the played
+ * card's own kind, but IS one of that kind's companions
+ * (unitContent.companionKindsByCardKind — e.g. Port is a companion of
+ * Ship), may also act here, using ITS OWN kind's actions (not the played
+ * card's). A companion unit created earlier THIS turn may not act at all
+ * (every companion Tale states "cannot be activated on the turn it is
+ * constructed" — tracked via GameState.unitsCreatedThisTurn); the played
+ * card's own kind has no such restriction, so e.g. a Ship freshly built by
+ * a Port's Construct a Ship action can still act the same turn.
  */
 function applyResolveUnitAction(
   state: GameState,
@@ -289,17 +300,24 @@ function applyResolveUnitAction(
   if (!card) {
     return { ok: false, error: `Unknown card: ${cardId}` }
   }
-  const actionsForKind = unitContent.actionsByKind[card.kind] ?? []
+  const companionKinds = unitContent.companionKindsByCardKind[card.kind] ?? []
 
   let nextState: GameState = state
   const resolvedUnitIds: string[] = []
+  let createdThisTurn = [...state.unitsCreatedThisTurn]
   for (const assignment of unitActions) {
     if (state.resolvedUnitIdsThisTurn.includes(assignment.unitId)) continue
-    const unitAction = actionsForKind.find((a) => a.id === assignment.actionId)
+    const actingUnit = nextState.units.find((u) => u.id === assignment.unitId)
+    if (!actingUnit || actingUnit.ownerId !== playerId) continue
+    const isCompanion = actingUnit.kind !== card.kind && companionKinds.includes(actingUnit.kind)
+    if (actingUnit.kind !== card.kind && !isCompanion) continue
+    if (isCompanion && createdThisTurn.includes(actingUnit.id)) continue // companion piece can't activate the turn it's built
+
+    const unitAction = (unitContent.actionsByKind[actingUnit.kind] ?? []).find((a) => a.id === assignment.actionId)
     if (!unitAction) continue
     const targets = assignment.target ? { [assignment.unitId]: assignment.target } : {}
     const beforeState = nextState
-    nextState = applyUnitActionEffect(nextState, playerId, card.kind, unitAction, targets, unitContent, [assignment.unitId])
+    nextState = applyUnitActionEffect(nextState, playerId, actingUnit.kind, unitAction, targets, unitContent, [assignment.unitId])
     // An action that didn't actually change anything means its
     // preconditions weren't met (e.g. an unaffordable cost, an illegal or
     // missing target, a full supply cap, or — for income/produce/trade — a
@@ -308,20 +326,26 @@ function applyResolveUnitAction(
     // rather than being marked resolved.
     if (nextState === beforeState) continue
     resolvedUnitIds.push(assignment.unitId)
+    for (const unit of nextState.units) {
+      if (!beforeState.units.some((u) => u.id === unit.id)) createdThisTurn.push(unit.id)
+    }
   }
 
   if (resolvedUnitIds.length === 0) {
     return {
       ok: false,
-      error: "No unit action was resolved (already acted this turn, not a legal action for this card, or its cost/target requirements weren't met)",
+      error: "No unit action was resolved (already acted this turn, not a legal action for this card/companion, or its cost/target requirements weren't met)",
     }
   }
 
   const resolvedUnitIdsThisTurn = [...nextState.resolvedUnitIdsThisTurn, ...resolvedUnitIds]
-  nextState = { ...nextState, resolvedUnitIdsThisTurn }
+  nextState = { ...nextState, resolvedUnitIdsThisTurn, unitsCreatedThisTurn: createdThisTurn }
   nextState = updateAchievementClaims(nextState, achievementContent, unitContent.unitSupplyCaps)
 
-  const actingUnitIds = nextState.units.filter((u) => u.ownerId === playerId && u.kind === card.kind).map((u) => u.id)
+  const actingUnitIds = nextState.units
+    .filter((u) => u.ownerId === playerId && (u.kind === card.kind || companionKinds.includes(u.kind)))
+    .filter((u) => u.kind === card.kind || !createdThisTurn.includes(u.id))
+    .map((u) => u.id)
   const everyUnitActed = actingUnitIds.every((id) => resolvedUnitIdsThisTurn.includes(id))
   if (everyUnitActed) {
     return finishActionsTurn(nextState, playerId, achievementContent)

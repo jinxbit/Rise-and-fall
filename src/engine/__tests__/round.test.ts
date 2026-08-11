@@ -22,6 +22,7 @@ const testUnitContent: UnitContent = {
   terrainLevels: {},
   resourceCaps: {},
   unitSupplyCaps: {},
+  companionKindsByCardKind: {},
 }
 
 /**

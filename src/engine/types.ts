@@ -92,6 +92,14 @@ export interface UnitMovement {
   blockedByUnits?: 'none' | 'enemy' | 'all'
   /** Unit kind ids this unit may end its move on top of, as an exception to the normal unoccupied-hex rule. */
   canEndMoveOnUnitTypes?: string[]
+  /**
+   * Like canEndMoveOnUnitTypes, but only when the occupant is owned by the
+   * SAME player as the mover — e.g. a Ship may land on its own Port, never
+   * an opponent's (The Ports Tale: "a Ship can never stop in an opposing
+   * player's Port"). Independent of canEndMoveOnUnitTypes (any-owner);
+   * both are checked together in legalMoveDestinations' canLandOn.
+   */
+  canEndMoveOnAlliedUnitTypes?: string[]
 }
 
 /**
@@ -278,6 +286,22 @@ export interface GameState {
    * Meaningless outside the actions phase.
    */
   resolvedUnitIdsThisTurn: string[]
+  /**
+   * Unit ids created (via create/transform/site-create) during the current
+   * active player's turn of the `actions` phase — same reset points as
+   * resolvedUnitIdsThisTurn above. Exists for Tale "companion piece"
+   * units (a unit kind with no Civilization card of its own, activated
+   * alongside a different kind's card — e.g. The Ports' Port, activated
+   * whenever the Ship card is played — see UnitContent.
+   * companionKindsByCardKind): several such Tales state the companion
+   * "cannot be activated on the turn it is constructed," which this set
+   * lets applyResolveUnitAction enforce generically. Units of the actual
+   * played card's own kind are unaffected by this set even if freshly
+   * created (e.g. a Ship built by a Port's own Construct-a-Ship action CAN
+   * act the same turn, since 'ship' is the played card's own kind, not a
+   * companion — only companion-kind units are ever checked against this).
+   */
+  unitsCreatedThisTurn: string[]
   /** Ordered turn sequence, e.g. player ids in seating order. turnOrder[0] is the current first player. */
   turnOrder: string[]
   board: Board

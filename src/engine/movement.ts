@@ -15,11 +15,29 @@ function blocksTransit(occupants: Unit[], ownerId: string, blockedByUnits: UnitM
   return occupants.some((u) => u.ownerId !== ownerId)
 }
 
-/** Whether a move may *end* on this hex — independent of blocksTransit, which only governs passing through. */
-function canLandOn(occupants: Unit[], canEndMoveOnUnitTypes: string[] | undefined): boolean {
+/**
+ * Whether a move may *end* on this hex — independent of blocksTransit,
+ * which only governs passing through. Two independent allow-lists:
+ * canEndMoveOnUnitTypes permits landing on that kind regardless of owner
+ * (e.g. Merchant on any City); canEndMoveOnAlliedUnitTypes only permits it
+ * when the occupant is owned by the SAME player as the mover (e.g. The
+ * Ports Tale: a Ship may land on its own Port, never an opponent's). Every
+ * occupant must be covered by one list or the other for the hex to be
+ * landable — this is also what naturally enforces "at most one Ship per
+ * Port": a hex with [Port, alliedShip] already has a non-Port, non-allied
+ * occupant (the Ship) that isn't itself in canEndMoveOnAlliedUnitTypes, so
+ * a second Ship can't land there either.
+ */
+function canLandOn(
+  occupants: Unit[],
+  moverOwnerId: string,
+  canEndMoveOnUnitTypes: string[] | undefined,
+  canEndMoveOnAlliedUnitTypes: string[] | undefined,
+): boolean {
   if (occupants.length === 0) return true
-  const allowed = new Set(canEndMoveOnUnitTypes ?? [])
-  return occupants.every((u) => allowed.has(u.kind))
+  const anyOwnerAllowed = new Set(canEndMoveOnUnitTypes ?? [])
+  const alliedAllowed = new Set(canEndMoveOnAlliedUnitTypes ?? [])
+  return occupants.every((u) => anyOwnerAllowed.has(u.kind) || (u.ownerId === moverOwnerId && alliedAllowed.has(u.kind)))
 }
 
 /**
@@ -78,7 +96,7 @@ export function legalMoveDestinations(
 
         visited.add(key)
         next.push(neighbor)
-        if (canLandOn(occupants, movement.canEndMoveOnUnitTypes)) {
+        if (canLandOn(occupants, unit.ownerId, movement.canEndMoveOnUnitTypes, movement.canEndMoveOnAlliedUnitTypes)) {
           destinations.push(neighbor)
         }
       }

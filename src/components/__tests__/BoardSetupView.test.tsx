@@ -39,6 +39,7 @@ function makeWaterPlacementState(board: GameState['board']): GameState {
     chosenCardIdByPlayerId: {},
     pendingPlayerIds: [],
     resolvedUnitIdsThisTurn: [],
+    unitsCreatedThisTurn: [],
     turnOrder: ['p1', 'p2'],
     board,
     players: [makeEnginePlayer('p1'), makeEnginePlayer('p2')],

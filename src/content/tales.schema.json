@@ -1,0 +1,102 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://rise-and-fall.local/tales.schema.json",
+  "title": "Rise & Fall Tale definitions (variant)",
+  "description": "The Tales variant's numbered elements. Each Tale is self-contained: everything it adds (extra unit kinds, extra actions on existing cards, movement overrides) is only merged into a game's effective content when that Tale's id is in the active set for that game — see src/engine/tales.ts's applyTaleModifiers. A base game with no Tales active never reads this file's effects at all.",
+  "type": "object",
+  "required": ["tales"],
+  "additionalProperties": false,
+  "properties": {
+    "tales": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/tale" }
+    }
+  },
+  "definitions": {
+    "tale": {
+      "type": "object",
+      "required": ["id", "number", "name", "description", "category"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Stable identifier, kebab-case."
+        },
+        "number": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 23,
+          "description": "The Tale's rulebook number — precedence order when multiple active Tales resolve simultaneously (lowest first)."
+        },
+        "name": { "type": "string" },
+        "description": { "type": "string", "description": "Flavor/rules text, written from scratch (no reproduced rulebook text)." },
+        "category": {
+          "type": "string",
+          "enum": ["creature", "buildable", "specialArea"]
+        },
+        "extraUnits": {
+          "type": "array",
+          "description": "New unit kinds this Tale introduces, e.g. The Ports' Port. Each has no Civilization card of its own — it activates as a companion whenever companionOfKind's card is played (see engine/applyAction.ts's applyResolveUnitAction).",
+          "items": { "$ref": "#/definitions/extraUnit" }
+        },
+        "extraActionsByKind": {
+          "type": "object",
+          "description": "Extra actions appended onto an EXISTING unit kind's action list, keyed by that kind's id (e.g. Nomad and Ship both gain a Construct a Port action for The Ports).",
+          "additionalProperties": {
+            "type": "array",
+            "items": { "$ref": "#/definitions/action" }
+          }
+        },
+        "movementOverridesByKind": {
+          "type": "object",
+          "description": "Movement field overrides merged onto an EXISTING unit kind's base movement, keyed by that kind's id (e.g. Ship gains canEndMoveOnAlliedUnitTypes: ['port']). Free-form per-field overrides, not a full movement object — see units.schema.json's movement shape for the fields being overridden.",
+          "additionalProperties": { "type": "object" }
+        }
+      }
+    },
+    "extraUnit": {
+      "type": "object",
+      "required": ["id", "name", "description", "companionOfKind", "movement", "supply", "victoryPoints", "actions"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "companionOfKind": {
+          "type": "string",
+          "description": "The existing unit kind id whose card also activates this companion kind's units."
+        },
+        "movement": {
+          "description": "Same shape as units.schema.json's unit.movement.",
+          "type": "object"
+        },
+        "supply": {
+          "description": "Same shape as units.schema.json's unit.supply.",
+          "type": "object"
+        },
+        "victoryPoints": {
+          "description": "Same shape as units.schema.json's unit.victoryPoints.",
+          "type": "object"
+        },
+        "actions": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/action" }
+        }
+      }
+    },
+    "action": {
+      "type": "object",
+      "required": ["id", "name", "description"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "effect": {
+          "description": "Same free-form convention as units.schema.json's action.effect — shape is given by src/engine/unitContent.ts's UnitActionEffect union.",
+          "type": ["object", "string", "null"]
+        }
+      }
+    }
+  }
+}

@@ -47,6 +47,7 @@ function makeState(): GameState {
     chosenCardIdByPlayerId: { p1: null, p2: null },
     pendingPlayerIds: [],
     resolvedUnitIdsThisTurn: [],
+    unitsCreatedThisTurn: [],
     turnOrder: ['p1', 'p2'],
     board: createEmptyBoard('hex'),
     players: [p1, p2],

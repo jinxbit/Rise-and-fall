@@ -51,6 +51,7 @@ function makeState(overrides: Partial<GameState> = {}): GameState {
     chosenCardIdByPlayerId: {},
     pendingPlayerIds: [],
     resolvedUnitIdsThisTurn: [],
+    unitsCreatedThisTurn: [],
     turnOrder: ['p1', 'p2'],
     board: createEmptyBoard('hex'),
     players: [makePlayer('p1'), makePlayer('p2')],
@@ -73,6 +74,7 @@ const emptyContent: UnitContent = {
   terrainLevels: { water: 0, plain: 1, forest: 2, mountain: 3, glacier: 4 },
   resourceCaps: { gold: null, wood: 5, stone: 5 },
   unitSupplyCaps: {},
+  companionKindsByCardKind: {},
 }
 
 function goldOf(state: GameState, playerId: string): number {

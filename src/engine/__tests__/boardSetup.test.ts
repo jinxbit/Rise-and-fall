@@ -61,6 +61,7 @@ function makeSetupState(overrides: Partial<GameState> = {}): GameState {
     chosenCardIdByPlayerId: {},
     pendingPlayerIds: [],
     resolvedUnitIdsThisTurn: [],
+    unitsCreatedThisTurn: [],
     turnOrder,
     board: createEmptyBoard('hex'),
     players,
@@ -93,6 +94,7 @@ const emptyUnitContent: UnitContent = {
   terrainLevels: { water: 0, plain: 1, forest: 2, mountain: 3, glacier: 4 },
   resourceCaps: { gold: null, wood: 5, stone: 5 },
   unitSupplyCaps: {},
+  companionKindsByCardKind: {},
 }
 
 describe('beginBoardSetup', () => {

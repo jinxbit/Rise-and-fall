@@ -29,6 +29,51 @@ export interface TransformEffect {
   targetHex: { terrainType: string[]; location: 'self' | 'adj' }
   destroySelf: boolean
   cost: ActionCost
+  /**
+   * Optional extra condition, independent of targetHex: at least one hex
+   * adjacent to the ACTING unit's own position must currently have one of
+   * these terrain types (regardless of whether targetHex.location is
+   * 'self' or 'adj' — for 'self' this is the only adjacency condition the
+   * effect has at all, since targetHex itself only constrains the unit's
+   * own hex). E.g. The Ports Tale's Ship-builds-Port: the Ship's own hex
+   * is always water (trivially true, unchecked further), but the action
+   * additionally requires the Ship be "adjacent to at least one Plains
+   * space." Undefined (the default) means no such condition, matching
+   * every transform action before this field existed.
+   */
+  requiredAdjacentTerrain?: string[]
+}
+
+/**
+ * Creates a unit on the ACTING unit's own hex — for a companion piece
+ * whose hex is already occupied by itself, so the normal create/transform
+ * "target hex must be empty" rule can't apply (e.g. The Ports Tale: a
+ * Port's Construct a Ship action places a Ship in the Port's own Sea
+ * space). Unlike create/transform, legality is "no current occupant's
+ * kind is in blockedByKinds" (the acting unit's own presence is always
+ * ignored), not "hex must be empty" — see applySiteCreate in
+ * ./unitActions.ts.
+ */
+export interface SiteCreateEffect {
+  actionType: 'site-create'
+  targetUnit: string
+  /** Occupant kinds (any owner) on the acting unit's own hex that block this action — e.g. Port's Construct a Ship is blocked by an existing ['ship']. */
+  blockedByKinds: string[]
+  cost: ActionCost
+}
+
+/**
+ * Gold per unit of a given kind located anywhere within the acting unit's
+ * whole connected terrain region (same region concept as Ship's Trade
+ * effect's computeTradeGold, but counting units IN the region rather than
+ * Cities adjacent to it) — e.g. The Ports Tale's Trade with Ships and
+ * Ports: 4 GP per Ship or Port anywhere in the Port's Sea region,
+ * regardless of owner, including the acting Port itself.
+ */
+export interface RegionUnitCountIncomeEffect {
+  actionType: 'region-unit-count-income'
+  countKinds: string[]
+  goldPerUnit: number
 }
 
 export interface ConvertEffect {
@@ -113,6 +158,8 @@ export type UnitActionEffect =
   | TradeResourceEffect
   | TradeEffect
   | MoveEffect
+  | SiteCreateEffect
+  | RegionUnitCountIncomeEffect
 
 export interface UnitAction {
   id: string
@@ -138,6 +185,18 @@ export interface UnitContent {
   resourceCaps: Partial<Record<keyof Resources, number | null>>
   /** content/units.json's supply.byPlayerCount, keyed by unit kind id — the hard cap "create" won't exceed. */
   unitSupplyCaps: Record<string, number>
+  /**
+   * Tale "companion piece" unit kinds (no Civilization card of their own)
+   * that activate alongside a different kind's card — keyed by the card's
+   * kind, e.g. `{ ship: ['port'] }` for The Ports Tale. Populated by
+   * applyTaleModifiers (./tales.ts) merging active Tale content on top of
+   * the base game's units.json content; empty for a game with no Tales
+   * active. See applyResolveUnitAction (./applyAction.ts) for how this
+   * drives which units may act when a card is played, and
+   * GameState.unitsCreatedThisTurn for the "can't activate the turn it's
+   * built" rule every companion piece shares.
+   */
+  companionKindsByCardKind: Record<string, string[]>
 }
 
 export const EMPTY_UNIT_CONTENT: UnitContent = {
@@ -146,4 +205,5 @@ export const EMPTY_UNIT_CONTENT: UnitContent = {
   terrainLevels: {},
   resourceCaps: {},
   unitSupplyCaps: {},
+  companionKindsByCardKind: {},
 }

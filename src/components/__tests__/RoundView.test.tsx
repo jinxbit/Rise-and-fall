@@ -53,6 +53,7 @@ function makeState(): GameState {
     chosenCardIdByPlayerId: { p1: null, p2: null },
     pendingPlayerIds: ['p1', 'p2'],
     resolvedUnitIdsThisTurn: [],
+    unitsCreatedThisTurn: [],
     turnOrder: ['p1', 'p2'],
     board: createEmptyBoard('hex'),
     players: [p1, p2],
@@ -413,7 +414,7 @@ function buildRealUnitContent(): UnitContent {
   for (const terrain of terrainJson.terrainTypes) terrainLevels[terrain.id] = terrain.level
   const resourceCaps: Partial<Record<keyof Resources, number | null>> = {}
   for (const resource of resourcesJson.resources) resourceCaps[resource.id as keyof Resources] = resource.playerCap
-  return { actionsByKind, movementByKind, terrainLevels, resourceCaps, unitSupplyCaps }
+  return { actionsByKind, movementByKind, terrainLevels, resourceCaps, unitSupplyCaps, companionKindsByCardKind: {} }
 }
 
 describe("RoundView — City's Convert to Merchant/Mountaineer (bug report: \"no follow up selection of which unit to transform\")", () => {

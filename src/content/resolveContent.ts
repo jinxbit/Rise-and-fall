@@ -9,11 +9,13 @@
 import achievementsJson from './achievements.json'
 import mapTemplatesJson from './mapTemplates.json'
 import resourcesJson from './resources.json'
+import talesJson from './tales.json'
 import terrainJson from './terrain.json'
 import unitsJson from './units.json'
 import type { AchievementContent } from '../engine/achievementContent'
 import { createEmptyBoard, setTile } from '../engine/board'
 import type { BoardGenerationContent, TileTierContent } from '../engine/boardGenerationContent'
+import type { TaleContent, TaleExtraUnitContent } from '../engine/taleContent'
 import type { UnitAction, UnitContent } from '../engine/unitContent'
 import type { Board, BoardShape, Resources, Terrain, UnitMovement } from '../engine/types'
 
@@ -64,7 +66,59 @@ export function resolveUnitContent(playerCount: number): UnitContent {
     resourceCaps[resource.id as keyof Resources] = resource.playerCap
   }
 
-  return { actionsByKind, movementByKind, terrainLevels, resourceCaps, unitSupplyCaps }
+  return { actionsByKind, movementByKind, terrainLevels, resourceCaps, unitSupplyCaps, companionKindsByCardKind: {} }
+}
+
+export interface TaleSummary {
+  id: string
+  number: number
+  name: string
+  description: string
+  category: string
+}
+
+/** Every Tale in the game, for a Tale-selection UI (draft or host-pick) — see content/tales.json. */
+export function listTales(): TaleSummary[] {
+  return talesJson.tales
+    .map((t) => ({ id: t.id, number: t.number, name: t.name, description: t.description, category: t.category }))
+    .sort((a, b) => a.number - b.number)
+}
+
+/**
+ * Resolves the merged TaleContent for whichever Tales are active in a
+ * given game (content/tales.json, filtered to `activeTaleIds`) — pass to
+ * src/engine/tales.ts's applyTaleModifiers on top of resolveUnitContent's
+ * result to get the game's effective UnitContent. Returns
+ * EMPTY_TALE_CONTENT's shape (all-empty) if activeTaleIds is empty, same
+ * "no Tales active" no-op behavior as EMPTY_TALE_CONTENT itself.
+ */
+export function resolveTaleContent(activeTaleIds: string[], playerCount: number): TaleContent {
+  const key = String(playerCount)
+  const activeIds = new Set(activeTaleIds)
+  const activeTales = talesJson.tales.filter((t) => activeIds.has(t.id)).sort((a, b) => a.number - b.number)
+
+  const extraUnitKinds: Record<string, TaleExtraUnitContent> = {}
+  const extraActionsByKind: Record<string, UnitAction[]> = {}
+  const movementOverridesByKind: Record<string, Partial<UnitMovement>> = {}
+
+  for (const tale of activeTales) {
+    for (const unit of tale.extraUnits ?? []) {
+      extraUnitKinds[unit.id] = {
+        movement: unit.movement as UnitMovement,
+        actions: unit.actions as UnitAction[],
+        supplyCap: unit.supply.byPlayerCount[key as keyof typeof unit.supply.byPlayerCount] ?? 0,
+        companionOfKind: unit.companionOfKind,
+      }
+    }
+    for (const [kind, actions] of Object.entries(tale.extraActionsByKind ?? {})) {
+      extraActionsByKind[kind] = [...(extraActionsByKind[kind] ?? []), ...(actions as UnitAction[])]
+    }
+    for (const [kind, override] of Object.entries(tale.movementOverridesByKind ?? {})) {
+      movementOverridesByKind[kind] = { ...movementOverridesByKind[kind], ...(override as Partial<UnitMovement>) }
+    }
+  }
+
+  return { extraUnitKinds, extraActionsByKind, movementOverridesByKind }
 }
 
 export function resolveResourceBank(playerCount: number): Resources {

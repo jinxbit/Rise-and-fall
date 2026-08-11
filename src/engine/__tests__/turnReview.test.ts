@@ -71,6 +71,7 @@ const content: UnitContent = {
   terrainLevels: { water: 0, plain: 1, forest: 2, mountain: 3, glacier: 4 },
   resourceCaps: { gold: null, wood: null, stone: null },
   unitSupplyCaps: {},
+  companionKindsByCardKind: {},
 }
 
 function makeGenesis(units: Unit[], board: GameState['board'], extraDeclineForP1: string[] = []): GameState {
