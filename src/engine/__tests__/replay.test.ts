@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { EMPTY_ACHIEVEMENT_CONTENT } from '../achievementContent'
+import type { AchievementContent } from '../achievementContent'
 import { applyAction } from '../applyAction'
 import { createEmptyBoard, setTile } from '../board'
 import type { BoardGenerationContent } from '../boardGenerationContent'
@@ -241,5 +243,86 @@ describe('actionHistory + replayActions — round phase', () => {
     const undone = replayActions(genesis, previousHistory, roundUnitContent)
 
     expect(stripTimestamps(undone)).toEqual(stripTimestamps(stateBeforePass))
+  })
+
+  // Feature request: "Make undoing possible even if the game ended."
+  // GamePage.tsx's handleUndo is unconditional replayActions(genesis,
+  // actionHistory.slice(0, -1)) regardless of `status` — this confirms the
+  // engine invariant that makes that work: undoing the very action that
+  // ended the game (finishRound's game-end branch, round.ts) reconstructs
+  // the pre-end state with status back to 'active', not stuck 'completed'.
+  it('undoing the action that ended the game reverts status from completed back to active', () => {
+    const turnOrder = ['p1', 'p2']
+    const cards: Record<string, Card> = {}
+    const p1Cards = createPlayerCards('p1')
+    const p2Cards = createPlayerCards('p2')
+    for (const c of [...p1Cards, ...p2Cards]) cards[c.id] = c
+    const board = setTile(setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'plain'), { q: 5, r: 0 }, 'plain')
+    const lobby = createNewGame({
+      gameId: 'g4',
+      playMode: 'hotseat',
+      board,
+      players: [
+        { id: 'p1', authUserId: null, displayName: 'Alice', color: 'red' },
+        { id: 'p2', authUserId: null, displayName: 'Bob', color: 'blue' },
+      ],
+      resourceBank: { gold: 100, wood: 100, stone: 100 },
+    })
+    const active: GameState = {
+      ...lobby,
+      board,
+      players: [makePlayer('p1', p1Cards.filter((c) => c.kind === 'city')), makePlayer('p2', p2Cards.filter((c) => c.kind === 'city'))],
+      cards,
+      turnOrder,
+      units: [
+        { id: 'city_a', ownerId: 'p1', kind: 'city', coord: { q: 0, r: 0 }, movement: unitContent.movementByKind.city, traits: [] },
+        { id: 'city_b', ownerId: 'p2', kind: 'city', coord: { q: 5, r: 0 }, movement: unitContent.movementByKind.city, traits: [] },
+      ],
+      status: 'active',
+    }
+    const genesis = beginSelectCardsPhase(syncCardZonesWithBoard(active))
+
+    // A single-achievement, single-round game: both players already hold
+    // their full city supply (cap 1) at genesis, so p1 resolving any city
+    // action claims city-mastery on the spot (updateAchievementClaims,
+    // achievements.ts) — reaching gameLength(1) the moment the round
+    // finishes.
+    const content: UnitContent = { ...roundUnitContent, unitSupplyCaps: { city: 1 } }
+    const achievementContent: AchievementContent = {
+      ...EMPTY_ACHIEVEMENT_CONTENT,
+      gameLength: 1,
+      unitKindByAchievementId: { 'city-mastery': 'city' },
+      achievementVictoryPoints: { 'city-mastery': 1 },
+    }
+
+    let state = genesis
+    for (const action of [
+      { type: 'CHOOSE_CARD' as const, playerId: 'p1', cardId: cardIdFor('p1', 'city') },
+      { type: 'CHOOSE_CARD' as const, playerId: 'p2', cardId: cardIdFor('p2', 'city') },
+      { type: 'RESOLVE_UNIT_ACTION' as const, playerId: 'p1', unitActions: [{ unitId: 'city_a', actionId: 'generate-income' }] },
+      { type: 'PASS_ACTIONS' as const, playerId: 'p2' },
+      // Claiming an achievement mid-round triggers the decline phase
+      // (isDeclineTriggered, decline.ts) — each player owes 1 card, and
+      // their just-played city card (now in discard) is the only candidate.
+      { type: 'MOVE_TO_DECLINE' as const, playerId: 'p1', cardId: cardIdFor('p1', 'city') },
+      { type: 'MOVE_TO_DECLINE' as const, playerId: 'p2', cardId: cardIdFor('p2', 'city') },
+      { type: 'PASS_PURCHASE' as const, playerId: 'p1' },
+      { type: 'PASS_PURCHASE' as const, playerId: 'p2' },
+    ]) {
+      const result = applyAction(state, action, content, achievementContent)
+      if (!result.ok) throw new Error(`setup failed at ${action.type}: ${result.error}`)
+      state = result.state
+    }
+
+    // The final PASS_PURCHASE closes the round, and closing the round with
+    // gameLength already reached is what ends the game.
+    expect(state.status).toBe('completed')
+    expect(state.winnerPlayerIds).toEqual(['p1'])
+
+    const previousHistory = state.actionHistory.slice(0, -1)
+    const undone = replayActions(genesis, previousHistory, content, achievementContent)
+
+    expect(undone.status).toBe('active')
+    expect(undone.winnerPlayerIds).toEqual([])
   })
 })

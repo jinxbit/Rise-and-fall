@@ -2520,3 +2520,52 @@ clean. Not manually verified in a live browser session — reaching an
 active round requires a Supabase-backed game in progress, so this
 relies on the RTL coverage above (which exercises the exact click
 interaction and rendered content) rather than a screenshot.
+
+## 55. Undo stopped working once the game ended
+
+Feature request: "Make undoing possible even if the game ended." The
+Undo button (`GamePage.tsx`) was gated on `me` (`disabled={!me || ...}`)
+even though `handleUndo`'s own doc comment says "any player, at any
+time" — `me` is really "which specific player is this action
+submission on behalf of," which every other button on the page needs
+(CHOOSE_CARD, RESOLVE_UNIT_ACTION, etc. all dispatch `{ playerId:
+me.id }`) but Undo never used at all; it only guarded on it.
+
+That mismatch broke Undo specifically once `gameState.status ===
+'completed'`: for skip-gate hotseat games, `me` follows
+`currentActorId(gameState)`, which is `null` once nobody's turn is
+next (`turnOrder.test.ts` already covered this for `currentActorId`
+itself) — so `me` went `undefined` the instant the game ended. For
+gated hotseat games it was worse: a *fresh page load* of an
+already-completed game never shows the pass-device gate at all (it
+only shows when there's a `pendingActorId` to hand the device to), so
+`hotseatActivePlayerId` — and therefore `me` — stayed `null`
+permanently, with no way to trigger it. Live/async games were
+unaffected (`me` there just matches the signed-in session to a seated
+`players` row, independent of game status).
+
+Fix: dropped the `!me` guard from both `handleUndo` and the button's
+`disabled` condition — Undo doesn't submit a player-attributed action,
+so it has no use for `me`. The write stays safe without the client-side
+gate: RLS ("seated players can update game state",
+0001_init_schema.sql) already requires the authenticated user to be a
+seated player of this game before any game_state write lands, so a
+signed-in stranger who isn't seated can click the now-always-enabled
+button but their write simply won't land (surfaces the existing
+"couldn't sync" retry-exhausted error).
+
+Also confirmed the underlying engine invariant Undo depends on:
+dropping the game-ending action from `actionHistory` and replaying
+(`replayActions`) reverts `status` from `'completed'` back to
+`'active'`, since `status` is just another field on the replayed
+state, not tracked separately — added
+`replay.test.ts`'s "undoing the action that ended the game reverts
+status from completed back to active" covering a full genesis ->
+CHOOSE_CARD -> RESOLVE_UNIT_ACTION (claims the achievement that hits
+`gameLength`) -> decline -> purchase sequence ending the game, then
+replaying everything but the closing action. 408 tests total (was
+407); `tsc -b`/`oxlint`/`vitest run`/`npm run build` all clean. No
+`GamePage.tsx` test exists (no page in this codebase has Supabase-
+wiring test coverage — engine/component tests only), so this specific
+fix is verified by code reading plus the engine-level replay
+invariant it relies on, not a dedicated UI test.

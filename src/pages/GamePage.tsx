@@ -198,22 +198,41 @@ export function GamePage() {
   }
 
   /**
-   * Undo: any player, at any time, can roll the game back one action.
+   * Undo: any player, at any time, can roll the game back one action —
+   * deliberately not gated on `me`, unlike every other action here. `me` is
+   * "which specific player is this submission on behalf of" (a hotseat seat
+   * or the signed-in live player), which Undo has no use for since it
+   * doesn't submit a player-attributed action. That matters once the game
+   * ends: `me` for skip-gate hotseat games follows `currentActorId`, which
+   * is null once `status: 'completed'` (nobody's turn anymore) — and for
+   * gated hotseat games, a fresh page load of an already-completed game
+   * never shows the pass-device gate to set `hotseatActivePlayerId` in the
+   * first place, so `me` is null there too. Gating Undo on `me` would make
+   * it silently unavailable in both cases right when it's most wanted (fix
+   * up the final round after seeing the end-of-game screen). The actual
+   * write is still safe without it — RLS only lets a seated player of this
+   * game write game_state at all (0001_init_schema.sql), so a signed-in
+   * stranger with the room-code URL can click this but their write simply
+   * won't land.
+   *
    * Genesis isn't stored anywhere (see GameState.actionHistory's doc
    * comment) — it's deterministically rebuilt from the game's row + seated
    * players (buildGenesisState, same logic LobbyPage.tsx used to start the
    * game) and every logged action except the last one is replayed on top of
    * it (replayActions), which is exactly what event sourcing buys us here:
    * "step back one action" needs no separate undo stack, just a shorter
-   * replay. The log itself needs no separate note about what got undone —
-   * it's derived fresh from actionHistory (see gameLog above), so a shorter
-   * history just naturally narrates one fewer step. Recomputed fresh on
-   * each writeWithRetry attempt (not just once up front), since a retry
-   * replays against newer state than what `gameState` held when the button
-   * was clicked.
+   * replay — including unwinding `status: 'completed'` back to `'active'`
+   * when the undone action was the one that ended the game, since that
+   * status lives on the replayed GameState like everything else. The log
+   * itself needs no separate note about what got undone — it's derived
+   * fresh from actionHistory (see gameLog above), so a shorter history just
+   * naturally narrates one fewer step. Recomputed fresh on each
+   * writeWithRetry attempt (not just once up front), since a retry replays
+   * against newer state than what `gameState` held when the button was
+   * clicked.
    */
   async function handleUndo() {
-    if (!me || !game) return
+    if (!game) return
     setUndoing(true)
     try {
       const result = await writeWithRetry((state) => {
@@ -259,9 +278,9 @@ export function GamePage() {
           </ul>
           <button
             type="button"
-            disabled={!me || undoing || !gameState || gameState.actionHistory.length === 0}
+            disabled={undoing || !gameState || gameState.actionHistory.length === 0}
             onClick={() => void handleUndo()}
-            title="Undo the last action — any player can do this, at any time."
+            title="Undo the last action — any player can do this, at any time, even after the game has ended."
             className="rounded-md border border-neutral-700 px-3 py-1 text-sm hover:border-neutral-500 disabled:opacity-50"
           >
             {undoing ? 'Undoing…' : 'Undo last action'}
