@@ -41,3 +41,10 @@ export interface GameStateRow {
   version: number
   updated_at: string
 }
+
+/** Per-account settings — see supabase/migrations/0005_discord_webhooks.sql. */
+export interface ProfileRow {
+  user_id: string
+  discord_webhook_url: string | null
+  updated_at: string
+}

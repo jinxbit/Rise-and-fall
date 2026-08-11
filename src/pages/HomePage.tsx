@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { DiscordSignIn } from '../components/DiscordSignIn'
+import { DiscordWebhookSettings } from '../components/DiscordWebhookSettings'
 import { GuestSignIn } from '../components/GuestSignIn'
 import { MapTemplateSelector } from '../components/MapTemplateSelector'
 import { PlayModeSelector } from '../components/PlayModeSelector'
@@ -99,6 +100,8 @@ export function HomePage() {
       </header>
 
       {error && <div className="rounded-md bg-red-500/10 p-3 text-sm text-red-400">{error}</div>}
+
+      <DiscordWebhookSettings userId={user.id} />
 
       <section className="flex flex-col gap-3">
         <h2 className="font-medium text-neutral-200">Create a game</h2>
