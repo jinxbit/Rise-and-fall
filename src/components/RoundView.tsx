@@ -13,6 +13,7 @@ import type { UnitAction, UnitContent } from '../engine/unitContent'
 import type { PlayerRow } from '../lib/dbTypes'
 import type { GhostCell, HistoryArrow, HistoryHaloType, UnitMarker } from './HexBoard'
 import { HexBoard } from './HexBoard'
+import { UnitIcon } from './UnitIcon'
 
 const ACHIEVEMENTS = listAchievements()
 
@@ -127,10 +128,31 @@ function deltaSuffix(amount: number | undefined): string {
   return ` (${amount > 0 ? '+' : ''}${amount})`
 }
 
-/** The unit kind each of a set of card ids corresponds to, e.g. "City, City, Nomad" — 'none' when the zone is empty. */
-function cardKindsInZone(cardIds: string[], cards: Record<string, Card>): string {
-  const kinds = cardIds.map((id) => cards[id]?.kind).filter((kind): kind is string => Boolean(kind))
-  return kinds.length > 0 ? kinds.map(capitalize).join(', ') : 'none'
+/** The unit kind each of a set of card ids corresponds to, one entry per card (so a zone with two Cities lists 'city' twice). */
+function kindsInZone(cardIds: string[], cards: Record<string, Card>): string[] {
+  return cardIds.map((id) => cards[id]?.kind).filter((kind): kind is string => Boolean(kind))
+}
+
+/** One small icon per unit kind in `kinds` — the compact, at-a-glance stand-in for what used to be a comma-separated list of kind names. */
+function KindIconRow({ kinds, emptyLabel = 'none' }: { kinds: string[]; emptyLabel?: string }) {
+  if (kinds.length === 0) return <span className="text-neutral-500">{emptyLabel}</span>
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1 align-middle">
+      {kinds.map((kind, i) => (
+        <UnitIcon key={i} kind={kind} title={capitalize(kind)} className="h-4 w-4 shrink-0 text-neutral-300" />
+      ))}
+    </span>
+  )
+}
+
+/** A unit kind's icon paired with a count, e.g. remaining supply or on-board totals — the icon stands in for the kind name entirely. */
+function UnitCountBadge({ kind, count }: { kind: string; count: number }) {
+  return (
+    <span className="inline-flex items-center gap-1" title={capitalize(kind)}>
+      <UnitIcon kind={kind} className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
+      <span>{count}</span>
+    </span>
+  )
 }
 
 const VP_BREAKDOWN_LABELS: [keyof Omit<VPBreakdown, 'total'>, string][] = [
@@ -152,8 +174,8 @@ function PlayerDetailPanel({ state, player, breakdown }: { state: GameState; pla
     if (unit.ownerId !== player.id) continue
     unitCountsByKind.set(unit.kind, (unitCountsByKind.get(unit.kind) ?? 0) + 1)
   }
-  const unitCounts = [...unitCountsByKind.entries()].map(([kind, count]) => `${capitalize(kind)} ${count}`)
-  const currentlyPlayed = player.currentlyPlayedCardId ? cardKindsInZone([player.currentlyPlayedCardId], state.cards) : 'none'
+  const unitCounts = [...unitCountsByKind.entries()].map(([kind, count]) => ({ kind, count }))
+  const currentlyPlayed = player.currentlyPlayedCardId ? kindsInZone([player.currentlyPlayedCardId], state.cards) : []
 
   return (
     <div className="flex flex-col gap-3 rounded-md border border-neutral-800 bg-neutral-900/50 p-3 text-xs text-neutral-400">
@@ -161,17 +183,35 @@ function PlayerDetailPanel({ state, player, breakdown }: { state: GameState; pla
         <p className="mb-1 font-medium text-neutral-200">VP breakdown — {breakdown?.total ?? 0} total</p>
         <p>{VP_BREAKDOWN_LABELS.map(([key, label]) => `${label} ${breakdown?.[key] ?? 0}`).join(', ')}</p>
       </div>
-      <div>
-        <p className="mb-1 font-medium text-neutral-200">Cards</p>
-        <p>Hand: {cardKindsInZone(player.handCardIds, state.cards)}</p>
-        <p>Currently played: {currentlyPlayed}</p>
-        <p>Discard: {cardKindsInZone(player.discardCardIds, state.cards)}</p>
-        <p>Decline: {cardKindsInZone(player.declineCardIds, state.cards)}</p>
-        <p>Supply: {cardKindsInZone(player.supplyCardIds, state.cards)}</p>
+      <div className="flex flex-col gap-1">
+        <p className="font-medium text-neutral-200">Cards</p>
+        <p className="flex items-center gap-1.5">
+          Hand: <KindIconRow kinds={kindsInZone(player.handCardIds, state.cards)} />
+        </p>
+        <p className="flex items-center gap-1.5">
+          Currently played: <KindIconRow kinds={currentlyPlayed} />
+        </p>
+        <p className="flex items-center gap-1.5">
+          Discard: <KindIconRow kinds={kindsInZone(player.discardCardIds, state.cards)} />
+        </p>
+        <p className="flex items-center gap-1.5">
+          Decline: <KindIconRow kinds={kindsInZone(player.declineCardIds, state.cards)} />
+        </p>
+        <p className="flex items-center gap-1.5">
+          Supply: <KindIconRow kinds={kindsInZone(player.supplyCardIds, state.cards)} />
+        </p>
       </div>
       <div>
         <p className="mb-1 font-medium text-neutral-200">Units on board</p>
-        <p>{unitCounts.length > 0 ? unitCounts.join(', ') : 'none'}</p>
+        {unitCounts.length > 0 ? (
+          <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            {unitCounts.map(({ kind, count }) => (
+              <UnitCountBadge key={kind} kind={kind} count={count} />
+            ))}
+          </p>
+        ) : (
+          <p className="text-neutral-500">none</p>
+        )}
       </div>
       <div>
         <p className="mb-1 font-medium text-neutral-200">Resources</p>
@@ -209,16 +249,16 @@ function PlayersStrip({
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap gap-2 text-xs text-neutral-400">
+      <div className="flex flex-col gap-2 text-xs text-neutral-400">
         {visiblePlayers.map((player) => {
           const row = players.find((p) => p.id === player.id)
           const handKinds = player.handCardIds.map((cardId) => state.cards[cardId]?.kind).filter((kind): kind is string => Boolean(kind))
-          const remainingByKind = UNIT_KINDS.map((kind) => {
+          const remainingByKind = UNIT_KINDS.flatMap((kind) => {
             const cap = unitContent.unitSupplyCaps[kind]
-            if (cap === undefined) return null
+            if (cap === undefined) return []
             const onBoard = state.units.filter((u) => u.ownerId === player.id && u.kind === kind).length
-            return `${capitalize(kind)} ${Math.max(0, cap - onBoard)}`
-          }).filter((entry): entry is string => entry !== null)
+            return [{ kind, count: Math.max(0, cap - onBoard) }]
+          })
           const delta = resourceDeltaByPlayerId?.[player.id]
           const isExpanded = expandedPlayerId === player.id
           return (
@@ -228,29 +268,42 @@ function PlayersStrip({
               onClick={() => setExpandedPlayerId((prev) => (prev === player.id ? null : player.id))}
               aria-expanded={isExpanded}
               title="Click for full VP breakdown, cards, unit counts, and resources."
-              className={`flex flex-wrap items-center gap-2 rounded-md border bg-transparent px-2 py-1 text-left hover:border-neutral-600 ${
+              className={`flex w-full flex-col gap-1 rounded-md border bg-transparent px-2 py-1.5 text-left hover:border-neutral-600 ${
                 isExpanded ? 'border-indigo-400' : player.id === myPlayerId ? 'border-indigo-600' : 'border-neutral-800'
               } ${player.eliminated ? 'opacity-40' : ''}`}
             >
-              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: row?.color ?? '#a3a3a3' }} />
-              <span className="text-neutral-200">{row?.display_name ?? player.id}</span>
-              {player.eliminated && <span>(eliminated)</span>}
-              <span className="font-medium text-neutral-200">Score {breakdownByPlayerId[player.id]?.total ?? 0}</span>
-              <span>
-                Gold {player.resources.gold}
-                {delta && <span className="text-emerald-400">{deltaSuffix(delta.gold)}</span>}
+              <span className="flex items-center gap-1.5">
+                <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: row?.color ?? '#a3a3a3' }} />
+                <span className="text-neutral-200">{row?.display_name ?? player.id}</span>
+                {player.eliminated && <span>(eliminated)</span>}
+                <span className="ml-auto font-medium text-neutral-200">Score {breakdownByPlayerId[player.id]?.total ?? 0}</span>
               </span>
-              <span>
-                Wood {player.resources.wood}
-                {delta && <span className="text-emerald-400">{deltaSuffix(delta.wood)}</span>}
+              <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                <span>
+                  Gold {player.resources.gold}
+                  {delta && <span className="text-emerald-400">{deltaSuffix(delta.gold)}</span>}
+                </span>
+                <span>
+                  Wood {player.resources.wood}
+                  {delta && <span className="text-emerald-400">{deltaSuffix(delta.wood)}</span>}
+                </span>
+                <span>
+                  Stone {player.resources.stone}
+                  {delta && <span className="text-emerald-400">{deltaSuffix(delta.stone)}</span>}
+                </span>
+                <span className="ml-auto">Decline {player.declineCardIds.length}</span>
               </span>
-              <span>
-                Stone {player.resources.stone}
-                {delta && <span className="text-emerald-400">{deltaSuffix(delta.stone)}</span>}
+              <span className="flex flex-wrap items-center gap-1.5">
+                <span>Hand</span>
+                <KindIconRow kinds={handKinds} emptyLabel="empty" />
               </span>
-              <span>Hand: {handKinds.length > 0 ? handKinds.map(capitalize).join(', ') : 'empty'}</span>
-              <span>Decline {player.declineCardIds.length}</span>
-              {remainingByKind.length > 0 && <span>Remaining: {remainingByKind.join(', ')}</span>}
+              {remainingByKind.length > 0 && (
+                <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  {remainingByKind.map(({ kind, count }) => (
+                    <UnitCountBadge key={kind} kind={kind} count={count} />
+                  ))}
+                </span>
+              )}
             </button>
           )
         })}
@@ -294,11 +347,14 @@ function AchievementsPanel({ state, players, achievementContent }: { state: Game
             <span
               key={achievement.id}
               title={achievement.description}
-              className={`rounded-md border px-2 py-1 ${
+              className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 ${
                 claimedBy ? 'border-amber-700/50 bg-amber-500/10 text-amber-400' : 'border-neutral-800 text-neutral-500'
               }`}
             >
-              {achievement.name} ({achievement.victoryPoints} VP) — {claimedBy ? playerName(players, claimedBy) : 'unclaimed'}
+              <UnitIcon kind={achievement.unitId} className="h-3.5 w-3.5 shrink-0" />
+              <span>
+                {achievement.name} ({achievement.victoryPoints} VP) — {claimedBy ? playerName(players, claimedBy) : 'unclaimed'}
+              </span>
             </span>
           )
         })}
@@ -650,25 +706,32 @@ export function RoundView(props: {
         />
       )}
 
-      <HexBoard
-        board={state.board}
-        units={units}
-        arrows={historyArrows}
-        ghostCells={ghostCells}
-        actionMenu={actionMenu}
-        interactive={isMyActionTurn}
-        onHexClick={isMyActionTurn ? handleBoardClick : undefined}
-      />
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
+        <div className="min-w-0 flex-1">
+          <HexBoard
+            board={state.board}
+            units={units}
+            arrows={historyArrows}
+            ghostCells={ghostCells}
+            actionMenu={actionMenu}
+            interactive={isMyActionTurn}
+            onHexClick={isMyActionTurn ? handleBoardClick : undefined}
+          />
+        </div>
+        {/* Sits beside the board (not below it) so the full roster and achievements stay in view without scrolling past the map — see PlayersStrip/AchievementsPanel's icon-based, per-player-card layout, built for this narrower column. */}
+        <div className="flex w-full flex-col gap-4 lg:w-72 lg:shrink-0 xl:w-80">
+          <PlayersStrip
+            state={state}
+            players={players}
+            myPlayerId={myPlayerId}
+            unitContent={unitContent}
+            achievementContent={achievementContent}
+            resourceDeltaByPlayerId={showHistory ? turnReview?.resourceDeltaByPlayerId : null}
+          />
+          <AchievementsPanel state={state} players={players} achievementContent={achievementContent} />
+        </div>
+      </div>
 
-      <PlayersStrip
-        state={state}
-        players={players}
-        myPlayerId={myPlayerId}
-        unitContent={unitContent}
-        achievementContent={achievementContent}
-        resourceDeltaByPlayerId={showHistory ? turnReview?.resourceDeltaByPlayerId : null}
-      />
-      <AchievementsPanel state={state} players={players} achievementContent={achievementContent} />
       <LogPanel gameLog={props.gameLog} />
     </div>
   )

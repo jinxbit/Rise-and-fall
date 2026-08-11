@@ -93,10 +93,14 @@ describe('RoundView — player status summary and achievements panel', () => {
       />,
     )
 
-    // p1 is myPlayerId, so their chip shows both in the compact current-player
-    // bar at the top and again in the full players strip under the map.
-    expect(screen.getAllByText('Hand: Nomad, Ship')).toHaveLength(2)
-    expect(screen.getByText('Hand: City')).toBeInTheDocument()
+    // Hand cards render as icons now, not kind names — each icon carries the
+    // kind as its accessible title. p1 is myPlayerId, so their hand (Nomad,
+    // Ship) shows both in the compact current-player bar at the top and
+    // again in the full players strip beside the board.
+    expect(screen.getAllByTitle('Nomad')).toHaveLength(2)
+    expect(screen.getAllByTitle('Ship')).toHaveLength(2)
+    // p2's hand (City) only shows once, in the full strip.
+    expect(screen.getAllByTitle('City')).toHaveLength(1)
   })
 
   it('shows every achievement (claimed and unclaimed) and the current decline buyback price', () => {
@@ -144,7 +148,7 @@ describe('RoundView — player status summary and achievements panel', () => {
       unitSupplyCaps: { city: 2, temple: 2, nomad: 3, merchant: 2, mountaineer: 2, ship: 2 },
     }
 
-    render(
+    const { container } = render(
       <RoundView
         state={state}
         players={players}
@@ -164,11 +168,16 @@ describe('RoundView — player status summary and achievements panel', () => {
       />,
     )
 
-    // p1 has 1 of 3 Nomads built, everything else untouched. p1 is myPlayerId,
-    // so it shows both in the compact current-player bar and the full strip.
-    expect(screen.getAllByText('Remaining: City 2, Temple 2, Nomad 2, Merchant 2, Mountaineer 2, Ship 2')).toHaveLength(2)
-    // p2 has built nothing at all — full supply remaining across the board.
-    expect(screen.getByText('Remaining: City 2, Temple 2, Nomad 3, Merchant 2, Mountaineer 2, Ship 2')).toBeInTheDocument()
+    // Remaining supply now renders as icon+count badges (title = kind name,
+    // visible text = the count) instead of a "Kind N" text list.
+    // p1 has 1 of 3 Nomads built (remaining 2), everything else untouched;
+    // p1 is myPlayerId, so their badges show both in the compact
+    // current-player bar and the full strip beside the board.
+    const nomadCounts = [...container.querySelectorAll('span[title="Nomad"]')].map((el) => el.textContent)
+    // p2 has built nothing at all — full supply (3) remaining.
+    expect(nomadCounts).toEqual(['2', '2', '3'])
+    const shipCounts = [...container.querySelectorAll('span[title="Ship"]')].map((el) => el.textContent)
+    expect(shipCounts).toEqual(['2', '2', '2'])
   })
 
   it("shows each player's current score, computed live from claimed achievements — not just at game end (see the next test for terrain-control)", () => {
@@ -278,7 +287,7 @@ describe('RoundView — player status summary and achievements panel', () => {
     expect(screen.getByText('Score 5')).toBeInTheDocument()
   })
 
-  it('renders the achievements panel last, after the board and the log — not near the top with the rest of the status summary', () => {
+  it('renders the achievements panel and full player roster beside the board, after it in document order — not near the top with the compact current-player summary', () => {
     const state = makeState()
     const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
 
@@ -302,15 +311,19 @@ describe('RoundView — player status summary and achievements panel', () => {
       />,
     )
 
-    const root = container.firstElementChild!
-    const children = [...root.children]
-    const achievementsIndex = children.findIndex((el) => el.textContent?.includes('Buy back from decline'))
-    const boardIndex = children.findIndex((el) => el.textContent?.includes('Board has not been generated yet'))
-    expect(achievementsIndex).toBeGreaterThan(-1)
-    expect(boardIndex).toBeGreaterThan(-1)
-    // The achievements panel is the very last child, after the board.
-    expect(achievementsIndex).toBe(children.length - 1)
-    expect(achievementsIndex).toBeGreaterThan(boardIndex)
+    const boardPlaceholder = [...container.querySelectorAll('div')].find((el) => el.textContent === 'Board has not been generated yet.')
+    const achievementsBlock = [...container.querySelectorAll('p')].find((el) => el.textContent?.startsWith('Buy back from decline'))
+    expect(boardPlaceholder).toBeTruthy()
+    expect(achievementsBlock).toBeTruthy()
+    // The achievements panel — and the full player roster it sits directly
+    // under — comes after the board in document order: it's the sidebar
+    // beside the map, not a block near the top of the page.
+    expect(boardPlaceholder!.compareDocumentPosition(achievementsBlock!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+    // The compact top-of-page summary shows only the current player — not
+    // the achievements panel or the rest of the roster.
+    const topBar = container.firstElementChild!.children[0]
+    expect(topBar.textContent).not.toContain('Buy back from decline')
   })
 })
 
@@ -327,7 +340,7 @@ describe('RoundView — player detail panel (click a player chip for more info)'
     }
     const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
 
-    render(
+    const { container } = render(
       <RoundView
         state={state}
         players={players}
@@ -357,15 +370,23 @@ describe('RoundView — player detail panel (click a player chip for more info)'
     // p1: 2 Nomads on board -> boardCount curve [1, 3] at count 2 -> 3 VP; 5 gold at 2 gold/point -> 2 VP; total 5.
     expect(screen.getByText('VP breakdown — 5 total')).toBeInTheDocument()
     expect(screen.getByText('Achievements 0, Board count 3, Terrain control 0, Gold 2')).toBeInTheDocument()
-    expect(screen.getByText('Currently played: none')).toBeInTheDocument()
-    expect(screen.getByText('Discard: none')).toBeInTheDocument()
-    expect(screen.getByText('Decline: none')).toBeInTheDocument()
+    // "Currently played"/"Discard"/"Decline" pair a label text node with a
+    // nested icon-row element (rendering "none" when empty), so the full
+    // line's text is split across elements — match on the full textContent instead.
+    const fullTextP = (text: string) => screen.getByText((_, el) => el?.tagName === 'P' && el.textContent === text)
+    expect(fullTextP('Currently played: none')).toBeInTheDocument()
+    expect(fullTextP('Discard: none')).toBeInTheDocument()
+    expect(fullTextP('Decline: none')).toBeInTheDocument()
     expect(screen.getByText(/^Supply:/)).toBeInTheDocument()
-    expect(screen.getByText('Nomad 2')).toBeInTheDocument()
+    // "Units on board" renders as an icon+count badge (title = kind name).
+    expect(container.querySelector('span[title="Nomad"]')?.textContent).toBe('2')
     expect(screen.getByText('Gold 5, Wood 2, Stone 1')).toBeInTheDocument()
-    // "Hand: ..." shows in the top bar's chip, the full strip's chip, and the
-    // detail panel — same info, three places, since p1 is myPlayerId.
-    expect(screen.getAllByText('Hand: Nomad, Ship')).toHaveLength(3)
+    // Hand cards render as icons (title = kind name) — one Nomad and one
+    // Ship icon in the top bar's chip, the full strip's chip, and the
+    // detail panel's own "Hand: ..." line — three places, since p1 is myPlayerId.
+    const iconTitle = (kind: string) => [...container.querySelectorAll('svg > title')].filter((el) => el.textContent === kind)
+    expect(iconTitle('Nomad')).toHaveLength(3)
+    expect(iconTitle('Ship')).toHaveLength(3)
 
     fireEvent.click(screen.getAllByText('Alice')[1].closest('button')!)
     expect(screen.queryByText(/VP breakdown/)).not.toBeInTheDocument()
@@ -494,7 +515,11 @@ describe("RoundView — City's Convert to Merchant/Mountaineer (bug report: \"no
 
     // Base hex tiles render before any ghost/menu overlays — the City
     // (placed first) is the first polygon, the Nomad's hex the second.
-    const basePolygons = container.querySelectorAll('svg > polygon')
+    // Scoped to the board's own <svg> (identified by its background class)
+    // since the player status sidebar now also renders unit-icon <svg>s
+    // with their own direct <polygon> children.
+    const boardSvg = container.querySelector('svg.bg-neutral-950')!
+    const basePolygons = boardSvg.querySelectorAll(':scope > polygon')
     fireEvent.click(basePolygons[0])
 
     const convertOption = [...container.querySelectorAll('foreignObject div')].find((d) => d.textContent === 'Convert to Merchant')
@@ -506,7 +531,7 @@ describe("RoundView — City's Convert to Merchant/Mountaineer (bug report: \"no
     expect(onResolveUnit).not.toHaveBeenCalled()
     expect(container.querySelectorAll('polygon[fill="rgba(34,197,94,0.25)"]')).toHaveLength(1)
 
-    fireEvent.click(container.querySelectorAll('svg > polygon')[1])
+    fireEvent.click(boardSvg.querySelectorAll(':scope > polygon')[1])
 
     expect(onResolveUnit).toHaveBeenCalledWith('city1', 'create-merchant', { q: 1, r: 0 })
   })
