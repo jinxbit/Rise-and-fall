@@ -55,6 +55,15 @@ function PhaseBanner({ state }: { state: GameState }) {
   )
 }
 
+/** How much gold is left in the shared bank for players to draw from — see GameState.resourceBank. */
+function BankGold({ state }: { state: GameState }) {
+  return (
+    <p className="text-sm text-neutral-400" title="Gold remaining in the shared bank">
+      Bank: <span className="font-medium text-neutral-200">{state.resourceBank.gold} gold</span>
+    </p>
+  )
+}
+
 interface UnitHistorySummary {
   halos: HistoryHaloType[]
   resourceDelta: Partial<Resources>
@@ -569,7 +578,10 @@ export function RoundView(props: {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-3">
-        <PhaseBanner state={state} />
+        <div className="flex items-center gap-4">
+          <PhaseBanner state={state} />
+          <BankGold state={state} />
+        </div>
         <div className="flex items-center gap-2">
           {showHistory && turnReview && turnReview.events.length === 0 && (
             <span className="text-xs text-neutral-500">Nothing since your last turn.</span>
