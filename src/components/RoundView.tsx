@@ -251,6 +251,8 @@ function PlayersStrip({
           const handKinds = kindsInZone(player.handCardIds, state.cards)
           const discardKinds = kindsInZone(player.discardCardIds, state.cards)
           const declineKinds = kindsInZone(player.declineCardIds, state.cards)
+          const chosenCardId = state.chosenCardIdByPlayerId[player.id]
+          const chosenKind = chosenCardId ? state.cards[chosenCardId]?.kind : undefined
           const remainingByKind = UNIT_KINDS.flatMap((kind) => {
             const cap = unitContent.unitSupplyCaps[kind]
             if (cap === undefined) return []
@@ -295,6 +297,12 @@ function PlayersStrip({
                   {delta && <span className="text-emerald-400">{deltaSuffix(delta.stone)}</span>}
                 </span>
               </span>
+              {state.roundPhase === 'actions' && chosenKind && (
+                <span className="flex items-center gap-1.5 text-indigo-400" title={`Playing ${capitalize(chosenKind)} this turn`}>
+                  <span>Playing</span>
+                  <UnitIcon kind={chosenKind} className="h-4 w-4 shrink-0" />
+                </span>
+              )}
               <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
                 <span className="flex items-center gap-1.5">
                   <span>Hand</span>

@@ -144,6 +144,66 @@ describe('RoundView — player status summary and achievements panel', () => {
     expect(screen.getAllByText('empty')).toHaveLength(2)
   })
 
+  it("shows each player's chosen card as a 'Playing' icon during the actions phase, and not otherwise", () => {
+    const base = makeState() // roundPhase: 'selectCards'
+    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
+
+    const { rerender } = render(
+      <RoundView
+        state={base}
+        players={players}
+        myPlayerId="p1"
+        unitContent={EMPTY_UNIT_CONTENT}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        turnReview={null}
+        showHistory={false}
+        onToggleHistory={() => {}}
+        gameLog={[]}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+
+    // Nobody has chosen yet, and it's not the actions phase — no "Playing" indicator at all.
+    expect(screen.queryByText('Playing')).not.toBeInTheDocument()
+
+    const state = {
+      ...base,
+      roundPhase: 'actions' as const,
+      chosenCardIdByPlayerId: { p1: cardIdFor('p1', 'nomad'), p2: cardIdFor('p2', 'city') },
+      pendingPlayerIds: ['p1', 'p2'],
+      activePlayerId: 'p1',
+    }
+    rerender(
+      <RoundView
+        state={state}
+        players={players}
+        myPlayerId="p1"
+        unitContent={EMPTY_UNIT_CONTENT}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        turnReview={null}
+        showHistory={false}
+        onToggleHistory={() => {}}
+        gameLog={[]}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+
+    // Alice chose Nomad, Bob chose City — each shown as their own "Playing" icon.
+    expect(screen.getAllByText('Playing')).toHaveLength(2)
+    expect(screen.getByTitle('Playing Nomad this turn')).toBeInTheDocument()
+    expect(screen.getByTitle('Playing City this turn')).toBeInTheDocument()
+  })
+
   it('marks the start player (turnOrder[0]) and moves the mark when turnOrder rotates', () => {
     const state = makeState() // turnOrder: ['p1', 'p2']
     const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
