@@ -260,7 +260,7 @@ export function GamePage() {
         }
         const genesis = buildGenesisState(game, players)
         const previousHistory = state.actionHistory.slice(0, -1)
-        undoneAction = state.actionHistory[state.actionHistory.length - 1]
+        undoneAction = state.actionHistory[state.actionHistory.length - 1].action
         const undoneState = replayActions(genesis, previousHistory, unitContent, achievementContent, boardGenerationContent)
         return { ok: true, state: undoneState }
       })
