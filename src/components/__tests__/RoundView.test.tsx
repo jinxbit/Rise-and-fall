@@ -719,6 +719,116 @@ describe("RoundView — City's Convert to Merchant/Mountaineer (bug report: \"no
   })
 })
 
+describe('RoundView — stacked units on one hex (Ship + Port, The Ports Tale)', () => {
+  const shipMovement: UnitMovement = { isMobile: true, terrains: ['water'], canCrossCliffs: false, blockedByUnits: 'none' }
+  const portMovement: UnitMovement = { isMobile: false, terrains: [], canCrossCliffs: false }
+  const content: UnitContent = {
+    actionsByKind: {
+      ship: [{ id: 'ship-income', name: 'Ship Income', description: '', effect: { actionType: 'income', goldByTerrain: { water: 3 } } }],
+      port: [{ id: 'port-income', name: 'Port Income', description: '', effect: { actionType: 'income', goldByTerrain: { water: 5 } } }],
+    },
+    movementByKind: { ship: shipMovement, port: portMovement },
+    terrainLevels: { water: 0, plain: 1, forest: 2, mountain: 3, glacier: 4 },
+    resourceCaps: { gold: null, wood: 5, stone: 5 },
+    unitSupplyCaps: { ship: 10, port: 10 },
+    companionKindsByCardKind: { ship: ['port'] },
+  }
+
+  function renderStacked() {
+    const board = setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'water')
+    const ship: Unit = { id: 'ship1', ownerId: 'p1', kind: 'ship', coord: { q: 0, r: 0 }, movement: shipMovement, traits: [] }
+    const port: Unit = { id: 'port1', ownerId: 'p1', kind: 'port', coord: { q: 0, r: 0 }, movement: portMovement, traits: [] }
+
+    const lobby = createNewGame({
+      gameId: 'g',
+      playMode: 'hotseat',
+      board,
+      players: [
+        { id: 'p1', authUserId: null, displayName: 'Alice', color: 'red' },
+        { id: 'p2', authUserId: null, displayName: 'Bob', color: 'blue' },
+      ],
+      resourceBank: { gold: 1000, wood: 1000, stone: 1000 },
+    })
+    // p2 never gets units here — this test only exercises p1's own
+    // Ship/Port flow — so p2 is excluded up front (not in turnOrder,
+    // marked eliminated) rather than left for beginSelectCardsPhase to
+    // eliminate naturally: eliminatePlayer now ends the game outright once
+    // only one player remains (elimination.ts), which would otherwise
+    // complete the game before this test's own actions even run.
+    const active: GameState = {
+      ...lobby,
+      board,
+      units: [ship, port],
+      status: 'active',
+      turnOrder: ['p1'],
+      players: lobby.players.map((p) => (p.id === 'p2' ? { ...p, eliminated: true } : p)),
+    }
+    const selecting = beginSelectCardsPhase(syncCardZonesWithBoard(active))
+    const chosen = applyAction(selecting, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'ship') }, content)
+    if (!chosen.ok) throw new Error('setup failed: ' + chosen.error)
+
+    const players: PlayerRow[] = [
+      { id: 'p1', game_id: 'g', user_id: 'p1', display_name: 'Alice', avatar_url: null, seat_index: 0, color: '#ef4444', is_active: true, joined_at: '' },
+      { id: 'p2', game_id: 'g', user_id: 'p2', display_name: 'Bob', avatar_url: null, seat_index: 1, color: '#3b82f6', is_active: true, joined_at: '' },
+    ]
+
+    const onResolveUnit = vi.fn()
+    const { container } = render(
+      <RoundView
+        state={chosen.state}
+        players={players}
+        myPlayerId="p1"
+        unitContent={content}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        turnReview={null}
+        showHistory={false}
+        onToggleHistory={() => {}}
+        gameLog={[]}
+        onChooseCard={() => {}}
+        onResolveUnit={onResolveUnit}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+    return { container, onResolveUnit }
+  }
+
+  it('clicking the shared hex opens one grouped menu offering both units\' actions, each labeled by kind', () => {
+    const { container } = renderStacked()
+
+    const basePolygon = container.querySelector('svg > polygon')
+    fireEvent.click(basePolygon!)
+
+    const optionTexts = [...container.querySelectorAll('foreignObject div')].map((d) => d.textContent ?? '')
+    expect(optionTexts.some((t) => t.includes('Ship') && t.includes('Ship Income'))).toBe(true)
+    expect(optionTexts.some((t) => t.includes('Port') && t.includes('Port Income'))).toBe(true)
+  })
+
+  it("resolves the Port's own action against the Port, not the Ship, when picked from the grouped menu", () => {
+    const { container, onResolveUnit } = renderStacked()
+
+    fireEvent.click(container.querySelector('svg > polygon')!)
+    const portOption = [...container.querySelectorAll('foreignObject div')].find((d) => d.textContent?.includes('Port Income'))
+    expect(portOption).toBeTruthy()
+    fireEvent.click(portOption!)
+
+    expect(onResolveUnit).toHaveBeenCalledWith('port1', 'port-income')
+  })
+
+  it("resolves the Ship's own action against the Ship, not the Port, when picked from the same grouped menu", () => {
+    const { container, onResolveUnit } = renderStacked()
+
+    fireEvent.click(container.querySelector('svg > polygon')!)
+    const shipOption = [...container.querySelectorAll('foreignObject div')].find((d) => d.textContent?.includes('Ship Income'))
+    expect(shipOption).toBeTruthy()
+    fireEvent.click(shipOption!)
+
+    expect(onResolveUnit).toHaveBeenCalledWith('ship1', 'ship-income')
+  })
+})
+
 describe('RoundView — history review toggle', () => {
   function renderWithReview(turnReview: TurnReview | null, showHistory: boolean, onToggleHistory: () => void = () => {}) {
     const state = makeState()

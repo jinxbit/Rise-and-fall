@@ -8,7 +8,7 @@ import { calculateVPBreakdown } from '../engine/victoryPoints'
 import type { VPBreakdown } from '../engine/victoryPoints'
 import type { AchievementContent } from '../engine/achievementContent'
 import { listAchievements } from '../content/resolveContent'
-import type { Card, Coordinate, GameEvent, GameState, Player, Resources, RoundPhase } from '../engine/types'
+import type { Card, Coordinate, GameEvent, GameState, Player, Resources, RoundPhase, Unit } from '../engine/types'
 import type { UnitAction, UnitContent } from '../engine/unitContent'
 import type { PlayerRow } from '../lib/dbTypes'
 import type { GhostCell, HistoryArrow, HistoryHaloType, UnitMarker } from './HexBoard'
@@ -33,14 +33,37 @@ function actionNeedsTargeting(effect: UnitAction['effect']): boolean {
 }
 
 /**
- * `idle`: nothing selected. `menu`: a unit was clicked — its action
- * options are showing as a radial menu around it on the board. `targeting`:
- * an action needing a target hex was picked from that menu — the next
+ * Every one of the player's own units that may act this turn once `card`
+ * is played: units of the card's own kind, plus any Tale "companion piece"
+ * kind (e.g. Port for Ship — see UnitContent.companionKindsByCardKind)
+ * that isn't currently ineligible for having been built this very turn
+ * (GameState.unitsCreatedThisTurn — every companion piece the rulebook
+ * defines "cannot be activated on the turn it is constructed"). More than
+ * one of these can share a single hex (a Ship docked at its own Port), so
+ * callers that key UI off "the unit at this hex" need to handle more than
+ * one match — see menuUnits below.
+ */
+function eligibleActingUnits(state: GameState, unitContent: UnitContent, playerId: string, card: Card): Unit[] {
+  const companionKinds = unitContent.companionKindsByCardKind[card.kind] ?? []
+  return state.units.filter((u) => {
+    if (u.ownerId !== playerId) return false
+    if (u.kind === card.kind) return true
+    if (!companionKinds.includes(u.kind)) return false
+    return !state.unitsCreatedThisTurn.includes(u.id)
+  })
+}
+
+/**
+ * `idle`: nothing selected. `menu`: a hex was clicked — every acting unit
+ * there (usually one, but a Ship and its own Port can share a hex) shows
+ * its action options as a single radial menu, grouped by unit (see
+ * HexBoard's ActionMenu doc comment). `targeting`: an action needing a
+ * target hex was picked from that menu, for a specific unit — the next
  * legal-hex click on the board resolves it immediately (see onResolveUnit
  * in RoundView below — there's no local staging/submit step; each pick is
  * its own RESOLVE_UNIT_ACTION dispatch, applied right away).
  */
-type ActionUiMode = { kind: 'idle' } | { kind: 'menu'; unitId: string } | { kind: 'targeting'; unitId: string; actionId: string }
+type ActionUiMode = { kind: 'idle' } | { kind: 'menu'; coord: Coordinate } | { kind: 'targeting'; unitId: string; actionId: string }
 
 function PhaseBanner({ state }: { state: GameState }) {
   const phaseLabel: Record<RoundPhase, string> = {
@@ -432,9 +455,10 @@ function ActionsPanel(props: {
   state: GameState
   players: PlayerRow[]
   myPlayerId: string | null
+  unitContent: UnitContent
   onPassActions: () => void
 }) {
-  const { state, players, myPlayerId, onPassActions } = props
+  const { state, players, myPlayerId, unitContent, onPassActions } = props
   const activePlayerId = state.pendingPlayerIds[0] ?? null
   const isMyTurn = activePlayerId !== null && activePlayerId === myPlayerId
 
@@ -444,9 +468,9 @@ function ActionsPanel(props: {
 
   const cardId = myPlayerId ? state.chosenCardIdByPlayerId[myPlayerId] : null
   const card = cardId ? state.cards[cardId] : null
-  if (!card) return <p className="text-red-400">No chosen card found for this player.</p>
+  if (!card || !myPlayerId) return <p className="text-red-400">No chosen card found for this player.</p>
 
-  const actingUnits = state.units.filter((u) => u.ownerId === myPlayerId && u.kind === card.kind)
+  const actingUnits = eligibleActingUnits(state, unitContent, myPlayerId, card)
   const remaining = actingUnits.filter((u) => !state.resolvedUnitIdsThisTurn.includes(u.id))
 
   return (
@@ -594,17 +618,20 @@ export function RoundView(props: {
   const isMyActionTurn = state.roundPhase === 'actions' && state.pendingPlayerIds[0] === myPlayerId
   const myChosenCardId = myPlayerId ? state.chosenCardIdByPlayerId[myPlayerId] : null
   const myCard = myChosenCardId ? state.cards[myChosenCardId] : null
-  const myActingUnits =
-    isMyActionTurn && myCard && myPlayerId ? state.units.filter((u) => u.ownerId === myPlayerId && u.kind === myCard.kind) : []
-  const actionsForKind = myCard ? (unitContent.actionsByKind[myCard.kind] ?? []) : []
+  const myActingUnits = isMyActionTurn && myCard && myPlayerId ? eligibleActingUnits(state, unitContent, myPlayerId, myCard) : []
   const availableUnits = myActingUnits.filter((u) => !state.resolvedUnitIdsThisTurn.includes(u.id))
 
-  const menuUnitId = mode.kind === 'menu' ? mode.unitId : null
-  const menuUnit = menuUnitId ? (myActingUnits.find((u) => u.id === menuUnitId) ?? null) : null
+  // Normally exactly one unit (or none), but a hex can hold more than one
+  // of the player's own acting units at once — e.g. a Ship docked at its
+  // own Port (The Ports Tale) — so the menu covers every acting unit at
+  // the clicked hex, each contributing its own kind's actions (see
+  // HexBoard's ActionMenu doc comment for how those get grouped visually).
+  const menuCoord = mode.kind === 'menu' ? mode.coord : null
+  const menuUnits = menuCoord ? availableUnits.filter((u) => u.coord.q === menuCoord.q && u.coord.r === menuCoord.r) : []
   const targetingUnitId = mode.kind === 'targeting' ? mode.unitId : null
   const targetingActionId = mode.kind === 'targeting' ? mode.actionId : null
   const targetingUnit = targetingUnitId ? (myActingUnits.find((u) => u.id === targetingUnitId) ?? null) : null
-  const targetingAction = targetingActionId ? (actionsForKind.find((a) => a.id === targetingActionId) ?? null) : null
+  const targetingAction = targetingUnit && targetingActionId ? (unitContent.actionsByKind[targetingUnit.kind] ?? []).find((a) => a.id === targetingActionId) : null
 
   let legalTargets: Coordinate[] = []
   if (targetingUnit && targetingAction && myPlayerId) {
@@ -620,15 +647,17 @@ export function RoundView(props: {
     }
   }
 
-  function selectAction(actionId: string) {
-    if (!menuUnit || !myPlayerId) return
-    const action = actionsForKind.find((a) => a.id === actionId)
+  function selectAction(unitId: string, actionId: string) {
+    if (!myPlayerId) return
+    const unit = menuUnits.find((u) => u.id === unitId)
+    if (!unit) return
+    const action = (unitContent.actionsByKind[unit.kind] ?? []).find((a) => a.id === actionId)
     if (!action) return
-    if (!isActionAvailableForUnit(state, myPlayerId, menuUnit, action, unitContent)) return
+    if (!isActionAvailableForUnit(state, myPlayerId, unit, action, unitContent)) return
     if (actionNeedsTargeting(action.effect)) {
-      setMode({ kind: 'targeting', unitId: menuUnit.id, actionId })
+      setMode({ kind: 'targeting', unitId: unit.id, actionId })
     } else {
-      props.onResolveUnit(menuUnit.id, actionId)
+      props.onResolveUnit(unit.id, actionId)
       setMode({ kind: 'idle' })
     }
   }
@@ -639,9 +668,9 @@ export function RoundView(props: {
       setMode({ kind: 'idle' })
       return
     }
-    const clickedUnit = availableUnits.find((u) => u.coord.q === coord.q && u.coord.r === coord.r)
-    if (clickedUnit) {
-      setMode((prev) => (prev.kind === 'menu' && prev.unitId === clickedUnit.id ? { kind: 'idle' } : { kind: 'menu', unitId: clickedUnit.id }))
+    const clickedUnits = availableUnits.filter((u) => u.coord.q === coord.q && u.coord.r === coord.r)
+    if (clickedUnits.length > 0) {
+      setMode((prev) => (prev.kind === 'menu' && prev.coord.q === coord.q && prev.coord.r === coord.r ? { kind: 'idle' } : { kind: 'menu', coord }))
       return
     }
     setMode({ kind: 'idle' })
@@ -664,14 +693,18 @@ export function RoundView(props: {
 
   const ghostCells: GhostCell[] = legalTargets.map((coord) => ({ coord, legal: true }))
   const actionMenu =
-    menuUnit && myPlayerId
+    menuCoord && menuUnits.length > 0 && myPlayerId
       ? {
-          coord: menuUnit.coord,
-          options: actionsForKind.map((a) => ({
-            id: a.id,
-            label: a.name,
-            disabled: !isActionAvailableForUnit(state, myPlayerId, menuUnit, a, unitContent),
-          })),
+          coord: menuCoord,
+          options: menuUnits.flatMap((unit) =>
+            (unitContent.actionsByKind[unit.kind] ?? []).map((a) => ({
+              unitId: unit.id,
+              unitKind: capitalize(unit.kind),
+              id: a.id,
+              label: a.name,
+              disabled: !isActionAvailableForUnit(state, myPlayerId, unit, a, unitContent),
+            })),
+          ),
           onSelect: selectAction,
         }
       : undefined
@@ -702,7 +735,7 @@ export function RoundView(props: {
         <SelectCardsPanel state={state} players={players} myPlayerId={myPlayerId} onChooseCard={props.onChooseCard} />
       )}
       {state.roundPhase === 'actions' && (
-        <ActionsPanel state={state} players={players} myPlayerId={myPlayerId} onPassActions={props.onPassActions} />
+        <ActionsPanel state={state} players={players} myPlayerId={myPlayerId} unitContent={unitContent} onPassActions={props.onPassActions} />
       )}
       {state.roundPhase === 'decline' && (
         <DeclinePanel state={state} players={players} myPlayerId={myPlayerId} onMoveToDecline={props.onMoveToDecline} />

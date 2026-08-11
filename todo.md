@@ -2902,7 +2902,7 @@ one-Ship-per-Port cap; and the companion-dispatch mechanics end-to-end
 through `applyAction` — a pre-existing Port acting, a freshly-built Port
 correctly rejected, a Ship built by a Port correctly allowed to act, and
 a freshly-built companion not blocking its player's turn from ending).
-427 tests total (was 408); `tsc -b`/`oxlint`/`vitest run`/`npm run build`
+457 tests total (was 438); `tsc -b`/`oxlint`/`vitest run`/`npm run build`
 all clean.
 
 ## 62. Tales setup UI — choosing which Tales are active for a game
@@ -2954,6 +2954,108 @@ to also include companion kinds not built this turn. Not done here —
 flagged as the next concrete step.
 
 No engine changes in this item — content/`dbTypes.ts`/`gameApi.ts`/new
-component/two page tweaks only. 427 tests unaffected (no page-level test
+component/two page tweaks only. 457 tests unaffected (no page-level test
 coverage exists in this codebase — see #55's note on the same gap);
 `tsc -b`/`oxlint`/`vitest run`/`npm run build` all clean.
+
+## 63. Round-play UI for companion pieces (Port) — closes #62's scope note, plus a stacked-hex rendering bug it surfaced
+
+Two related requests: make a Tale companion piece (Port) actually
+clickable/usable in the live round UI (the gap #62 flagged), and fix what
+happens visually/interactively when two of the player's own units share a
+hex (a Ship docked at its own Port) — raised as "perhaps the radial menu
+can be grouped by unit type."
+
+**The companion-piece gap.** `RoundView.tsx`'s action-phase state only
+ever considered units whose kind matched the currently played card
+(`u.kind === card.kind`) — a Port (kind `'port'`, no card of its own,
+companion of Ship) was invisible to it even once #61 made the engine
+correctly support it. New `eligibleActingUnits(state, unitContent,
+playerId, card)`: card-kind units plus any companion kind
+(`unitContent.companionKindsByCardKind`) not built this very turn
+(`GameState.unitsCreatedThisTurn` — mirrors the engine's own
+`applyResolveUnitAction` rule from #61). Used everywhere `RoundView.tsx`
+used to filter by `u.kind === card.kind` alone: the highlighted-units set,
+`ActionsPanel`'s "X of Y units still need one" count (which gained a new
+`unitContent` prop to compute it), and the menu/targeting state below.
+
+**The stacking problem, which turned out to be two separate bugs.**
+Before this, at most one of the player's units could ever occupy a hex —
+now a Ship and its own Port legitimately can. That broke two unrelated
+assumptions:
+
+1. *Click handling*: `handleBoardClick` found "the" unit at a clicked hex
+   via `.find()` — with two units there, the second was simply
+   unreachable, no matter how you clicked. Fixed by keying the menu to
+   the **hex**, not a single unit: `ActionUiMode`'s `menu` variant now
+   carries `coord` instead of `unitId`, and `handleBoardClick` gathers
+   *every* available unit at that coord.
+2. *The menu itself*: with more than one acting unit at a hex, their
+   actions need to appear together, distinguishably. `HexBoard.tsx`'s
+   `ActionMenuOption` gained `unitId`/`unitKind` fields and `ActionMenu.
+   onSelect` became `(unitId, optionId) => void`; the render groups
+   options by contiguous `unitId` runs and, only once there's more than
+   one group, shows a small kind label ("SHIP" / "PORT") on each option
+   and routes clicks back with the right unit. A single-unit menu (the
+   overwhelming common case, unaffected by any of this) renders exactly
+   as it did before.
+
+**A real layout bug found via a visual check, not just the unit tests.**
+The first version of the grouped angle math gave each group an arc of the
+full circle *proportional to its own option count* (e.g. two 2-option
+groups each got ~162° of arc, separated by an 18° gap). That's backwards
+from what you want: a group's own options end up spread across nearly
+the whole circle relative to each other, while the *boundary* between two
+different groups — last option of one, first of the next — sits only one
+small gap apart, i.e. visually the closest pair of boxes belongs to
+*different* units. Confirmed by rendering the actual component to static
+SVG (`@testing-library/react`'s `render()`, no Supabase needed) and
+screenshotting it with the sandbox's pre-installed Chromium (same
+approach as #20's cliff-hexside verification) — the disabled "Port: Trade
+with Ships and Ports" box visually collided with "Ship: Move" even though
+they belong to different units, while each unit's own two options sat
+far apart. Rewrote `computeActionMenuAngles`: options within a group now
+use exactly the spacing a single ungrouped ring of that many total
+options would use (`360 / totalOptions` per step, unchanged from before
+grouping existed), and only the transition *between* groups gets extra
+separation (`GROUP_GAP_DEGREES`, additive on top of one step) — re-
+screenshotted to confirm all four options render as two clearly separate,
+internally tight clusters labeled SHIP/PORT.
+
+**The markers themselves, not just the menu.** Two units at the same hex
+previously rendered at the exact same pixel position — one fully hidden
+behind the other, with no visual indication a second unit was even
+there. New `computeUnitStackOffsets()` (`HexBoard.tsx`, keyed by array
+index the same way `computeHistoryLabelPositions` already is) nudges
+each unit sharing a hex to its own small offset around the hex center
+and shrinks them slightly (`STACKED_UNIT_SCALE`) so a cluster still fits
+within the hex; a lone unit on its hex is completely unaffected (offset
+`{0,0}`, full size) — verified both units render at different positions
+when stacked and that a solo unit's position is byte-identical to before
+this existed.
+
+**One more correctness fix, unrelated to the interaction bugs but found
+while touching this area:** Port had no entry in `unitIcons.ts`'s
+`STATIC_UNIT_KINDS`, so it rendered with the mobile-unit circle marker
+shape instead of the immobile-structure rectangle City/Temple use — added
+it (Port never moves once built, same as those two).
+
+Also removed `id` as `ActionMenuOption`'s sole identity — with two units'
+actions in one menu, colliding action ids across kinds (plausible; e.g.
+several kinds share an id like `'move'`) would have silently misattributed
+clicks to the wrong unit before the `unitId`/`unitKind` fields existed.
+
+7 new tests: 3 in `RoundView.test.tsx` (grouped menu shows both units'
+options labeled by kind; clicking each one's option resolves against
+*that* unit, not the other) and 4 in `HexBoard.test.tsx` (stacked markers
+offset from each other; a solo marker is unaffected by another unit
+elsewhere on the board; a single-group menu shows no kind labels;
+options get labeled once more than one unit is involved, with clicks
+routed to the right unit id). 464 tests total (was 457); `tsc -b`/
+`oxlint`/`vitest run`/`npm run build` all clean. Not click-tested against
+a live Supabase-backed game (same sandbox limitation as all prior UI work
+in this file) — the static-render screenshot check above is the closest
+available substitute, and is what actually caught the angle-math bug a
+unit test alone would have missed (the passing HexBoard.test.tsx case
+only exercised one option per group, never triggering the multi-option-
+per-group spread).
