@@ -2491,3 +2491,32 @@ content supplied) and a new `EndGameView.test.tsx` (ranks players by
 total VP, shows the per-source breakdown, highlights the winner(s)
 with a trophy, handles a multi-winner tie). 405 tests total (was 399);
 `tsc -b`/`oxlint`/`npm run build` all clean.
+
+## 54. Click a player's status chip for their full breakdown
+
+Feature request: "Allow pressing on a player's info panel to get more
+information about: their full VP breakdown, cards and their locations,
+unit counts, resources." The in-round `PlayersStrip` chip already
+summarized a few of these (current score total, gold/wood/stone, hand
+kinds), but had no room for more without cluttering the always-visible
+strip.
+
+Turned each player's chip into a click-to-expand toggle (state kept
+locally in `PlayersStrip` — clicking the same player again, or clicking
+a different player, closes/switches it; only one open at a time). The
+expanded `PlayerDetailPanel` shows: the full VP breakdown by source
+(achievements/board-count/terrain-control/gold — via the existing
+`calculateVPBreakdown`, not just the total on the chip), every card
+zone by unit kind (hand, currently-played, discard, decline, supply —
+new `cardKindsInZone()` helper), on-board unit counts per kind, and
+full resources (gold/wood/stone).
+
+Added `RoundView.test.tsx` coverage: the panel starts collapsed and
+appears with the right breakdown/cards/units/resources on click,
+collapses again on a second click, and switching to a different
+player's chip replaces (rather than stacks) the open panel. 407 tests
+total (was 405); `tsc -b`/`oxlint`/`vitest run`/`npm run build` all
+clean. Not manually verified in a live browser session — reaching an
+active round requires a Supabase-backed game in progress, so this
+relies on the RTL coverage above (which exercises the exact click
+interaction and rendered content) rather than a screenshot.

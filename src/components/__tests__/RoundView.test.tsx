@@ -306,6 +306,93 @@ describe('RoundView — player status summary and achievements panel', () => {
   })
 })
 
+describe('RoundView — player detail panel (click a player chip for more info)', () => {
+  it("is collapsed until a player's chip is clicked, then shows their full VP breakdown, cards by zone, unit counts, and resources — and collapses again on a second click", () => {
+    let state = makeState()
+    state = {
+      ...state,
+      units: [
+        { id: 'u1', ownerId: 'p1', kind: 'nomad', coord: { q: 0, r: 0 }, movement: { isMobile: true, terrains: [], canCrossCliffs: false }, traits: [] },
+        { id: 'u2', ownerId: 'p1', kind: 'nomad', coord: { q: 1, r: 0 }, movement: { isMobile: true, terrains: [], canCrossCliffs: false }, traits: [] },
+      ],
+      players: state.players.map((p) => (p.id === 'p1' ? { ...p, resources: { gold: 5, wood: 2, stone: 1 } } : p)),
+    }
+    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
+
+    render(
+      <RoundView
+        state={state}
+        players={players}
+        myPlayerId="p1"
+        unitContent={EMPTY_UNIT_CONTENT}
+        achievementContent={{ ...EMPTY_ACHIEVEMENT_CONTENT, unitBoardCountVP: { nomad: [1, 3] }, goldPerVictoryPoint: 2 }}
+        turnReview={null}
+        showHistory={false}
+        onToggleHistory={() => {}}
+        gameLog={[]}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+
+    expect(screen.queryByText(/VP breakdown/)).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('Alice').closest('button')!)
+
+    // p1: 2 Nomads on board -> boardCount curve [1, 3] at count 2 -> 3 VP; 5 gold at 2 gold/point -> 2 VP; total 5.
+    expect(screen.getByText('VP breakdown — 5 total')).toBeInTheDocument()
+    expect(screen.getByText('Achievements 0, Board count 3, Terrain control 0, Gold 2')).toBeInTheDocument()
+    expect(screen.getByText('Currently played: none')).toBeInTheDocument()
+    expect(screen.getByText('Discard: none')).toBeInTheDocument()
+    expect(screen.getByText('Decline: none')).toBeInTheDocument()
+    expect(screen.getByText(/^Supply:/)).toBeInTheDocument()
+    expect(screen.getByText('Nomad 2')).toBeInTheDocument()
+    expect(screen.getByText('Gold 5, Wood 2, Stone 1')).toBeInTheDocument()
+    // The chip's own "Hand: ..." summary and the detail panel's "Hand: ..." line both show — same info, two places.
+    expect(screen.getAllByText('Hand: Nomad, Ship')).toHaveLength(2)
+
+    fireEvent.click(screen.getByText('Alice').closest('button')!)
+    expect(screen.queryByText(/VP breakdown/)).not.toBeInTheDocument()
+  })
+
+  it("clicking a different player's chip switches the detail panel to that player, rather than opening a second one", () => {
+    const state = makeState()
+    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
+
+    render(
+      <RoundView
+        state={state}
+        players={players}
+        myPlayerId="p1"
+        unitContent={EMPTY_UNIT_CONTENT}
+        achievementContent={{ ...EMPTY_ACHIEVEMENT_CONTENT, achievementVictoryPoints: { 'city-mastery': 5 } }}
+        turnReview={null}
+        showHistory={false}
+        onToggleHistory={() => {}}
+        gameLog={[]}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+
+    fireEvent.click(screen.getByText('Alice').closest('button')!)
+    expect(screen.getByText('VP breakdown — 0 total')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('Bob').closest('button')!)
+    expect(screen.getAllByText(/VP breakdown —/)).toHaveLength(1)
+    // p2 claimed city-mastery, worth 5 VP.
+    expect(screen.getByText('VP breakdown — 5 total')).toBeInTheDocument()
+  })
+})
+
 function buildRealUnitContent(): UnitContent {
   const actionsByKind: Record<string, UnitAction[]> = {}
   const movementByKind: Record<string, UnitMovement> = {}

@@ -5,9 +5,10 @@ import { legalMoveDestinations } from '../engine/movement'
 import { calculatePurchaseCost } from '../engine/purchaseCost'
 import type { TurnReview, UnitReviewEvent } from '../engine/turnReview'
 import { calculateVPBreakdown } from '../engine/victoryPoints'
+import type { VPBreakdown } from '../engine/victoryPoints'
 import type { AchievementContent } from '../engine/achievementContent'
 import { listAchievements } from '../content/resolveContent'
-import type { Coordinate, GameEvent, GameState, Resources, RoundPhase } from '../engine/types'
+import type { Card, Coordinate, GameEvent, GameState, Player, Resources, RoundPhase } from '../engine/types'
 import type { UnitAction, UnitContent } from '../engine/unitContent'
 import type { PlayerRow } from '../lib/dbTypes'
 import type { GhostCell, HistoryArrow, HistoryHaloType, UnitMarker } from './HexBoard'
@@ -52,12 +53,6 @@ function PhaseBanner({ state }: { state: GameState }) {
       Round {state.turn} — <span className="font-medium text-neutral-200">{phaseLabel[state.roundPhase]}</span>
     </p>
   )
-}
-
-/** Current total VP for every player (see calculateVPBreakdown's four sources) — computed live from the current state rather than only once at game end. */
-function currentScoreByPlayerId(state: GameState, achievementContent: AchievementContent): Record<string, number> {
-  const breakdownByPlayerId = calculateVPBreakdown(state, achievementContent)
-  return Object.fromEntries(Object.entries(breakdownByPlayerId).map(([playerId, b]) => [playerId, b.total]))
 }
 
 interface UnitHistorySummary {
@@ -120,6 +115,62 @@ function deltaSuffix(amount: number | undefined): string {
   return ` (${amount > 0 ? '+' : ''}${amount})`
 }
 
+/** The unit kind each of a set of card ids corresponds to, e.g. "City, City, Nomad" — 'none' when the zone is empty. */
+function cardKindsInZone(cardIds: string[], cards: Record<string, Card>): string {
+  const kinds = cardIds.map((id) => cards[id]?.kind).filter((kind): kind is string => Boolean(kind))
+  return kinds.length > 0 ? kinds.map(capitalize).join(', ') : 'none'
+}
+
+const VP_BREAKDOWN_LABELS: [keyof Omit<VPBreakdown, 'total'>, string][] = [
+  ['achievements', 'Achievements'],
+  ['boardCount', 'Board count'],
+  ['terrainControl', 'Terrain control'],
+  ['gold', 'Gold'],
+]
+
+/**
+ * The detail view behind clicking a player's chip in PlayersStrip: their
+ * full VP breakdown (not just the total shown on the chip), every card zone
+ * (hand/currently-played/discard/decline/supply) broken down by unit kind,
+ * on-board unit counts per kind, and full resources.
+ */
+function PlayerDetailPanel({ state, player, breakdown }: { state: GameState; player: Player; breakdown: VPBreakdown | undefined }) {
+  const unitCountsByKind = new Map<string, number>()
+  for (const unit of state.units) {
+    if (unit.ownerId !== player.id) continue
+    unitCountsByKind.set(unit.kind, (unitCountsByKind.get(unit.kind) ?? 0) + 1)
+  }
+  const unitCounts = [...unitCountsByKind.entries()].map(([kind, count]) => `${capitalize(kind)} ${count}`)
+  const currentlyPlayed = player.currentlyPlayedCardId ? cardKindsInZone([player.currentlyPlayedCardId], state.cards) : 'none'
+
+  return (
+    <div className="flex flex-col gap-3 rounded-md border border-neutral-800 bg-neutral-900/50 p-3 text-xs text-neutral-400">
+      <div>
+        <p className="mb-1 font-medium text-neutral-200">VP breakdown — {breakdown?.total ?? 0} total</p>
+        <p>{VP_BREAKDOWN_LABELS.map(([key, label]) => `${label} ${breakdown?.[key] ?? 0}`).join(', ')}</p>
+      </div>
+      <div>
+        <p className="mb-1 font-medium text-neutral-200">Cards</p>
+        <p>Hand: {cardKindsInZone(player.handCardIds, state.cards)}</p>
+        <p>Currently played: {currentlyPlayed}</p>
+        <p>Discard: {cardKindsInZone(player.discardCardIds, state.cards)}</p>
+        <p>Decline: {cardKindsInZone(player.declineCardIds, state.cards)}</p>
+        <p>Supply: {cardKindsInZone(player.supplyCardIds, state.cards)}</p>
+      </div>
+      <div>
+        <p className="mb-1 font-medium text-neutral-200">Units on board</p>
+        <p>{unitCounts.length > 0 ? unitCounts.join(', ') : 'none'}</p>
+      </div>
+      <div>
+        <p className="mb-1 font-medium text-neutral-200">Resources</p>
+        <p>
+          Gold {player.resources.gold}, Wood {player.resources.wood}, Stone {player.resources.stone}
+        </p>
+      </div>
+    </div>
+  )
+}
+
 function PlayersStrip({
   state,
   players,
@@ -136,49 +187,59 @@ function PlayersStrip({
   /** From TurnReview, only while the history review is toggled on — see RoundView's showHistory. */
   resourceDeltaByPlayerId?: Record<string, Resources> | null
 }) {
-  const scoreByPlayerId = currentScoreByPlayerId(state, achievementContent)
+  const [expandedPlayerId, setExpandedPlayerId] = useState<string | null>(null)
+  const breakdownByPlayerId = calculateVPBreakdown(state, achievementContent)
+  const expandedPlayer = expandedPlayerId ? state.players.find((p) => p.id === expandedPlayerId) : null
 
   return (
-    <div className="flex flex-wrap gap-2 text-xs text-neutral-400">
-      {state.players.map((player) => {
-        const row = players.find((p) => p.id === player.id)
-        const handKinds = player.handCardIds.map((cardId) => state.cards[cardId]?.kind).filter((kind): kind is string => Boolean(kind))
-        const remainingByKind = UNIT_KINDS.map((kind) => {
-          const cap = unitContent.unitSupplyCaps[kind]
-          if (cap === undefined) return null
-          const onBoard = state.units.filter((u) => u.ownerId === player.id && u.kind === kind).length
-          return `${capitalize(kind)} ${Math.max(0, cap - onBoard)}`
-        }).filter((entry): entry is string => entry !== null)
-        const delta = resourceDeltaByPlayerId?.[player.id]
-        return (
-          <div
-            key={player.id}
-            className={`flex flex-wrap items-center gap-2 rounded-md border px-2 py-1 ${
-              player.id === myPlayerId ? 'border-indigo-600' : 'border-neutral-800'
-            } ${player.eliminated ? 'opacity-40' : ''}`}
-          >
-            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: row?.color ?? '#a3a3a3' }} />
-            <span className="text-neutral-200">{row?.display_name ?? player.id}</span>
-            {player.eliminated && <span>(eliminated)</span>}
-            <span className="font-medium text-neutral-200">Score {scoreByPlayerId[player.id] ?? 0}</span>
-            <span>
-              Gold {player.resources.gold}
-              {delta && <span className="text-emerald-400">{deltaSuffix(delta.gold)}</span>}
-            </span>
-            <span>
-              Wood {player.resources.wood}
-              {delta && <span className="text-emerald-400">{deltaSuffix(delta.wood)}</span>}
-            </span>
-            <span>
-              Stone {player.resources.stone}
-              {delta && <span className="text-emerald-400">{deltaSuffix(delta.stone)}</span>}
-            </span>
-            <span>Hand: {handKinds.length > 0 ? handKinds.map(capitalize).join(', ') : 'empty'}</span>
-            <span>Decline {player.declineCardIds.length}</span>
-            {remainingByKind.length > 0 && <span>Remaining: {remainingByKind.join(', ')}</span>}
-          </div>
-        )
-      })}
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap gap-2 text-xs text-neutral-400">
+        {state.players.map((player) => {
+          const row = players.find((p) => p.id === player.id)
+          const handKinds = player.handCardIds.map((cardId) => state.cards[cardId]?.kind).filter((kind): kind is string => Boolean(kind))
+          const remainingByKind = UNIT_KINDS.map((kind) => {
+            const cap = unitContent.unitSupplyCaps[kind]
+            if (cap === undefined) return null
+            const onBoard = state.units.filter((u) => u.ownerId === player.id && u.kind === kind).length
+            return `${capitalize(kind)} ${Math.max(0, cap - onBoard)}`
+          }).filter((entry): entry is string => entry !== null)
+          const delta = resourceDeltaByPlayerId?.[player.id]
+          const isExpanded = expandedPlayerId === player.id
+          return (
+            <button
+              type="button"
+              key={player.id}
+              onClick={() => setExpandedPlayerId((prev) => (prev === player.id ? null : player.id))}
+              aria-expanded={isExpanded}
+              title="Click for full VP breakdown, cards, unit counts, and resources."
+              className={`flex flex-wrap items-center gap-2 rounded-md border bg-transparent px-2 py-1 text-left hover:border-neutral-600 ${
+                isExpanded ? 'border-indigo-400' : player.id === myPlayerId ? 'border-indigo-600' : 'border-neutral-800'
+              } ${player.eliminated ? 'opacity-40' : ''}`}
+            >
+              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: row?.color ?? '#a3a3a3' }} />
+              <span className="text-neutral-200">{row?.display_name ?? player.id}</span>
+              {player.eliminated && <span>(eliminated)</span>}
+              <span className="font-medium text-neutral-200">Score {breakdownByPlayerId[player.id]?.total ?? 0}</span>
+              <span>
+                Gold {player.resources.gold}
+                {delta && <span className="text-emerald-400">{deltaSuffix(delta.gold)}</span>}
+              </span>
+              <span>
+                Wood {player.resources.wood}
+                {delta && <span className="text-emerald-400">{deltaSuffix(delta.wood)}</span>}
+              </span>
+              <span>
+                Stone {player.resources.stone}
+                {delta && <span className="text-emerald-400">{deltaSuffix(delta.stone)}</span>}
+              </span>
+              <span>Hand: {handKinds.length > 0 ? handKinds.map(capitalize).join(', ') : 'empty'}</span>
+              <span>Decline {player.declineCardIds.length}</span>
+              {remainingByKind.length > 0 && <span>Remaining: {remainingByKind.join(', ')}</span>}
+            </button>
+          )
+        })}
+      </div>
+      {expandedPlayer && <PlayerDetailPanel state={state} player={expandedPlayer} breakdown={breakdownByPlayerId[expandedPlayer.id]} />}
     </div>
   )
 }
