@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { BoardSetupView } from '../components/BoardSetupView'
 import { EndGameView } from '../components/EndGameView'
 import { RoundView } from '../components/RoundView'
@@ -35,6 +35,7 @@ const MAX_WRITE_RETRIES = 3
 export function GamePage() {
   const { roomCode } = useParams<{ roomCode: string }>()
   const { session, loading: authLoading } = useAuth()
+  const navigate = useNavigate()
 
   const [game, setGame] = useState<GameRow | null>(null)
   const [players, setPlayers] = useState<PlayerRow[]>([])
@@ -341,6 +342,14 @@ export function GamePage() {
               </li>
             ))}
           </ul>
+          <button
+            type="button"
+            onClick={() => navigate('/')}
+            title="Leave this game and return to the main menu — the game itself keeps going, you can rejoin from the room code."
+            className="rounded-md border border-neutral-700 px-3 py-1 text-sm hover:border-neutral-500"
+          >
+            Main menu
+          </button>
           <button
             type="button"
             disabled={undoing || !gameState || gameState.actionHistory.length === 0}
