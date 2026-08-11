@@ -442,7 +442,7 @@ function applyPurchaseCard(state: GameState, playerId: string, cardId: string, a
   let nextState: GameState = { ...state, players, resourceBank: spent.bank, pendingPlayerIds: state.pendingPlayerIds.slice(1) }
   nextState = syncCardZonesWithBoard(nextState)
   nextState = { ...nextState, activePlayerId: nextState.pendingPlayerIds[0] ?? null }
-  nextState = skipEmptyDeclinePurchasers(nextState)
+  nextState = skipEmptyDeclinePurchasers(nextState, achievementContent)
 
   if (nextState.pendingPlayerIds.length === 0) {
     nextState = finishRound(nextState, achievementContent)
@@ -461,7 +461,7 @@ function applyPassPurchase(state: GameState, playerId: string, achievementConten
 
   let nextState: GameState = { ...state, pendingPlayerIds: state.pendingPlayerIds.slice(1) }
   nextState = { ...nextState, activePlayerId: nextState.pendingPlayerIds[0] ?? null }
-  nextState = skipEmptyDeclinePurchasers(nextState)
+  nextState = skipEmptyDeclinePurchasers(nextState, achievementContent)
 
   if (nextState.pendingPlayerIds.length === 0) {
     nextState = finishRound(nextState, achievementContent)

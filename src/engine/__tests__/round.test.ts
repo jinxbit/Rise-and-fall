@@ -282,6 +282,49 @@ describe('round flow', () => {
     }
   })
 
+  it("purchase phase auto-skips a player who has something in decline but can't afford the buyback price, same as an empty decline", () => {
+    // p1 has a card in decline but no gold; p2 has both something in
+    // decline and enough gold, so the phase must skip past p1 and land on
+    // p2 without requiring a PASS_PURCHASE from p1.
+    let state = makeActiveGameWithFullHands()
+    const p1Index = state.players.findIndex((p) => p.id === 'p1')
+    const p2Index = state.players.findIndex((p) => p.id === 'p2')
+    let p1 = { ...state.players[p1Index], resources: { gold: 0, wood: 0, stone: 0 } }
+    p1 = moveCard(p1, cardIdFor('p1', 'temple'), 'decline')
+    let p2 = { ...state.players[p2Index], resources: { gold: 100, wood: 0, stone: 0 } }
+    p2 = moveCard(p2, cardIdFor('p2', 'temple'), 'decline')
+    const players = [...state.players]
+    players[p1Index] = p1
+    players[p2Index] = p2
+    // 1 achievement already claimed, so the cost table below actually prices the buyback.
+    state = { ...state, players, claimedByAchievementId: { 'city-mastery': 'p2' } }
+
+    const achievementContent: AchievementContent = { ...EMPTY_ACHIEVEMENT_CONTENT, purchaseCostTable: [5] }
+
+    let result = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }, testUnitContent, achievementContent)
+    if (!result.ok) throw new Error('setup failed')
+    result = applyAction(result.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') }, testUnitContent, achievementContent)
+    if (!result.ok) throw new Error('setup failed')
+    result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p1' }, testUnitContent, achievementContent)
+    if (!result.ok) throw new Error('setup failed')
+    result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p2' }, testUnitContent, achievementContent)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    // p1 was auto-skipped (5 gold buyback, only 0 gold) — the game just
+    // continues to whoever can actually act, same as the empty-decline case.
+    expect(result.state.roundPhase).toBe('purchase')
+    expect(result.state.activePlayerId).toBe('p2')
+    expect(result.state.pendingPlayerIds).toEqual(['p2'])
+
+    result = applyAction(result.state, { type: 'PASS_PURCHASE', playerId: 'p2' }, testUnitContent, achievementContent)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    // p2 passing empties the queue -> round ends normally.
+    expect(result.state.roundPhase).toBe('selectCards')
+    expect(result.state.turn).toBe(1)
+  })
+
   it('requires each player to decline achievementsClaimedThisRound cards (min 1) before advancing', () => {
     const base = makeActiveGameWithFullHands()
     const state = { ...base, achievementsClaimedThisRound: 2 }
