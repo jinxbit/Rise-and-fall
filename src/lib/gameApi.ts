@@ -3,6 +3,24 @@ import { nextSeatIndex } from './seatIndex'
 import type { GameRow, GameStateRow, PlayerRow } from './dbTypes'
 import type { GameState as EngineGameState, PlayMode } from '../engine/types'
 
+/**
+ * Reads a user's Discord webhook URL (supabase/migrations/0005_discord_webhooks.sql).
+ * Used both for a player loading their own settings and for a co-player's
+ * client looking up who to notify when it becomes their turn — RLS allows
+ * both (own row, or a row belonging to someone seated in a shared game).
+ * `null` covers both "no profile row yet" and "profile row with no webhook set".
+ */
+export async function getDiscordWebhookUrl(userId: string): Promise<string | null> {
+  const { data, error } = await supabase.from('profiles').select('discord_webhook_url').eq('user_id', userId).maybeSingle()
+  if (error) throw error
+  return data?.discord_webhook_url ?? null
+}
+
+export async function saveDiscordWebhookUrl(userId: string, webhookUrl: string | null): Promise<void> {
+  const { error } = await supabase.from('profiles').upsert({ user_id: userId, discord_webhook_url: webhookUrl })
+  if (error) throw error
+}
+
 const PLAYER_COLORS = ['#ef4444', '#3b82f6', '#22c55e', '#eab308']
 const ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789' // no 0/O/1/I
 
