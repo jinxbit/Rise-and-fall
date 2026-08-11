@@ -2615,3 +2615,59 @@ elimination pass), the everyone-eliminated-simultaneously edge case
 `status`/`winnerPlayerIds` land correctly AND that the state does NOT
 chain into the next round phase once completed. 409 tests total (was
 408); `tsc -b`/`oxlint`/`vitest run`/`npm run build` all clean.
+
+## 57. End-of-game breakdown: what each player has, not just the VP number
+
+Feature request: "The game over screen should present a full summary
+of the player score in the format of What the player have: the VP —
+for example '4 forest: 12 points'." `EndGameView.tsx` (todo.md #53)
+already broke score down by source (achievements/board-count/
+terrain-control/gold) as four numbers, but not by the underlying thing
+each number came from — no way to tell "12 terrain-control points"
+apart from "controls 4 Forest hexes at 3 VP each" vs. "controls 2
+Mountain hexes at 6 VP each."
+
+Added itemized counterparts to each `calculate*VP` source function,
+alongside the existing summed ones (which `finishRound()`'s win check
+and the live in-round score still use unchanged): `calculateAchievementDetail`
+(one entry per claimed achievement), `calculateBoardCountDetail` (one
+entry per unit kind present), and `calculateTerrainControlDetail`
+(scoring.ts — one entry per effective terrain type controlled, summing
+hexCount/vp across every separate region of that terrain the player
+holds a majority in, e.g. two disconnected Forest regions become one
+"Forest" line). Combined via new `calculateVPDetail(state,
+achievementContent)` in victoryPoints.ts, `EndGameView`'s new single
+source of truth — its `total` is summed directly from the itemized
+entries (not delegated to `calculateVPBreakdown`/`sumVP`) so the
+displayed list and the displayed total can never drift apart from each
+other.
+
+Added `listTerrainTypes()` to `content/resolveContent.ts` (mirroring
+the existing `listAchievements()`) so `EndGameView` can resolve a
+terrain id to its display name ("forest" -> "Forest") the same way it
+already resolves achievement ids to names — the engine itself still
+never sees display names, only ids (see `calculateAchievementDetail`'s
+doc comment).
+
+Rewrote `EndGameView.tsx` from a fixed-column table (one column per
+source, one number each) to a per-player card with a bulleted list of
+"<what they have>: <N> points" lines — e.g. "City Mastery: 5 points",
+"3 City: 4 points", "4 Forest: 12 points", "10 Gold: 5 points" — built
+from `calculateVPDetail`. A source the player has nothing in
+contributes no line at all (no "0 Gold: 0 points" clutter); a source
+they DO have something in still gets a line even at 0 points, since
+the point is showing what they have, not just what scored. A player
+with nothing on every source shows "No points scored" instead of an
+empty list.
+
+Test coverage: `calculateTerrainControlDetail` in `scoring.test.ts`
+(itemizes what `calculateTerrainControlVP` sums, combines multiple
+regions of the same terrain, omits a no-majority player, still merges
+Glacier into Mountain); `calculateAchievementDetail`/
+`calculateBoardCountDetail`/`calculateVPDetail` in
+`victoryPoints.test.ts` (itemizes what the corresponding `*VP`
+function sums, `calculateVPDetail`'s total matches
+`calculateVPBreakdown`'s total on the same fixture); rewrote
+`EndGameView.test.tsx`'s assertions for the new card/list layout
+instead of a table. 422 tests total (was 409); `tsc -b`/`oxlint`/
+`vitest run`/`npm run build` all clean.

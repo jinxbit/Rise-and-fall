@@ -70,18 +70,30 @@ const content: AchievementContent = {
 }
 
 describe('EndGameView', () => {
-  it('shows every player, ranked by total VP descending, with their per-source breakdown', () => {
+  it('shows every player, ranked by total VP descending, with an itemized breakdown of what each score is made of', () => {
     const state = makeState()
     const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
 
-    render(<EndGameView state={state} players={players} achievementContent={content} />)
+    const { container } = render(<EndGameView state={state} players={players} achievementContent={content} />)
 
-    // p1: 3 (achievements) + 1 (boardCount) + 0 (terrain) + 2 (gold) = 6; p2: 0.
-    const rows = screen.getAllByRole('row').slice(1) // skip header row
-    expect(rows).toHaveLength(2)
-    expect(rows[0]).toHaveTextContent('Alice')
-    expect(rows[0]).toHaveTextContent('6')
-    expect(rows[1]).toHaveTextContent('Bob')
+    // p1 (Alice): City Mastery (3) + 1 City board-count (1) + 4 Gold (2) = 6.
+    // Real content/achievements.json's display name for 'city-mastery' is
+    // "City Mastery" — EndGameView resolves the id to a name via the real
+    // listAchievements(), independent of the test's own achievementContent.
+    expect(screen.getByText('City Mastery:', { exact: false })).toBeInTheDocument()
+    expect(screen.getByText('1 City:', { exact: false })).toBeInTheDocument()
+    expect(screen.getByText('4 Gold:', { exact: false })).toBeInTheDocument()
+    expect(screen.getByText('6 points')).toBeInTheDocument()
+
+    // p2 (Bob): nothing claimed, no units, no gold — scored nothing at all.
+    expect(screen.getByText('No points scored')).toBeInTheDocument()
+
+    // Ranked highest total first: Alice's card comes before Bob's.
+    const cards = [...container.querySelectorAll('.rounded-md.border.p-3')]
+    const aliceIndex = cards.findIndex((c) => c.textContent?.includes('Alice'))
+    const bobIndex = cards.findIndex((c) => c.textContent?.includes('Bob'))
+    expect(aliceIndex).toBeGreaterThanOrEqual(0)
+    expect(aliceIndex).toBeLessThan(bobIndex)
 
     expect(screen.getByText('Winner:', { exact: false })).toBeInTheDocument()
   })
@@ -92,11 +104,11 @@ describe('EndGameView', () => {
 
     render(<EndGameView state={state} players={players} achievementContent={content} />)
 
-    const winnerRow = screen.getByText('Alice').closest('tr')
-    expect(winnerRow).toHaveTextContent('🏆')
+    const winnerHeader = screen.getByText('Alice').closest('div')
+    expect(winnerHeader).toHaveTextContent('🏆')
 
-    const loserRow = screen.getByText('Bob').closest('tr')
-    expect(loserRow).not.toHaveTextContent('🏆')
+    const loserHeader = screen.getByText('Bob').closest('div')
+    expect(loserHeader).not.toHaveTextContent('🏆')
   })
 
   it('lists every player tied for the win when winnerPlayerIds has more than one id', () => {

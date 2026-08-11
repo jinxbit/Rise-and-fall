@@ -55,6 +55,55 @@ export function calculateTerrainControlVP(
   return vpByPlayerId
 }
 
+export interface TerrainControlDetail {
+  /** Effective terrain id (post-terrainScoresAs merge — e.g. Glacier folds into 'mountain'). */
+  terrain: string
+  /** Total hexes controlled across every region of this terrain the player holds a majority in. */
+  hexCount: number
+  vp: number
+}
+
+/**
+ * The same terrain-control scoring as calculateTerrainControlVP, but
+ * itemized per (player, terrain) instead of summed into one number per
+ * player — for a player-facing breakdown (e.g. "4 Forest: 12 points")
+ * rather than just the bottom line. Multiple separate regions of the same
+ * effective terrain the same player controls are combined into one entry
+ * (hexCount and vp both summed), matching how calculateTerrainControlVP
+ * already sums across regions for that player.
+ */
+export function calculateTerrainControlDetail(
+  board: Board,
+  units: Unit[],
+  terrainVictoryPoints: Record<string, number>,
+  terrainScoresAs: Record<string, string> = {},
+): Record<string, TerrainControlDetail[]> {
+  const detailByPlayerId: Record<string, Map<string, TerrainControlDetail>> = {}
+
+  for (const region of findTerrainRegions(board, terrainScoresAs)) {
+    const majorityOwnerId = findMajorityOwner(region, units)
+    if (!majorityOwnerId) continue
+
+    const perHex = terrainVictoryPoints[region.terrain] ?? 0
+    const byTerrain = detailByPlayerId[majorityOwnerId] ?? new Map<string, TerrainControlDetail>()
+    detailByPlayerId[majorityOwnerId] = byTerrain
+
+    const existing = byTerrain.get(region.terrain)
+    if (existing) {
+      existing.hexCount += region.tiles.length
+      existing.vp += perHex * region.tiles.length
+    } else {
+      byTerrain.set(region.terrain, { terrain: region.terrain, hexCount: region.tiles.length, vp: perHex * region.tiles.length })
+    }
+  }
+
+  const result: Record<string, TerrainControlDetail[]> = {}
+  for (const [playerId, byTerrain] of Object.entries(detailByPlayerId)) {
+    result[playerId] = [...byTerrain.values()]
+  }
+  return result
+}
+
 interface TerrainRegion {
   terrain: string
   tiles: Tile[]

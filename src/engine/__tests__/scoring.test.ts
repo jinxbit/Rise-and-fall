@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createEmptyBoard, setTile } from '../board'
-import { calculateTerrainControlVP } from '../scoring'
+import { calculateTerrainControlDetail, calculateTerrainControlVP } from '../scoring'
 import type { Board, Coordinate, Terrain, Unit } from '../types'
 
 function boardOf(cells: Array<[number, number, Terrain]>): Board {
@@ -176,5 +176,60 @@ describe('calculateTerrainControlVP with terrainScoresAs (Glacier -> Mountain)',
     const vp = calculateTerrainControlVP(board, units, { mountain: 2, glacier: 4 })
 
     expect(vp).toEqual({ p1: 6 })
+  })
+})
+
+describe('calculateTerrainControlDetail', () => {
+  it('itemizes the same result calculateTerrainControlVP sums, one entry per (player, terrain)', () => {
+    const board = boardOf([
+      [0, 0, 'water'],
+      [1, 0, 'water'],
+      [0, 1, 'water'],
+    ])
+    const units = [unitAt('p1', { q: 0, r: 0 }), unitAt('p1', { q: 1, r: 0 }), unitAt('p2', { q: 0, r: 1 })]
+
+    const detail = calculateTerrainControlDetail(board, units, { water: 2 })
+
+    expect(detail).toEqual({ p1: [{ terrain: 'water', hexCount: 3, vp: 6 }] })
+  })
+
+  it('combines separate regions of the same effective terrain into one entry (hexCount and vp both summed)', () => {
+    const board = boardOf([
+      [0, 0, 'water'],
+      [1, 0, 'water'],
+      [10, 10, 'forest'],
+      [11, 10, 'forest'],
+    ])
+    const units = [unitAt('p1', { q: 0, r: 0 }), unitAt('p1', { q: 1, r: 0 }), unitAt('p1', { q: 10, r: 10 }), unitAt('p1', { q: 11, r: 10 })]
+
+    const detail = calculateTerrainControlDetail(board, units, { water: 2, forest: 3 })
+
+    expect(detail.p1).toEqual(
+      expect.arrayContaining([
+        { terrain: 'water', hexCount: 2, vp: 4 },
+        { terrain: 'forest', hexCount: 2, vp: 6 },
+      ]),
+    )
+    expect(detail.p1).toHaveLength(2)
+  })
+
+  it('omits a player entirely when they hold no terrain majority anywhere', () => {
+    const board = boardOf([[0, 0, 'mountain']])
+    const units = [unitAt('p1', { q: 0, r: 0 }), unitAt('p2', { q: 0, r: 0 })]
+
+    // Tied on the one region — nobody has a majority.
+    expect(calculateTerrainControlDetail(board, units, { mountain: 5 })).toEqual({})
+  })
+
+  it('merges a glacier region into the mountain entry it scores as, same as calculateTerrainControlVP', () => {
+    const board = boardOf([
+      [0, 0, 'mountain'],
+      [1, 0, 'glacier'],
+    ])
+    const units = [unitAt('p1', { q: 0, r: 0 }), unitAt('p1', { q: 1, r: 0 })]
+
+    const detail = calculateTerrainControlDetail(board, units, { mountain: 2 }, { glacier: 'mountain' })
+
+    expect(detail).toEqual({ p1: [{ terrain: 'mountain', hexCount: 2, vp: 4 }] })
   })
 })

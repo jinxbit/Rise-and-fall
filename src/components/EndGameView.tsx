@@ -1,21 +1,69 @@
+import { listAchievements, listTerrainTypes } from '../content/resolveContent'
 import type { AchievementContent } from '../engine/achievementContent'
-import { calculateVPBreakdown } from '../engine/victoryPoints'
+import { calculateVPDetail } from '../engine/victoryPoints'
+import type { VPDetail } from '../engine/victoryPoints'
 import type { GameState } from '../engine/types'
 import type { PlayerRow } from '../lib/dbTypes'
 
+const ACHIEVEMENTS = listAchievements()
+const TERRAIN_TYPES = listTerrainTypes()
+
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1)
+}
+
+function achievementName(achievementId: string): string {
+  return ACHIEVEMENTS.find((a) => a.id === achievementId)?.name ?? achievementId
+}
+
+function terrainName(terrainId: string): string {
+  return TERRAIN_TYPES.find((t) => t.id === terrainId)?.name ?? capitalize(terrainId)
+}
+
+interface ScoreLine {
+  label: string
+  vp: number
+}
+
 /**
- * The end-of-game screen: every player, ranked by final total VP, with the
- * per-source breakdown (achievements/board-count/terrain-control/gold —
- * see calculateVPBreakdown) that total is made of, not just the bottom
- * line. Winner(s) — everyone tied for the highest total, per the "no
- * tiebreaker" rule (GameState.winnerPlayerIds, already computed once by
- * finishRound() using this same breakdown) — are highlighted.
+ * Flattens a player's VPDetail into "what they have: the points it's worth"
+ * lines — e.g. "4 Forest: 12 points", "City Mastery: 5 points" — the format
+ * requested for the end-of-game screen, rather than just a per-source
+ * total. Zero-quantity sources (no achievements claimed, no board-count/
+ * terrain-control presence, no gold) contribute no line at all; a source
+ * the player *does* have something in still gets a line even if it happens
+ * to be worth 0 points, since the point is showing what they have.
+ */
+function scoreLinesFor(detail: VPDetail): ScoreLine[] {
+  const lines: ScoreLine[] = []
+  for (const achievement of detail.achievements) {
+    lines.push({ label: achievementName(achievement.achievementId), vp: achievement.vp })
+  }
+  for (const boardCount of detail.boardCount) {
+    lines.push({ label: `${boardCount.count} ${capitalize(boardCount.kind)}${boardCount.count === 1 ? '' : 's'}`, vp: boardCount.vp })
+  }
+  for (const terrainControl of detail.terrainControl) {
+    lines.push({ label: `${terrainControl.hexCount} ${terrainName(terrainControl.terrain)}`, vp: terrainControl.vp })
+  }
+  if (detail.gold.amount > 0) {
+    lines.push({ label: `${detail.gold.amount} Gold`, vp: detail.gold.vp })
+  }
+  return lines
+}
+
+/**
+ * The end-of-game screen: every player, ranked by final total VP, with a
+ * full breakdown of what that total is made of — not just the bottom line,
+ * but each thing they have and the points it's worth (calculateVPDetail).
+ * Winner(s) — everyone tied for the highest total, per the "no tiebreaker"
+ * rule (GameState.winnerPlayerIds, already computed once by finishRound())
+ * — are highlighted.
  */
 export function EndGameView({ state, players, achievementContent }: { state: GameState; players: PlayerRow[]; achievementContent: AchievementContent }) {
-  const breakdownByPlayerId = calculateVPBreakdown(state, achievementContent)
+  const detailByPlayerId = calculateVPDetail(state, achievementContent)
   const winnerIds = new Set(state.winnerPlayerIds)
 
-  const ranked = [...state.players].sort((a, b) => (breakdownByPlayerId[b.id]?.total ?? 0) - (breakdownByPlayerId[a.id]?.total ?? 0))
+  const ranked = [...state.players].sort((a, b) => (detailByPlayerId[b.id]?.total ?? 0) - (detailByPlayerId[a.id]?.total ?? 0))
 
   return (
     <div className="flex flex-col gap-4 rounded-md border border-amber-700/50 bg-amber-500/10 p-4">
@@ -27,43 +75,41 @@ export function EndGameView({ state, players, achievementContent }: { state: Gam
         </p>
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[36rem] border-collapse text-sm">
-          <thead>
-            <tr className="border-b border-amber-700/50 text-left text-xs uppercase tracking-wide text-amber-400/80">
-              <th className="py-1.5 pr-3">Player</th>
-              <th className="px-3 py-1.5 text-right">Total VP</th>
-              <th className="px-3 py-1.5 text-right">Achievements</th>
-              <th className="px-3 py-1.5 text-right">Board count</th>
-              <th className="px-3 py-1.5 text-right">Terrain control</th>
-              <th className="px-3 py-1.5 text-right">Gold</th>
-            </tr>
-          </thead>
-          <tbody>
-            {ranked.map((player) => {
-              const row = players.find((p) => p.id === player.id)
-              const breakdown = breakdownByPlayerId[player.id]
-              const isWinner = winnerIds.has(player.id)
-              return (
-                <tr key={player.id} className={`border-b border-amber-700/20 last:border-0 ${isWinner ? 'text-amber-200' : 'text-neutral-300'}`}>
-                  <td className="py-1.5 pr-3">
-                    <span className="flex items-center gap-2">
-                      <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: row?.color ?? '#a3a3a3' }} />
-                      <span className={isWinner ? 'font-semibold' : undefined}>{row?.display_name ?? player.id}</span>
-                      {isWinner && <span title="Winner">🏆</span>}
-                      {player.eliminated && <span className="text-xs text-neutral-500">(eliminated)</span>}
-                    </span>
-                  </td>
-                  <td className={`px-3 py-1.5 text-right ${isWinner ? 'font-semibold' : ''}`}>{breakdown?.total ?? 0}</td>
-                  <td className="px-3 py-1.5 text-right text-neutral-400">{breakdown?.achievements ?? 0}</td>
-                  <td className="px-3 py-1.5 text-right text-neutral-400">{breakdown?.boardCount ?? 0}</td>
-                  <td className="px-3 py-1.5 text-right text-neutral-400">{breakdown?.terrainControl ?? 0}</td>
-                  <td className="px-3 py-1.5 text-right text-neutral-400">{breakdown?.gold ?? 0}</td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
+      <div className="flex flex-col gap-3">
+        {ranked.map((player) => {
+          const row = players.find((p) => p.id === player.id)
+          const detail = detailByPlayerId[player.id]
+          const isWinner = winnerIds.has(player.id)
+          const lines = detail ? scoreLinesFor(detail) : []
+
+          return (
+            <div key={player.id} className={`rounded-md border p-3 ${isWinner ? 'border-amber-500/60 bg-amber-500/5' : 'border-neutral-800'}`}>
+              <div className="flex items-center justify-between gap-2">
+                <span className="flex items-center gap-2">
+                  <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: row?.color ?? '#a3a3a3' }} />
+                  <span className={isWinner ? 'font-semibold text-amber-200' : 'font-medium text-neutral-200'}>{row?.display_name ?? player.id}</span>
+                  {isWinner && <span title="Winner">🏆</span>}
+                  {player.eliminated && <span className="text-xs text-neutral-500">(eliminated)</span>}
+                </span>
+                <span className={`text-sm ${isWinner ? 'font-semibold text-amber-200' : 'font-medium text-neutral-200'}`}>
+                  {detail?.total ?? 0} point{detail?.total === 1 ? '' : 's'}
+                </span>
+              </div>
+
+              {lines.length > 0 ? (
+                <ul className="mt-2 flex flex-col gap-0.5 pl-4 text-xs text-neutral-400">
+                  {lines.map((line, i) => (
+                    <li key={i} className="list-disc">
+                      {line.label}: <span className="text-neutral-300">{line.vp} point{line.vp === 1 ? '' : 's'}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-2 pl-4 text-xs text-neutral-500">No points scored</p>
+              )}
+            </div>
+          )
+        })}
       </div>
     </div>
   )

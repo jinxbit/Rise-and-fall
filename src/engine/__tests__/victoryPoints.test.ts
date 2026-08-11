@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { calculateAchievementVP, calculateBoardCountVP, calculateGoldVP, calculateVPBreakdown, determineWinners, sumVP } from '../victoryPoints'
+import {
+  calculateAchievementDetail,
+  calculateAchievementVP,
+  calculateBoardCountDetail,
+  calculateBoardCountVP,
+  calculateGoldVP,
+  calculateVPBreakdown,
+  calculateVPDetail,
+  determineWinners,
+  sumVP,
+} from '../victoryPoints'
 import { createEmptyBoard, setTile } from '../board'
 import { createNewGame } from '../createGame'
 import { EMPTY_ACHIEVEMENT_CONTENT } from '../achievementContent'
@@ -54,6 +64,27 @@ describe('calculateAchievementVP', () => {
   })
 })
 
+describe('calculateAchievementDetail', () => {
+  it('itemizes the same result calculateAchievementVP sums, one entry per claimed achievement', () => {
+    const claimed = { 'city-mastery': 'p1', 'temple-mastery': 'p1', 'nomad-mastery': 'p2' }
+    const detail = calculateAchievementDetail(claimed, { 'city-mastery': 2, 'temple-mastery': 1, 'nomad-mastery': 5 })
+
+    expect(detail.p1).toEqual(expect.arrayContaining([{ achievementId: 'city-mastery', vp: 2 }, { achievementId: 'temple-mastery', vp: 1 }]))
+    expect(detail.p1).toHaveLength(2)
+    expect(detail.p2).toEqual([{ achievementId: 'nomad-mastery', vp: 5 }])
+  })
+
+  it('treats an achievement id missing from achievementVictoryPoints as worth 0, still listed', () => {
+    const detail = calculateAchievementDetail({ 'ship-mastery': 'p1' }, {})
+
+    expect(detail).toEqual({ p1: [{ achievementId: 'ship-mastery', vp: 0 }] })
+  })
+
+  it('returns an empty object when nothing has been claimed', () => {
+    expect(calculateAchievementDetail({}, { 'city-mastery': 1 })).toEqual({})
+  })
+})
+
 describe('calculateBoardCountVP', () => {
   const curves = { city: [1, 2, 3, 4] }
 
@@ -86,6 +117,42 @@ describe('calculateBoardCountVP', () => {
     const vp = calculateBoardCountVP(units, { city: [1, 2, 3], temple: [5] })
 
     expect(vp).toEqual({ p1: 7 })
+  })
+})
+
+describe('calculateBoardCountDetail', () => {
+  const curves = { city: [1, 2, 3, 4] }
+
+  it("itemizes the same result calculateBoardCountVP sums, one entry per (player, kind)", () => {
+    const units = [unitAt('p1', 'city'), unitAt('p1', 'city'), unitAt('p1', 'city'), unitAt('p2', 'city')]
+
+    const detail = calculateBoardCountDetail(units, curves)
+
+    expect(detail).toEqual({ p1: [{ kind: 'city', count: 3, vp: 3 }], p2: [{ kind: 'city', count: 1, vp: 1 }] })
+  })
+
+  it("uses the curve's last entry when the count exceeds the array length", () => {
+    const units = [unitAt('p1', 'city'), unitAt('p1', 'city'), unitAt('p1', 'city'), unitAt('p1', 'city'), unitAt('p1', 'city')]
+
+    const detail = calculateBoardCountDetail(units, curves)
+
+    expect(detail).toEqual({ p1: [{ kind: 'city', count: 5, vp: 4 }] })
+  })
+
+  it('omits a unit kind with no curve entry (or an empty curve), same as calculateBoardCountVP', () => {
+    const units = [unitAt('p1', 'temple')]
+
+    expect(calculateBoardCountDetail(units, { temple: [] })).toEqual({})
+    expect(calculateBoardCountDetail(units, {})).toEqual({})
+  })
+
+  it('lists multiple unit kinds for the same player as separate entries', () => {
+    const units = [unitAt('p1', 'city'), unitAt('p1', 'city'), unitAt('p1', 'temple')]
+
+    const detail = calculateBoardCountDetail(units, { city: [1, 2, 3], temple: [5] })
+
+    expect(detail.p1).toEqual(expect.arrayContaining([{ kind: 'city', count: 2, vp: 2 }, { kind: 'temple', count: 1, vp: 5 }]))
+    expect(detail.p1).toHaveLength(2)
   })
 })
 
@@ -188,6 +255,32 @@ describe('calculateVPBreakdown', () => {
     expect(breakdown).toEqual({
       p1: { achievements: 0, boardCount: 0, terrainControl: 0, gold: 0, total: 0 },
       p2: { achievements: 0, boardCount: 0, terrainControl: 0, gold: 0, total: 0 },
+    })
+  })
+
+  describe('calculateVPDetail', () => {
+    it('itemizes each of the four VP sources — what the player has, and the points it is worth — with a total matching calculateVPBreakdown', () => {
+      const state = baseState()
+      const detail = calculateVPDetail(state, content)
+
+      // p1: city-mastery claimed (3 VP) + 2 Cities on board (curve [1,2] at
+      // count 2 -> 2 VP) + a 2-hex water region majority (1 VP/hex -> 2 VP)
+      // + 5 gold at 2 gold/point -> 2 VP = 9 total, matching
+      // calculateVPBreakdown's p1.total for this same fixture.
+      expect(detail.p1).toEqual({
+        achievements: [{ achievementId: 'city-mastery', vp: 3 }],
+        boardCount: [{ kind: 'city', count: 2, vp: 2 }],
+        terrainControl: [{ terrain: 'water', hexCount: 2, vp: 2 }],
+        gold: { amount: 5, vp: 2 },
+        total: 9,
+      })
+      expect(detail.p1.total).toBe(calculateVPBreakdown(state, content).p1.total)
+    })
+
+    it('gives a player with nothing on every source empty lists, a 0-VP gold entry, and a 0 total', () => {
+      const detail = calculateVPDetail(baseState(), content)
+
+      expect(detail.p2).toEqual({ achievements: [], boardCount: [], terrainControl: [], gold: { amount: 0, vp: 0 }, total: 0 })
     })
   })
 })

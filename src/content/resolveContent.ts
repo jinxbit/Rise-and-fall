@@ -123,6 +123,16 @@ export function listAchievements(): AchievementSummary[] {
   }))
 }
 
+export interface TerrainSummary {
+  id: string
+  name: string
+}
+
+/** Every terrain type's display name, for resolving a terrain id (e.g. from calculateTerrainControlDetail) to something player-facing (e.g. EndGameView.tsx's score breakdown). */
+export function listTerrainTypes(): TerrainSummary[] {
+  return terrainJson.terrainTypes.map((t) => ({ id: t.id, name: t.name }))
+}
+
 export function resolveAchievementContent(): AchievementContent {
   const unitKindByAchievementId: Record<string, string> = {}
   const achievementVictoryPoints: Record<string, number> = {}
