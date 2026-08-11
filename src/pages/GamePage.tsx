@@ -46,6 +46,20 @@ export function GamePage() {
   const [copiedStateExport, setCopiedStateExport] = useState(false)
   const [stateExportError, setStateExportError] = useState<string | null>(null)
   const [undoing, setUndoing] = useState(false)
+  const [redoing, setRedoing] = useState(false)
+  /**
+   * Actions popped off actionHistory by Undo, most-recently-undone last —
+   * Redo pops from the end and re-submits it through the normal action
+   * path, which naturally restores multi-step undos in the right order
+   * (undo A then B leaves [B, A]; redo pops A first, then B). Cleared
+   * whenever a fresh player action is submitted, since that's a new
+   * branch of history the undone actions no longer fit onto. Not
+   * persisted anywhere — like the undo stack event-sourcing replaces, this
+   * is just local UI state, so it resets on refresh and isn't shared
+   * between players (each player's own undo/redo history, same as e.g.
+   * their browser's back button).
+   */
+  const [redoStack, setRedoStack] = useState<Action[]>([])
   const [showHistory, setShowHistory] = useState(false)
   /**
    * Hotseat pass-and-play: which seated player the shared device is
@@ -197,6 +211,7 @@ export function GamePage() {
 
   async function submitAction(action: Action) {
     const result = await writeWithRetry((state) => applyActionAndFastForwardTiles(state, action, unitContent, achievementContent, boardGenerationContent))
+    if (result.ok) setRedoStack([])
     setActionError(result.ok ? null : result.error)
   }
 
@@ -237,6 +252,7 @@ export function GamePage() {
   async function handleUndo() {
     if (!game) return
     setUndoing(true)
+    let undoneAction: Action | null = null
     try {
       const result = await writeWithRetry((state) => {
         if (state.actionHistory.length === 0) {
@@ -244,14 +260,41 @@ export function GamePage() {
         }
         const genesis = buildGenesisState(game, players)
         const previousHistory = state.actionHistory.slice(0, -1)
+        undoneAction = state.actionHistory[state.actionHistory.length - 1]
         const undoneState = replayActions(genesis, previousHistory, unitContent, achievementContent, boardGenerationContent)
         return { ok: true, state: undoneState }
       })
+      if (result.ok && undoneAction) {
+        setRedoStack((stack) => [...stack, undoneAction as Action])
+      }
       setActionError(result.ok ? null : result.error)
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Failed to undo')
     } finally {
       setUndoing(false)
+    }
+  }
+
+  /**
+   * Redo: re-submits the most recently undone action through the same
+   * applyActionAndFastForwardTiles path a live player action takes (not a
+   * raw history append), so if the game has moved on since the undo (e.g.
+   * another player acted) it's validated fresh against current state and
+   * fails cleanly rather than silently grafting a stale action onto the
+   * wrong point in history.
+   */
+  async function handleRedo() {
+    if (!game || redoStack.length === 0) return
+    const action = redoStack[redoStack.length - 1]
+    setRedoing(true)
+    setRedoStack((stack) => stack.slice(0, -1))
+    try {
+      const result = await writeWithRetry((state) => applyActionAndFastForwardTiles(state, action, unitContent, achievementContent, boardGenerationContent))
+      setActionError(result.ok ? null : result.error)
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to redo')
+    } finally {
+      setRedoing(false)
     }
   }
 
@@ -306,6 +349,15 @@ export function GamePage() {
             className="rounded-md border border-neutral-700 px-3 py-1 text-sm hover:border-neutral-500 disabled:opacity-50"
           >
             {undoing ? 'Undoing…' : 'Undo last action'}
+          </button>
+          <button
+            type="button"
+            disabled={redoing || redoStack.length === 0}
+            onClick={() => void handleRedo()}
+            title="Redo the last undone action."
+            className="rounded-md border border-neutral-700 px-3 py-1 text-sm hover:border-neutral-500 disabled:opacity-50"
+          >
+            {redoing ? 'Redoing…' : 'Redo'}
           </button>
           <button
             type="button"
