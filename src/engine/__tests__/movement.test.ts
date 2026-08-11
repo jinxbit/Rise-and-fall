@@ -51,6 +51,7 @@ function makeState(overrides: Partial<GameState> = {}): GameState {
     chosenCardIdByPlayerId: {},
     pendingPlayerIds: [],
     resolvedUnitIdsThisTurn: [],
+    unitsCreatedThisTurn: [],
     turnOrder: ['p1', 'p2'],
     board: createEmptyBoard('hex'),
     players: [makePlayer('p1'), makePlayer('p2')],

@@ -1,0 +1,87 @@
+{
+  "tales": [
+    {
+      "id": "the-ports",
+      "number": 7,
+      "name": "The Ports",
+      "description": "Each player keeps a Port in reserve. A Nomad or a Ship can build one; once built, it activates alongside its owner's Ship card, letting a Ship dock and depart or letting the whole Sea Region's shipping trade with it.",
+      "category": "buildable",
+      "extraUnits": [
+        {
+          "id": "port",
+          "name": "Port",
+          "description": "A permanent harbor. Has no Civilization card of its own — activates whenever its owner plays their Ship card, but never on the turn it's built.",
+          "companionOfKind": "ship",
+          "movement": {
+            "isMobile": false,
+            "terrains": [],
+            "canCrossCliffs": false
+          },
+          "supply": {
+            "byPlayerCount": { "2": 1, "3": 1, "4": 1 }
+          },
+          "victoryPoints": {
+            "byBoardCount": []
+          },
+          "actions": [
+            {
+              "id": "construct-ship",
+              "name": "Construct a Ship",
+              "description": "Place a Ship in the Port's own Sea space, if it doesn't already hold one. That Ship may also act this same turn.",
+              "effect": {
+                "actionType": "site-create",
+                "targetUnit": "ship",
+                "blockedByKinds": ["ship"],
+                "cost": { "wood": 1 }
+              }
+            },
+            {
+              "id": "trade-ships-and-ports",
+              "name": "Trade with Ships and Ports",
+              "description": "Gain 4 Gold Pieces for each Ship and Port — any owner, including this one — in the same Sea Region.",
+              "effect": {
+                "actionType": "region-unit-count-income",
+                "countKinds": ["ship", "port"],
+                "goldPerUnit": 4
+              }
+            }
+          ]
+        }
+      ],
+      "extraActionsByKind": {
+        "nomad": [
+          {
+            "id": "construct-port",
+            "name": "Construct a Port",
+            "description": "Remove the Nomad and place a Port on an adjacent, empty Sea space.",
+            "effect": {
+              "actionType": "transform",
+              "targetUnit": "port",
+              "targetHex": { "terrainType": ["water"], "location": "adj" },
+              "destroySelf": true,
+              "cost": { "wood": 1, "stone": 2 }
+            }
+          }
+        ],
+        "ship": [
+          {
+            "id": "construct-port",
+            "name": "Construct a Port",
+            "description": "Remove the Ship and replace it with a Port in its own space. Requires an adjacent Plains space.",
+            "effect": {
+              "actionType": "transform",
+              "targetUnit": "port",
+              "targetHex": { "terrainType": ["water"], "location": "self" },
+              "destroySelf": true,
+              "cost": { "wood": 1, "stone": 2 },
+              "requiredAdjacentTerrain": ["plain"]
+            }
+          }
+        ]
+      },
+      "movementOverridesByKind": {
+        "ship": { "canEndMoveOnAlliedUnitTypes": ["port"] }
+      }
+    }
+  ]
+}

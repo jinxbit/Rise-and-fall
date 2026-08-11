@@ -5,13 +5,15 @@ import {
   canAffordCost,
   computeIncomeGold,
   computeProduceAmounts,
+  computeRegionUnitCountGold,
   computeTradeGold,
   crossesCliff,
+  hasAdjacentTerrain,
   hasReachedSupplyCap,
   isCreationAllowedOnTerrain,
   unitsAt,
 } from './unitActions'
-import type { ConvertEffect, CreateEffect, TransformEffect, UnitAction, UnitContent } from './unitContent'
+import type { ConvertEffect, CreateEffect, SiteCreateEffect, TransformEffect, UnitAction, UnitContent } from './unitContent'
 import type { Coordinate, GameState, Unit } from './types'
 
 /**
@@ -46,6 +48,7 @@ export function legalTransformTargets(state: GameState, playerId: string, unit: 
   const player = state.players.find((p) => p.id === playerId)
   if (!player || !canAffordCost(player.resources, effect.cost)) return []
   if (hasReachedSupplyCap(state, playerId, effect.targetUnit, content.unitSupplyCaps)) return []
+  if (effect.requiredAdjacentTerrain && !hasAdjacentTerrain(state, unit.coord, effect.requiredAdjacentTerrain)) return []
 
   if (effect.targetHex.location === 'self') {
     const tile = getTile(state.board, unit.coord)
@@ -61,6 +64,17 @@ export function legalTransformTargets(state: GameState, playerId: string, unit: 
     if (crossesCliff(state, unit.coord, coord, content.terrainLevels)) return false
     return true
   })
+}
+
+/** Whether a site-create action's fixed conditions (occupant block + supply cap + cost) are currently satisfied — the action has no target to choose (it always applies to the acting unit's own hex), so this is a plain boolean, not a coordinate list. */
+export function isSiteCreateAvailable(state: GameState, playerId: string, unit: Unit, effect: SiteCreateEffect, content: UnitContent): boolean {
+  const player = state.players.find((p) => p.id === playerId)
+  if (!player || !canAffordCost(player.resources, effect.cost)) return false
+  if (hasReachedSupplyCap(state, playerId, effect.targetUnit, content.unitSupplyCaps)) return false
+  const tile = getTile(state.board, unit.coord)
+  if (!tile || !isCreationAllowedOnTerrain(effect.targetUnit, tile.terrain)) return false
+  const blockedKinds = new Set(effect.blockedByKinds)
+  return !unitsAt(state, unit.coord).some((u) => u.id !== unit.id && blockedKinds.has(u.kind))
 }
 
 export function legalConvertTargets(state: GameState, playerId: string, unit: Unit, effect: ConvertEffect, content: UnitContent): Coordinate[] {
@@ -146,5 +160,9 @@ export function isActionAvailableForUnit(state: GameState, playerId: string, uni
     }
     case 'move':
       return legalMoveDestinations(state, unit, unit.movement, content.terrainLevels).length > 0
+    case 'site-create':
+      return isSiteCreateAvailable(state, playerId, unit, effect, content)
+    case 'region-unit-count-income':
+      return wouldGainResource(player.resources, state.resourceBank, 'gold', computeRegionUnitCountGold(state, unit, effect), content.resourceCaps.gold ?? null)
   }
 }

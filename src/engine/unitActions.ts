@@ -10,6 +10,8 @@ import type {
   CreateEffect,
   IncomeEffect,
   ProduceEffect,
+  RegionUnitCountIncomeEffect,
+  SiteCreateEffect,
   TradeEffect,
   TradeResourceEffect,
   TransformEffect,
@@ -104,26 +106,37 @@ export function hasReachedSupplyCap(state: GameState, playerId: string, kind: st
 }
 
 /**
- * Per ruling: some terrain types restrict which single unit kind may be
- * created/transformed into existence there, regardless of whatever terrain
- * restriction the action's own content already specifies. Water: only a
- * Ship. Glacier: only a Mountaineer — 'create' effects have no
- * `targetHex.terrainType` field in content at all (see CreateEffect in
- * ./unitContent.ts), so without this a City's "Create Nomad" would happily
- * place a Nomad on Glacier with nothing to stop it. Applied as a hard
- * engine-level guarantee in both applyCreate and applyTransform below (and
- * mirrored in ./actionTargeting.ts's legalCreateTargets/legalTransformTargets
- * for the UI), so a future content mistake can't reintroduce either
- * violation.
+ * Per ruling: some terrain types restrict which unit kind(s) may be
+ * created/transformed into existence there, regardless of that kind's own
+ * movement profile (a Merchant can travel onto Water once it exists, but
+ * can't be *built* there) and regardless of whatever terrain restriction
+ * the action's own content already specifies. Water: only a Ship (base
+ * game) or a Port (The Ports Tale — its whole point is a permanent
+ * structure built ON a Sea space). Glacier: only a Mountaineer. 'create'
+ * effects have no `targetHex.terrainType` field in content at all (see
+ * CreateEffect in ./unitContent.ts), so without this a City's "Create
+ * Nomad" would happily place a Nomad on Glacier with nothing to stop it.
+ * Applied as a hard engine-level guarantee in both applyCreate and
+ * applyTransform below (and mirrored in ./actionTargeting.ts's
+ * legalCreateTargets/legalTransformTargets for the UI), so a future
+ * content mistake can't reintroduce any of these violations.
  */
-const SOLE_CREATABLE_KIND_BY_TERRAIN: Partial<Record<Terrain, string>> = {
-  water: 'ship',
-  glacier: 'mountaineer',
+const CREATABLE_KINDS_BY_TERRAIN: Partial<Record<Terrain, string[]>> = {
+  water: ['ship', 'port'],
+  glacier: ['mountaineer'],
 }
 
 export function isCreationAllowedOnTerrain(targetUnit: string, terrain: Terrain): boolean {
-  const soleAllowedKind = SOLE_CREATABLE_KIND_BY_TERRAIN[terrain]
-  return soleAllowedKind === undefined || soleAllowedKind === targetUnit
+  const allowedKinds = CREATABLE_KINDS_BY_TERRAIN[terrain]
+  return allowedKinds === undefined || allowedKinds.includes(targetUnit)
+}
+
+/** Whether at least one hex adjacent to `coord` currently has one of `terrains` — see TransformEffect.requiredAdjacentTerrain. */
+export function hasAdjacentTerrain(state: GameState, coord: Coordinate, terrains: string[]): boolean {
+  return neighborCoords(state.board, coord).some((neighbor) => {
+    const tile = getTile(state.board, neighbor)
+    return tile !== undefined && terrains.includes(tile.terrain)
+  })
 }
 
 // --- per-actionType handlers, one acting unit at a time ---------------------
@@ -232,6 +245,62 @@ function applyTrade(
   return creditResource(state, playerId, 'gold', computeTradeGold(state, unit, effect), resourceCaps)
 }
 
+/**
+ * How much gold a `region-unit-count-income` effect would actually pay out
+ * — goldPerUnit per unit of a countKinds kind located anywhere within the
+ * acting unit's whole connected terrain region (any owner, including the
+ * acting unit's own kind/self — e.g. a Port counts itself as one of the
+ * Ports in its Sea Region). Shared with isActionAvailableForUnit, same
+ * reasoning as computeIncomeGold/computeTradeGold above.
+ */
+export function computeRegionUnitCountGold(state: GameState, unit: Unit, effect: RegionUnitCountIncomeEffect): number {
+  const region = connectedTerrainRegion(state.board, unit.coord)
+  const regionKeys = new Set(region.map(coordKey))
+  const count = state.units.filter((u) => effect.countKinds.includes(u.kind) && regionKeys.has(coordKey(u.coord))).length
+  return count * effect.goldPerUnit
+}
+
+function applyRegionUnitCountIncome(
+  state: GameState,
+  playerId: string,
+  unit: Unit,
+  effect: RegionUnitCountIncomeEffect,
+  resourceCaps: Partial<Record<keyof Resources, number | null>>,
+): GameState {
+  return creditResource(state, playerId, 'gold', computeRegionUnitCountGold(state, unit, effect), resourceCaps)
+}
+
+/**
+ * Creates a unit on the ACTING unit's own hex — for a companion piece
+ * whose hex the acting unit itself already occupies, so the normal
+ * create/transform "target hex must be empty" rule can't apply (see
+ * SiteCreateEffect's doc comment). Legality is "no current occupant OTHER
+ * than the acting unit itself has a kind in blockedByKinds," not "hex must
+ * be empty." Still respects the target kind's terrain eligibility
+ * (isCreationAllowedOnTerrain) and supply cap, same as create/transform.
+ */
+function applySiteCreate(state: GameState, playerId: string, unit: Unit, effect: SiteCreateEffect, content: UnitContent): GameState {
+  const otherOccupants = unitsAt(state, unit.coord).filter((u) => u.id !== unit.id)
+  if (otherOccupants.some((u) => effect.blockedByKinds.includes(u.kind))) return state
+  const tile = getTile(state.board, unit.coord)
+  if (!tile || !isCreationAllowedOnTerrain(effect.targetUnit, tile.terrain)) return state
+  if (hasReachedSupplyCap(state, playerId, effect.targetUnit, content.unitSupplyCaps)) return state
+
+  const afterCost = tryPayCost(state, playerId, effect.cost)
+  if (!afterCost) return state
+
+  const { id, idSequence } = nextSequenceId(afterCost, 'created_unit')
+  const newUnit: Unit = {
+    id,
+    ownerId: playerId,
+    kind: effect.targetUnit,
+    coord: unit.coord,
+    movement: content.movementByKind[effect.targetUnit] ?? { isMobile: false, terrains: [], canCrossCliffs: false },
+    traits: [],
+  }
+  return { ...afterCost, idSequence, units: [...afterCost.units, newUnit] }
+}
+
 /** Per ruling: creation can never cross a cliff, always respects the target kind's supply cap, and can never target Water/Glacier unless the created kind is the one sole kind allowed there (see isCreationAllowedOnTerrain). */
 function applyCreate(state: GameState, playerId: string, unit: Unit, effect: CreateEffect, targetCoord: Coordinate | undefined, content: UnitContent): GameState {
   if (!targetCoord) return state
@@ -267,6 +336,7 @@ function applyTransform(state: GameState, playerId: string, unit: Unit, effect: 
   const targetTile = getTile(state.board, resolvedTargetCoord)
   if (!targetTile || !effect.targetHex.terrainType.includes(targetTile.terrain)) return state
   if (!isCreationAllowedOnTerrain(effect.targetUnit, targetTile.terrain)) return state
+  if (effect.requiredAdjacentTerrain && !hasAdjacentTerrain(state, unit.coord, effect.requiredAdjacentTerrain)) return state
 
   if (effect.targetHex.location === 'adj') {
     if (!isAdjacent(state, unit.coord, resolvedTargetCoord)) return state
@@ -439,6 +509,12 @@ export function applyUnitActionEffect(
         break
       case 'move':
         nextState = applyMove(nextState, unit, target, content)
+        break
+      case 'site-create':
+        nextState = applySiteCreate(nextState, playerId, unit, effect, content)
+        break
+      case 'region-unit-count-income':
+        nextState = applyRegionUnitCountIncome(nextState, playerId, unit, effect, content.resourceCaps)
         break
     }
   }

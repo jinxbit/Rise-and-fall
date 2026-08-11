@@ -57,6 +57,7 @@ const content: UnitContent = {
   terrainLevels: { water: 0, plain: 1, forest: 2, mountain: 3, glacier: 4 },
   resourceCaps: { gold: null, wood: null, stone: null },
   unitSupplyCaps: { city: 2 },
+  companionKindsByCardKind: {},
 }
 
 const achievementContent: AchievementContent = {

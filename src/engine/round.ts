@@ -40,6 +40,7 @@ export function beginActionsPhase(state: GameState): GameState {
     roundPhase: 'actions',
     pendingPlayerIds: [...state.turnOrder],
     resolvedUnitIdsThisTurn: [],
+    unitsCreatedThisTurn: [],
     activePlayerId: state.turnOrder[0] ?? null,
   }
 }

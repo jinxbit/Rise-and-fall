@@ -39,6 +39,7 @@ const unitContent: UnitContent = {
   terrainLevels: { water: 0, plain: 1, forest: 2, mountain: 3, glacier: 4 },
   resourceCaps: { gold: null, wood: 5, stone: 5 },
   unitSupplyCaps: {},
+  companionKindsByCardKind: {},
 }
 
 function makeGenesis(): GameState {

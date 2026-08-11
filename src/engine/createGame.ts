@@ -63,6 +63,7 @@ export function createNewGame(params: {
     chosenCardIdByPlayerId: Object.fromEntries(players.map((p) => [p.id, null])),
     pendingPlayerIds: [...turnOrder],
     resolvedUnitIdsThisTurn: [],
+    unitsCreatedThisTurn: [],
     turnOrder,
     board: params.board,
     players,

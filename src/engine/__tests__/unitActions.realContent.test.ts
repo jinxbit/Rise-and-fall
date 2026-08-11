@@ -40,7 +40,7 @@ function buildUnitContent(): UnitContent {
     resourceCaps[resource.id as keyof Resources] = resource.playerCap
   }
 
-  return { actionsByKind, movementByKind, terrainLevels, resourceCaps, unitSupplyCaps }
+  return { actionsByKind, movementByKind, terrainLevels, resourceCaps, unitSupplyCaps, companionKindsByCardKind: {} }
 }
 
 function makePlayer(id: string, resources: Resources = { gold: 0, wood: 0, stone: 0 }): Player {
@@ -94,6 +94,7 @@ describe('real content/units.json + terrain.json + resources.json', () => {
       chosenCardIdByPlayerId: {},
       pendingPlayerIds: [],
       resolvedUnitIdsThisTurn: [],
+      unitsCreatedThisTurn: [],
       turnOrder: ['p1'],
       board,
       players: [makePlayer('p1')],
@@ -126,6 +127,7 @@ describe('real content/units.json + terrain.json + resources.json', () => {
       chosenCardIdByPlayerId: {},
       pendingPlayerIds: [],
       resolvedUnitIdsThisTurn: [],
+      unitsCreatedThisTurn: [],
       turnOrder: ['p1'],
       board,
       players: [makePlayer('p1')],
@@ -159,6 +161,7 @@ describe('real content/units.json + terrain.json + resources.json', () => {
       chosenCardIdByPlayerId: {},
       pendingPlayerIds: [],
       resolvedUnitIdsThisTurn: [],
+      unitsCreatedThisTurn: [],
       turnOrder: ['p1'],
       board,
       players: [makePlayer('p1', { gold: 0, wood: 1, stone: 1 })],
@@ -199,6 +202,7 @@ describe('real content/units.json + terrain.json + resources.json', () => {
       chosenCardIdByPlayerId: {},
       pendingPlayerIds: [],
       resolvedUnitIdsThisTurn: [],
+      unitsCreatedThisTurn: [],
       turnOrder: ['p1'],
       board,
       players: [makePlayer('p1', { gold: 0, wood: 0, stone: 0 })],
@@ -235,6 +239,7 @@ describe('real content/units.json + terrain.json + resources.json', () => {
       chosenCardIdByPlayerId: {},
       pendingPlayerIds: [],
       resolvedUnitIdsThisTurn: [],
+      unitsCreatedThisTurn: [],
       turnOrder: ['p1'],
       board,
       players: [makePlayer('p1', { gold: 2, wood: 0, stone: 0 })],
@@ -272,6 +277,7 @@ describe('real content/units.json + terrain.json + resources.json', () => {
       chosenCardIdByPlayerId: {},
       pendingPlayerIds: [],
       resolvedUnitIdsThisTurn: [],
+      unitsCreatedThisTurn: [],
       turnOrder: ['p1'],
       board,
       players: [makePlayer('p1')],
@@ -316,6 +322,7 @@ describe('real content/units.json + terrain.json + resources.json', () => {
       chosenCardIdByPlayerId: {},
       pendingPlayerIds: [],
       resolvedUnitIdsThisTurn: [],
+      unitsCreatedThisTurn: [],
       turnOrder: ['p1'],
       board,
       players: [makePlayer('p1')],
@@ -356,6 +363,7 @@ describe('real content/units.json + terrain.json + resources.json', () => {
       chosenCardIdByPlayerId: {},
       pendingPlayerIds: [],
       resolvedUnitIdsThisTurn: [],
+      unitsCreatedThisTurn: [],
       turnOrder: ['p1'],
       board,
       players: [makePlayer('p1')],
@@ -410,6 +418,7 @@ describe('real content/units.json + terrain.json + resources.json', () => {
       chosenCardIdByPlayerId: {},
       pendingPlayerIds: [],
       resolvedUnitIdsThisTurn: [],
+      unitsCreatedThisTurn: [],
       turnOrder: ['p1', 'p2'],
       board,
       players: [makePlayer('p1', { gold: 3, wood: 0, stone: 0 }), makePlayer('p2')],

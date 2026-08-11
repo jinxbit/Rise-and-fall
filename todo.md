@@ -2776,3 +2776,131 @@ state through encode/decode, checks the encoded form is under half the
 pretty-printed size, and checks both rejection paths (missing prefix,
 wrong schema). 430 tests total (was 426); `tsc -b`/`oxlint`/`vitest
 run`/`npm run build` all clean.
+
+## 61. The Ports Tale (variant) — first Tale implemented, plus the general "companion piece" engine capability it needed
+
+Requested: implement The Ports, one of the 23 Tales cataloged in
+`VARIANTS_PLAN.md` (see that doc's section 5 for the full variant
+design). Nothing from the Tales variant existed yet — no content file, no
+engine hooks — so this also had to build the first slice of genuinely
+reusable Tales infrastructure the plan calls for, not just Ports itself.
+
+**The rule, precisely** (rulebook pp. 20-21, re-extracted with layout
+preserved to get the true action ordering — the plain-text extraction
+used for `VARIANTS_PLAN.md`'s catalog had jumbled the two-column layout
+here): each player keeps one Port in reserve. A Nomad (Plains adjacent to
+empty Sea, cost 2 Stone + 1 Wood) or a Ship (adjacent to a Plains space,
+same cost) can build one. **A Port has no Civilization card of its own**
+— instead, each time its owner plays their Ship card, they may *also*
+activate the Port, once each, for one of two actions: Construct a Ship
+(1 Wood, only if the Port's own Sea space doesn't already hold a Ship —
+that new Ship can act the same turn) or Trade with Ships and Ports (4 GP
+per Ship/Port, any owner, anywhere in the Port's Sea Region, including
+itself). A Port cannot be activated the turn it's built. Its Sea space
+still counts as Sea for any Ship to move through; it can hold exactly one
+Ship, but only its own owner's — an opposing Ship can never stop there.
+
+**New reusable engine capability: "companion piece" units.** This is the
+first unit kind with no Civilization card at all, activated by a
+*different* kind's card — flagged in `VARIANTS_PLAN.md` as needed again
+for the Capital and Cathedral Tales, so built generically rather than
+special-cased to Ports:
+- `UnitContent.companionKindsByCardKind: Record<string, string[]>`
+  (`unitContent.ts`) — e.g. `{ ship: ['port'] }`. Populated by merging a
+  game's active Tale content on top of the base game's content (see
+  below), not hand-authored.
+- `GameState.unitsCreatedThisTurn: string[]` (`types.ts`) — every rulebook
+  companion piece states "cannot be activated on the turn it is
+  constructed"; this is what lets the engine enforce that generically.
+  Reset alongside `resolvedUnitIdsThisTurn` (`beginActionsPhase` for the
+  first player's turn, `finishActionsTurn` for each next one).
+- `applyResolveUnitAction` (`applyAction.ts`) no longer assumes every
+  acting unit's kind equals the played card's kind: for each assignment it
+  now looks up the actual unit, decides whether it's the card's own kind
+  (no restriction) or one of its companions (rejected if the unit id is in
+  `unitsCreatedThisTurn`), and pulls that unit's *own* kind's actions —
+  not the card's — to resolve against. This is also exactly what makes "a
+  Ship built by a Port can act the same turn" fall out for free: that Ship
+  isn't a companion at all, its kind already matches the played card, so
+  it's simply never subject to the same-turn restriction. The
+  turn-auto-end check (`actingUnitIds`/`everyUnitActed`) excludes
+  freshly-built companions from what it's waiting on, so a Port built
+  mid-turn doesn't stall the rest of that turn from finishing.
+
+**New content layer, mirroring `units.json`'s own conventions:**
+`content/tales.json` + `tales.schema.json` — self-contained per Tale (no
+`$ref` into `units.schema.json`; nothing in this repo actually runs a
+schema validator, so a fragile cross-file reference wasn't worth the
+risk) — an `extraUnits` array (new companion kinds, each with its own
+`companionOfKind`/movement/supply/actions), `extraActionsByKind` (new
+actions appended onto an *existing* kind, e.g. Nomad and Ship both gain
+Construct a Port), and `movementOverridesByKind` (e.g. Ship gains
+`canEndMoveOnAlliedUnitTypes: ['port']`). `resolveTaleContent(activeTaleIds,
+playerCount)` (`resolveContent.ts`) resolves this into a new
+`TaleContent` bundle (`taleContent.ts`), and a new pure
+`applyTaleModifiers(baseUnitContent, taleContent) -> UnitContent`
+(`tales.ts`) merges it on top of `resolveUnitContent()`'s result — same
+"engine never imports JSON, takes content as an explicit param" pattern
+as every other content bundle. A game with no Tales active never touches
+any of this (`EMPTY_TALE_CONTENT`, an `applyTaleModifiers` no-op).
+
+**Two new `UnitActionEffect` variants** (`unitContent.ts`/
+`unitActions.ts`), needed because Port's own two actions don't fit any
+existing shape:
+- `SiteCreateEffect` — creates a unit on the *acting* unit's own hex,
+  legal even though that hex is already occupied (by the acting unit
+  itself), blocked only if a listed kind is *also* already there (Port's
+  Construct a Ship: blocked by an existing `ship`). Existing
+  `create`/`transform` both assume the target hex must be empty, which
+  can never be true here since the Port itself always occupies it.
+- `RegionUnitCountIncomeEffect` — gold per unit of given kinds anywhere in
+  the acting unit's whole connected terrain region (Port's Trade with
+  Ships and Ports), the region-scan half of Ship's existing `trade`
+  reused, the per-adjacent-City counting half dropped in favor of a flat
+  region-wide unit count.
+
+**One new condition on the existing `TransformEffect`:**
+`requiredAdjacentTerrain?: string[]` — Ship's Construct a Port needs "be
+adjacent to a Plains space," which isn't about the target hex (the Ship's
+own hex, always Sea, doesn't change) at all, so the existing
+`targetHex.terrainType` check can't express it.
+
+**Movement: allied-only landing.** `UnitMovement.
+canEndMoveOnAlliedUnitTypes?: string[]` (`types.ts`), alongside the
+existing any-owner `canEndMoveOnUnitTypes` — `movement.ts`'s `canLandOn`
+now takes the mover's `ownerId` and permits landing if every occupant is
+covered by *either* list (any-owner, or same-owner-only). This is also
+what enforces "at most one Ship per Port" for free, with no separate
+counting logic: a Port hex already holding a Ship has two occupants, and
+the Ship occupant's kind isn't itself in either allowed list, so a second
+Ship still can't land there.
+
+**Bug found and fixed along the way, in already-shipped base-game code:**
+`unitActions.ts`'s `SOLE_CREATABLE_KIND_BY_TERRAIN` (`water: 'ship',
+glacier: 'mountaineer'`) was a hard, single-kind-per-terrain guarantee —
+written before anything but a Ship could ever legitimately exist on
+Water. Port's whole point is a structure built *on* a Sea space, so
+Port's Construct a Port actions were silently rejected by this guarantee
+until it was generalized to `CREATABLE_KINDS_BY_TERRAIN: Partial<Record
+<Terrain, string[]>>` (`water: ['ship', 'port']`) — every other terrain
+and kind's behavior is unchanged, this only widens Water's one entry.
+
+**Scope note, matching `VARIANTS_PLAN.md`'s "engine first" framing:** no
+lobby/setup UI exists yet to actually turn The Ports on for a real game
+(`GameState` has no persisted "which Tales are active" field — the
+content-resolution layer already supports it via
+`resolveTaleContent(activeTaleIds, playerCount)`'s parameter, but nothing
+calls it from `createGame.ts`/`LobbyPage.tsx` yet). This was a deliberate
+call: build the rule correctly and test it thoroughly first, wire up
+"can a real game actually select this Tale" as a separate follow-up once
+more Tales exist to make a real setup screen worth building.
+
+19 new tests in a new `tales.test.ts` (content-merge correctness against
+the real `tales.json`/`units.json`; both new effect types in isolation;
+`requiredAdjacentTerrain`; allied-only landing including the
+one-Ship-per-Port cap; and the companion-dispatch mechanics end-to-end
+through `applyAction` — a pre-existing Port acting, a freshly-built Port
+correctly rejected, a Ship built by a Port correctly allowed to act, and
+a freshly-built companion not blocking its player's turn from ending).
+427 tests total (was 408); `tsc -b`/`oxlint`/`vitest run`/`npm run build`
+all clean.
