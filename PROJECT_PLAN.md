@@ -217,6 +217,14 @@ decisions get made.
 - [ ] Deploy to Vercel production.
 - [ ] Share with the friend group and start real games.
 
+## 7. Guilds & Tales variants
+
+- [ ] Implement the rulebook's two variants (Guilds: 24 cards; Tales: 23
+      numbered elements), plus a house-rule Shared Guild mode (one Guild
+      card chosen at setup, applying to every player, instead of one dealt
+      per player). Full design, card-by-card catalog, and phased roadmap
+      in `VARIANTS_PLAN.md`. Not started.
+
 ---
 
 ## Open decisions blocking progress
