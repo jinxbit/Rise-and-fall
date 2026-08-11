@@ -2744,3 +2744,35 @@ including Plain/Forest/Mountain, and that `legalMoveDestinations`
 against real content rejects an adjacent Water tile as a legal Move
 target. 426 tests total (was 425); `tsc -b`/`oxlint`/`vitest run`/
 `npm run build` all clean.
+
+## 60. Easier-to-paste game state export
+
+The existing "Copy JSON" debug button (todo.md #33) writes the full
+pretty-printed state to the clipboard, which for a real game in
+progress is tens of KB — awkward to paste into a bug report or chat.
+Added a second button, "Copy state export", next to it.
+
+New `src/lib/gameStateExport.ts`: wraps the state in a small envelope
+(`{ schema: 'rise-and-fall/game-state-export', version: 1, exportedAt,
+gameState }`) so a decoder can recognize and validate a blob before
+trusting it and so the encoding can change later without breaking old
+exports; serializes it to JSON, gzips it (`CompressionStream`), and
+base64-encodes the result behind a short `RAF-STATE-1:` prefix — a
+single line, well under half the size of the pretty-printed JSON.
+`decodeGameStateExport()` reverses all of it, checking the prefix and
+schema before returning the envelope. Both directions stream through
+`ReadableStream`/`CompressionStream`/`DecompressionStream` directly
+(not `Blob`/`Response`, whose jsdom implementations turned out not to
+support `.stream()` — went through a couple of failed approaches
+against the test environment before landing here).
+
+`GamePage.tsx`'s new `handleCopyStateExport` calls this and writes the
+result to the clipboard, mirroring the existing "Copy JSON" handler's
+"Copied!" flash but with its own error surface (clipboard/compression
+failures are shown inline rather than silently swallowed).
+
+New `gameStateExport.test.ts` (4 tests) round-trips a real genesis
+state through encode/decode, checks the encoded form is under half the
+pretty-printed size, and checks both rejection paths (missing prefix,
+wrong schema). 430 tests total (was 426); `tsc -b`/`oxlint`/`vitest
+run`/`npm run build` all clean.

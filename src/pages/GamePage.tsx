@@ -15,6 +15,7 @@ import { useAuth } from '../hooks/useAuth'
 import type { GameRow, PlayerRow } from '../lib/dbTypes'
 import { buildGenesisState } from '../lib/gameGenesis'
 import { getGameByRoomCode, getGameState, listPlayers, subscribeToGameState, subscribeToPlayers, writeGameState } from '../lib/gameApi'
+import { encodeGameStateExport } from '../lib/gameStateExport'
 
 /**
  * Two players' writes racing the game_state row's optimistic-concurrency
@@ -42,6 +43,8 @@ export function GamePage() {
   const [actionError, setActionError] = useState<string | null>(null)
   const [showStateJson, setShowStateJson] = useState(false)
   const [copiedStateJson, setCopiedStateJson] = useState(false)
+  const [copiedStateExport, setCopiedStateExport] = useState(false)
+  const [stateExportError, setStateExportError] = useState<string | null>(null)
   const [undoing, setUndoing] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
   /**
@@ -259,6 +262,25 @@ export function GamePage() {
     setTimeout(() => setCopiedStateJson(false), 1500)
   }
 
+  /**
+   * The pretty-printed JSON above is unwieldy to paste into a bug report or
+   * chat (easily tens of KB). This copies a gzip+base64 "state export"
+   * instead — a single line, a fraction of the size, and self-describing
+   * (see gameStateExport.ts's schema/version envelope) so it can be decoded
+   * back into the exact state it came from.
+   */
+  async function handleCopyStateExport() {
+    if (!gameState) return
+    setStateExportError(null)
+    try {
+      await navigator.clipboard.writeText(await encodeGameStateExport(gameState))
+      setCopiedStateExport(true)
+      setTimeout(() => setCopiedStateExport(false), 1500)
+    } catch (err) {
+      setStateExportError(err instanceof Error ? err.message : 'Failed to copy game state export')
+    }
+  }
+
   if (authLoading) return <div className="p-8 text-neutral-400">Loading…</div>
   if (!session) return <div className="p-8 text-neutral-400">Sign in from the home page first.</div>
   if (!game) return <div className="p-8 text-neutral-400">Looking for room {roomCode}…</div>
@@ -293,8 +315,19 @@ export function GamePage() {
           >
             {showStateJson ? 'Hide' : 'Show'} game state JSON
           </button>
+          <button
+            type="button"
+            disabled={!gameState}
+            onClick={() => void handleCopyStateExport()}
+            title="Copies a compressed, single-line export of the game state — easier to paste into a bug report or chat than the full JSON."
+            className="rounded-md border border-neutral-700 px-3 py-1 text-sm hover:border-neutral-500 disabled:opacity-50"
+          >
+            {copiedStateExport ? 'Copied!' : 'Copy state export'}
+          </button>
         </div>
       </header>
+
+      {stateExportError && <div className="rounded-md bg-red-500/10 p-3 text-sm text-red-400">{stateExportError}</div>}
 
       {showStateJson && gameState && (
         <div className="flex flex-col gap-2">
