@@ -4,6 +4,7 @@
 // effect types and the real JSON shape.
 import { describe, expect, it } from 'vitest'
 import { createEmptyBoard, setTile } from '../board'
+import { legalMoveDestinations } from '../movement'
 import { applyUnitActionEffect } from '../unitActions'
 import type { UnitAction, UnitContent } from '../unitContent'
 import type { GameState, Player, Resources, Unit, UnitMovement } from '../types'
@@ -75,6 +76,42 @@ describe('real content/units.json + terrain.json + resources.json', () => {
       }
     }
     expect([...seenTypes].sort()).toEqual(['convert', 'create', 'income', 'move', 'produce', 'trade', 'trade-resource', 'transform'])
+  })
+
+  // Bug report: "Merchant shouldn't be able to walk on water" — confirmed
+  // against the real content, not just a synthetic movement profile that
+  // could drift from it.
+  it("Merchant's real movement profile excludes Water, but still includes Plain/Forest/Mountain", () => {
+    const board = setTile(setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'plain'), { q: 1, r: 0 }, 'water')
+    const merchant: Unit = { id: 'u1', ownerId: 'p1', kind: 'merchant', coord: { q: 0, r: 0 }, movement: content.movementByKind.merchant, traits: [] }
+    const state: GameState = {
+      gameId: 'g',
+      playMode: 'hotseat',
+      status: 'active',
+      turn: 1,
+      activePlayerId: null,
+      roundPhase: 'actions',
+      chosenCardIdByPlayerId: {},
+      pendingPlayerIds: [],
+      resolvedUnitIdsThisTurn: [],
+      turnOrder: ['p1'],
+      board,
+      players: [makePlayer('p1')],
+      units: [merchant],
+      cards: {},
+      resourceBank: { gold: 1000, wood: 1000, stone: 1000 },
+      winnerPlayerIds: [],
+      claimedByAchievementId: {},
+      achievementsClaimedThisRound: 0,
+      boardSetup: null,
+      idSequence: 0,
+      actionHistory: [],
+    }
+
+    expect(content.movementByKind.merchant.terrains).toEqual(['plain', 'forest', 'mountain'])
+
+    const destinations = legalMoveDestinations(state, merchant, merchant.movement, content.terrainLevels)
+    expect(destinations.some((c) => c.q === 1 && c.r === 0)).toBe(false)
   })
 
   it("City's Generate Income pays out per the real goldByTerrain table", () => {

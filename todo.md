@@ -2717,3 +2717,30 @@ glyphs are present in the DOM; a lone unit still renders dead-center
 at full size, confirming the single-unit case is untouched. 425 tests
 total (was 422); `tsc -b`/`oxlint`/`vitest run`/`npm run build` all
 clean.
+
+## 59. Merchant should not be able to move onto Water
+
+Follow-up correction to todo.md #58: the reported "merchant can't move
+on water" bug was the opposite of what it sounded like — the user
+clarified "Merchant shouldn't be able to walk on water" at all, i.e.
+`content/units.json`'s Merchant `movement.terrains` (which included
+`"water"`) was itself wrong, not the engine's handling of it (which,
+per #58's investigation, correctly honored whatever the content said —
+there was nothing to fix there).
+
+Removed `"water"` from Merchant's `movement.terrains` (now `["plain",
+"forest", "mountain"]`). Also corrected `unitActions.ts`'s
+`SOLE_CREATABLE_KIND_BY_TERRAIN` doc comment, which had explicitly
+(and now wrongly) cited "a Merchant can travel onto Water once it
+exists, but can't be *built* there" as a supporting example — the
+comment's actual load-bearing point (Nomad/City-create needing a hard
+stop against landing on Glacier) didn't depend on that aside, so it
+was dropped rather than replaced.
+
+Added a test against the real content (not a synthetic movement
+profile that could drift from it) in `unitActions.realContent.test.ts`:
+confirms Merchant's real `terrains` excludes Water while still
+including Plain/Forest/Mountain, and that `legalMoveDestinations`
+against real content rejects an adjacent Water tile as a legal Move
+target. 426 tests total (was 425); `tsc -b`/`oxlint`/`vitest run`/
+`npm run build` all clean.

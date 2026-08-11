@@ -105,17 +105,16 @@ export function hasReachedSupplyCap(state: GameState, playerId: string, kind: st
 
 /**
  * Per ruling: some terrain types restrict which single unit kind may be
- * created/transformed into existence there, regardless of that kind's own
- * movement profile (a Merchant can travel onto Water once it exists, but
- * can't be *built* there) and regardless of whatever terrain restriction
- * the action's own content already specifies. Water: only a Ship. Glacier:
- * only a Mountaineer — 'create' effects have no `targetHex.terrainType`
- * field in content at all (see CreateEffect in ./unitContent.ts), so
- * without this a City's "Create Nomad" would happily place a Nomad on
- * Glacier with nothing to stop it. Applied as a hard engine-level
- * guarantee in both applyCreate and applyTransform below (and mirrored in
- * ./actionTargeting.ts's legalCreateTargets/legalTransformTargets for the
- * UI), so a future content mistake can't reintroduce either violation.
+ * created/transformed into existence there, regardless of whatever terrain
+ * restriction the action's own content already specifies. Water: only a
+ * Ship. Glacier: only a Mountaineer — 'create' effects have no
+ * `targetHex.terrainType` field in content at all (see CreateEffect in
+ * ./unitContent.ts), so without this a City's "Create Nomad" would happily
+ * place a Nomad on Glacier with nothing to stop it. Applied as a hard
+ * engine-level guarantee in both applyCreate and applyTransform below (and
+ * mirrored in ./actionTargeting.ts's legalCreateTargets/legalTransformTargets
+ * for the UI), so a future content mistake can't reintroduce either
+ * violation.
  */
 const SOLE_CREATABLE_KIND_BY_TERRAIN: Partial<Record<Terrain, string>> = {
   water: 'ship',
