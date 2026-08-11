@@ -82,7 +82,18 @@ export function legalConvertTargets(state: GameState, playerId: string, unit: Un
     const cost = effect.costByTargetKind?.[target.kind] ?? effect.cost
     if (!canAffordCost(player.resources, cost)) return false
     const resultKind = effect.resultUnit ?? target.kind
-    if (resultKind !== target.kind && hasReachedSupplyCap(state, playerId, resultKind, content.unitSupplyCaps)) return false
+    // The target only needs a supply-cap check if it's actually becoming a
+    // *new* unit of resultKind under playerId's count — true whenever
+    // ownership is changing (targetOwner: 'enemy', e.g. Temple's Convert
+    // Enemy Unit — playerId didn't own it before, regardless of whether its
+    // kind is changing too) or the kind is changing on a unit playerId
+    // already owned (targetOwner: 'own', e.g. City's Create Merchant/
+    // Mountaineer). Skipping the check just because resultKind happens to
+    // equal target.kind was wrong for the 'enemy' case — that's exactly
+    // Convert Enemy Unit's shape (no resultUnit override), which let it
+    // capture unlimited enemy units regardless of the capturer's own supply.
+    const becomesNewUnitForPlayer = target.ownerId !== playerId || resultKind !== target.kind
+    if (becomesNewUnitForPlayer && hasReachedSupplyCap(state, playerId, resultKind, content.unitSupplyCaps)) return false
     return true
   })
 }

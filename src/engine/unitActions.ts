@@ -311,7 +311,15 @@ function applyConvert(state: GameState, playerId: string, unit: Unit, effect: Co
   if (effect.targetMobileOnly && !content.movementByKind[targetUnit.kind]?.isMobile) return state
 
   const resultKind = effect.resultUnit ?? targetUnit.kind
-  if (resultKind !== targetUnit.kind && hasReachedSupplyCap(state, playerId, resultKind, content.unitSupplyCaps)) return state
+  // See legalConvertTargets' matching comment (./actionTargeting.ts): the
+  // supply-cap check must fire whenever the target becomes a *new* unit of
+  // resultKind under playerId's count, which includes an ownership change
+  // (targetOwner: 'enemy') even when resultKind equals the target's own
+  // kind — e.g. Temple's Convert Enemy Unit, which has no resultUnit
+  // override and so was never actually checking the capturing player's
+  // supply at all.
+  const becomesNewUnitForPlayer = targetUnit.ownerId !== playerId || resultKind !== targetUnit.kind
+  if (becomesNewUnitForPlayer && hasReachedSupplyCap(state, playerId, resultKind, content.unitSupplyCaps)) return state
 
   const cost = effect.costByTargetKind?.[targetUnit.kind] ?? effect.cost
   const afterCost = tryPayCost(state, playerId, cost)

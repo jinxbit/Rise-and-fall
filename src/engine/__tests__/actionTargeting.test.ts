@@ -246,6 +246,22 @@ describe('legalConvertTargets', () => {
     expect(legalConvertTargets(state, 'p1', unit, effect, content)).toEqual([{ q: 1, r: 0 }])
   })
 
+  it("excludes an adjacent enemy unit once the capturer's own supply of that kind is full (bug: capturing an enemy unit never checked the capturer's supply at all, since it has no resultUnit override to change kind)", () => {
+    const board = boardOf([[0, 0, 'plain'], [1, 0, 'plain'], [9, 9, 'plain']])
+    const unit = makeUnit('p1', 'temple', { q: 0, r: 0 })
+    const enemy = makeUnit('p2', 'nomad', { q: 1, r: 0 }, { isMobile: true })
+    // p1 already has a Nomad elsewhere, filling their cap of 1.
+    const ownNomad = makeUnit('p1', 'nomad', { q: 9, r: 9 }, { isMobile: true })
+    const state = makeState({ board, units: [unit, enemy, ownNomad], players: [makePlayer('p1'), makePlayer('p2')] })
+    const content: UnitContent = {
+      ...emptyContent,
+      movementByKind: { nomad: { isMobile: true, terrains: [], canCrossCliffs: false } },
+      unitSupplyCaps: { nomad: 1 },
+    }
+
+    expect(legalConvertTargets(state, 'p1', unit, effect, content)).toEqual([])
+  })
+
   it('excludes an immobile enemy unit when targetMobileOnly is set', () => {
     const board = boardOf([[0, 0, 'plain'], [1, 0, 'plain']])
     const unit = makeUnit('p1', 'temple', { q: 0, r: 0 })

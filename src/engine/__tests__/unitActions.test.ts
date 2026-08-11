@@ -809,6 +809,29 @@ describe('applyUnitActionEffect — convert (Temple)', () => {
     expect(next.units.find((u) => u.id === enemyUnit.id)!.ownerId).toBe('p1')
   })
 
+  it("does not convert an adjacent enemy unit once the capturer's own supply of that kind is full (bug: capturing an enemy unit never checked the capturer's supply at all, since it has no resultUnit override to change kind)", () => {
+    const board = boardOf([
+      [0, 0, 'plain'],
+      [1, 0, 'plain'],
+      [9, 9, 'plain'],
+    ])
+    const state = makeState({
+      board,
+      units: [
+        makeUnit('p1', 'temple', { q: 0, r: 0 }),
+        makeUnit('p2', 'nomad', { q: 1, r: 0 }),
+        // p1 already has a Nomad elsewhere, filling their cap of 1.
+        makeUnit('p1', 'nomad', { q: 9, r: 9 }),
+      ],
+    })
+    const [temple, enemyUnit] = state.units
+    const cappedContent: UnitContent = { ...content, unitSupplyCaps: { nomad: 1 } }
+
+    const next = applyUnitActionEffect(state, 'p1', 'temple', action, { [temple.id]: enemyUnit.coord }, cappedContent)
+
+    expect(next.units.find((u) => u.id === enemyUnit.id)!.ownerId).toBe('p2')
+  })
+
   it('does not convert an adjacent own unit', () => {
     const board = boardOf([
       [0, 0, 'plain'],
