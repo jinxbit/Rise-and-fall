@@ -700,21 +700,7 @@ export function RoundView(props: {
       )}
 
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
-        <div className="min-w-0 flex-1">
-          <div className="mb-2 flex justify-end">
-            <button
-              type="button"
-              onClick={() => setSidebarHidden((v) => !v)}
-              title={
-                sidebarHidden
-                  ? 'Bring back the full player roster and achievements panel beside the board.'
-                  : 'Hide the full player roster and achievements panel so the board can expand into that space.'
-              }
-              className="rounded-md border border-neutral-700 px-3 py-1 text-xs hover:border-neutral-500"
-            >
-              {sidebarHidden ? 'Collapse board' : 'Expand board'}
-            </button>
-          </div>
+        <div className="relative min-w-0 flex-1">
           <HexBoard
             board={state.board}
             units={units}
@@ -725,8 +711,24 @@ export function RoundView(props: {
             onHexClick={isMyActionTurn ? handleBoardClick : undefined}
             expanded={sidebarHidden}
           />
+          {/* Overlaid on the board's own corner rather than a separate row above it — a standard collapse/expand chevron, flipping direction with sidebarHidden. */}
+          <button
+            type="button"
+            onClick={() => setSidebarHidden((v) => !v)}
+            aria-label={sidebarHidden ? 'Collapse board' : 'Expand board'}
+            title={
+              sidebarHidden
+                ? 'Bring back the full player roster and achievements panel beside the board.'
+                : 'Hide the full player roster and achievements panel so the board can expand into that space.'
+            }
+            className="absolute right-2 top-2 z-10 rounded-full border border-neutral-700 bg-neutral-900/80 p-1.5 hover:border-neutral-500"
+          >
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              {sidebarHidden ? <polyline points="15 18 9 12 15 6" /> : <polyline points="9 18 15 12 9 6" />}
+            </svg>
+          </button>
         </div>
-        {/* Sits beside the board (not below it) so the full roster and achievements stay in view without scrolling past the map — see PlayersStrip/AchievementsPanel's icon-based, per-player-card layout, built for this narrower column. Hideable (see the "Expand board"/"Collapse board" toggle right above the map) so the board can grow into this space instead. */}
+        {/* Sits beside the board (not below it) so the full roster and achievements stay in view without scrolling past the map — see PlayersStrip/AchievementsPanel's icon-based, per-player-card layout, built for this narrower column. Hideable (see the chevron button overlaid on the board's corner) so the board can grow into this space instead. */}
         {!sidebarHidden && (
           <div className="flex w-full flex-col gap-4 lg:w-72 lg:shrink-0 xl:w-80">
             <PlayersStrip
