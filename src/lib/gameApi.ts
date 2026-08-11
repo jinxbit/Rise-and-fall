@@ -25,6 +25,8 @@ export async function createGame(params: {
   mapTemplateId?: string | null
   /** Hotseat only: skip the "pass the device" confirmation gate between local players' turns (see GamePage.tsx). Ignored for live/async. Defaults to false (gate shown), matching the checkbox's unchecked default in HomePage.tsx. */
   skipHotseatPassGate?: boolean
+  /** Content ids of active Tales (src/content/tales.json) for the Tales variant, or omitted/empty for none. See 0005_tales_variant.sql. */
+  activeTaleIds?: string[]
 }): Promise<{ game: GameRow; player: PlayerRow }> {
   const roomCode = generateRoomCode()
 
@@ -38,6 +40,7 @@ export async function createGame(params: {
       max_players: params.maxPlayers ?? 4,
       map_template_id: params.mapTemplateId ?? null,
       skip_hotseat_pass_gate: params.skipHotseatPassGate ?? false,
+      active_tale_ids: params.activeTaleIds ?? [],
     })
     .select()
     .single()

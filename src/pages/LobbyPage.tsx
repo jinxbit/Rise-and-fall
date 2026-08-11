@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
-import { listMapTemplates } from '../content/resolveContent'
+import { listMapTemplates, listTales } from '../content/resolveContent'
 import { buildGenesisState } from '../lib/gameGenesis'
 import {
   addLocalPlayer,
@@ -152,6 +152,14 @@ export function LobbyPage() {
             ? (listMapTemplates().find((t) => t.id === game.map_template_id)?.name ?? game.map_template_id)
             : 'interactive map'}
         </p>
+        {game.active_tale_ids.length > 0 && (
+          <p className="text-sm text-neutral-500">
+            Tales:{' '}
+            {game.active_tale_ids
+              .map((id) => listTales().find((t) => t.id === id)?.name ?? id)
+              .join(', ')}
+          </p>
+        )}
       </header>
 
       {error && <div className="rounded-md bg-red-500/10 p-3 text-sm text-red-400">{error}</div>}

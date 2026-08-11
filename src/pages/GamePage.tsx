@@ -3,11 +3,12 @@ import { useParams } from 'react-router-dom'
 import { BoardSetupView } from '../components/BoardSetupView'
 import { EndGameView } from '../components/EndGameView'
 import { RoundView } from '../components/RoundView'
-import { resolveAchievementContent, resolveBoardGenerationContent, resolveUnitContent } from '../content/resolveContent'
+import { resolveAchievementContent, resolveBoardGenerationContent, resolveTaleContent, resolveUnitContent } from '../content/resolveContent'
 import type { Action } from '../engine/actions'
 import { applyActionAndFastForwardTiles } from '../engine/applyAction'
 import { buildGameLog } from '../engine/gameLog'
 import { replayActions } from '../engine/replay'
+import { applyTaleModifiers } from '../engine/tales'
 import type { ActionResult, GameState as EngineGameState, Coordinate } from '../engine/types'
 import { buildTurnReview, findReviewWindowStart } from '../engine/turnReview'
 import { currentActorId } from '../engine/turnOrder'
@@ -91,7 +92,15 @@ export function GamePage() {
   }, [game])
 
   const boardGenerationContent = useMemo(() => resolveBoardGenerationContent(players.length), [players.length])
-  const unitContent = useMemo(() => resolveUnitContent(players.length), [players.length])
+  // Tales (src/content/tales.json) chosen at game creation (game.active_tale_ids
+  // — see HomePage.tsx's TaleSelector) are merged onto the base UnitContent
+  // here, once, so every RESOLVE_UNIT_ACTION/replay/undo call below sees the
+  // same effective content — applyTaleModifiers is a no-op for a game with
+  // none active (the default, and every game before this variant existed).
+  const unitContent = useMemo(
+    () => applyTaleModifiers(resolveUnitContent(players.length), resolveTaleContent(game?.active_tale_ids ?? [], players.length)),
+    [players.length, game?.active_tale_ids],
+  )
   const achievementContent = useMemo(() => resolveAchievementContent(), [])
 
   const isHotseat = game?.play_mode === 'hotseat'

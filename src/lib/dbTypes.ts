@@ -19,6 +19,8 @@ export interface GameRow {
   map_template_id: string | null
   /** Hotseat only: skip GamePage.tsx's "pass the device" confirmation gate between local players' turns. Set at creation (HomePage.tsx); irrelevant for live/async. */
   skip_hotseat_pass_gate: boolean
+  /** Content ids of active Tales (src/content/tales.json) — see 0005_tales_variant.sql. Empty = Tales variant off. Set at creation (HomePage.tsx); merged into the effective UnitContent by GamePage.tsx. */
+  active_tale_ids: string[]
 }
 
 export interface PlayerRow {

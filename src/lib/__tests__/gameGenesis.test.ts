@@ -17,6 +17,7 @@ function makeGame(overrides: Partial<GameRow> = {}): GameRow {
     updated_at: '',
     map_template_id: null,
     skip_hotseat_pass_gate: false,
+    active_tale_ids: [],
     ...overrides,
   }
 }

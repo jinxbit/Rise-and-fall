@@ -2697,3 +2697,56 @@ correctly rejected, a Ship built by a Port correctly allowed to act, and
 a freshly-built companion not blocking its player's turn from ending).
 427 tests total (was 408); `tsc -b`/`oxlint`/`vitest run`/`npm run build`
 all clean.
+
+## 57. Tales setup UI — choosing which Tales are active for a game
+
+Follow-up to #56, closing the scope note it left open: "no lobby/setup UI
+exists yet to actually turn The Ports on for a real game." Mirrors
+`map_template_id`'s existing shape (`0002_map_template.sql`) exactly,
+since it's the same kind of per-game, creation-time, immutable setting:
+
+- `supabase/migrations/0005_tales_variant.sql`: `games.active_tale_ids`
+  (`text[]`, default `'{}'`). `dbTypes.ts`'s `GameRow` gained the matching
+  field.
+- `gameApi.ts`'s `createGame()` gained an `activeTaleIds?: string[]`
+  param, written straight through to the new column.
+- New `TaleSelector.tsx`: a checkbox list (from `content/resolveContent.
+  ts`'s new `listTales()`) plus a "Randomize" button. Deliberately not
+  "draw one per player" (the rulebook default) — player count isn't known
+  yet at game-creation time (`HomePage.tsx`, before anyone's joined the
+  lobby), and that exact count doesn't mean much while the catalog only
+  has one Tale anyway. Randomize instead independently coin-flips each
+  Tale's inclusion; checking/unchecking directly (host-picking specific
+  Tales) is the primary flow either way, matching the flexibility
+  `VARIANTS_PLAN.md`'s decision 7 asked for.
+- `HomePage.tsx` wires the selector in next to the existing map-template
+  picker and passes the choice to `createGame()`. `LobbyPage.tsx` shows
+  which Tales are active in the room header, same spot the map template
+  name already shows.
+- **The one piece that actually makes Ports *do* anything:**
+  `GamePage.tsx`'s `unitContent` memo now merges `resolveTaleContent(game
+  .active_tale_ids, players.length)` onto `resolveUnitContent(players.
+  length)` via `applyTaleModifiers()` (`src/engine/tales.ts`, from #56) —
+  the same effective content flows into every `RESOLVE_UNIT_ACTION`
+  dispatch, replay, and undo, since they all already read this one memo.
+  A game with `active_tale_ids: []` (every game before this migration,
+  and any new one that leaves Tales unchecked) resolves identically to
+  before — `applyTaleModifiers` is a no-op on `EMPTY_TALE_CONTENT`.
+
+**Scope note, carried forward:** `RoundView.tsx`'s action-phase panel
+still only highlights/offers units whose kind matches the currently
+played card — it has no notion of a companion-piece kind (Port) also
+becoming available when its companion card (Ship) is played. So a real
+game can now select The Ports and its rules are correctly enforced
+end-to-end at the data/engine layer, but there's currently no way to
+*click* a Port in the UI to actually use it — that needs `RoundView.tsx`
+(and probably `HexBoard.tsx`'s radial action menu) taught about
+`UnitContent.companionKindsByCardKind`, likely by extending the same
+`u.kind === card.kind` filters at `RoundView.tsx`'s lines ~345 and ~488
+to also include companion kinds not built this turn. Not done here —
+flagged as the next concrete step.
+
+No engine changes in this item — content/`dbTypes.ts`/`gameApi.ts`/new
+component/two page tweaks only. 427 tests unaffected (no page-level test
+coverage exists in this codebase — see #55's note on the same gap);
+`tsc -b`/`oxlint`/`vitest run`/`npm run build` all clean.
