@@ -157,6 +157,10 @@ function UnitGlyph({ kind, x, y, size }: { kind: string; x: number; y: number; s
 }
 
 export interface ActionMenuOption {
+  /** Which acting unit this option belongs to — see ActionMenu's doc comment on stacked hexes (e.g. a Ship and its own Port sharing one Sea space, The Ports Tale). */
+  unitId: string
+  /** That unit's kind, e.g. 'ship'/'port' — shown as a small group label whenever the menu covers more than one unit, so a stacked hex's options read as "Ship: Trade" / "Port: Construct a Ship" rather than one ambiguous flat list. */
+  unitKind: string
   id: string
   /** Full action name, shown in full in the option's box — no abbreviation, since a 1-2 letter label made the menu unusable (had to hover to find out what each option was). */
   label: string
@@ -170,11 +174,25 @@ export interface ActionMenuOption {
   disabled?: boolean
 }
 
+/**
+ * A ring of clickable action options radiating out from one hex. Normally
+ * every option belongs to the single unit that was clicked, but a hex can
+ * hold more than one of the current player's acting units at once — e.g. a
+ * Ship sharing its Sea space with its own Port (The Ports Tale companion
+ * piece) — in which case `options` covers all of them, tagged per-option
+ * with `unitId`/`unitKind` (see ActionMenuOption). Callers should keep each
+ * unit's options contiguous in the array (not interleaved) — rendering
+ * groups by contiguous run of `unitId`, allocating each group its own
+ * angular arc (with a small gap between groups) and, only once there's more
+ * than one group, a small kind label per option so it's clear which unit
+ * each action belongs to. A single-unit menu (the overwhelmingly common
+ * case) renders exactly as before this concept existed.
+ */
 export interface ActionMenu {
-  /** The hex the menu radiates out from — normally the unit that was clicked. */
+  /** The hex the menu radiates out from. */
   coord: Coordinate
   options: ActionMenuOption[]
-  onSelect: (optionId: string) => void
+  onSelect: (unitId: string, optionId: string) => void
 }
 
 /** Distance from the unit to each option box's center — grows with option count so boxes wide enough for full action names (e.g. "Transform to Merchant") don't overlap (Merchant has 7 options, the most of any unit kind). */
@@ -182,11 +200,100 @@ function actionMenuRadius(size: number, optionCount: number): number {
   return size * (2.6 + Math.max(0, optionCount - 3) * 0.6)
 }
 
+/** One contiguous run of same-`unitId` options — see ActionMenu's doc comment. */
+interface ActionMenuGroup {
+  unitId: string
+  unitKind: string
+  options: ActionMenuOption[]
+}
+
+function groupActionMenuOptions(options: ActionMenuOption[]): ActionMenuGroup[] {
+  const groups: ActionMenuGroup[] = []
+  for (const option of options) {
+    const lastGroup = groups[groups.length - 1]
+    if (lastGroup && lastGroup.unitId === option.unitId) {
+      lastGroup.options.push(option)
+    } else {
+      groups.push({ unitId: option.unitId, unitKind: option.unitKind, options: [option] })
+    }
+  }
+  return groups
+}
+
+/**
+ * Every option's placement angle (radians), walked around the circle
+ * group by group. Options within a group are spaced `baseStep` apart —
+ * exactly the density a single, ungrouped ring of `totalOptions` options
+ * would use — so a group's own options stay visually clustered together;
+ * only the transition to the *next* group gets extra breathing room
+ * (`GROUP_GAP_DEGREES`, on top of one `baseStep`), so different units'
+ * options don't run into each other. Giving a multi-option group its own
+ * proportional slice of the full 360° instead (an earlier version of this
+ * function did) spreads that group's own options nearly as far apart as
+ * the gap to the next group, which reads as *more* confusing than no
+ * grouping at all — this keeps within-group spacing tight regardless of
+ * how many groups there are. With one group (the overwhelmingly common
+ * case), this reduces to the plain "evenly spaced around the full circle"
+ * formula from before this concept existed.
+ */
+const GROUP_GAP_DEGREES = 26
+
+function computeActionMenuAngles(groups: ActionMenuGroup[]): Map<string, number> {
+  const angles = new Map<string, number>()
+  const totalOptions = groups.reduce((sum, g) => sum + g.options.length, 0)
+  if (totalOptions === 0) return angles
+
+  const baseStep = 360 / totalOptions
+  let cursorDegrees = -90
+  for (const group of groups) {
+    group.options.forEach((option, i) => {
+      angles.set(option.id, (Math.PI / 180) * (cursorDegrees + baseStep * i))
+    })
+    cursorDegrees += baseStep * group.options.length + (groups.length > 1 ? GROUP_GAP_DEGREES : 0)
+  }
+  return angles
+}
+
 const ACTION_MENU_BOX_WIDTH_FACTOR = 3.4
 const ACTION_MENU_BOX_HEIGHT_FACTOR = 1.7
 /** Generous enough for the longest realistic history label, e.g. "+1 Wood, -5 Gold". */
 const HISTORY_LABEL_WIDTH_FACTOR = 3.4
 const HISTORY_LABEL_HEIGHT_FACTOR = 0.62
+
+/** How much a stacked marker shrinks so a cluster of them still fits within its own hex — see computeUnitStackOffsets. */
+const STACKED_UNIT_SCALE = 0.72
+
+/**
+ * Per-marker pixel offset (and a shared shrink factor) for units that share
+ * a hex — without this, two markers at the exact same (x, y) fully occlude
+ * each other and only the last-drawn one is visible or distinguishable at
+ * all. Most tiles hold at most one unit, so this is a no-op (empty map,
+ * offset {0,0}) for the overwhelming majority of markers; it only kicks in
+ * for the cases the rules actually allow stacking — e.g. a Ship docked at
+ * its own Port (The Ports Tale). Keyed by the unit's index in `units` (same
+ * convention as computeHistoryLabelPositions), since a hex's units aren't
+ * necessarily contiguous in that array.
+ */
+function computeUnitStackOffsets(units: UnitMarker[], size: number): Map<number, { dx: number; dy: number }> {
+  const indicesByHex = new Map<string, number[]>()
+  units.forEach((unit, i) => {
+    const key = coordKey(unit.coord)
+    const indices = indicesByHex.get(key) ?? []
+    indices.push(i)
+    indicesByHex.set(key, indices)
+  })
+
+  const offsets = new Map<number, { dx: number; dy: number }>()
+  const radius = size * 0.32
+  for (const indices of indicesByHex.values()) {
+    if (indices.length <= 1) continue
+    indices.forEach((index, position) => {
+      const angle = (2 * Math.PI * position) / indices.length - Math.PI / 2
+      offsets.set(index, { dx: radius * Math.cos(angle), dy: radius * Math.sin(angle) })
+    })
+  }
+  return offsets
+}
 
 /**
  * Top-left corner for each unit's history label (see UnitMarker.historyLabel),
@@ -290,6 +397,7 @@ export function HexBoard(props: {
   // its own hex, and can get stacked further down still to dodge a nearby
   // label — extend the viewBox so neither can get clipped for a unit near
   // the board's edge.
+  const unitStackOffsets = computeUnitStackOffsets(props.units ?? [], size)
   const historyLabelPositions = computeHistoryLabelPositions(props.units ?? [], size)
   for (const { x, y } of historyLabelPositions.values()) {
     boundsPoints.push({ x: x + size * HISTORY_LABEL_WIDTH_FACTOR, y: y + size * HISTORY_LABEL_HEIGHT_FACTOR })
@@ -386,8 +494,11 @@ export function HexBoard(props: {
         )
       })}
       {(props.units ?? []).map((unit, i) => {
-        const { x, y } = axialToPixel(unit.coord, size)
-        const plateSize = size * 0.8
+        const { x: hexX, y: hexY } = axialToPixel(unit.coord, size)
+        const stackOffset = unitStackOffsets.get(i)
+        const x = hexX + (stackOffset?.dx ?? 0)
+        const y = hexY + (stackOffset?.dy ?? 0)
+        const plateSize = size * 0.8 * (stackOffset ? STACKED_UNIT_SCALE : 1)
         // The glyph fills the whole plate (and the bar is narrower still),
         // so it visibly spills past the ownership bar's edges on purpose —
         // see unitIcons.ts's doc comment for why the plate itself is a
@@ -469,45 +580,53 @@ export function HexBoard(props: {
       })}
       {props.actionMenu && actionMenuCenter && (
         <g>
-          {props.actionMenu.options.map((option, i) => {
-            const count = props.actionMenu!.options.length
-            const angle = (Math.PI / 180) * ((360 / count) * i - 90)
-            const radius = actionMenuRadius(size, count)
-            const ox = actionMenuCenter.x + radius * Math.cos(angle)
-            const oy = actionMenuCenter.y + radius * Math.sin(angle)
+          {(() => {
+            const { options } = props.actionMenu!
+            const groups = groupActionMenuOptions(options)
+            const showGroupLabels = groups.length > 1
+            const angleByOptionId = computeActionMenuAngles(groups)
+            const radius = actionMenuRadius(size, options.length)
             const boxWidth = size * ACTION_MENU_BOX_WIDTH_FACTOR
-            const boxHeight = size * ACTION_MENU_BOX_HEIGHT_FACTOR
-            const disabled = option.disabled ?? false
-            return (
-              <g
-                key={option.id}
-                className={disabled ? 'cursor-not-allowed' : 'cursor-pointer'}
-                onClick={disabled ? undefined : () => props.actionMenu?.onSelect(option.id)}
-              >
-                <line
-                  x1={actionMenuCenter.x}
-                  y1={actionMenuCenter.y}
-                  x2={ox}
-                  y2={oy}
-                  stroke={disabled ? '#3f3f46' : '#71717a'}
-                  strokeWidth={1}
-                  strokeDasharray={disabled ? '3 3' : undefined}
-                />
-                <foreignObject x={ox - boxWidth / 2} y={oy - boxHeight / 2} width={boxWidth} height={boxHeight}>
-                  <div
-                    style={{ fontSize: size * 0.3, lineHeight: 1.15 }}
-                    className={
-                      disabled
-                        ? 'flex h-full w-full items-center justify-center rounded-md border-2 border-dashed border-red-900 bg-neutral-900 px-1 text-center font-medium text-neutral-500'
-                        : 'flex h-full w-full items-center justify-center rounded-md border-2 border-indigo-400 bg-indigo-950 px-1 text-center font-medium text-indigo-100 hover:bg-indigo-900'
-                    }
-                  >
-                    {option.label}
-                  </div>
-                </foreignObject>
-              </g>
-            )
-          })}
+            const boxHeight = size * ACTION_MENU_BOX_HEIGHT_FACTOR * (showGroupLabels ? 1.5 : 1)
+            return options.map((option) => {
+              const angle = angleByOptionId.get(option.id) ?? 0
+              const ox = actionMenuCenter.x + radius * Math.cos(angle)
+              const oy = actionMenuCenter.y + radius * Math.sin(angle)
+              const disabled = option.disabled ?? false
+              return (
+                <g
+                  key={`${option.unitId}-${option.id}`}
+                  className={disabled ? 'cursor-not-allowed' : 'cursor-pointer'}
+                  onClick={disabled ? undefined : () => props.actionMenu?.onSelect(option.unitId, option.id)}
+                >
+                  <line
+                    x1={actionMenuCenter.x}
+                    y1={actionMenuCenter.y}
+                    x2={ox}
+                    y2={oy}
+                    stroke={disabled ? '#3f3f46' : '#71717a'}
+                    strokeWidth={1}
+                    strokeDasharray={disabled ? '3 3' : undefined}
+                  />
+                  <foreignObject x={ox - boxWidth / 2} y={oy - boxHeight / 2} width={boxWidth} height={boxHeight}>
+                    <div
+                      style={{ fontSize: size * 0.3, lineHeight: 1.15 }}
+                      className={
+                        disabled
+                          ? 'flex h-full w-full flex-col items-center justify-center rounded-md border-2 border-dashed border-red-900 bg-neutral-900 px-1 text-center font-medium text-neutral-500'
+                          : 'flex h-full w-full flex-col items-center justify-center rounded-md border-2 border-indigo-400 bg-indigo-950 px-1 text-center font-medium text-indigo-100 hover:bg-indigo-900'
+                      }
+                    >
+                      {showGroupLabels && (
+                        <span className="text-[0.75em] font-normal uppercase tracking-wide opacity-70">{option.unitKind}</span>
+                      )}
+                      {option.label}
+                    </div>
+                  </foreignObject>
+                </g>
+              )
+            })
+          })()}
         </g>
       )}
     </svg>

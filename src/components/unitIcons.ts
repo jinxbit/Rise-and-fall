@@ -66,5 +66,5 @@ export const UNIT_ICONS: Record<string, IconShape[]> = {
   ],
 }
 
-/** City and Temple are immobile structures (never move once placed) — marked with a rectangle instead of the mobile units' circle. */
-export const STATIC_UNIT_KINDS = new Set(['city', 'temple'])
+/** City and Temple are immobile structures (never move once placed) — marked with a rectangle instead of the mobile units' circle. Port (The Ports Tale) is likewise immobile once built. */
+export const STATIC_UNIT_KINDS = new Set(['city', 'temple', 'port'])

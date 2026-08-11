@@ -1,7 +1,7 @@
-import { render } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { fireEvent, render } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
 import { HexBoard } from '../HexBoard'
-import type { UnitMarker } from '../HexBoard'
+import type { ActionMenuOption, UnitMarker } from '../HexBoard'
 import { createEmptyBoard, setTile } from '../../engine/board'
 
 function makeBoard() {
@@ -71,6 +71,72 @@ describe('HexBoard — unit markers', () => {
   it('does not crash on an unrecognized unit kind — just renders an empty glyph', () => {
     const units: UnitMarker[] = [{ coord: { q: 0, r: 0 }, color: '#ef4444', kind: 'not-a-real-kind' }]
     expect(() => render(<HexBoard board={makeBoard()} units={units} />)).not.toThrow()
+  })
+})
+
+describe('HexBoard — stacked units on one hex (e.g. a Ship docked at its own Port)', () => {
+  it('offsets two units sharing a hex instead of drawing them exactly on top of each other', () => {
+    const units: UnitMarker[] = [
+      { coord: { q: 0, r: 0 }, color: '#ef4444', kind: 'ship' },
+      { coord: { q: 0, r: 0 }, color: '#ef4444', kind: 'port' },
+    ]
+    const { container } = render(<HexBoard board={makeBoard()} units={units} />)
+
+    // The ownership bar is a <rect> unique to each unit (see the "single
+    // bar beneath the marker" test above) — two units at the exact same
+    // hex would otherwise sit at the exact same pixel position.
+    const bars = [...container.querySelectorAll(`rect[fill="${units[0].color}"]`)]
+    expect(bars).toHaveLength(2)
+    const [first, second] = bars.map((b) => ({ x: b.getAttribute('x'), y: b.getAttribute('y') }))
+    expect(first).not.toEqual(second)
+  })
+
+  it('does not offset a single unit alone on its hex — same position as before stacking existed', () => {
+    const units: UnitMarker[] = [{ coord: { q: 0, r: 0 }, color: '#ef4444', kind: 'ship' }]
+    const soloRender = render(<HexBoard board={makeBoard()} units={units} />)
+    const soloBar = soloRender.container.querySelector(`rect[fill="${units[0].color}"]`)!
+    soloRender.unmount()
+
+    // A second unit elsewhere on the board doesn't affect the first's
+    // position either — only units sharing the SAME hex get offset.
+    const withOther: UnitMarker[] = [...units, { coord: { q: 3, r: 0 }, color: '#3b82f6', kind: 'nomad' }]
+    const { container } = render(<HexBoard board={makeBoard()} units={withOther} />)
+    const barWithOtherPresent = container.querySelector(`rect[fill="${units[0].color}"]`)!
+
+    expect(barWithOtherPresent.getAttribute('x')).toBe(soloBar.getAttribute('x'))
+    expect(barWithOtherPresent.getAttribute('y')).toBe(soloBar.getAttribute('y'))
+  })
+})
+
+describe('HexBoard — grouped action menu (more than one unit acting from the same hex)', () => {
+  function optionsFor(unitId: string, unitKind: string, actionIds: string[]): ActionMenuOption[] {
+    return actionIds.map((id) => ({ unitId, unitKind, id, label: `${unitKind} ${id}` }))
+  }
+
+  it("shows no per-option kind label when every option belongs to one unit (the ordinary, non-stacked case)", () => {
+    const onSelect = vi.fn()
+    const { container } = render(
+      <HexBoard
+        board={makeBoard()}
+        actionMenu={{ coord: { q: 0, r: 0 }, options: optionsFor('ship1', 'Ship', ['move', 'trade']), onSelect }}
+      />,
+    )
+
+    expect(container.querySelectorAll('foreignObject')).toHaveLength(2)
+    expect(container.querySelectorAll('foreignObject span')).toHaveLength(0)
+  })
+
+  it('labels each option by its owning unit once more than one unit is offering options, and routes clicks back with the right unit id', () => {
+    const onSelect = vi.fn()
+    const options = [...optionsFor('ship1', 'Ship', ['ship-income']), ...optionsFor('port1', 'Port', ['port-income'])]
+    const { container } = render(<HexBoard board={makeBoard()} actionMenu={{ coord: { q: 0, r: 0 }, options, onSelect }} />)
+
+    const labels = [...container.querySelectorAll('foreignObject span')].map((s) => s.textContent)
+    expect(labels).toEqual(expect.arrayContaining(['Ship', 'Port']))
+
+    const portBox = [...container.querySelectorAll('foreignObject div')].find((d) => d.textContent?.includes('port-income'))
+    fireEvent.click(portBox!)
+    expect(onSelect).toHaveBeenCalledWith('port1', 'port-income')
   })
 })
 
