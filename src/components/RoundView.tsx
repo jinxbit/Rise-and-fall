@@ -676,18 +676,6 @@ export function RoundView(props: {
           >
             {showHistory ? 'Hide history' : 'Show history'}
           </button>
-          <button
-            type="button"
-            onClick={() => setSidebarHidden((v) => !v)}
-            title={
-              sidebarHidden
-                ? 'Bring back the full player roster and achievements panel beside the board.'
-                : 'Hide the full player roster and achievements panel so the board can expand into that space.'
-            }
-            className="rounded-md border border-neutral-700 px-3 py-1 text-xs hover:border-neutral-500"
-          >
-            {sidebarHidden ? 'Show player status' : 'Expand board'}
-          </button>
         </div>
       </div>
       <PlayersStrip
@@ -722,6 +710,20 @@ export function RoundView(props: {
 
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
         <div className="min-w-0 flex-1">
+          <div className="mb-2 flex justify-end">
+            <button
+              type="button"
+              onClick={() => setSidebarHidden((v) => !v)}
+              title={
+                sidebarHidden
+                  ? 'Bring back the full player roster and achievements panel beside the board.'
+                  : 'Hide the full player roster and achievements panel so the board can expand into that space.'
+              }
+              className="rounded-md border border-neutral-700 px-3 py-1 text-xs hover:border-neutral-500"
+            >
+              {sidebarHidden ? 'Collapse board' : 'Expand board'}
+            </button>
+          </div>
           <HexBoard
             board={state.board}
             units={units}
@@ -733,7 +735,7 @@ export function RoundView(props: {
             expanded={sidebarHidden}
           />
         </div>
-        {/* Sits beside the board (not below it) so the full roster and achievements stay in view without scrolling past the map — see PlayersStrip/AchievementsPanel's icon-based, per-player-card layout, built for this narrower column. Hideable (see the "Expand board" toggle above) so the board can grow into this space instead. */}
+        {/* Sits beside the board (not below it) so the full roster and achievements stay in view without scrolling past the map — see PlayersStrip/AchievementsPanel's icon-based, per-player-card layout, built for this narrower column. Hideable (see the "Expand board"/"Collapse board" toggle right above the map) so the board can grow into this space instead. */}
         {!sidebarHidden && (
           <div className="flex w-full flex-col gap-4 lg:w-72 lg:shrink-0 xl:w-80">
             <PlayersStrip

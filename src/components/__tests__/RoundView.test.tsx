@@ -364,7 +364,7 @@ describe('RoundView — "Expand board" toggle', () => {
     // The compact current-player bar (Alice) stays put throughout.
     expect(screen.getByText('Alice')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Show player status' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse board' }))
 
     expect(screen.getByText('Bob')).toBeInTheDocument()
     expect(screen.getByText('Buy back from decline:', { exact: false })).toBeInTheDocument()
