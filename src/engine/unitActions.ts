@@ -151,7 +151,12 @@ export function computeIncomeGold(state: GameState, playerId: string, unit: Unit
   }
 
   if (effect.goldPerAdjacentUnit) {
-    for (const neighbor of adjacentUnits(state, unit.coord)) {
+    // Merchant is the only unit kind that can ever end a move stacked onto
+    // another unit (canEndMoveOnUnitTypes: ['city'] in units.json) — so a
+    // Merchant sitting on a City's hex counts that City too, same as one on
+    // a truly neighboring hex; only `adjacentUnits` would silently drop it.
+    const nearby = [...adjacentUnits(state, unit.coord), ...unitsAt(state, unit.coord).filter((u) => u.id !== unit.id)]
+    for (const neighbor of nearby) {
       const table = neighbor.ownerId === playerId ? effect.goldPerAdjacentUnit.own : effect.goldPerAdjacentUnit.enemy
       gold += table?.[neighbor.kind] ?? 0
     }

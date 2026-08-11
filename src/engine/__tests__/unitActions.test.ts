@@ -166,6 +166,33 @@ describe('applyUnitActionEffect — income', () => {
     expect(goldOf(next, 'p1')).toBe(3 + 5)
   })
 
+  it("counts a City sharing the Merchant's own hex too, not just truly adjacent ones (bug: Merchant is the only unit that can end a move stacked on a City — canEndMoveOnUnitTypes — but that City was silently excluded since it's not one of `adjacentUnits`)", () => {
+    const action: UnitAction = {
+      id: 'generate-income',
+      name: 'Generate Income',
+      description: '',
+      effect: { actionType: 'income', goldPerAdjacentUnit: { own: { city: 3 }, enemy: { city: 5 } } },
+    }
+    const board = boardOf([
+      [0, 0, 'plain'],
+      [1, 0, 'plain'],
+      [-1, 0, 'plain'],
+    ])
+    const state = makeState({
+      board,
+      units: [
+        makeUnit('p1', 'merchant', { q: 0, r: 0 }),
+        makeUnit('p2', 'city', { q: 0, r: 0 }), // shares the Merchant's own hex
+        makeUnit('p2', 'city', { q: 1, r: 0 }), // truly adjacent
+        makeUnit('p2', 'city', { q: -1, r: 0 }), // truly adjacent
+      ],
+    })
+
+    const next = applyUnitActionEffect(state, 'p1', 'merchant', action, {}, emptyContent)
+
+    expect(goldOf(next, 'p1')).toBe(5 + 5 + 5)
+  })
+
   it('applies independently to every unit of the kind the player owns', () => {
     const board = boardOf([
       [0, 0, 'forest'],
