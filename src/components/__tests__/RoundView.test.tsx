@@ -100,6 +100,50 @@ describe('RoundView — player status summary and achievements panel', () => {
     expect(screen.getAllByTitle('City')).toHaveLength(1)
   })
 
+  it('shows discard and decline cards as icons alongside hand, in the same row', () => {
+    const state = makeState()
+    const p1Index = state.players.findIndex((p) => p.id === 'p1')
+    state.players[p1Index] = {
+      ...state.players[p1Index],
+      discardCardIds: [cardIdFor('p1', 'merchant')],
+      declineCardIds: [cardIdFor('p1', 'mountaineer')],
+    }
+    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
+
+    render(
+      <RoundView
+        state={state}
+        players={players}
+        myPlayerId="p1"
+        unitContent={EMPTY_UNIT_CONTENT}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        turnReview={null}
+        showHistory={false}
+        onToggleHistory={() => {}}
+        gameLog={[]}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+
+    // Both players' chips show Hand/Discard/Decline labels; only p1 has cards in each.
+    expect(screen.getAllByText('Hand')).toHaveLength(2)
+    expect(screen.getAllByTitle('Nomad')).toHaveLength(1)
+    expect(screen.getAllByTitle('Ship')).toHaveLength(1)
+    expect(screen.getAllByText('Discard')).toHaveLength(2)
+    expect(screen.getAllByTitle('Merchant')).toHaveLength(1)
+    expect(screen.getAllByText('Decline')).toHaveLength(2)
+    expect(screen.getAllByTitle('Mountaineer')).toHaveLength(1)
+
+    // p2 has an empty discard and decline (but a non-empty hand) — exactly
+    // those two fall back to "empty".
+    expect(screen.getAllByText('empty')).toHaveLength(2)
+  })
+
   it('marks the start player (turnOrder[0]) and moves the mark when turnOrder rotates', () => {
     const state = makeState() // turnOrder: ['p1', 'p2']
     const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]

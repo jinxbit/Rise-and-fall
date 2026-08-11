@@ -248,7 +248,9 @@ function PlayersStrip({
       <div className="flex flex-col gap-2 text-xs text-neutral-400">
         {state.players.map((player) => {
           const row = players.find((p) => p.id === player.id)
-          const handKinds = player.handCardIds.map((cardId) => state.cards[cardId]?.kind).filter((kind): kind is string => Boolean(kind))
+          const handKinds = kindsInZone(player.handCardIds, state.cards)
+          const discardKinds = kindsInZone(player.discardCardIds, state.cards)
+          const declineKinds = kindsInZone(player.declineCardIds, state.cards)
           const remainingByKind = UNIT_KINDS.flatMap((kind) => {
             const cap = unitContent.unitSupplyCaps[kind]
             if (cap === undefined) return []
@@ -292,11 +294,20 @@ function PlayersStrip({
                   Stone {player.resources.stone}
                   {delta && <span className="text-emerald-400">{deltaSuffix(delta.stone)}</span>}
                 </span>
-                <span className="ml-auto">Decline {player.declineCardIds.length}</span>
               </span>
-              <span className="flex flex-wrap items-center gap-1.5">
-                <span>Hand</span>
-                <KindIconRow kinds={handKinds} emptyLabel="empty" />
+              <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span className="flex items-center gap-1.5">
+                  <span>Hand</span>
+                  <KindIconRow kinds={handKinds} emptyLabel="empty" />
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span>Discard</span>
+                  <KindIconRow kinds={discardKinds} emptyLabel="empty" />
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span>Decline</span>
+                  <KindIconRow kinds={declineKinds} emptyLabel="empty" />
+                </span>
               </span>
               {remainingByKind.length > 0 && (
                 <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
