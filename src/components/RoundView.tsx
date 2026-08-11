@@ -230,7 +230,6 @@ function PlayersStrip({
   unitContent,
   achievementContent,
   resourceDeltaByPlayerId,
-  filterPlayerIds,
 }: {
   state: GameState
   players: PlayerRow[]
@@ -239,18 +238,15 @@ function PlayersStrip({
   achievementContent: AchievementContent
   /** From TurnReview, only while the history review is toggled on — see RoundView's showHistory. */
   resourceDeltaByPlayerId?: Record<string, Resources> | null
-  /** When set, only these player ids are shown — used for the compact current-player bar at the top of RoundView; omit to show every player. */
-  filterPlayerIds?: string[]
 }) {
   const [expandedPlayerId, setExpandedPlayerId] = useState<string | null>(null)
   const breakdownByPlayerId = calculateVPBreakdown(state, achievementContent)
   const expandedPlayer = expandedPlayerId ? state.players.find((p) => p.id === expandedPlayerId) : null
-  const visiblePlayers = filterPlayerIds ? state.players.filter((p) => filterPlayerIds.includes(p.id)) : state.players
 
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-col gap-2 text-xs text-neutral-400">
-        {visiblePlayers.map((player) => {
+        {state.players.map((player) => {
           const row = players.find((p) => p.id === player.id)
           const handKinds = player.handCardIds.map((cardId) => state.cards[cardId]?.kind).filter((kind): kind is string => Boolean(kind))
           const remainingByKind = UNIT_KINDS.flatMap((kind) => {
@@ -678,16 +674,6 @@ export function RoundView(props: {
           </button>
         </div>
       </div>
-      <PlayersStrip
-        state={state}
-        players={players}
-        myPlayerId={myPlayerId}
-        unitContent={unitContent}
-        achievementContent={achievementContent}
-        resourceDeltaByPlayerId={showHistory ? turnReview?.resourceDeltaByPlayerId : null}
-        filterPlayerIds={myPlayerId ? [myPlayerId] : []}
-      />
-
       {state.roundPhase === 'selectCards' && (
         <SelectCardsPanel state={state} players={players} myPlayerId={myPlayerId} onChooseCard={props.onChooseCard} />
       )}

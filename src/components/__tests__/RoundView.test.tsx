@@ -94,12 +94,9 @@ describe('RoundView — player status summary and achievements panel', () => {
     )
 
     // Hand cards render as icons now, not kind names — each icon carries the
-    // kind as its accessible title. p1 is myPlayerId, so their hand (Nomad,
-    // Ship) shows both in the compact current-player bar at the top and
-    // again in the full players strip beside the board.
-    expect(screen.getAllByTitle('Nomad')).toHaveLength(2)
-    expect(screen.getAllByTitle('Ship')).toHaveLength(2)
-    // p2's hand (City) only shows once, in the full strip.
+    // kind as its accessible title.
+    expect(screen.getAllByTitle('Nomad')).toHaveLength(1)
+    expect(screen.getAllByTitle('Ship')).toHaveLength(1)
     expect(screen.getAllByTitle('City')).toHaveLength(1)
   })
 
@@ -170,14 +167,12 @@ describe('RoundView — player status summary and achievements panel', () => {
 
     // Remaining supply now renders as icon+count badges (title = kind name,
     // visible text = the count) instead of a "Kind N" text list.
-    // p1 has 1 of 3 Nomads built (remaining 2), everything else untouched;
-    // p1 is myPlayerId, so their badges show both in the compact
-    // current-player bar and the full strip beside the board.
+    // p1 has 1 of 3 Nomads built (remaining 2); p2 has built nothing at all
+    // (full supply, 3, remaining).
     const nomadCounts = [...container.querySelectorAll('span[title="Nomad"]')].map((el) => el.textContent)
-    // p2 has built nothing at all — full supply (3) remaining.
-    expect(nomadCounts).toEqual(['2', '2', '3'])
+    expect(nomadCounts).toEqual(['2', '3'])
     const shipCounts = [...container.querySelectorAll('span[title="Ship"]')].map((el) => el.textContent)
-    expect(shipCounts).toEqual(['2', '2', '2'])
+    expect(shipCounts).toEqual(['2', '2'])
   })
 
   it("shows each player's current score, computed live from claimed achievements — not just at game end (see the next test for terrain-control)", () => {
@@ -204,8 +199,7 @@ describe('RoundView — player status summary and achievements panel', () => {
       />,
     )
 
-    // p1 (myPlayerId): nothing claimed — shows in both the top current-player bar and the full strip.
-    expect(screen.getAllByText('Score 0')).toHaveLength(2)
+    expect(screen.getByText('Score 0')).toBeInTheDocument() // p1: nothing claimed
     expect(screen.getByText('Score 5')).toBeInTheDocument() // p2: claimed city-mastery, worth 5 VP
   })
 
@@ -245,9 +239,8 @@ describe('RoundView — player status summary and achievements panel', () => {
       />,
     )
 
-    // p1 (myPlayerId): majority (2 units) in a 2-hex Plain region at 3 VP/hex -> 6, plus nothing from
-    // achievements — shows in both the top current-player bar and the full strip.
-    expect(screen.getAllByText('Score 6')).toHaveLength(2)
+    // p1: majority (2 units) in a 2-hex Plain region at 3 VP/hex -> 6, plus nothing from achievements.
+    expect(screen.getByText('Score 6')).toBeInTheDocument()
     // p2: claimed city-mastery (5 VP), no board presence at all -> no terrain-control VP.
     expect(screen.getByText('Score 5')).toBeInTheDocument()
   })
@@ -280,14 +273,13 @@ describe('RoundView — player status summary and achievements panel', () => {
       />,
     )
 
-    // p1 (myPlayerId): 5 gold at 2 gold/point -> 2 VP, nothing claimed -> Score 2 —
-    // shows in both the top current-player bar and the full strip.
-    expect(screen.getAllByText('Score 2')).toHaveLength(2)
+    // p1: 5 gold at 2 gold/point -> 2 VP, nothing claimed -> Score 2.
+    expect(screen.getByText('Score 2')).toBeInTheDocument()
     // p2: claimed city-mastery (5 VP), 0 gold -> Score 5, unchanged by gold.
     expect(screen.getByText('Score 5')).toBeInTheDocument()
   })
 
-  it('renders the achievements panel and full player roster beside the board, after it in document order — not near the top with the compact current-player summary', () => {
+  it('renders the achievements panel and full player roster beside the board, after it in document order', () => {
     const state = makeState()
     const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
 
@@ -319,16 +311,11 @@ describe('RoundView — player status summary and achievements panel', () => {
     // under — comes after the board in document order: it's the sidebar
     // beside the map, not a block near the top of the page.
     expect(boardPlaceholder!.compareDocumentPosition(achievementsBlock!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-
-    // The compact top-of-page summary shows only the current player — not
-    // the achievements panel or the rest of the roster.
-    const topBar = container.firstElementChild!.children[0]
-    expect(topBar.textContent).not.toContain('Buy back from decline')
   })
 })
 
 describe('RoundView — "Expand board" toggle', () => {
-  it('hides the full player roster and achievements panel, and brings them back, without touching the compact current-player bar', () => {
+  it('hides the full player roster and achievements panel, and brings them back', () => {
     const state = makeState()
     const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
 
@@ -352,20 +339,19 @@ describe('RoundView — "Expand board" toggle', () => {
       />,
     )
 
-    // Bob never appears in the compact current-player bar (only p1/Alice
-    // does) — so Bob is only findable at all while the full roster shows.
+    expect(screen.getByText('Alice')).toBeInTheDocument()
     expect(screen.getByText('Bob')).toBeInTheDocument()
     expect(screen.getByText('Buy back from decline:', { exact: false })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Expand board' }))
 
+    expect(screen.queryByText('Alice')).not.toBeInTheDocument()
     expect(screen.queryByText('Bob')).not.toBeInTheDocument()
     expect(screen.queryByText('Buy back from decline:', { exact: false })).not.toBeInTheDocument()
-    // The compact current-player bar (Alice) stays put throughout.
-    expect(screen.getByText('Alice')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Collapse board' }))
 
+    expect(screen.getByText('Alice')).toBeInTheDocument()
     expect(screen.getByText('Bob')).toBeInTheDocument()
     expect(screen.getByText('Buy back from decline:', { exact: false })).toBeInTheDocument()
   })
@@ -406,10 +392,7 @@ describe('RoundView — player detail panel (click a player chip for more info)'
 
     expect(screen.queryByText(/VP breakdown/)).not.toBeInTheDocument()
 
-    // p1 (myPlayerId) has a chip in both the compact current-player bar at the
-    // top and the full players strip under the map — expand the one in the
-    // full strip (the second "Alice" in DOM order).
-    fireEvent.click(screen.getAllByText('Alice')[1].closest('button')!)
+    fireEvent.click(screen.getByText('Alice').closest('button')!)
 
     // p1: 2 Nomads on board -> boardCount curve [1, 3] at count 2 -> 3 VP; 5 gold at 2 gold/point -> 2 VP; total 5.
     expect(screen.getByText('VP breakdown — 5 total')).toBeInTheDocument()
@@ -426,13 +409,13 @@ describe('RoundView — player detail panel (click a player chip for more info)'
     expect(container.querySelector('span[title="Nomad"]')?.textContent).toBe('2')
     expect(screen.getByText('Gold 5, Wood 2, Stone 1')).toBeInTheDocument()
     // Hand cards render as icons (title = kind name) — one Nomad and one
-    // Ship icon in the top bar's chip, the full strip's chip, and the
-    // detail panel's own "Hand: ..." line — three places, since p1 is myPlayerId.
+    // Ship icon in the strip's chip, and again in the detail panel's own
+    // "Hand: ..." line — two places.
     const iconTitle = (kind: string) => [...container.querySelectorAll('svg > title')].filter((el) => el.textContent === kind)
-    expect(iconTitle('Nomad')).toHaveLength(3)
-    expect(iconTitle('Ship')).toHaveLength(3)
+    expect(iconTitle('Nomad')).toHaveLength(2)
+    expect(iconTitle('Ship')).toHaveLength(2)
 
-    fireEvent.click(screen.getAllByText('Alice')[1].closest('button')!)
+    fireEvent.click(screen.getByText('Alice').closest('button')!)
     expect(screen.queryByText(/VP breakdown/)).not.toBeInTheDocument()
   })
 
@@ -460,9 +443,7 @@ describe('RoundView — player detail panel (click a player chip for more info)'
       />,
     )
 
-    // p1 (myPlayerId) has a chip in both the top bar and the full strip under
-    // the map — click the one in the full strip, alongside Bob's.
-    fireEvent.click(screen.getAllByText('Alice')[1].closest('button')!)
+    fireEvent.click(screen.getByText('Alice').closest('button')!)
     expect(screen.getByText('VP breakdown — 0 total')).toBeInTheDocument()
 
     fireEvent.click(screen.getByText('Bob').closest('button')!)
@@ -686,9 +667,7 @@ describe('RoundView — history review toggle', () => {
       resourceDeltaByPlayerId: { p1: { gold: 5, wood: -1, stone: 0 } },
     }
     renderWithReview(turnReview, true)
-    // p1 is myPlayerId, so their delta shows both in the compact current-player
-    // bar at the top and again in the full players strip under the map.
-    expect(screen.getAllByText('(+5)')).toHaveLength(2)
-    expect(screen.getAllByText('(-1)')).toHaveLength(2)
+    expect(screen.getByText('(+5)')).toBeInTheDocument()
+    expect(screen.getByText('(-1)')).toBeInTheDocument()
   })
 })
