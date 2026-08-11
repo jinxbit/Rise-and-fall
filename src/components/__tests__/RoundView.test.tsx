@@ -100,6 +100,58 @@ describe('RoundView — player status summary and achievements panel', () => {
     expect(screen.getAllByTitle('City')).toHaveLength(1)
   })
 
+  it('marks the start player (turnOrder[0]) and moves the mark when turnOrder rotates', () => {
+    const state = makeState() // turnOrder: ['p1', 'p2']
+    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
+
+    const { rerender } = render(
+      <RoundView
+        state={state}
+        players={players}
+        myPlayerId="p1"
+        unitContent={EMPTY_UNIT_CONTENT}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        turnReview={null}
+        showHistory={false}
+        onToggleHistory={() => {}}
+        gameLog={[]}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+
+    const startPlayerMark = () => screen.getByTitle('Start player — rotates to the next player each round')
+    // p1 (Alice) is turnOrder[0] — the mark sits in their chip, before Bob's.
+    expect(startPlayerMark().closest('button')?.textContent).toContain('Alice')
+
+    // Once the round ends, turnOrder rotates (see engine/round.ts) — the mark should follow.
+    rerender(
+      <RoundView
+        state={{ ...state, turnOrder: ['p2', 'p1'] }}
+        players={players}
+        myPlayerId="p1"
+        unitContent={EMPTY_UNIT_CONTENT}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        turnReview={null}
+        showHistory={false}
+        onToggleHistory={() => {}}
+        gameLog={[]}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+
+    expect(startPlayerMark().closest('button')?.textContent).toContain('Bob')
+  })
+
   it('shows every achievement (claimed and unclaimed) and the current decline buyback price', () => {
     const state = makeState()
     const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]

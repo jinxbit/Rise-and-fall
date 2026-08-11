@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { BoardSetupView } from '../components/BoardSetupView'
 import { EndGameView } from '../components/EndGameView'
@@ -43,6 +43,9 @@ export function GamePage() {
   const [version, setVersion] = useState<number | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [showStateJson, setShowStateJson] = useState(false)
+  /** The top-left hamburger menu (Main menu, Show/Hide game state JSON) — see the click-outside/Escape effect below. */
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
   const [copiedStateJson, setCopiedStateJson] = useState(false)
   const [copiedStateExport, setCopiedStateExport] = useState(false)
   const [stateExportError, setStateExportError] = useState<string | null>(null)
@@ -70,6 +73,22 @@ export function GamePage() {
    * below, and reset whenever a fresh room loads.
    */
   const [hotseatActivePlayerId, setHotseatActivePlayerId] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!menuOpen) return
+    function handlePointerDown(event: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) setMenuOpen(false)
+    }
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') setMenuOpen(false)
+    }
+    document.addEventListener('mousedown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [menuOpen])
 
   useEffect(() => {
     if (!roomCode) return
@@ -333,6 +352,54 @@ export function GamePage() {
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 p-8 lg:max-w-6xl xl:max-w-7xl">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap items-center gap-3">
+          <div ref={menuRef} className="relative">
+            <button
+              type="button"
+              onClick={() => setMenuOpen((v) => !v)}
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              title="Menu"
+              className="rounded-md border border-neutral-700 p-2 hover:border-neutral-500"
+            >
+              <svg viewBox="0 0 20 20" className="h-5 w-5 fill-current" aria-hidden="true">
+                <rect x="2" y="4" width="16" height="2" rx="1" />
+                <rect x="2" y="9" width="16" height="2" rx="1" />
+                <rect x="2" y="14" width="16" height="2" rx="1" />
+              </svg>
+            </button>
+            {menuOpen && (
+              <div
+                role="menu"
+                className="absolute left-0 top-full z-10 mt-2 flex w-56 flex-col overflow-hidden rounded-md border border-neutral-700 bg-neutral-900 py-1 text-sm shadow-lg"
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false)
+                    navigate('/')
+                  }}
+                  title="Leave this game and return to the main menu — the game itself keeps going, you can rejoin from the room code."
+                  className="px-3 py-2 text-left hover:bg-neutral-800"
+                >
+                  Main menu
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={!gameState}
+                  onClick={() => {
+                    setMenuOpen(false)
+                    setShowStateJson((v) => !v)
+                  }}
+                  title="Inspect the raw game state JSON — mainly useful for debugging or filing a bug report."
+                  className="px-3 py-2 text-left hover:bg-neutral-800 disabled:opacity-50"
+                >
+                  {showStateJson ? 'Hide' : 'Show'} game state JSON
+                </button>
+              </div>
+            )}
+          </div>
           <h1 className="text-2xl font-semibold">Room {game.room_code}</h1>
           <ul className="flex flex-wrap gap-3 text-sm text-neutral-400">
             {players.map((p) => (
@@ -343,19 +410,7 @@ export function GamePage() {
             ))}
           </ul>
         </div>
-        {/* Three loose groups, left to right: leaving the game (Main menu),
-            the related Undo/Redo pair, and the JSON inspector — a separate,
-            lower-priority diagnostic tool. Each gets a bit of extra margin
-            from the next group rather than running together in one row. */}
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => navigate('/')}
-            title="Leave this game and return to the main menu — the game itself keeps going, you can rejoin from the room code."
-            className="mr-2 rounded-md border border-neutral-700 px-3 py-1 text-sm hover:border-neutral-500"
-          >
-            Main menu
-          </button>
           <button
             type="button"
             disabled={undoing || !gameState || gameState.actionHistory.length === 0}
@@ -373,15 +428,6 @@ export function GamePage() {
             className="rounded-md border border-neutral-700 px-3 py-1 text-sm hover:border-neutral-500 disabled:opacity-50"
           >
             {redoing ? 'Redoing…' : 'Redo'}
-          </button>
-          <button
-            type="button"
-            disabled={!gameState}
-            onClick={() => setShowStateJson((v) => !v)}
-            title="Inspect the raw game state JSON — mainly useful for debugging or filing a bug report."
-            className="ml-2 rounded-md border border-neutral-700 px-3 py-1 text-sm hover:border-neutral-500 disabled:opacity-50"
-          >
-            {showStateJson ? 'Hide' : 'Show'} game state JSON
           </button>
         </div>
       </header>

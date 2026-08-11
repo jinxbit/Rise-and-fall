@@ -271,6 +271,11 @@ function PlayersStrip({
               <span className="flex items-center gap-1.5">
                 <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: row?.color ?? '#a3a3a3' }} />
                 <span className="text-neutral-200">{row?.display_name ?? player.id}</span>
+                {state.turnOrder[0] === player.id && (
+                  <span title="Start player — rotates to the next player each round" className="text-amber-400">
+                    ★
+                  </span>
+                )}
                 {player.eliminated && <span>(eliminated)</span>}
                 <span className="ml-auto font-medium text-neutral-200">Score {breakdownByPlayerId[player.id]?.total ?? 0}</span>
               </span>
