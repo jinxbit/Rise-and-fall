@@ -190,6 +190,7 @@ function PlayersStrip({
   unitContent,
   achievementContent,
   resourceDeltaByPlayerId,
+  filterPlayerIds,
 }: {
   state: GameState
   players: PlayerRow[]
@@ -198,15 +199,18 @@ function PlayersStrip({
   achievementContent: AchievementContent
   /** From TurnReview, only while the history review is toggled on — see RoundView's showHistory. */
   resourceDeltaByPlayerId?: Record<string, Resources> | null
+  /** When set, only these player ids are shown — used for the compact current-player bar at the top of RoundView; omit to show every player. */
+  filterPlayerIds?: string[]
 }) {
   const [expandedPlayerId, setExpandedPlayerId] = useState<string | null>(null)
   const breakdownByPlayerId = calculateVPBreakdown(state, achievementContent)
   const expandedPlayer = expandedPlayerId ? state.players.find((p) => p.id === expandedPlayerId) : null
+  const visiblePlayers = filterPlayerIds ? state.players.filter((p) => filterPlayerIds.includes(p.id)) : state.players
 
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap gap-2 text-xs text-neutral-400">
-        {state.players.map((player) => {
+        {visiblePlayers.map((player) => {
           const row = players.find((p) => p.id === player.id)
           const handKinds = player.handCardIds.map((cardId) => state.cards[cardId]?.kind).filter((kind): kind is string => Boolean(kind))
           const remainingByKind = UNIT_KINDS.map((kind) => {
@@ -257,6 +261,17 @@ function PlayersStrip({
 }
 
 /**
+ * The gold price to buy a card back from decline rises as achievements are
+ * claimed (see calculatePurchaseCost) — `current` is that price right now,
+ * `upcoming` the remaining steps of achievementContent.purchaseCostTable
+ * still ahead, in order.
+ */
+function purchasePriceLadder(achievementsClaimed: number, costTable: number[]): { current: number; upcoming: number[] } {
+  const currentIndex = achievementsClaimed <= 0 ? -1 : Math.min(achievementsClaimed, costTable.length) - 1
+  return { current: calculatePurchaseCost(achievementsClaimed, costTable), upcoming: costTable.slice(currentIndex + 1) }
+}
+
+/**
  * Every achievement in the game (not just claimed ones), plus the current
  * gold price to buy a card back from decline — grouped together since both
  * move in lockstep with the same number (achievements claimed so far, see
@@ -264,12 +279,13 @@ function PlayersStrip({
  */
 function AchievementsPanel({ state, players, achievementContent }: { state: GameState; players: PlayerRow[]; achievementContent: AchievementContent }) {
   const achievementsClaimed = Object.keys(state.claimedByAchievementId).length
-  const buybackPrice = calculatePurchaseCost(achievementsClaimed, achievementContent.purchaseCostTable)
+  const { current: buybackPrice, upcoming } = purchasePriceLadder(achievementsClaimed, achievementContent.purchaseCostTable)
 
   return (
     <div className="flex flex-col gap-2 rounded-md border border-neutral-800 p-3 text-xs">
       <p className="text-neutral-400">
-        Buy back from decline: <span className="font-medium text-neutral-200">{buybackPrice} gold</span>
+        Buy back from decline: <span className="font-medium text-amber-400">{buybackPrice} gold</span>
+        {upcoming.length > 0 && <span className="text-neutral-500"> — next: {upcoming.join(' → ')} gold</span>}
       </p>
       <div className="flex flex-wrap gap-2">
         {ACHIEVEMENTS.map((achievement) => {
@@ -431,12 +447,16 @@ function PurchasePanel(props: {
   const me = state.players.find((p) => p.id === myPlayerId)
   if (!me) return null
   const achievementsClaimed = Object.keys(state.claimedByAchievementId).length
-  const cost = calculatePurchaseCost(achievementsClaimed, achievementContent.purchaseCostTable)
+  const { current: cost, upcoming } = purchasePriceLadder(achievementsClaimed, achievementContent.purchaseCostTable)
 
   return (
     <div className="flex flex-col gap-2 text-sm">
       <p className="font-medium text-indigo-400">
-        Your turn — buy a card back from decline for {cost} gold (you have {me.resources.gold}), or pass.
+        Your turn — buy a card back from decline for <span className="text-amber-400">{cost}</span> gold (you have{' '}
+        {me.resources.gold}), or pass.
+        {upcoming.length > 0 && (
+          <span className="block text-xs font-normal text-neutral-500">Price rises to {upcoming.join(' → ')} gold as more achievements are claimed.</span>
+        )}
       </p>
       <div className="flex flex-wrap gap-2">
         {me.declineCardIds.map((cardId) => {
@@ -607,6 +627,7 @@ export function RoundView(props: {
         unitContent={unitContent}
         achievementContent={achievementContent}
         resourceDeltaByPlayerId={showHistory ? turnReview?.resourceDeltaByPlayerId : null}
+        filterPlayerIds={myPlayerId ? [myPlayerId] : []}
       />
 
       {state.roundPhase === 'selectCards' && (
@@ -639,8 +660,16 @@ export function RoundView(props: {
         onHexClick={isMyActionTurn ? handleBoardClick : undefined}
       />
 
-      <LogPanel gameLog={props.gameLog} />
+      <PlayersStrip
+        state={state}
+        players={players}
+        myPlayerId={myPlayerId}
+        unitContent={unitContent}
+        achievementContent={achievementContent}
+        resourceDeltaByPlayerId={showHistory ? turnReview?.resourceDeltaByPlayerId : null}
+      />
       <AchievementsPanel state={state} players={players} achievementContent={achievementContent} />
+      <LogPanel gameLog={props.gameLog} />
     </div>
   )
 }

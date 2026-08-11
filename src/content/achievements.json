@@ -14,42 +14,42 @@
   "achievements": [
     {
       "id": "city-mastery",
-      "name": "City Mastery",
+      "name": "City",
       "unitId": "city",
       "description": "Claimed by the first player to simultaneously control their full per-player supply of Cities. Once claimed, no other player can claim it.",
       "victoryPoints": 10
     },
     {
       "id": "temple-mastery",
-      "name": "Temple Mastery",
+      "name": "Temple",
       "unitId": "temple",
       "description": "Claimed by the first player to simultaneously control their full per-player supply of Temples. Once claimed, no other player can claim it.",
       "victoryPoints": 20
     },
     {
       "id": "nomad-mastery",
-      "name": "Nomad Mastery",
+      "name": "Nomad",
       "unitId": "nomad",
       "description": "Claimed by the first player to simultaneously control their full per-player supply of Nomads. Once claimed, no other player can claim it.",
       "victoryPoints": 10
     },
     {
       "id": "merchant-mastery",
-      "name": "Merchant Mastery",
+      "name": "Merchant",
       "unitId": "merchant",
       "description": "Claimed by the first player to simultaneously control their full per-player supply of Merchants. Once claimed, no other player can claim it.",
       "victoryPoints": 20
     },
     {
       "id": "mountaineer-mastery",
-      "name": "Mountaineer Mastery",
+      "name": "Mountaineer",
       "unitId": "mountaineer",
       "description": "Claimed by the first player to simultaneously control their full per-player supply of Mountaineers. Once claimed, no other player can claim it.",
       "victoryPoints": 15
     },
     {
       "id": "ship-mastery",
-      "name": "Ship Mastery",
+      "name": "Ship",
       "unitId": "ship",
       "description": "Claimed by the first player to simultaneously control their full per-player supply of Ships. Once claimed, no other player can claim it.",
       "victoryPoints": 25

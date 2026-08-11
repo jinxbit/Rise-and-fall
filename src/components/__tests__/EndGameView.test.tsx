@@ -76,11 +76,12 @@ describe('EndGameView', () => {
 
     const { container } = render(<EndGameView state={state} players={players} achievementContent={content} />)
 
-    // p1 (Alice): City Mastery (3) + 1 City board-count (1) + 4 Gold (2) = 6.
+    // p1 (Alice): City (3) + 1 City board-count (1) + 4 Gold (2) = 6.
     // Real content/achievements.json's display name for 'city-mastery' is
-    // "City Mastery" — EndGameView resolves the id to a name via the real
+    // "City" — EndGameView resolves the id to a name via the real
     // listAchievements(), independent of the test's own achievementContent.
-    expect(screen.getByText('City Mastery:', { exact: false })).toBeInTheDocument()
+    // Anchored to the start so it doesn't also match the "1 City:" board-count line below it.
+    expect(screen.getByText(/^City:/)).toBeInTheDocument()
     expect(screen.getByText('1 City:', { exact: false })).toBeInTheDocument()
     expect(screen.getByText('4 Gold:', { exact: false })).toBeInTheDocument()
     expect(screen.getByText('6 points')).toBeInTheDocument()
