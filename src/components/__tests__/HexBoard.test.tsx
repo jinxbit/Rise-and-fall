@@ -74,6 +74,49 @@ describe('HexBoard — unit markers', () => {
   })
 })
 
+describe('HexBoard — two units sharing one hex (e.g. Merchant landed on a City)', () => {
+  it("offsets both plates to different centers instead of drawing one directly on top of the other — bug report: \"when merchant stops in city, the city icon is blocked\"", () => {
+    const units: UnitMarker[] = [
+      { coord: { q: 0, r: 0 }, color: '#ef4444', kind: 'city' },
+      { coord: { q: 0, r: 0 }, color: '#3b82f6', kind: 'merchant' },
+    ]
+    const { container } = render(<HexBoard board={makeBoard()} units={units} />)
+
+    const rect = container.querySelector(`rect[fill="${NEUTRAL_PLATE_COLOR}"]`)! // city's plate
+    const circle = container.querySelector(`circle[fill="${NEUTRAL_PLATE_COLOR}"]`)! // merchant's plate
+    expect(rect).toBeTruthy()
+    expect(circle).toBeTruthy()
+
+    const rectCx = Number(rect.getAttribute('x')) + Number(rect.getAttribute('width')) / 2
+    const rectCy = Number(rect.getAttribute('y')) + Number(rect.getAttribute('height')) / 2
+    const circleCx = Number(circle.getAttribute('cx'))
+    const circleCy = Number(circle.getAttribute('cy'))
+
+    expect(Math.hypot(rectCx - circleCx, rectCy - circleCy)).toBeGreaterThan(0)
+  })
+
+  it('still renders both glyphs (not just the later one) when two units share a hex', () => {
+    const units: UnitMarker[] = [
+      { coord: { q: 0, r: 0 }, color: '#ef4444', kind: 'city' },
+      { coord: { q: 0, r: 0 }, color: '#3b82f6', kind: 'merchant' },
+    ]
+    const { container } = render(<HexBoard board={makeBoard()} units={units} />)
+    expect(container.querySelectorAll('svg svg[viewBox]')).toHaveLength(2)
+  })
+
+  it('renders a lone unit at the exact hex center, full size — unaffected by the stacking offset', () => {
+    const units: UnitMarker[] = [{ coord: { q: 0, r: 0 }, color: '#ef4444', kind: 'city' }]
+    const { container } = render(<HexBoard board={makeBoard()} units={units} />)
+
+    const rect = container.querySelector(`rect[fill="${NEUTRAL_PLATE_COLOR}"]`)!
+    const cx = Number(rect.getAttribute('x')) + Number(rect.getAttribute('width')) / 2
+    const cy = Number(rect.getAttribute('y')) + Number(rect.getAttribute('height')) / 2
+    // Hex (0,0)'s pixel center in this rendering convention (axialToPixel) is (0, 0).
+    expect(cx).toBeCloseTo(0, 5)
+    expect(cy).toBeCloseTo(0, 5)
+  })
+})
+
 describe('HexBoard — history-review labels', () => {
   it("staggers two nearby units' history labels instead of overlapping — the reported bug (adjacent units' production amounts overlapped)", () => {
     const units: UnitMarker[] = [

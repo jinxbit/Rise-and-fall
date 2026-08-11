@@ -2671,3 +2671,49 @@ function sums, `calculateVPDetail`'s total matches
 `EndGameView.test.tsx`'s assertions for the new card/list layout
 instead of a table. 422 tests total (was 409); `tsc -b`/`oxlint`/
 `vitest run`/`npm run build` all clean.
+
+## 58. Two units on one hex: the second one's icon fully hid the first
+
+Bug report, two parts: "merchant can't move on water" and "when
+merchant stops in city, the city icon is blocked. The two icons
+should be handled as a special case."
+
+Investigated the water-movement report first, since it looked like a
+likely engine bug (a movement-terrains or cliff-crossing mistake).
+Traced it at every layer — a direct `legalMoveDestinations()` call
+with real `resolveUnitContent()` data, a full City-converts-Nomad-to-
+Merchant `applyAction()` flow followed by a legal-destinations check,
+and a full `RoundView` RTL click-through (select Merchant, click Move,
+confirm the adjacent water hex is highlighted and clicking it calls
+`onResolveUnit` with that coordinate) — and Merchant correctly moves
+onto water at all three. Could not reproduce it anywhere in the
+codebase as it stands; asked the user for a concrete repro (what
+terrain the Merchant started on, whether the target water hex had
+another unit on it) rather than guess at a fix with no failing case to
+verify against.
+
+The second part reproduced immediately by inspection: `HexBoard.tsx`
+drew every entry in `units` at its hex's exact pixel center with no
+awareness of any other unit sharing that hex — two units on the same
+hex (currently only possible one way: a mobile unit like Merchant
+landing on an immobile one like City, via `canEndMoveOnUnitTypes`,
+./movement.ts) were drawn one directly on top of the other, the later
+one in array order completely covering the earlier one's plate and
+glyph.
+
+Added `computeUnitStackPositions()`: hexes with exactly one unit
+render exactly as before (unaffected); a hex with more than one (in
+practice always exactly two, per the current movement rules) offsets
+each unit to its own corner of the hex at a reduced scale, so both
+plates and glyphs stay fully visible instead of one hiding the other —
+literally the "handle the two icons as a special case" the report
+asked for. Degrades gracefully (spreads evenly instead of just two
+corners) if more than two ever shared a hex, though nothing in the
+current rules can produce that.
+
+Added `HexBoard.test.tsx` coverage: two same-hex units render at
+different centers (not sitting exactly on top of each other) and both
+glyphs are present in the DOM; a lone unit still renders dead-center
+at full size, confirming the single-unit case is untouched. 425 tests
+total (was 422); `tsc -b`/`oxlint`/`vitest run`/`npm run build` all
+clean.

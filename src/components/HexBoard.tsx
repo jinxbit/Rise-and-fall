@@ -227,6 +227,49 @@ function computeHistoryLabelPositions(units: UnitMarker[], size: number): Map<nu
 }
 
 /**
+ * Per-unit render position/scale, accounting for two units sharing one hex.
+ * Bug report: "when merchant stops in city, the city icon is blocked" —
+ * both units were drawn at the exact same center, the later one (in
+ * `units` array order) fully covering the earlier one's plate and glyph.
+ * That's currently the only way two units ever share a hex — a mobile
+ * unit (e.g. Merchant) landing on an immobile one (City/Temple) it's
+ * allowed to end its move on (canEndMoveOnUnitTypes, ./movement.ts) — so
+ * it's handled as the special case it is: both offset to opposite corners
+ * of the hex at a reduced size instead of the hex's exact center, so both
+ * plates stay fully visible rather than one hiding the other. A hex with
+ * just one unit (the common case) is unaffected — full size, hex center.
+ */
+function computeUnitStackPositions(units: UnitMarker[], size: number): Map<number, { x: number; y: number; scale: number }> {
+  const indicesByHex = new Map<string, number[]>()
+  units.forEach((unit, i) => {
+    const key = coordKey(unit.coord)
+    const list = indicesByHex.get(key) ?? []
+    list.push(i)
+    indicesByHex.set(key, list)
+  })
+
+  const positions = new Map<number, { x: number; y: number; scale: number }>()
+  for (const indices of indicesByHex.values()) {
+    const { x: cx, y: cy } = axialToPixel(units[indices[0]].coord, size)
+    if (indices.length === 1) {
+      positions.set(indices[0], { x: cx, y: cy, scale: 1 })
+      continue
+    }
+    // More than 2 on one hex isn't reachable under current movement rules
+    // (canEndMoveOnUnitTypes only ever allows one mobile kind to land on
+    // one static kind) but degrades gracefully here — spread evenly
+    // around the hex center rather than assuming exactly 2.
+    const scale = 0.62
+    const offset = size * 0.34
+    indices.forEach((unitIndex, stackI) => {
+      const angle = (Math.PI / 180) * ((360 / indices.length) * stackI - 90)
+      positions.set(unitIndex, { x: cx + offset * Math.cos(angle), y: cy + offset * Math.sin(angle), scale })
+    })
+  }
+  return positions
+}
+
+/**
  * Renders a Board as an SVG hex grid, with optional extras for interactive
  * phases: `extraCoords` are untiled hexes that should still be visible/
  * clickable (e.g. empty space a water tile could go), `ghostCells` overlay a
@@ -291,6 +334,7 @@ export function HexBoard(props: {
   // label — extend the viewBox so neither can get clipped for a unit near
   // the board's edge.
   const historyLabelPositions = computeHistoryLabelPositions(props.units ?? [], size)
+  const unitStackPositions = computeUnitStackPositions(props.units ?? [], size)
   for (const { x, y } of historyLabelPositions.values()) {
     boundsPoints.push({ x: x + size * HISTORY_LABEL_WIDTH_FACTOR, y: y + size * HISTORY_LABEL_HEIGHT_FACTOR })
   }
@@ -386,8 +430,8 @@ export function HexBoard(props: {
         )
       })}
       {(props.units ?? []).map((unit, i) => {
-        const { x, y } = axialToPixel(unit.coord, size)
-        const plateSize = size * 0.8
+        const { x, y, scale } = unitStackPositions.get(i) ?? { ...axialToPixel(unit.coord, size), scale: 1 }
+        const plateSize = size * 0.8 * scale
         // The glyph fills the whole plate (and the bar is narrower still),
         // so it visibly spills past the ownership bar's edges on purpose —
         // see unitIcons.ts's doc comment for why the plate itself is a
@@ -400,7 +444,7 @@ export function HexBoard(props: {
         return (
           <g key={i} pointerEvents="none">
             {unit.highlighted && (
-              <circle cx={x} cy={y} r={size * 0.55} fill="none" stroke="#fbbf24" strokeWidth={2}>
+              <circle cx={x} cy={y} r={size * 0.55 * scale} fill="none" stroke="#fbbf24" strokeWidth={2}>
                 <animate attributeName="opacity" values="1;0.35;1" dur="1.4s" repeatCount="indefinite" />
               </circle>
             )}
