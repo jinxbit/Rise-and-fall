@@ -315,15 +315,6 @@ export function GamePage() {
           >
             {showStateJson ? 'Hide' : 'Show'} game state JSON
           </button>
-          <button
-            type="button"
-            disabled={!gameState}
-            onClick={() => void handleCopyStateExport()}
-            title="Copies a compressed, single-line export of the game state — easier to paste into a bug report or chat than the full JSON."
-            className="rounded-md border border-neutral-700 px-3 py-1 text-sm hover:border-neutral-500 disabled:opacity-50"
-          >
-            {copiedStateExport ? 'Copied!' : 'Copy state export'}
-          </button>
         </div>
       </header>
 
@@ -331,7 +322,15 @@ export function GamePage() {
 
       {showStateJson && gameState && (
         <div className="flex flex-col gap-2">
-          <div className="flex justify-end">
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => void handleCopyStateExport()}
+              title="Copies a compressed, single-line export of the game state — easier to paste into a bug report or chat than the full JSON."
+              className="rounded-md border border-neutral-700 px-3 py-1 text-xs hover:border-neutral-500"
+            >
+              {copiedStateExport ? 'Copied!' : 'Copy state export'}
+            </button>
             <button
               type="button"
               onClick={() => void handleCopyStateJson()}
