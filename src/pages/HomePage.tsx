@@ -5,6 +5,7 @@ import { DiscordWebhookSettings } from '../components/DiscordWebhookSettings'
 import { GuestSignIn } from '../components/GuestSignIn'
 import { MapTemplateSelector } from '../components/MapTemplateSelector'
 import { PlayModeSelector } from '../components/PlayModeSelector'
+import { TaleSelector } from '../components/TaleSelector'
 import { useAuth } from '../hooks/useAuth'
 import { createGame, getGameByRoomCode } from '../lib/gameApi'
 import { signOut } from '../lib/auth'
@@ -17,6 +18,7 @@ export function HomePage() {
   const [playMode, setPlayMode] = useState<PlayMode>('live')
   const [mapTemplateId, setMapTemplateId] = useState<string | null>(null)
   const [skipHotseatPassGate, setSkipHotseatPassGate] = useState(false)
+  const [activeTaleIds, setActiveTaleIds] = useState<string[]>([])
   const [roomCodeInput, setRoomCodeInput] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -60,6 +62,7 @@ export function HomePage() {
         avatarUrl,
         mapTemplateId,
         skipHotseatPassGate,
+        activeTaleIds,
       })
       navigate(`/lobby/${game.room_code}`)
     } catch (err) {
@@ -119,6 +122,8 @@ export function HomePage() {
         )}
         <h3 className="text-sm font-medium text-neutral-400">Map</h3>
         <MapTemplateSelector value={mapTemplateId} onChange={setMapTemplateId} />
+        <h3 className="text-sm font-medium text-neutral-400">Tales (variant)</h3>
+        <TaleSelector value={activeTaleIds} onChange={setActiveTaleIds} />
         <button
           disabled={busy}
           onClick={() => void handleCreate()}

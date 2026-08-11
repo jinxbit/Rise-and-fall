@@ -323,6 +323,64 @@ produces or costs a resource (`income`/`produce`/`trade`/`trade-resource`,
 and `create`/`transform`/`convert`'s `cost`) — see `src/engine/unitActions.
 ts` and `UnitActions.md` at the repo root.
 
+## `tales.json` (validated by `tales.schema.json`)
+
+The Tales variant's numbered elements (see `VARIANTS_PLAN.md` at the repo
+root for the full design across all 23; only Tale #7, The Ports, is
+implemented so far — `todo.md` #56/#57). Unlike every other content file,
+this one is entirely **opt-in**: a base game with no Tales active never
+reads it. Each Tale is self-contained:
+
+- `extraUnits` — brand-new unit kinds the Tale introduces (e.g. The Ports'
+  Port). Each has **no Civilization card of its own** — it's a "companion
+  piece," activated whenever a different, existing kind's card is played
+  (`companionOfKind`, e.g. Port's is `'ship'`). See
+  `UnitContent.companionKindsByCardKind` and `applyResolveUnitAction`
+  (`src/engine/applyAction.ts`) for how the engine dispatches this, and
+  `GameState.unitsCreatedThisTurn` for the "can't activate the turn it's
+  constructed" rule shared by every companion piece the rulebook defines
+  (Capital, the Cathedral, and the Ports all use this exact wording).
+- `extraActionsByKind` — extra actions appended onto an **existing** unit
+  kind's action list (e.g. Nomad and Ship both gain a Construct a Port
+  action).
+- `movementOverridesByKind` — movement field overrides merged onto an
+  existing kind's base movement (e.g. Ship gains
+  `canEndMoveOnAlliedUnitTypes: ['port']`).
+
+`src/engine/tales.ts`'s `applyTaleModifiers(baseUnitContent, taleContent)`
+merges all of the above onto `resolveUnitContent()`'s result — same
+content-agnostic, explicit-param pattern as every other engine function
+here. `resolveTaleContent(activeTaleIds, playerCount)`
+(`content/resolveContent.ts`) resolves this file, filtered to whichever
+Tales are active for a given game, into the `TaleContent` bundle
+`applyTaleModifiers` consumes; `listTales()` lists every Tale (for the
+Tale-selection UI) regardless of which are active anywhere.
+
+**Which Tales are active is a per-game, creation-time choice** — the
+`games.active_tale_ids` column (`supabase/migrations/0005_tales_variant.
+sql`), set via `HomePage.tsx`'s `TaleSelector` (checkbox list + a
+"Randomize" shuffle) and read by `GamePage.tsx` to build the game's
+effective `UnitContent` once, memoized alongside the base
+`resolveUnitContent()` call. Empty (the default) behaves exactly like a
+game from before this variant existed.
+
+**Scope note:** the round-play UI (`RoundView.tsx`) doesn't yet know
+about companion-piece units — its action-phase panel only highlights
+units whose kind matches the currently played card, not a companion kind
+like Port. The setup UI (choosing Tales, persisting the choice, resolving
+the right content) and the engine mechanics are both complete and tested;
+actually clicking a Port to use it in a live game still needs
+`RoundView.tsx` support — see `todo.md` #57.
+
+Two new `UnitActionEffect` variants exist only for Tale-contributed
+actions so far (`unitContent.ts`): `SiteCreateEffect` (create a unit on
+the *acting* unit's own hex — for a companion piece whose hex it already
+occupies, so the normal "target must be empty" rule can't apply) and
+`RegionUnitCountIncomeEffect` (gold per unit of given kinds anywhere in
+the acting unit's connected terrain region). `TransformEffect` also
+gained an optional `requiredAdjacentTerrain` condition, for Tale actions
+that depend on nearby terrain the target hex itself doesn't have.
+
 ## Note on the engine's `Terrain`/`UnitMovement` types (resolved)
 
 `src/engine/types.ts`'s `Terrain` was a 3-value placeholder from the first
