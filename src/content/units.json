@@ -184,7 +184,7 @@
       "movement": {
         "isMobile": true,
         "terrains": ["plain", "forest", "mountain"],
-        "canCrossCliffs": false,
+        "canCrossCliffs": true,
         "moveDistance": 4,
         "blockedByUnits": "none",
         "canEndMoveOnUnitTypes": ["city"]
