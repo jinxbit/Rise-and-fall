@@ -274,11 +274,18 @@ function PlayersStrip({
       <div className="flex flex-col gap-2 text-xs text-neutral-400">
         {state.players.map((player) => {
           const row = players.find((p) => p.id === player.id)
-          const handKinds = kindsInZone(player.handCardIds, state.cards)
-          const discardKinds = kindsInZone(player.discardCardIds, state.cards)
-          const declineKinds = kindsInZone(player.declineCardIds, state.cards)
           const chosenCardId = state.chosenCardIdByPlayerId[player.id]
           const chosenKind = chosenCardId ? state.cards[chosenCardId]?.kind : undefined
+          // Chosen-but-not-yet-resolved card stays in handCardIds until the
+          // player's turn finishes (finishActionsTurn moves it hand ->
+          // currentlyPlayed -> discard), so hide it from the hand display
+          // here to avoid showing it as both "Playing" and still in hand.
+          const handKinds = kindsInZone(
+            player.handCardIds.filter((id) => id !== chosenCardId),
+            state.cards,
+          )
+          const discardKinds = kindsInZone(player.discardCardIds, state.cards)
+          const declineKinds = kindsInZone(player.declineCardIds, state.cards)
           const remainingByKind = UNIT_KINDS.flatMap((kind) => {
             const cap = unitContent.unitSupplyCaps[kind]
             if (cap === undefined) return []

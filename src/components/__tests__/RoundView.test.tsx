@@ -210,6 +210,16 @@ describe('RoundView — player status summary and achievements panel', () => {
     expect(screen.getAllByText('Playing')).toHaveLength(2)
     expect(screen.getByTitle('Playing Nomad this turn')).toBeInTheDocument()
     expect(screen.getByTitle('Playing City this turn')).toBeInTheDocument()
+
+    // The chosen card is still in handCardIds internally until the turn
+    // resolves, but it should only render as "Playing", not also in Hand:
+    // Alice's Nomad (chosen) is hidden from Hand — no bare "Nomad" icon
+    // title anywhere, just the "Playing Nomad this turn" indicator — while
+    // her Ship (not chosen) still shows in Hand. Bob's City (chosen, his
+    // only hand card) leaves his Hand empty, so no bare "City" icon either.
+    expect(screen.queryByTitle('Nomad')).not.toBeInTheDocument()
+    expect(screen.queryByTitle('City')).not.toBeInTheDocument()
+    expect(screen.getByTitle('Ship')).toBeInTheDocument()
   })
 
   it('marks the start player (turnOrder[0]) and moves the mark when turnOrder rotates', () => {
