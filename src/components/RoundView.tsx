@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { isActionAvailableForUnit, legalConvertTargets, legalCreateTargets, legalTransformTargets } from '../engine/actionTargeting'
 import { UNIT_KINDS } from '../engine/cards'
 import { legalMoveDestinations } from '../engine/movement'
@@ -267,7 +267,6 @@ function PlayersStrip({
 }) {
   const [expandedPlayerId, setExpandedPlayerId] = useState<string | null>(null)
   const breakdownByPlayerId = calculateVPBreakdown(state, achievementContent, taleContent)
-  const expandedPlayer = expandedPlayerId ? state.players.find((p) => p.id === expandedPlayerId) : null
 
   return (
     <div className="flex flex-col gap-2">
@@ -295,73 +294,74 @@ function PlayersStrip({
           const delta = resourceDeltaByPlayerId?.[player.id]
           const isExpanded = expandedPlayerId === player.id
           return (
-            <button
-              type="button"
-              key={player.id}
-              onClick={() => setExpandedPlayerId((prev) => (prev === player.id ? null : player.id))}
-              aria-expanded={isExpanded}
-              title="Click for full VP breakdown, cards, unit counts, and resources."
-              className={`flex w-full flex-col gap-1 rounded-md border bg-transparent px-2 py-1.5 text-left hover:border-neutral-600 ${
-                isExpanded ? 'border-indigo-400' : player.id === myPlayerId ? 'border-indigo-600' : 'border-neutral-800'
-              } ${player.eliminated ? 'opacity-40' : ''}`}
-            >
-              <span className="flex items-center gap-1.5">
-                <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: row?.color ?? '#a3a3a3' }} />
-                <span className="text-neutral-200">{row?.display_name ?? player.id}</span>
-                {state.turnOrder[0] === player.id && (
-                  <span title="Start player — rotates to the next player each round" className="text-amber-400">
-                    ★
+            <Fragment key={player.id}>
+              <button
+                type="button"
+                onClick={() => setExpandedPlayerId((prev) => (prev === player.id ? null : player.id))}
+                aria-expanded={isExpanded}
+                title="Click for full VP breakdown, cards, unit counts, and resources."
+                className={`flex w-full flex-col gap-1 rounded-md border bg-transparent px-2 py-1.5 text-left hover:border-neutral-600 ${
+                  isExpanded ? 'border-indigo-400' : player.id === myPlayerId ? 'border-indigo-600' : 'border-neutral-800'
+                } ${player.eliminated ? 'opacity-40' : ''}`}
+              >
+                <span className="flex items-center gap-1.5">
+                  <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: row?.color ?? '#a3a3a3' }} />
+                  <span className="text-neutral-200">{row?.display_name ?? player.id}</span>
+                  {state.turnOrder[0] === player.id && (
+                    <span title="Start player — rotates to the next player each round" className="text-amber-400">
+                      ★
+                    </span>
+                  )}
+                  {player.eliminated && <span>(eliminated)</span>}
+                  <span className="ml-auto font-medium text-neutral-200">Score {breakdownByPlayerId[player.id]?.total ?? 0}</span>
+                </span>
+                <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                  <span>
+                    Gold {player.resources.gold}
+                    {delta && <span className="text-emerald-400">{deltaSuffix(delta.gold)}</span>}
+                  </span>
+                  <span>
+                    Wood {player.resources.wood}
+                    {delta && <span className="text-emerald-400">{deltaSuffix(delta.wood)}</span>}
+                  </span>
+                  <span>
+                    Stone {player.resources.stone}
+                    {delta && <span className="text-emerald-400">{deltaSuffix(delta.stone)}</span>}
+                  </span>
+                </span>
+                {state.roundPhase === 'actions' && chosenKind && (
+                  <span className="flex items-center gap-1.5 text-indigo-400" title={`Playing ${capitalize(chosenKind)} this turn`}>
+                    <span>Playing</span>
+                    <UnitIcon kind={chosenKind} className="h-4 w-4 shrink-0" />
                   </span>
                 )}
-                {player.eliminated && <span>(eliminated)</span>}
-                <span className="ml-auto font-medium text-neutral-200">Score {breakdownByPlayerId[player.id]?.total ?? 0}</span>
-              </span>
-              <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                <span>
-                  Gold {player.resources.gold}
-                  {delta && <span className="text-emerald-400">{deltaSuffix(delta.gold)}</span>}
+                <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <span className="flex items-center gap-1.5">
+                    <span>Hand</span>
+                    <KindIconRow kinds={handKinds} emptyLabel="empty" />
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span>Discard</span>
+                    <KindIconRow kinds={discardKinds} emptyLabel="empty" />
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span>Decline</span>
+                    <KindIconRow kinds={declineKinds} emptyLabel="empty" />
+                  </span>
                 </span>
-                <span>
-                  Wood {player.resources.wood}
-                  {delta && <span className="text-emerald-400">{deltaSuffix(delta.wood)}</span>}
-                </span>
-                <span>
-                  Stone {player.resources.stone}
-                  {delta && <span className="text-emerald-400">{deltaSuffix(delta.stone)}</span>}
-                </span>
-              </span>
-              {state.roundPhase === 'actions' && chosenKind && (
-                <span className="flex items-center gap-1.5 text-indigo-400" title={`Playing ${capitalize(chosenKind)} this turn`}>
-                  <span>Playing</span>
-                  <UnitIcon kind={chosenKind} className="h-4 w-4 shrink-0" />
-                </span>
-              )}
-              <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                <span className="flex items-center gap-1.5">
-                  <span>Hand</span>
-                  <KindIconRow kinds={handKinds} emptyLabel="empty" />
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span>Discard</span>
-                  <KindIconRow kinds={discardKinds} emptyLabel="empty" />
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span>Decline</span>
-                  <KindIconRow kinds={declineKinds} emptyLabel="empty" />
-                </span>
-              </span>
-              {remainingByKind.length > 0 && (
-                <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  {remainingByKind.map(({ kind, count }) => (
-                    <UnitCountBadge key={kind} kind={kind} count={count} />
-                  ))}
-                </span>
-              )}
-            </button>
+                {remainingByKind.length > 0 && (
+                  <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    {remainingByKind.map(({ kind, count }) => (
+                      <UnitCountBadge key={kind} kind={kind} count={count} />
+                    ))}
+                  </span>
+                )}
+              </button>
+              {isExpanded && <PlayerDetailPanel state={state} player={player} breakdown={breakdownByPlayerId[player.id]} />}
+            </Fragment>
           )
         })}
       </div>
-      {expandedPlayer && <PlayerDetailPanel state={state} player={expandedPlayer} breakdown={breakdownByPlayerId[expandedPlayer.id]} />}
     </div>
   )
 }

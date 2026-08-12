@@ -789,6 +789,50 @@ describe('RoundView — player detail panel (click a player chip for more info)'
     // p2 claimed city-mastery, worth 5 VP.
     expect(screen.getByText('VP breakdown — 5 total')).toBeInTheDocument()
   })
+
+  it('renders the detail panel directly under the clicked player, not below every player in the strip', () => {
+    let state = makeState()
+    const p3 = makeEnginePlayer('p3', [])
+    state = {
+      ...state,
+      players: [...state.players, p3],
+      turnOrder: [...state.turnOrder, 'p3'],
+      pendingPlayerIds: [...state.pendingPlayerIds, 'p3'],
+      chosenCardIdByPlayerId: { ...state.chosenCardIdByPlayerId, p3: null },
+    }
+    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff'), makePlayerRow('p3', 'Carol', '#00ff00')]
+
+    render(
+      <RoundView
+        state={state}
+        players={players}
+        myPlayerId="p1"
+        unitContent={EMPTY_UNIT_CONTENT}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
+        turnReview={null}
+        showHistory={false}
+        onToggleHistory={() => {}}
+        gameLog={[]}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+
+    // Alice is the first of three players — clicking her chip should insert
+    // the detail panel right after her chip, ahead of Bob's and Carol's,
+    // rather than appending it once at the bottom of the whole strip.
+    const aliceButton = screen.getByText('Alice').closest('button')!
+    fireEvent.click(aliceButton)
+
+    const bobButton = screen.getByText('Bob').closest('button')!
+    expect(aliceButton.nextElementSibling?.textContent).toContain('VP breakdown')
+    expect(bobButton.previousElementSibling?.textContent).toContain('VP breakdown')
+  })
 })
 
 function buildRealUnitContent(): UnitContent {
