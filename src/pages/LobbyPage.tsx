@@ -147,7 +147,7 @@ export function LobbyPage() {
       <header>
         <h1 className="text-2xl font-semibold">Room {game.room_code}</h1>
         <p className="text-neutral-400">
-          {game.play_mode} · {players.length}/{game.max_players} players ·{' '}
+          {game.play_mode} · {players.length}/{game.max_players} players · {game.game_length} achievements ·{' '}
           {game.map_template_id
             ? (listMapTemplates().find((t) => t.id === game.map_template_id)?.name ?? game.map_template_id)
             : 'interactive map'}

@@ -45,6 +45,8 @@ export async function createGame(params: {
   skipHotseatPassGate?: boolean
   /** Content ids of active Tales (src/content/tales.json) for the Tales variant, or omitted/empty for none. See 0005_tales_variant.sql. */
   activeTaleIds?: string[]
+  /** Total achievements claimed (across all players) that ends the game — content/achievements.json's gameLength.min/max bounds it (1-6). Defaults to gameLength.default (4). See 0006_game_length.sql. */
+  gameLength?: number
 }): Promise<{ game: GameRow; player: PlayerRow }> {
   const roomCode = generateRoomCode()
 
@@ -59,6 +61,7 @@ export async function createGame(params: {
       map_template_id: params.mapTemplateId ?? null,
       skip_hotseat_pass_gate: params.skipHotseatPassGate ?? false,
       active_tale_ids: params.activeTaleIds ?? [],
+      game_length: params.gameLength ?? 4,
     })
     .select()
     .single()

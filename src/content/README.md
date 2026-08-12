@@ -240,7 +240,16 @@ and part of final scoring:
   achievements, summed across all players (not per player), must be claimed
   before the game ends. `default` is the standard game (4); `min`/`max`
   bound what players may pick instead. `max` is 6 because each of the 6
-  achievements can only ever be claimed once, by one player.
+  achievements can only ever be claimed once, by one player. The actual
+  choice is `games.game_length` (`0006_game_length.sql`, defaults to 4),
+  set at creation via `HomePage.tsx`'s `GameLengthSelector` (offers 4/5/6 —
+  1-3 technically fits `min`/`max` but ends the game too fast to bother
+  offering) and read by `GamePage.tsx` into
+  `resolveAchievementContent(game.game_length)`
+  (`content/resolveContent.ts`), which clamps it back to `min`/`max` for
+  safety. `RoundView.tsx`'s achievements panel shows "N of gameLength
+  achievements claimed" and marks whichever decline buyback price
+  corresponds to the game-ending achievement.
 - `purchaseCost.byAchievementCount` — the gold cost to buy a card back from
   decline, indexed the same way as `victoryPoints.byBoardCount` in
   `units.json`: index 0 is the cost once 1 achievement has been claimed in

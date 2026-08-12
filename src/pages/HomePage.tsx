@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { DiscordSignIn } from '../components/DiscordSignIn'
 import { DiscordWebhookSettings } from '../components/DiscordWebhookSettings'
+import { GameLengthSelector } from '../components/GameLengthSelector'
 import { GuestSignIn } from '../components/GuestSignIn'
 import { MapTemplateSelector } from '../components/MapTemplateSelector'
 import { PlayModeSelector } from '../components/PlayModeSelector'
@@ -19,6 +20,7 @@ export function HomePage() {
   const [mapTemplateId, setMapTemplateId] = useState<string | null>(null)
   const [skipHotseatPassGate, setSkipHotseatPassGate] = useState(false)
   const [activeTaleIds, setActiveTaleIds] = useState<string[]>([])
+  const [gameLength, setGameLength] = useState(4)
   const [roomCodeInput, setRoomCodeInput] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -63,6 +65,7 @@ export function HomePage() {
         mapTemplateId,
         skipHotseatPassGate,
         activeTaleIds,
+        gameLength,
       })
       navigate(`/lobby/${game.room_code}`)
     } catch (err) {
@@ -120,6 +123,8 @@ export function HomePage() {
             Don&apos;t show a &quot;pass the device&quot; message every turn
           </label>
         )}
+        <h3 className="text-sm font-medium text-neutral-400">Game length</h3>
+        <GameLengthSelector value={gameLength} onChange={setGameLength} />
         <h3 className="text-sm font-medium text-neutral-400">Map</h3>
         <MapTemplateSelector value={mapTemplateId} onChange={setMapTemplateId} />
         <h3 className="text-sm font-medium text-neutral-400">Tales (variant)</h3>

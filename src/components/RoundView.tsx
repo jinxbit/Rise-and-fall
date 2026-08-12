@@ -360,11 +360,26 @@ function PlayersStrip({
  * The gold price to buy a card back from decline rises as achievements are
  * claimed (see calculatePurchaseCost) — `current` is that price right now,
  * `upcoming` the remaining steps of achievementContent.purchaseCostTable
- * still ahead, in order.
+ * still ahead, in order, capped at `gameLength` steps: the game ends once
+ * that many achievements are claimed in total, so a price past that point
+ * is never actually reached. `isCurrentFinal` flags whether `current`
+ * itself is the price for the gameLength-th achievement — the last
+ * purchase phase before the game ends; otherwise (when `upcoming` is
+ * non-empty) that same price is always `upcoming`'s last entry, by
+ * construction of the cap above.
  */
-function purchasePriceLadder(achievementsClaimed: number, costTable: number[]): { current: number; upcoming: number[] } {
+function purchasePriceLadder(
+  achievementsClaimed: number,
+  costTable: number[],
+  gameLength: number,
+): { current: number; upcoming: number[]; isCurrentFinal: boolean } {
   const currentIndex = achievementsClaimed <= 0 ? -1 : Math.min(achievementsClaimed, costTable.length) - 1
-  return { current: calculatePurchaseCost(achievementsClaimed, costTable), upcoming: costTable.slice(currentIndex + 1) }
+  const cappedLength = Number.isFinite(gameLength) ? Math.min(gameLength, costTable.length) : costTable.length
+  return {
+    current: calculatePurchaseCost(achievementsClaimed, costTable),
+    upcoming: costTable.slice(currentIndex + 1, cappedLength),
+    isCurrentFinal: achievementsClaimed > 0 && currentIndex + 1 >= cappedLength,
+  }
 }
 
 /**
@@ -375,13 +390,38 @@ function purchasePriceLadder(achievementsClaimed: number, costTable: number[]): 
  */
 function AchievementsPanel({ state, players, achievementContent }: { state: GameState; players: PlayerRow[]; achievementContent: AchievementContent }) {
   const achievementsClaimed = Object.keys(state.claimedByAchievementId).length
-  const { current: buybackPrice, upcoming } = purchasePriceLadder(achievementsClaimed, achievementContent.purchaseCostTable)
+  const { current: buybackPrice, upcoming, isCurrentFinal } = purchasePriceLadder(
+    achievementsClaimed,
+    achievementContent.purchaseCostTable,
+    achievementContent.gameLength,
+  )
+  const gameLength = achievementContent.gameLength
 
   return (
     <div className="flex flex-col gap-2 rounded-md border border-neutral-800 p-3 text-xs">
+      {Number.isFinite(gameLength) && (
+        <p className="text-neutral-500">
+          {achievementsClaimed} of {gameLength} achievements claimed
+        </p>
+      )}
       <p className="text-neutral-400">
-        Buy back from decline: <span className="font-medium text-amber-400">{buybackPrice} gold</span>
-        {upcoming.length > 0 && <span className="text-neutral-500"> — next: {upcoming.join(' → ')} gold</span>}
+        Buy back from decline:{' '}
+        <span className={`font-medium ${isCurrentFinal ? 'text-red-400' : 'text-amber-400'}`}>
+          {buybackPrice} gold{isCurrentFinal && ' (last round)'}
+        </span>
+        {upcoming.length > 0 && (
+          <span className="text-neutral-500">
+            {' '}
+            — next:{' '}
+            {upcoming.map((price, i) => (
+              <span key={i} className={i === upcoming.length - 1 ? 'font-medium text-red-400' : undefined}>
+                {i > 0 && ' → '}
+                {price}
+              </span>
+            ))}{' '}
+            gold (last round: {upcoming[upcoming.length - 1]})
+          </span>
+        )}
       </p>
       <div className="flex flex-wrap gap-2">
         {ACHIEVEMENTS.map((achievement) => {
@@ -547,7 +587,7 @@ function PurchasePanel(props: {
   const me = state.players.find((p) => p.id === myPlayerId)
   if (!me) return null
   const achievementsClaimed = Object.keys(state.claimedByAchievementId).length
-  const { current: cost, upcoming } = purchasePriceLadder(achievementsClaimed, achievementContent.purchaseCostTable)
+  const { current: cost, upcoming } = purchasePriceLadder(achievementsClaimed, achievementContent.purchaseCostTable, achievementContent.gameLength)
 
   return (
     <div className="flex flex-col gap-2 text-sm">

@@ -140,7 +140,7 @@ export function GamePage() {
     [players.length, game?.active_tale_ids],
   )
   const unitContent = useMemo(() => applyTaleModifiers(resolveUnitContent(players.length), taleContent), [players.length, taleContent])
-  const achievementContent = useMemo(() => resolveAchievementContent(), [])
+  const achievementContent = useMemo(() => resolveAchievementContent(game?.game_length), [game?.game_length])
 
   const isHotseat = game?.play_mode === 'hotseat'
   // Creation-time opt-out (HomePage.tsx's checkbox) for groups that don't

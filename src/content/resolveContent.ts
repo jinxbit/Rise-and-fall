@@ -189,7 +189,26 @@ export function listTerrainTypes(): TerrainSummary[] {
   return terrainJson.terrainTypes.map((t) => ({ id: t.id, name: t.name }))
 }
 
-export function resolveAchievementContent(): AchievementContent {
+export interface GameLengthBounds {
+  default: number
+  min: number
+  max: number
+}
+
+/** content/achievements.json's gameLength bounds, for the game-length picker (see GameLengthSelector.tsx) — the same min/max resolveAchievementContent clamps `gameLength` to. */
+export function listGameLengthBounds(): GameLengthBounds {
+  return achievementsJson.gameLength
+}
+
+/**
+ * `gameLength` is the players' chosen target (games.game_length — see
+ * 0006_game_length.sql), clamped to content/achievements.json's
+ * gameLength.min/max so a stale or malformed value can never push the
+ * game-end check outside what the achievement table actually supports.
+ * Omitted (the default) falls back to gameLength.default, same as before
+ * this parameter existed.
+ */
+export function resolveAchievementContent(gameLength?: number): AchievementContent {
   const unitKindByAchievementId: Record<string, string> = {}
   const achievementVictoryPoints: Record<string, number> = {}
   for (const achievement of achievementsJson.achievements) {
@@ -209,11 +228,14 @@ export function resolveAchievementContent(): AchievementContent {
     terrainScoresAs[terrainType.id] = terrainType.scoresAs
   }
 
+  const { default: defaultGameLength, min, max } = achievementsJson.gameLength
+  const clampedGameLength = gameLength === undefined ? defaultGameLength : Math.min(max, Math.max(min, gameLength))
+
   return {
     unitKindByAchievementId,
     achievementVictoryPoints,
     purchaseCostTable: achievementsJson.purchaseCost.byAchievementCount,
-    gameLength: achievementsJson.gameLength.default,
+    gameLength: clampedGameLength,
     unitBoardCountVP,
     terrainVictoryPoints,
     terrainScoresAs,

@@ -21,6 +21,8 @@ export interface GameRow {
   skip_hotseat_pass_gate: boolean
   /** Content ids of active Tales (src/content/tales.json) — see 0005_tales_variant.sql. Empty = Tales variant off. Set at creation (HomePage.tsx); merged into the effective UnitContent by GamePage.tsx. */
   active_tale_ids: string[]
+  /** Total achievements claimed (across all players) that ends the game — see 0006_game_length.sql. Set at creation (HomePage.tsx); passed to resolveAchievementContent by GamePage.tsx. */
+  game_length: number
 }
 
 export interface PlayerRow {

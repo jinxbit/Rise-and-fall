@@ -287,8 +287,71 @@ describe('RoundView — player status summary and achievements panel', () => {
     expect(screen.getByText(/^Ship.*unclaimed/)).toBeInTheDocument()
     // ...and the buyback price reflects the one achievement claimed so far (index 0 of the table)...
     expect(screen.getByText('5 gold')).toBeInTheDocument()
-    // ...with the remaining, upcoming prices shown alongside it.
-    expect(screen.getByText('— next: 10 → 20 gold')).toBeInTheDocument()
+    // ...with the remaining, upcoming prices shown alongside it (each price its own element, so the
+    // final one can be styled separately — see purchasePriceLadder's isCurrentFinal).
+    const buybackParagraph = screen.getByText(/Buy back from decline/).closest('p')
+    expect(buybackParagraph?.textContent).toContain('— next: 10 → 20 gold')
+  })
+
+  it("shows how many achievements have been claimed out of the game's configured length", () => {
+    const state = makeState()
+    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
+
+    render(
+      <RoundView
+        state={state}
+        players={players}
+        myPlayerId="p1"
+        unitContent={EMPTY_UNIT_CONTENT}
+        achievementContent={{ ...EMPTY_ACHIEVEMENT_CONTENT, gameLength: 4 }}
+        turnReview={null}
+        showHistory={false}
+        onToggleHistory={() => {}}
+        gameLog={[]}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+
+    // makeState() has exactly one claimed achievement.
+    expect(screen.getByText('1 of 4 achievements claimed')).toBeInTheDocument()
+  })
+
+  it('marks the decline price for the game-ending achievement distinctly, and never shows a price past it', () => {
+    const state = makeState()
+    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
+
+    render(
+      <RoundView
+        state={state}
+        players={players}
+        myPlayerId="p1"
+        unitContent={EMPTY_UNIT_CONTENT}
+        achievementContent={{ ...EMPTY_ACHIEVEMENT_CONTENT, purchaseCostTable: [5, 10, 20, 40], gameLength: 3 }}
+        turnReview={null}
+        showHistory={false}
+        onToggleHistory={() => {}}
+        gameLog={[]}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+
+    // gameLength=3 caps the ladder at costTable[2]=20 (price for the 3rd
+    // achievement, which ends the game) — costTable[3]=40 is never reached
+    // and must not be shown at all.
+    const buybackParagraph = screen.getByText(/Buy back from decline/).closest('p')
+    expect(buybackParagraph?.textContent).toContain('— next: 10 → 20 gold')
+    expect(buybackParagraph?.textContent).not.toContain('40')
+    expect(screen.getByText(/→ 20/).className).toContain('text-red-400')
   })
 
   it("shows each player's remaining unit supply per kind (cap minus units currently on the board)", () => {
