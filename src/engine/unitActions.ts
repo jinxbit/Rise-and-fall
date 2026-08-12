@@ -139,6 +139,30 @@ export function hasAdjacentTerrain(state: GameState, coord: Coordinate, terrains
   })
 }
 
+/** Whether at least one hex adjacent to `coord` currently holds a unit of `kind` owned by `playerId` — see TransformEffect.requiredAdjacentOwnUnitKind. */
+export function hasAdjacentOwnUnitKind(state: GameState, playerId: string, coord: Coordinate, kind: string): boolean {
+  return adjacentUnits(state, coord).some((u) => u.ownerId === playerId && u.kind === kind)
+}
+
+/**
+ * The actual cost a `transform` action would charge right now — `effect.cost`
+ * plus, if `extraCostPerBoardUnitCount` is set, that much extra per existing
+ * unit of `countKind` anywhere on the board (any owner) — e.g. The Banks
+ * Tale's Construct a Bank: 5 extra GP per Bank already in the World. Shared
+ * by applyTransform below and actionTargeting.ts's legalTransformTargets, same
+ * reasoning as computeIncomeGold above.
+ */
+export function computeEffectiveTransformCost(state: GameState, effect: TransformEffect): ActionCost {
+  if (!effect.extraCostPerBoardUnitCount) return effect.cost
+  const { countKind, costPerUnit } = effect.extraCostPerBoardUnitCount
+  const count = state.units.filter((u) => u.kind === countKind).length
+  return {
+    gold: (effect.cost.gold ?? 0) + (costPerUnit.gold ?? 0) * count,
+    wood: (effect.cost.wood ?? 0) + (costPerUnit.wood ?? 0) * count,
+    stone: (effect.cost.stone ?? 0) + (costPerUnit.stone ?? 0) * count,
+  }
+}
+
 // --- per-actionType handlers, one acting unit at a time ---------------------
 
 /**
@@ -172,6 +196,19 @@ export function computeIncomeGold(state: GameState, playerId: string, unit: Unit
     for (const neighbor of nearby) {
       const table = neighbor.ownerId === playerId ? effect.goldPerAdjacentUnit.own : effect.goldPerAdjacentUnit.enemy
       gold += table?.[neighbor.kind] ?? 0
+    }
+  }
+
+  if (effect.goldByTerrainScaledByBoardUnitCount) {
+    const { ratePerTerrain, countKind } = effect.goldByTerrainScaledByBoardUnitCount
+    const ownsCountKind = state.units.some((u) => u.kind === countKind && u.ownerId === playerId)
+    if (ownsCountKind) {
+      const tile = getTile(state.board, unit.coord)
+      const rate = tile ? ratePerTerrain[tile.terrain] ?? 0 : 0
+      if (rate > 0) {
+        const totalOnBoard = state.units.filter((u) => u.kind === countKind).length
+        gold += rate * (1 + totalOnBoard)
+      }
     }
   }
 
@@ -337,6 +374,7 @@ function applyTransform(state: GameState, playerId: string, unit: Unit, effect: 
   if (!targetTile || !effect.targetHex.terrainType.includes(targetTile.terrain)) return state
   if (!isCreationAllowedOnTerrain(effect.targetUnit, targetTile.terrain)) return state
   if (effect.requiredAdjacentTerrain && !hasAdjacentTerrain(state, unit.coord, effect.requiredAdjacentTerrain)) return state
+  if (effect.requiredAdjacentOwnUnitKind && !hasAdjacentOwnUnitKind(state, playerId, unit.coord, effect.requiredAdjacentOwnUnitKind)) return state
 
   if (effect.targetHex.location === 'adj') {
     if (!isAdjacent(state, unit.coord, resolvedTargetCoord)) return state
@@ -346,7 +384,7 @@ function applyTransform(state: GameState, playerId: string, unit: Unit, effect: 
 
   if (hasReachedSupplyCap(state, playerId, effect.targetUnit, content.unitSupplyCaps)) return state
 
-  const afterCost = tryPayCost(state, playerId, effect.cost)
+  const afterCost = tryPayCost(state, playerId, computeEffectiveTransformCost(state, effect))
   if (!afterCost) return state
 
   const { id, idSequence } = nextSequenceId(afterCost, 'created_unit')

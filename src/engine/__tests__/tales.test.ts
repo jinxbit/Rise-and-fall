@@ -1,17 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import { resolveTaleContent, resolveUnitContent } from '../../content/resolveContent'
+import { legalConvertTargets, legalTransformTargets } from '../actionTargeting'
 import { applyAction } from '../applyAction'
 import { createEmptyBoard, setTile } from '../board'
 import { cardIdFor, createPlayerCards } from '../cards'
 import { legalMoveDestinations } from '../movement'
-import { beginSelectCardsPhase } from '../round'
+import { beginSelectCardsPhase, finishRound } from '../round'
 import { applyTaleModifiers } from '../tales'
+import type { FantasticEvent } from '../taleContent'
 import { EMPTY_TALE_CONTENT } from '../taleContent'
 import type { Coordinate, GameState, Player, Terrain, Unit, UnitMovement } from '../types'
 import { coordKey } from '../types'
-import type { UnitContent } from '../unitContent'
+import type { ConvertEffect, IncomeEffect, TransformEffect, UnitContent } from '../unitContent'
 import { EMPTY_UNIT_CONTENT } from '../unitContent'
-import { applyUnitActionEffect } from '../unitActions'
+import { applyUnitActionEffect, computeIncomeGold } from '../unitActions'
 
 // --- shared fixtures, same conventions as movement.test.ts/applyAction.test.ts ---
 
@@ -458,5 +460,219 @@ describe('companion piece dispatch — Port activates alongside the Ship card', 
     if (!result.ok) return
     expect(result.state.pendingPlayerIds).not.toContain('p1') // p1's turn ended; it's p2's turn now
     expect(result.state.activePlayerId).toBe('p2')
+  })
+})
+
+// --- Group 5: The Banks (Tale #6) ---
+
+const bankMovement: UnitMovement = { isMobile: false, terrains: [], canCrossCliffs: false }
+
+describe('resolveTaleContent + applyTaleModifiers — The Banks, against real content/tales.json + units.json', () => {
+  it('merges Bank as a Nomad companion, with no actions of its own', () => {
+    const base = resolveUnitContent(3)
+    const merged = applyTaleModifiers(base, resolveTaleContent(['the-banks'], 3))
+
+    expect(merged.companionKindsByCardKind.nomad).toEqual(['bank'])
+    expect(merged.unitSupplyCaps.bank).toBe(1)
+    expect(merged.actionsByKind.bank).toEqual([])
+    expect(merged.movementByKind.bank).toEqual(bankMovement)
+  })
+
+  it("appends construct-bank onto Nomad's actions and increase-taxes onto City's, without dropping either kind's base actions", () => {
+    const base = resolveUnitContent(3)
+    const merged = applyTaleModifiers(base, resolveTaleContent(['the-banks'], 3))
+
+    const nomadActionIds = merged.actionsByKind.nomad.map((a) => a.id)
+    const cityActionIds = merged.actionsByKind.city.map((a) => a.id)
+    expect(nomadActionIds).toContain('construct-bank')
+    expect(nomadActionIds).toContain('transform-to-ship') // base action still present
+    expect(cityActionIds).toContain('increase-taxes')
+    expect(cityActionIds.length).toBeGreaterThan(1) // base City actions still present
+  })
+
+  it('resolves a single Fantastic Event, Economic Collapse, requiring Bank', () => {
+    const taleContent = resolveTaleContent(['the-banks'], 3)
+    expect(taleContent.fantasticEvents).toEqual([{ id: 'economic-collapse', name: 'Economic Collapse', requiredUnitKind: 'bank' }])
+  })
+})
+
+describe("income effect's goldByTerrainScaledByBoardUnitCount (City: Increase Taxes)", () => {
+  const effect: IncomeEffect = {
+    actionType: 'income',
+    goldByTerrainScaledByBoardUnitCount: { ratePerTerrain: { mountain: 1, plain: 2, forest: 3 }, countKind: 'bank' },
+  }
+
+  it("matches the rulebook's own worked example: a Plain City, 3 total Banks in the World (this player's + 2 others') -> 2 + 3x2 = 8 GP", () => {
+    const board = boardOf([[0, 0, 'plain']])
+    const city = makeUnit('p1', 'city', { q: 0, r: 0 }, { isMobile: false, terrains: [], canCrossCliffs: false })
+    const ownBank = makeUnit('p1', 'bank', { q: 5, r: 5 }, bankMovement)
+    const otherBank1 = makeUnit('p2', 'bank', { q: 6, r: 5 }, bankMovement)
+    const otherBank2 = makeUnit('p3', 'bank', { q: 7, r: 5 }, bankMovement)
+    const state = makeState({ board, units: [city, ownBank, otherBank1, otherBank2] })
+
+    expect(computeIncomeGold(state, 'p1', city, effect)).toBe(8)
+  })
+
+  it('pays nothing when the acting player controls no Bank of their own, even if others do', () => {
+    const board = boardOf([[0, 0, 'plain']])
+    const city = makeUnit('p1', 'city', { q: 0, r: 0 }, { isMobile: false, terrains: [], canCrossCliffs: false })
+    const otherBank = makeUnit('p2', 'bank', { q: 6, r: 5 }, bankMovement)
+    const state = makeState({ board, units: [city, otherBank] })
+
+    expect(computeIncomeGold(state, 'p1', city, effect)).toBe(0)
+  })
+
+  it('scales by terrain: a Mountain City with just its own Bank in the World gains 1 + 1x1 = 2 GP', () => {
+    const board = boardOf([[0, 0, 'mountain']])
+    const city = makeUnit('p1', 'city', { q: 0, r: 0 }, { isMobile: false, terrains: [], canCrossCliffs: false })
+    const ownBank = makeUnit('p1', 'bank', { q: 5, r: 5 }, bankMovement)
+    const state = makeState({ board, units: [city, ownBank] })
+
+    expect(computeIncomeGold(state, 'p1', city, effect)).toBe(2)
+  })
+})
+
+describe('transform effect: requiredAdjacentOwnUnitKind + extraCostPerBoardUnitCount (Nomad: Construct a Bank)', () => {
+  const content: UnitContent = {
+    ...EMPTY_UNIT_CONTENT,
+    movementByKind: { bank: bankMovement },
+    terrainLevels: TERRAIN_LEVELS,
+    resourceCaps: { gold: null, wood: 5, stone: 5 },
+    unitSupplyCaps: { bank: 5 },
+  }
+  const effect: TransformEffect = {
+    actionType: 'transform',
+    targetUnit: 'bank',
+    targetHex: { terrainType: ['plain', 'forest'], location: 'self' },
+    destroySelf: true,
+    cost: { gold: 5, wood: 1, stone: 2 },
+    requiredAdjacentOwnUnitKind: 'city',
+    extraCostPerBoardUnitCount: { countKind: 'bank', costPerUnit: { gold: 5 } },
+  }
+  const action = { id: 'construct-bank', name: 'Construct a Bank', description: '', effect }
+
+  it('succeeds when adjacent to an allied City, replacing the Nomad with a Bank', () => {
+    const board = boardOf([[0, 0, 'plain'], [1, 0, 'plain']])
+    const nomad = makeUnit('p1', 'nomad', { q: 0, r: 0 }, { isMobile: true, terrains: ['plain'], canCrossCliffs: false })
+    const city = makeUnit('p1', 'city', { q: 1, r: 0 }, { isMobile: false, terrains: [], canCrossCliffs: false })
+    const state = makeState({ board, units: [nomad, city], players: [makePlayer('p1', { resources: { gold: 10, wood: 5, stone: 5 } })] })
+
+    const next = applyUnitActionEffect(state, 'p1', 'nomad', action, {}, content)
+
+    expect(next.units.find((u) => u.id === nomad.id)).toBeUndefined() // destroySelf
+    expect(next.units.some((u) => u.kind === 'bank' && coordKey(u.coord) === coordKey(nomad.coord))).toBe(true)
+    const player = next.players.find((p) => p.id === 'p1')!
+    expect(player.resources).toEqual({ gold: 5, wood: 4, stone: 3 }) // 5 GP (no existing Banks) + 1 wood + 2 stone
+  })
+
+  it('is rejected when not adjacent to an allied City', () => {
+    const board = boardOf([[0, 0, 'plain'], [1, 0, 'plain']])
+    const nomad = makeUnit('p1', 'nomad', { q: 0, r: 0 }, { isMobile: true, terrains: ['plain'], canCrossCliffs: false })
+    const state = makeState({ board, units: [nomad], players: [makePlayer('p1', { resources: { gold: 10, wood: 5, stone: 5 } })] })
+
+    const next = applyUnitActionEffect(state, 'p1', 'nomad', action, {}, content)
+
+    expect(next).toBe(state)
+  })
+
+  it("costs 5 extra GP per Bank already in the World: the 2nd Bank costs 10 GP, the 3rd costs 15 GP", () => {
+    const board = boardOf([[0, 0, 'plain'], [1, 0, 'plain'], [2, 0, 'plain'], [3, 0, 'plain']])
+    const nomad = makeUnit('p1', 'nomad', { q: 0, r: 0 }, { isMobile: true, terrains: ['plain'], canCrossCliffs: false })
+    const city = makeUnit('p1', 'city', { q: 1, r: 0 }, { isMobile: false, terrains: [], canCrossCliffs: false })
+    // Two Banks already in the World (any owner) before this Nomad acts.
+    const existingBank1 = makeUnit('p1', 'bank', { q: 2, r: 0 }, bankMovement)
+    const existingBank2 = makeUnit('p2', 'bank', { q: 3, r: 0 }, bankMovement)
+    const state = makeState({
+      board,
+      units: [nomad, city, existingBank1, existingBank2],
+      players: [makePlayer('p1', { resources: { gold: 20, wood: 5, stone: 5 } })],
+    })
+
+    const next = applyUnitActionEffect(state, 'p1', 'nomad', action, {}, content)
+
+    const player = next.players.find((p) => p.id === 'p1')!
+    // Base 5 GP + 2 existing Banks x 5 GP = 15 GP total, plus the flat 1 wood/2 stone.
+    expect(player.resources).toEqual({ gold: 5, wood: 4, stone: 3 })
+  })
+
+  it('legalTransformTargets is empty without an adjacent allied City, and reflects the scaled cost via canAffordCost', () => {
+    const board = boardOf([[0, 0, 'plain'], [1, 0, 'plain']])
+    const nomadNoCity = makeUnit('p1', 'nomad', { q: 0, r: 0 }, { isMobile: true, terrains: ['plain'], canCrossCliffs: false })
+    const state = makeState({ board, units: [nomadNoCity], players: [makePlayer('p1', { resources: { gold: 10, wood: 5, stone: 5 } })] })
+
+    expect(legalTransformTargets(state, 'p1', nomadNoCity, effect, content)).toEqual([])
+  })
+})
+
+describe('convert immunity — a Bank can never be targeted by targetMobileOnly: true (e.g. Temple: Convert Enemy Unit)', () => {
+  const effect: ConvertEffect = { actionType: 'convert', targetHex: { location: 'adj' }, targetOwner: 'enemy', targetMobileOnly: true, cost: {} }
+
+  it('excludes an adjacent enemy Bank', () => {
+    const board = boardOf([[0, 0, 'plain'], [1, 0, 'plain']])
+    const temple = makeUnit('p1', 'temple', { q: 0, r: 0 }, { isMobile: false, terrains: [], canCrossCliffs: false })
+    const enemyBank = makeUnit('p2', 'bank', { q: 1, r: 0 }, bankMovement)
+    const state = makeState({ board, units: [temple, enemyBank], players: [makePlayer('p1'), makePlayer('p2')] })
+    const content: UnitContent = { ...EMPTY_UNIT_CONTENT, movementByKind: { bank: bankMovement } }
+
+    expect(legalConvertTargets(state, 'p1', temple, effect, content)).toEqual([])
+  })
+})
+
+describe('Fantastic Events (finishRound) — Economic Collapse', () => {
+  const economicCollapse: FantasticEvent = { id: 'economic-collapse', name: 'Economic Collapse', requiredUnitKind: 'bank' }
+
+  function stateNeedingRecycle(recyclingPlayerCount: 0 | 1 | 2 | 3, units: Unit[]): GameState {
+    const players = [
+      makePlayer('p1', recyclingPlayerCount >= 1 ? { handCardIds: [], discardCardIds: ['c1'] } : { handCardIds: ['c1'] }),
+      makePlayer('p2', recyclingPlayerCount >= 2 ? { handCardIds: [], discardCardIds: ['c2'] } : { handCardIds: ['c2'] }),
+      makePlayer('p3', recyclingPlayerCount >= 3 ? { handCardIds: [], discardCardIds: ['c3'] } : { handCardIds: ['c3'] }),
+    ]
+    return makeState({ players, turnOrder: ['p1', 'p2', 'p3'], units })
+  }
+
+  it('removes every Bank from the board once every non-eliminated player controls one, when 2+ players recycle', () => {
+    const banks = [makeUnit('p1', 'bank', { q: 0, r: 0 }, bankMovement), makeUnit('p2', 'bank', { q: 1, r: 0 }, bankMovement), makeUnit('p3', 'bank', { q: 2, r: 0 }, bankMovement)]
+    const state = stateNeedingRecycle(2, banks)
+
+    const next = finishRound(state, undefined, { ...EMPTY_TALE_CONTENT, fantasticEvents: [economicCollapse] })
+
+    expect(next.units.some((u) => u.kind === 'bank')).toBe(false)
+  })
+
+  it('does not trigger when fewer than 2 players recycle this round', () => {
+    const banks = [makeUnit('p1', 'bank', { q: 0, r: 0 }, bankMovement), makeUnit('p2', 'bank', { q: 1, r: 0 }, bankMovement), makeUnit('p3', 'bank', { q: 2, r: 0 }, bankMovement)]
+    const state = stateNeedingRecycle(1, banks)
+
+    const next = finishRound(state, undefined, { ...EMPTY_TALE_CONTENT, fantasticEvents: [economicCollapse] })
+
+    expect(next.units.filter((u) => u.kind === 'bank')).toHaveLength(3)
+  })
+
+  it('does not trigger when at least one non-eliminated player controls no Bank', () => {
+    const banks = [makeUnit('p1', 'bank', { q: 0, r: 0 }, bankMovement), makeUnit('p2', 'bank', { q: 1, r: 0 }, bankMovement)] // p3 has none
+    const state = stateNeedingRecycle(2, banks)
+
+    const next = finishRound(state, undefined, { ...EMPTY_TALE_CONTENT, fantasticEvents: [economicCollapse] })
+
+    expect(next.units.filter((u) => u.kind === 'bank')).toHaveLength(2)
+  })
+
+  it('ignores an eliminated player when checking whether everyone controls a Bank', () => {
+    const banks = [makeUnit('p1', 'bank', { q: 0, r: 0 }, bankMovement), makeUnit('p2', 'bank', { q: 1, r: 0 }, bankMovement)] // p3 has none, but is eliminated
+    let state = stateNeedingRecycle(2, banks)
+    state = { ...state, players: state.players.map((p) => (p.id === 'p3' ? { ...p, eliminated: true } : p)) }
+
+    const next = finishRound(state, undefined, { ...EMPTY_TALE_CONTENT, fantasticEvents: [economicCollapse] })
+
+    expect(next.units.some((u) => u.kind === 'bank')).toBe(false)
+  })
+
+  it('is a no-op when taleContent has no Fantastic Events (e.g. The Banks not active)', () => {
+    const banks = [makeUnit('p1', 'bank', { q: 0, r: 0 }, bankMovement), makeUnit('p2', 'bank', { q: 1, r: 0 }, bankMovement), makeUnit('p3', 'bank', { q: 2, r: 0 }, bankMovement)]
+    const state = stateNeedingRecycle(2, banks)
+
+    const next = finishRound(state, undefined, EMPTY_TALE_CONTENT)
+
+    expect(next.units.filter((u) => u.kind === 'bank')).toHaveLength(3)
   })
 })

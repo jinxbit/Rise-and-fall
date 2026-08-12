@@ -135,10 +135,11 @@ export function GamePage() {
   // here, once, so every RESOLVE_UNIT_ACTION/replay/undo call below sees the
   // same effective content — applyTaleModifiers is a no-op for a game with
   // none active (the default, and every game before this variant existed).
-  const unitContent = useMemo(
-    () => applyTaleModifiers(resolveUnitContent(players.length), resolveTaleContent(game?.active_tale_ids ?? [], players.length)),
+  const taleContent = useMemo(
+    () => resolveTaleContent(game?.active_tale_ids ?? [], players.length),
     [players.length, game?.active_tale_ids],
   )
+  const unitContent = useMemo(() => applyTaleModifiers(resolveUnitContent(players.length), taleContent), [players.length, taleContent])
   const achievementContent = useMemo(() => resolveAchievementContent(), [])
 
   const isHotseat = game?.play_mode === 'hotseat'
@@ -175,8 +176,8 @@ export function GamePage() {
     try {
       const genesis = buildGenesisState(game, players)
       const windowStart = findReviewWindowStart(gameState.actionHistory, me.id)
-      const stateAtWindowStart = replayActions(genesis, gameState.actionHistory.slice(0, windowStart), unitContent, achievementContent, boardGenerationContent)
-      return buildTurnReview(stateAtWindowStart, gameState.actionHistory.slice(windowStart), unitContent, achievementContent, boardGenerationContent)
+      const stateAtWindowStart = replayActions(genesis, gameState.actionHistory.slice(0, windowStart), unitContent, achievementContent, boardGenerationContent, taleContent)
+      return buildTurnReview(stateAtWindowStart, gameState.actionHistory.slice(windowStart), unitContent, achievementContent, boardGenerationContent, taleContent)
     } catch {
       // A genesis/content mismatch shouldn't be possible for a game this
       // session is actually playing, but the review is a nice-to-have, not
@@ -184,7 +185,7 @@ export function GamePage() {
       return null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [game, gameState?.actionHistory.length, me?.id, players, unitContent, achievementContent, boardGenerationContent])
+  }, [game, gameState?.actionHistory.length, me?.id, players, unitContent, achievementContent, boardGenerationContent, taleContent])
 
   /**
    * The running narration log (see engine/gameLog.ts) — nothing about it is
@@ -196,12 +197,12 @@ export function GamePage() {
     if (!game || players.length === 0) return []
     try {
       const genesis = buildGenesisState(game, players)
-      return buildGameLog(genesis, gameState?.actionHistory ?? [], unitContent, achievementContent, boardGenerationContent)
+      return buildGameLog(genesis, gameState?.actionHistory ?? [], unitContent, achievementContent, boardGenerationContent, taleContent)
     } catch {
       return []
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [game, gameState?.actionHistory.length, players, unitContent, achievementContent, boardGenerationContent])
+  }, [game, gameState?.actionHistory.length, players, unitContent, achievementContent, boardGenerationContent, taleContent])
 
   /**
    * Async-mode "your turn" nudge (see discordNotify.ts): compares who must
@@ -269,7 +270,7 @@ export function GamePage() {
   }
 
   async function submitAction(action: Action) {
-    const result = await writeWithRetry((state) => applyActionAndFastForwardTiles(state, action, unitContent, achievementContent, boardGenerationContent))
+    const result = await writeWithRetry((state) => applyActionAndFastForwardTiles(state, action, unitContent, achievementContent, boardGenerationContent, taleContent))
     if (result.ok) setRedoStack([])
     setActionError(result.ok ? null : result.error)
   }
@@ -320,7 +321,7 @@ export function GamePage() {
         const genesis = buildGenesisState(game, players)
         const previousHistory = state.actionHistory.slice(0, -1)
         undoneAction = state.actionHistory[state.actionHistory.length - 1].action
-        const undoneState = replayActions(genesis, previousHistory, unitContent, achievementContent, boardGenerationContent)
+        const undoneState = replayActions(genesis, previousHistory, unitContent, achievementContent, boardGenerationContent, taleContent)
         return { ok: true, state: undoneState }
       })
       if (result.ok && undoneAction) {
@@ -348,7 +349,7 @@ export function GamePage() {
     setRedoing(true)
     setRedoStack((stack) => stack.slice(0, -1))
     try {
-      const result = await writeWithRetry((state) => applyActionAndFastForwardTiles(state, action, unitContent, achievementContent, boardGenerationContent))
+      const result = await writeWithRetry((state) => applyActionAndFastForwardTiles(state, action, unitContent, achievementContent, boardGenerationContent, taleContent))
       setActionError(result.ok ? null : result.error)
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Failed to redo')

@@ -82,6 +82,72 @@
       "movementOverridesByKind": {
         "ship": { "canEndMoveOnAlliedUnitTypes": ["port"] }
       }
+    },
+    {
+      "id": "the-banks",
+      "number": 6,
+      "name": "The Banks",
+      "description": "Each player keeps a Bank of their color in reserve. A Nomad adjacent to an allied City can build one on Plains or Forest, at a cost that climbs with every Bank already in the World; once built, any City with a Bank in play can Increase Taxes, scaling the same way. A Bank can't be converted or destroyed, except by an Economic Collapse.",
+      "category": "buildable",
+      "extraUnits": [
+        {
+          "id": "bank",
+          "name": "Bank",
+          "description": "A permanent vault. Has no Civilization card and no actions of its own — built by the Nomad's Construct a Bank action and cashed in on by the City's Increase Taxes action.",
+          "companionOfKind": "nomad",
+          "movement": {
+            "isMobile": false,
+            "terrains": [],
+            "canCrossCliffs": false
+          },
+          "supply": {
+            "byPlayerCount": { "2": 1, "3": 1, "4": 1 }
+          },
+          "victoryPoints": {
+            "byBoardCount": []
+          },
+          "actions": []
+        }
+      ],
+      "extraActionsByKind": {
+        "nomad": [
+          {
+            "id": "construct-bank",
+            "name": "Construct a Bank",
+            "description": "Replace the Nomad with a Bank. Requires a Plains or Forest space adjacent to an allied City. Costs 5 extra Gold Pieces for each Bank already in the World.",
+            "effect": {
+              "actionType": "transform",
+              "targetUnit": "bank",
+              "targetHex": { "terrainType": ["plain", "forest"], "location": "self" },
+              "destroySelf": true,
+              "cost": { "gold": 5, "wood": 1, "stone": 2 },
+              "requiredAdjacentOwnUnitKind": "city",
+              "extraCostPerBoardUnitCount": { "countKind": "bank", "costPerUnit": { "gold": 5 } }
+            }
+          }
+        ],
+        "city": [
+          {
+            "id": "increase-taxes",
+            "name": "Increase Taxes",
+            "description": "Requires controlling a Bank. Gain 1/2/3 Gold Pieces for a Mountain/Plain/Forest City, plus that same amount again for each Bank in the World.",
+            "effect": {
+              "actionType": "income",
+              "goldByTerrainScaledByBoardUnitCount": {
+                "ratePerTerrain": { "mountain": 1, "plain": 2, "forest": 3 },
+                "countKind": "bank"
+              }
+            }
+          }
+        ]
+      },
+      "fantasticEvents": [
+        {
+          "id": "economic-collapse",
+          "name": "Economic Collapse",
+          "requiredUnitKind": "bank"
+        }
+      ]
     }
   ]
 }

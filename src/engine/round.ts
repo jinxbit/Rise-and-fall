@@ -4,6 +4,8 @@ import { syncCardZonesWithBoard } from './cards'
 import { isDeclineTriggered } from './decline'
 import { eliminatePlayersWithNoCardToDecline, eliminatePlayersWithNoCardToPlay } from './elimination'
 import { calculatePurchaseCost } from './purchaseCost'
+import type { FantasticEvent, TaleContent } from './taleContent'
+import { EMPTY_TALE_CONTENT } from './taleContent'
 import type { GameState } from './types'
 import { calculateVPBreakdown, determineWinners } from './victoryPoints'
 
@@ -62,7 +64,11 @@ export function beginActionsPhase(state: GameState): GameState {
  * one occurrence per card declined, regardless of which player goes when,
  * until every player has supplied all their required cards.
  */
-export function beginDeclinePhase(state: GameState, achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT): GameState {
+export function beginDeclinePhase(
+  state: GameState,
+  achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT,
+  taleContent: TaleContent = EMPTY_TALE_CONTENT,
+): GameState {
   const cardsPerPlayer = Math.max(1, state.achievementsClaimedThisRound)
   const started: GameState = {
     ...state,
@@ -74,7 +80,7 @@ export function beginDeclinePhase(state: GameState, achievementContent: Achievem
   // See beginSelectCardsPhase's matching comment: a just-completed game
   // (last-player-standing) must not chain into the purchase phase.
   return afterEliminations.status !== 'completed' && afterEliminations.pendingPlayerIds.length === 0
-    ? beginPurchasePhase(afterEliminations, achievementContent)
+    ? beginPurchasePhase(afterEliminations, achievementContent, taleContent)
     : afterEliminations
 }
 
@@ -110,7 +116,11 @@ export function skipEmptyDeclinePurchasers(state: GameState, achievementContent:
  * common case: nobody has declined anything yet), the round finishes
  * immediately without any player having to act.
  */
-export function beginPurchasePhase(state: GameState, achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT): GameState {
+export function beginPurchasePhase(
+  state: GameState,
+  achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT,
+  taleContent: TaleContent = EMPTY_TALE_CONTENT,
+): GameState {
   const started: GameState = {
     ...state,
     roundPhase: 'purchase',
@@ -118,28 +128,63 @@ export function beginPurchasePhase(state: GameState, achievementContent: Achieve
     activePlayerId: state.turnOrder[0] ?? null,
   }
   const afterSkips = skipEmptyDeclinePurchasers(started, achievementContent)
-  return afterSkips.pendingPlayerIds.length === 0 ? finishRound(afterSkips, achievementContent) : afterSkips
+  return afterSkips.pendingPlayerIds.length === 0 ? finishRound(afterSkips, achievementContent, taleContent) : afterSkips
 }
 
 /** Once the actions phase finishes: rule 3 inserts the decline phase only if it was triggered this round. */
-export function beginPostActionsPhase(state: GameState, achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT): GameState {
-  return isDeclineTriggered(state) ? beginDeclinePhase(state, achievementContent) : beginPurchasePhase(state, achievementContent)
+export function beginPostActionsPhase(
+  state: GameState,
+  achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT,
+  taleContent: TaleContent = EMPTY_TALE_CONTENT,
+): GameState {
+  return isDeclineTriggered(state)
+    ? beginDeclinePhase(state, achievementContent, taleContent)
+    : beginPurchasePhase(state, achievementContent, taleContent)
+}
+
+/**
+ * Fantastic Events (e.g. The Banks Tale's Economic Collapse) trigger during
+ * the Recycling step, when two or more players must recycle their hand in
+ * the same round — resolved by finishRound below in ascending Tale-number
+ * order (taleContent.fantasticEvents is already in that order, see
+ * resolveTaleContent in content/resolveContent.ts). Each event fires when
+ * every non-eliminated player currently controls at least one unit of
+ * requiredUnitKind, removing every unit of that kind from the board (back
+ * to its owner's reserve) when it does.
+ */
+function applyFantasticEvents(state: GameState, events: FantasticEvent[]): GameState {
+  let nextState = state
+  for (const event of events) {
+    const activePlayerIds = nextState.players.filter((p) => !p.eliminated).map((p) => p.id)
+    const everyoneControlsIt = activePlayerIds.every((playerId) =>
+      nextState.units.some((u) => u.kind === event.requiredUnitKind && u.ownerId === playerId),
+    )
+    if (!everyoneControlsIt) continue
+    nextState = { ...nextState, units: nextState.units.filter((u) => u.kind !== event.requiredUnitKind) }
+  }
+  return nextState
 }
 
 /**
  * Round steps 5 & 6, run automatically once the purchase phase finishes:
  * recycle any empty hand from discard, hand "first player" to the next
- * player if that happened, then either end the game (step 6, once
+ * player if that happened, resolve any Fantastic Events (if two or more
+ * players just recycled), then either end the game (step 6, once
  * `achievementContent.gameLength` total achievements have been claimed) or
- * start the next round. `achievementContent` defaults to
- * EMPTY_ACHIEVEMENT_CONTENT (gameLength: Infinity), so a caller that
- * doesn't supply it gets the old always-continue behavior.
+ * start the next round. `achievementContent`/`taleContent` default to
+ * their empty forms (gameLength: Infinity, no Fantastic Events), so a
+ * caller that doesn't supply them gets the old always-continue, no-Tales
+ * behavior.
  */
-export function finishRound(state: GameState, achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT): GameState {
-  let anyRecycled = false
+export function finishRound(
+  state: GameState,
+  achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT,
+  taleContent: TaleContent = EMPTY_TALE_CONTENT,
+): GameState {
+  let recycledCount = 0
   const players = state.players.map((player) => {
     if (player.handCardIds.length === 0 && player.discardCardIds.length > 0) {
-      anyRecycled = true
+      recycledCount++
       return { ...player, handCardIds: player.discardCardIds, discardCardIds: [] }
     }
     return player
@@ -147,7 +192,7 @@ export function finishRound(state: GameState, achievementContent: AchievementCon
 
   let nextState: GameState = { ...state, players }
 
-  if (anyRecycled) {
+  if (recycledCount > 0) {
     // A card recycled above represents whatever kind its owner discarded
     // it as, regardless of whether they still have a unit of that kind —
     // e.g. a Ship card played the same turn its only Ship transformed away
@@ -161,6 +206,10 @@ export function finishRound(state: GameState, achievementContent: AchievementCon
     const turnOrder =
       nextState.turnOrder.length > 1 ? [...nextState.turnOrder.slice(1), nextState.turnOrder[0]] : nextState.turnOrder
     nextState = { ...nextState, turnOrder }
+  }
+
+  if (recycledCount >= 2 && taleContent.fantasticEvents.length > 0) {
+    nextState = applyFantasticEvents(nextState, taleContent.fantasticEvents)
   }
 
   // Round step 6, game-end: once achievementContent.gameLength total

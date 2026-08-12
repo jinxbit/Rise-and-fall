@@ -6,6 +6,8 @@ import { EMPTY_BOARD_GENERATION_CONTENT } from './boardGenerationContent'
 import type { BoardGenerationContent } from './boardGenerationContent'
 import { UNIT_KINDS, cardIdFor, findCardZone } from './cards'
 import { describeResourceDelta } from './resources'
+import { EMPTY_TALE_CONTENT } from './taleContent'
+import type { TaleContent } from './taleContent'
 import type { GameEvent, GameState } from './types'
 import { EMPTY_UNIT_CONTENT } from './unitContent'
 import type { UnitContent } from './unitContent'
@@ -175,6 +177,7 @@ export function buildGameLog(
   unitContent: UnitContent = EMPTY_UNIT_CONTENT,
   achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT,
   boardGenerationContent: BoardGenerationContent = EMPTY_BOARD_GENERATION_CONTENT,
+  taleContent: TaleContent = EMPTY_TALE_CONTENT,
 ): GameEvent[] {
   const events: GameEvent[] = []
   let state = genesis
@@ -185,7 +188,7 @@ export function buildGameLog(
 
   for (const logged of actionHistory) {
     const before = state
-    const result = applyAction(before, logged.action, unitContent, achievementContent, boardGenerationContent)
+    const result = applyAction(before, logged.action, unitContent, achievementContent, boardGenerationContent, taleContent)
     if (!result.ok) break // a validly-logged action should never fail to reapply; bail defensively rather than throw mid-log
     const after = result.state
 

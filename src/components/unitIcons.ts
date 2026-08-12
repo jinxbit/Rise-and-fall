@@ -75,7 +75,17 @@ export const UNIT_ICONS: Record<string, IconShape[]> = {
     { kind: 'polygon', points: '9.4,5.2 3.5,3.2 9.4,6.6' },
     { kind: 'polygon', points: '14.6,5.2 20.5,3.2 14.6,6.6' },
   ],
+  // A vault (The Banks Tale) — squared safe body, a dial face, a center
+  // bolt, and a handle. Deliberately not more coins (Merchant already owns
+  // that motif) — the dial/handle silhouette reads as "locked away" instead.
+  bank: [
+    { kind: 'rect', x: 4, y: 4, width: 16, height: 16, rx: 1.5 },
+    { kind: 'circle', cx: 12, cy: 12, r: 4.2 },
+    { kind: 'circle', cx: 12, cy: 12, r: 1.1 },
+    { kind: 'rect', x: 11.3, y: 6.4, width: 1.4, height: 2.4 },
+    { kind: 'rect', x: 16.3, y: 9.5, width: 2.4, height: 1.4 },
+  ],
 }
 
-/** City and Temple are immobile structures (never move once placed) — marked with a rectangle instead of the mobile units' circle. Port (The Ports Tale) is likewise immobile once built. */
-export const STATIC_UNIT_KINDS = new Set(['city', 'temple', 'port'])
+/** City and Temple are immobile structures (never move once placed) — marked with a rectangle instead of the mobile units' circle. Port (The Ports Tale) and Bank (The Banks Tale) are likewise immobile once built. */
+export const STATIC_UNIT_KINDS = new Set(['city', 'temple', 'port', 'bank'])

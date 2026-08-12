@@ -326,26 +326,45 @@ ts` and `UnitActions.md` at the repo root.
 ## `tales.json` (validated by `tales.schema.json`)
 
 The Tales variant's numbered elements (see `VARIANTS_PLAN.md` at the repo
-root for the full design across all 23; only Tale #7, The Ports, is
-implemented so far — `todo.md` #56/#57). Unlike every other content file,
-this one is entirely **opt-in**: a base game with no Tales active never
-reads it. Each Tale is self-contained:
+root for the full design across all 23; Tale #7 (The Ports) and Tale #6
+(The Banks) are implemented so far — `todo.md` #56/#57). Unlike every
+other content file, this one is entirely **opt-in**: a base game with no
+Tales active never reads it. Each Tale is self-contained:
 
 - `extraUnits` — brand-new unit kinds the Tale introduces (e.g. The Ports'
-  Port). Each has **no Civilization card of its own** — it's a "companion
-  piece," activated whenever a different, existing kind's card is played
-  (`companionOfKind`, e.g. Port's is `'ship'`). See
-  `UnitContent.companionKindsByCardKind` and `applyResolveUnitAction`
-  (`src/engine/applyAction.ts`) for how the engine dispatches this, and
-  `GameState.unitsCreatedThisTurn` for the "can't activate the turn it's
-  constructed" rule shared by every companion piece the rulebook defines
-  (Capital, the Cathedral, and the Ports all use this exact wording).
+  Port, The Banks' Bank). Each has **no Civilization card of its own** —
+  it's a "companion piece," registered against a different, existing
+  kind's card (`companionOfKind`, e.g. Port's is `'ship'`, Bank's is
+  `'nomad'`). See `UnitContent.companionKindsByCardKind` and
+  `applyResolveUnitAction` (`src/engine/applyAction.ts`) for how the
+  engine dispatches this, and `GameState.unitsCreatedThisTurn` for the
+  "can't activate the turn it's constructed" rule shared by every
+  companion piece the rulebook defines (Capital, the Cathedral, and the
+  Ports all use this exact wording). A companion with an empty `actions`
+  list (e.g. Bank, which only ever changes hands via the City's Increase
+  Taxes action and the Nomad's Construct a Bank action, never by acting
+  itself) still needs some `companionOfKind` to satisfy the schema, but
+  never actually surfaces as choosable since it has nothing to choose.
 - `extraActionsByKind` — extra actions appended onto an **existing** unit
   kind's action list (e.g. Nomad and Ship both gain a Construct a Port
-  action).
+  action; Nomad also gains Construct a Bank, and City gains Increase
+  Taxes, for The Banks).
 - `movementOverridesByKind` — movement field overrides merged onto an
   existing kind's base movement (e.g. Ship gains
   `canEndMoveOnAlliedUnitTypes: ['port']`).
+- `fantasticEvents` — Fantastic Events the Tale contributes (e.g. The
+  Banks' Economic Collapse), resolved by `finishRound`
+  (`src/engine/round.ts`) whenever two or more players must recycle their
+  hand in the same round, in ascending Tale-number order. Each event
+  triggers when every non-eliminated player currently controls at least
+  one unit of `requiredUnitKind`, removing every unit of that kind from
+  the board (back to its owner's reserve) when it does. Unlike the three
+  fields above, these never touch `UnitContent` — they flow straight from
+  `TaleContent.fantasticEvents` to `finishRound`, which now also takes an
+  optional `taleContent` parameter (threaded the same way
+  `achievementContent` already was, through `applyAction`/
+  `applyActionAndFastForwardTiles`/`replayActions`/`buildTurnReview`/
+  `buildGameLog`).
 
 `src/engine/tales.ts`'s `applyTaleModifiers(baseUnitContent, taleContent)`
 merges all of the above onto `resolveUnitContent()`'s result — same
@@ -379,7 +398,17 @@ occupies, so the normal "target must be empty" rule can't apply) and
 `RegionUnitCountIncomeEffect` (gold per unit of given kinds anywhere in
 the acting unit's connected terrain region). `TransformEffect` also
 gained an optional `requiredAdjacentTerrain` condition, for Tale actions
-that depend on nearby terrain the target hex itself doesn't have.
+that depend on nearby terrain the target hex itself doesn't have, plus
+(for The Banks) `requiredAdjacentOwnUnitKind` (adjacent to an allied unit
+of a given kind, not just terrain — Construct a Bank's "adjacent to at
+least one allied City") and `extraCostPerBoardUnitCount` (extra cost per
+existing unit of a kind anywhere on the board — Construct a Bank's 5
+extra GP per Bank already in the World; see
+`computeEffectiveTransformCost` in `src/engine/unitActions.ts`).
+`IncomeEffect` similarly gained `goldByTerrainScaledByBoardUnitCount` for
+The Banks' Increase Taxes (rate-per-terrain times 1 + total units of a
+kind on the board, gated on the acting player owning at least one
+themselves).
 
 ## Note on the engine's `Terrain`/`UnitMovement` types (resolved)
 

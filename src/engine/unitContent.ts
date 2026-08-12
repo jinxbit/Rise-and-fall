@@ -42,6 +42,25 @@ export interface TransformEffect {
    * every transform action before this field existed.
    */
   requiredAdjacentTerrain?: string[]
+  /**
+   * Optional extra condition, independent of targetHex/requiredAdjacentTerrain:
+   * at least one hex adjacent to the ACTING unit's own position must
+   * currently hold a unit of this kind, owned by the acting player — e.g.
+   * The Banks Tale's Construct a Bank requires the Nomad be "adjacent to
+   * at least one allied City." Undefined (the default) means no such
+   * condition.
+   */
+  requiredAdjacentOwnUnitKind?: string
+  /**
+   * Extra cost added on top of `cost`, scaled by how many units of
+   * countKind currently exist anywhere on the board (any owner) — e.g.
+   * The Banks Tale's Construct a Bank: 5 extra GP per Bank already in the
+   * World, so the first Bank costs 5 GP, the second 10, the third 15, etc.
+   * Undefined (the default) means no such scaling, matching every
+   * transform action before this field existed. See
+   * computeEffectiveTransformCost in ./unitActions.ts.
+   */
+  extraCostPerBoardUnitCount?: { countKind: string; costPerUnit: ActionCost }
 }
 
 /**
@@ -111,6 +130,18 @@ export interface IncomeEffect {
   goldPerAdjacentOwnUnit?: number
   excludeUnitTypes?: string[]
   goldPerAdjacentUnit?: { own?: Record<string, number>; enemy?: Record<string, number> }
+  /**
+   * Gold scaled by the total number of units of countKind anywhere on the
+   * board (any owner, including the acting player's own) — e.g. The Banks
+   * Tale's Increase Taxes: rate(terrain) * (1 + total Banks in the World).
+   * Only pays out if the acting player owns at least one unit of countKind
+   * themselves (checked in computeIncomeGold, ./unitActions.ts) — a player
+   * with no Bank of their own gains nothing, which folds into "action
+   * unavailable" via wouldGainResource in actionTargeting.ts's
+   * isActionAvailableForUnit. Undefined (the default) means no such
+   * effect, matching every income effect before this field existed.
+   */
+  goldByTerrainScaledByBoardUnitCount?: { ratePerTerrain: Record<string, number>; countKind: string }
 }
 
 export interface ProduceEffect {

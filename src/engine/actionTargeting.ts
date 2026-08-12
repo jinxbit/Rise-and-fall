@@ -3,11 +3,13 @@ import { legalMoveDestinations } from './movement'
 import { wouldGainResource } from './resources'
 import {
   canAffordCost,
+  computeEffectiveTransformCost,
   computeIncomeGold,
   computeProduceAmounts,
   computeRegionUnitCountGold,
   computeTradeGold,
   crossesCliff,
+  hasAdjacentOwnUnitKind,
   hasAdjacentTerrain,
   hasReachedSupplyCap,
   isCreationAllowedOnTerrain,
@@ -46,9 +48,10 @@ export function legalCreateTargets(state: GameState, playerId: string, unit: Uni
 
 export function legalTransformTargets(state: GameState, playerId: string, unit: Unit, effect: TransformEffect, content: UnitContent): Coordinate[] {
   const player = state.players.find((p) => p.id === playerId)
-  if (!player || !canAffordCost(player.resources, effect.cost)) return []
+  if (!player || !canAffordCost(player.resources, computeEffectiveTransformCost(state, effect))) return []
   if (hasReachedSupplyCap(state, playerId, effect.targetUnit, content.unitSupplyCaps)) return []
   if (effect.requiredAdjacentTerrain && !hasAdjacentTerrain(state, unit.coord, effect.requiredAdjacentTerrain)) return []
+  if (effect.requiredAdjacentOwnUnitKind && !hasAdjacentOwnUnitKind(state, playerId, unit.coord, effect.requiredAdjacentOwnUnitKind)) return []
 
   if (effect.targetHex.location === 'self') {
     const tile = getTile(state.board, unit.coord)

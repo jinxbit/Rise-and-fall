@@ -4,6 +4,8 @@ import type { AchievementContent } from './achievementContent'
 import { applyAction } from './applyAction'
 import { EMPTY_BOARD_GENERATION_CONTENT } from './boardGenerationContent'
 import type { BoardGenerationContent } from './boardGenerationContent'
+import { EMPTY_TALE_CONTENT } from './taleContent'
+import type { TaleContent } from './taleContent'
 import type { Coordinate, GameState, Resources } from './types'
 import { applyUnitActionEffect } from './unitActions'
 import type { UnitActionEffect, UnitContent } from './unitContent'
@@ -129,6 +131,7 @@ export function buildTurnReview(
   unitContent: UnitContent,
   achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT,
   boardGenerationContent: BoardGenerationContent = EMPTY_BOARD_GENERATION_CONTENT,
+  taleContent: TaleContent = EMPTY_TALE_CONTENT,
 ): TurnReview {
   const events: UnitReviewEvent[] = []
   let state = stateAtWindowStart
@@ -153,7 +156,7 @@ export function buildTurnReview(
       }
     }
 
-    const result = applyAction(state, action, unitContent, achievementContent, boardGenerationContent)
+    const result = applyAction(state, action, unitContent, achievementContent, boardGenerationContent, taleContent)
     if (!result.ok) break // a validly-logged action should never fail to reapply; bail defensively rather than throw mid-review
     const afterState = result.state
 

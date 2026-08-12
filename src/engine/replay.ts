@@ -4,6 +4,8 @@ import { applyAction } from './applyAction'
 import { EMPTY_BOARD_GENERATION_CONTENT } from './boardGenerationContent'
 import type { BoardGenerationContent } from './boardGenerationContent'
 import type { LoggedAction } from './actions'
+import { EMPTY_TALE_CONTENT } from './taleContent'
+import type { TaleContent } from './taleContent'
 import type { GameState } from './types'
 import { EMPTY_UNIT_CONTENT } from './unitContent'
 import type { UnitContent } from './unitContent'
@@ -30,10 +32,11 @@ export function replayActions(
   unitContent: UnitContent = EMPTY_UNIT_CONTENT,
   achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT,
   boardGenerationContent: BoardGenerationContent = EMPTY_BOARD_GENERATION_CONTENT,
+  taleContent: TaleContent = EMPTY_TALE_CONTENT,
 ): GameState {
   let state = genesis
   for (const entry of history) {
-    const result = applyAction(state, entry.action, unitContent, achievementContent, boardGenerationContent)
+    const result = applyAction(state, entry.action, unitContent, achievementContent, boardGenerationContent, taleContent)
     if (!result.ok) {
       throw new Error(`Replay failed at action ${JSON.stringify(entry.action)}: ${result.error}`)
     }

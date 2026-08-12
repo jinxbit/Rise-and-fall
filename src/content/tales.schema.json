@@ -51,6 +51,11 @@
           "type": "object",
           "description": "Movement field overrides merged onto an EXISTING unit kind's base movement, keyed by that kind's id (e.g. Ship gains canEndMoveOnAlliedUnitTypes: ['port']). Free-form per-field overrides, not a full movement object — see units.schema.json's movement shape for the fields being overridden.",
           "additionalProperties": { "type": "object" }
+        },
+        "fantasticEvents": {
+          "type": "array",
+          "description": "Fantastic Events this Tale contributes, resolved in ascending Tale-number order whenever two or more players must recycle their hand in the same round (see engine/round.ts's finishRound).",
+          "items": { "$ref": "#/definitions/fantasticEvent" }
         }
       }
     },
@@ -81,6 +86,19 @@
         "actions": {
           "type": "array",
           "items": { "$ref": "#/definitions/action" }
+        }
+      }
+    },
+    "fantasticEvent": {
+      "type": "object",
+      "required": ["id", "name", "requiredUnitKind"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "requiredUnitKind": {
+          "type": "string",
+          "description": "Unit kind id every non-eliminated player must control at least one of for this event to trigger; that same kind's units are then all removed from the board (returned to reserve) when it does."
         }
       }
     },

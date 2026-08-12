@@ -15,6 +15,22 @@ export interface TaleExtraUnitContent {
 }
 
 /**
+ * A Tale-contributed Fantastic Event (e.g. The Banks Tale's Economic
+ * Collapse) — resolved by finishRound (./round.ts) whenever two or more
+ * players must recycle their hand in the same round, in ascending
+ * Tale-number order. Triggers when every non-eliminated player currently
+ * controls at least one unit of requiredUnitKind, at which point every
+ * unit of that kind is removed from the board and returned to its
+ * owner's reserve (removed from GameState.units — same convention as any
+ * other unit without a Civilization card of its own).
+ */
+export interface FantasticEvent {
+  id: string
+  name: string
+  requiredUnitKind: string
+}
+
+/**
  * Everything applyTaleModifiers (./tales.ts) needs to merge a game's
  * active Tales on top of the base game's UnitContent — resolved by the
  * caller from content/tales.json, filtered to only the Tales active for a
@@ -30,10 +46,13 @@ export interface TaleContent {
   extraActionsByKind: Record<string, UnitAction[]>
   /** Movement field overrides merged onto an EXISTING unit kind's base movement, keyed by that kind's id. */
   movementOverridesByKind: Record<string, Partial<UnitMovement>>
+  /** Fantastic Events contributed by active Tales, already in ascending Tale-number order — see finishRound (./round.ts). */
+  fantasticEvents: FantasticEvent[]
 }
 
 export const EMPTY_TALE_CONTENT: TaleContent = {
   extraUnitKinds: {},
   extraActionsByKind: {},
   movementOverridesByKind: {},
+  fantasticEvents: [],
 }
