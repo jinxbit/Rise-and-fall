@@ -1,5 +1,6 @@
 import { listAchievements, listTerrainTypes } from '../content/resolveContent'
 import type { AchievementContent } from '../engine/achievementContent'
+import type { TaleContent } from '../engine/taleContent'
 import { calculateVPDetail } from '../engine/victoryPoints'
 import type { VPDetail } from '../engine/victoryPoints'
 import type { GameState } from '../engine/types'
@@ -48,6 +49,9 @@ function scoreLinesFor(detail: VPDetail): ScoreLine[] {
   if (detail.gold.amount > 0) {
     lines.push({ label: `${detail.gold.amount} Gold`, vp: detail.gold.vp })
   }
+  for (const structure of detail.controllableStructures) {
+    lines.push({ label: structure.name, vp: structure.vp })
+  }
   return lines
 }
 
@@ -59,8 +63,18 @@ function scoreLinesFor(detail: VPDetail): ScoreLine[] {
  * rule (GameState.winnerPlayerIds, already computed once by finishRound())
  * — are highlighted.
  */
-export function EndGameView({ state, players, achievementContent }: { state: GameState; players: PlayerRow[]; achievementContent: AchievementContent }) {
-  const detailByPlayerId = calculateVPDetail(state, achievementContent)
+export function EndGameView({
+  state,
+  players,
+  achievementContent,
+  taleContent,
+}: {
+  state: GameState
+  players: PlayerRow[]
+  achievementContent: AchievementContent
+  taleContent: TaleContent
+}) {
+  const detailByPlayerId = calculateVPDetail(state, achievementContent, taleContent)
   const winnerIds = new Set(state.winnerPlayerIds)
 
   const ranked = [...state.players].sort((a, b) => (detailByPlayerId[b.id]?.total ?? 0) - (detailByPlayerId[a.id]?.total ?? 0))

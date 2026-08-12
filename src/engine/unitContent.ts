@@ -61,6 +61,26 @@ export interface TransformEffect {
    * computeEffectiveTransformCost in ./unitActions.ts.
    */
   extraCostPerBoardUnitCount?: { countKind: string; costPerUnit: ActionCost }
+  /**
+   * Optional extra condition: the acting player must currently control at
+   * least `atLeast` units of `kind` (anywhere on the board, including the
+   * acting unit itself if `kind` matches its own) — e.g. The Cathedral
+   * Tale's Construct the Cathedral requires "your 3 Temples present in the
+   * World," checked against the acting Temple's own count. Undefined (the
+   * default) means no such condition. See hasOwnKindCountAtLeast in
+   * ./unitActions.ts.
+   */
+  requiredOwnKindCount?: { kind: string; atLeast: number }
+  /**
+   * Optional extra condition: no unit of `kind` may currently exist
+   * anywhere on the board (any owner) — e.g. The Cathedral Tale's "there's
+   * only one Cathedral in the game," which blocks Construct the Cathedral
+   * once any player has built it, until it's ever removed from the board
+   * again (per ruling, a destroyed Cathedral can be built again by anyone).
+   * Undefined (the default) means no such condition. See
+   * boardHasUnitOfKind in ./unitActions.ts.
+   */
+  forbiddenIfBoardHasKind?: string
 }
 
 /**
@@ -99,6 +119,16 @@ export interface ConvertEffect {
   actionType: 'convert'
   targetHex: { location: 'adj' }
   /**
+   * Farthest hex-distance this may target — undefined (the default) means
+   * adjacent only (distance 1), matching every convert action before this
+   * field existed. E.g. The Cathedral Tale's Convert Enemy Unit reaches 2
+   * spaces instead of Temple's usual 1. A cliff edge only ever blocks the
+   * default adjacent case (see crossesCliff in ./unitActions.ts) — there's
+   * no single hexside to check at longer range, so the cliff rule is
+   * skipped entirely once this is set above 1.
+   */
+  maxDistance?: number
+  /**
    * 'enemy' steals an adjacent enemy unit outright, keeping its kind (e.g.
    * Temple's Convert Enemy Unit). 'own' instead targets one of the acting
    * player's own adjacent units — used for a City upgrading an adjacent
@@ -129,6 +159,13 @@ export interface IncomeEffect {
   goldByTerrain?: Record<string, number>
   goldPerAdjacentOwnUnit?: number
   excludeUnitTypes?: string[]
+  /**
+   * Farthest hex-distance goldPerAdjacentOwnUnit counts over — undefined
+   * (the default) means adjacent only (distance 1), matching every income
+   * effect before this field existed. E.g. The Cathedral Tale's Generate
+   * Income reaches 2 spaces instead of Temple's usual 1.
+   */
+  maxDistance?: number
   goldPerAdjacentUnit?: { own?: Record<string, number>; enemy?: Record<string, number> }
   /**
    * Gold scaled by the total number of units of countKind anywhere on the

@@ -56,6 +56,11 @@
           "type": "array",
           "description": "Fantastic Events this Tale contributes, resolved in ascending Tale-number order whenever two or more players must recycle their hand in the same round (see engine/round.ts's finishRound).",
           "items": { "$ref": "#/definitions/fantasticEvent" }
+        },
+        "controllableStructures": {
+          "type": "array",
+          "description": "End-of-game 'control a unique piece' VP bonuses this Tale contributes (e.g. The Cathedral) — see engine/victoryPoints.ts's calculateControllableStructureVP.",
+          "items": { "$ref": "#/definitions/controllableStructure" }
         }
       }
     },
@@ -100,6 +105,19 @@
           "type": "string",
           "description": "Unit kind id every non-eliminated player must control at least one of for this event to trigger; that same kind's units are then all removed from the board (returned to reserve) when it does."
         }
+      }
+    },
+    "controllableStructure": {
+      "type": "object",
+      "required": ["kind", "name", "victoryPoints"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "description": "Unit kind id — whoever controls at least one unit of this kind at game end scores victoryPoints."
+        },
+        "name": { "type": "string" },
+        "victoryPoints": { "type": "integer" }
       }
     },
     "action": {

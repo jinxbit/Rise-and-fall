@@ -148,6 +148,89 @@
           "requiredUnitKind": "bank"
         }
       ]
+    },
+    {
+      "id": "the-cathedral",
+      "number": 8,
+      "name": "The Cathedral",
+      "description": "There's only one Cathedral in the whole World. A player with all 3 of their Temples in play can replace one with it; from then on it activates alongside their Temple card, converting enemy units and collecting taxes up to 2 spaces away instead of just adjacent. Whoever controls it at game end scores a hefty bonus — and if it's ever destroyed, anyone can build it again.",
+      "category": "buildable",
+      "extraUnits": [
+        {
+          "id": "cathedral",
+          "name": "Cathedral",
+          "description": "The single Cathedral in the World. Has no Civilization card of its own — activates whenever its owner plays their Temple card, but never on the turn it's built. Converts enemy units and collects taxes within 2 spaces instead of just adjacent.",
+          "companionOfKind": "temple",
+          "movement": {
+            "isMobile": false,
+            "terrains": [],
+            "canCrossCliffs": false
+          },
+          "supply": {
+            "byPlayerCount": { "2": 1, "3": 1, "4": 1 }
+          },
+          "victoryPoints": {
+            "byBoardCount": []
+          },
+          "actions": [
+            {
+              "id": "convert-enemy-unit",
+              "name": "Convert Enemy Unit",
+              "description": "Convert an enemy unit within 2 spaces to your control. Only mobile units can be converted. Costs gold depending on the target: 2 for a Nomad, 3 for a Mountaineer, 5 for a Merchant or Ship.",
+              "effect": {
+                "actionType": "convert",
+                "targetHex": { "location": "adj" },
+                "targetOwner": "enemy",
+                "targetMobileOnly": true,
+                "maxDistance": 2,
+                "cost": { "gold": 0, "wood": 0, "stone": 0 },
+                "costByTargetKind": {
+                  "nomad": { "gold": 2 },
+                  "mountaineer": { "gold": 3 },
+                  "merchant": { "gold": 5 },
+                  "ship": { "gold": 5 }
+                }
+              }
+            },
+            {
+              "id": "generate-income",
+              "name": "Generate Income",
+              "description": "Generate 2 gold for each unit within 2 spaces that you control and is not a Temple.",
+              "effect": {
+                "actionType": "income",
+                "goldPerAdjacentOwnUnit": 2,
+                "excludeUnitTypes": ["temple"],
+                "maxDistance": 2
+              }
+            }
+          ]
+        }
+      ],
+      "extraActionsByKind": {
+        "temple": [
+          {
+            "id": "construct-cathedral",
+            "name": "Construct the Cathedral",
+            "description": "Replace this Temple with the Cathedral. Requires all 3 of your Temples in play, and that the Cathedral hasn't been constructed yet anywhere in the World.",
+            "effect": {
+              "actionType": "transform",
+              "targetUnit": "cathedral",
+              "targetHex": { "terrainType": ["plain", "mountain"], "location": "self" },
+              "destroySelf": true,
+              "cost": { "gold": 0, "wood": 3, "stone": 5 },
+              "requiredOwnKindCount": { "kind": "temple", "atLeast": 3 },
+              "forbiddenIfBoardHasKind": "cathedral"
+            }
+          }
+        ]
+      },
+      "controllableStructures": [
+        {
+          "kind": "cathedral",
+          "name": "The Cathedral",
+          "victoryPoints": 15
+        }
+      ]
     }
   ]
 }

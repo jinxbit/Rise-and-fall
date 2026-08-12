@@ -216,10 +216,11 @@ export function finishRound(
   // achievements have been claimed (summed across all players), the round
   // in progress (which just finished, above) ends the game — whoever has
   // the most total VP wins (achievements + board-count + terrain-control +
-  // gold), with no tiebreaker (a tie is a shared win).
+  // gold + Tale controllable structures), with no tiebreaker (a tie is a
+  // shared win).
   const totalAchievementsClaimed = Object.keys(nextState.claimedByAchievementId).length
   if (totalAchievementsClaimed >= achievementContent.gameLength) {
-    const breakdownByPlayerId = calculateVPBreakdown(nextState, achievementContent)
+    const breakdownByPlayerId = calculateVPBreakdown(nextState, achievementContent, taleContent)
     const totalVP = Object.fromEntries(Object.entries(breakdownByPlayerId).map(([playerId, b]) => [playerId, b.total]))
     const activePlayerIds = nextState.players.filter((p) => !p.eliminated).map((p) => p.id)
     const winnerPlayerIds = determineWinners(activePlayerIds, totalVP)

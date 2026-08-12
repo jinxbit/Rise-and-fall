@@ -338,10 +338,11 @@ ts` and `UnitActions.md` at the repo root.
 ## `tales.json` (validated by `tales.schema.json`)
 
 The Tales variant's numbered elements (see `VARIANTS_PLAN.md` at the repo
-root for the full design across all 23; Tale #7 (The Ports) and Tale #6
-(The Banks) are implemented so far — `todo.md` #56/#57). Unlike every
-other content file, this one is entirely **opt-in**: a base game with no
-Tales active never reads it. Each Tale is self-contained:
+root for the full design across all 23; Tale #6 (The Banks), Tale #7 (The
+Ports), and Tale #8 (The Cathedral) are implemented so far — `todo.md`
+#56/#57). Unlike every other content file, this one is entirely **opt-in**:
+a base game with no Tales active never reads it. Each Tale is
+self-contained:
 
 - `extraUnits` — brand-new unit kinds the Tale introduces (e.g. The Ports'
   Port, The Banks' Bank). Each has **no Civilization card of its own** —
@@ -377,6 +378,21 @@ Tales active never reads it. Each Tale is self-contained:
   `achievementContent` already was, through `applyAction`/
   `applyActionAndFastForwardTiles`/`replayActions`/`buildTurnReview`/
   `buildGameLog`).
+- `controllableStructures` — end-of-game "whoever controls this unique
+  piece scores N VP" bonuses (e.g. The Cathedral's 15 VP), also bypassing
+  `UnitContent` entirely: `TaleContent.controllableStructures` flows
+  straight into `calculateControllableStructureVP`
+  (`src/engine/victoryPoints.ts`), the 5th VP source alongside
+  achievements/board-count/terrain-control/gold, via the same
+  `taleContent` parameter now threaded through `calculateVPBreakdown`/
+  `calculateVPDetail`. There's no "Tale card" concept in this engine, so
+  control is derived live from board state (does a unit of that `kind`
+  exist, and who owns it) rather than a permanent claim like a real
+  achievement — control can change hands, or the piece can be destroyed
+  and rebuilt, and the bonus simply follows. `RoundView.tsx`'s
+  achievements panel shows these in their own "Tale bonuses (claimable)"
+  section, visually separate from real `content/achievements.json`
+  achievements, precisely because they aren't one.
 
 `src/engine/tales.ts`'s `applyTaleModifiers(baseUnitContent, taleContent)`
 merges all of the above onto `resolveUnitContent()`'s result — same
@@ -402,14 +418,6 @@ consistent since `activeTaleIds` rides along on every replayed state.
 Empty (the default) behaves exactly like a game from before this variant
 existed.
 
-**Scope note:** the round-play UI (`RoundView.tsx`) doesn't yet know
-about companion-piece units — its action-phase panel only highlights
-units whose kind matches the currently played card, not a companion kind
-like Port. The setup UI (choosing Tales, persisting the choice, resolving
-the right content) and the engine mechanics are both complete and tested;
-actually clicking a Port to use it in a live game still needs
-`RoundView.tsx` support — see `todo.md` #57.
-
 Two new `UnitActionEffect` variants exist only for Tale-contributed
 actions so far (`unitContent.ts`): `SiteCreateEffect` (create a unit on
 the *acting* unit's own hex — for a companion piece whose hex it already
@@ -423,11 +431,28 @@ of a given kind, not just terrain — Construct a Bank's "adjacent to at
 least one allied City") and `extraCostPerBoardUnitCount` (extra cost per
 existing unit of a kind anywhere on the board — Construct a Bank's 5
 extra GP per Bank already in the World; see
-`computeEffectiveTransformCost` in `src/engine/unitActions.ts`).
-`IncomeEffect` similarly gained `goldByTerrainScaledByBoardUnitCount` for
-The Banks' Increase Taxes (rate-per-terrain times 1 + total units of a
+`computeEffectiveTransformCost` in `src/engine/unitActions.ts`), plus (for
+The Cathedral) `requiredOwnKindCount` (the acting player must control at
+least N units of a given kind — Construct the Cathedral's "your 3 Temples
+present in the World," checked against the acting Temple's own count) and
+`forbiddenIfBoardHasKind` (no unit of a given kind may exist anywhere on
+the board — "there's only one Cathedral in the game," which also
+naturally allows rebuilding one that's ever removed from the board, since
+the check is live rather than a permanent flag). `IncomeEffect` similarly
+gained `goldByTerrainScaledByBoardUnitCount` for The Banks' Increase Taxes
+(rate-per-terrain times 1 + total units of a
 kind on the board, gated on the acting player owning at least one
-themselves).
+themselves). Finally, `ConvertEffect` and `IncomeEffect` both gained an
+optional `maxDistance` (default 1, i.e. adjacent-only, matching every
+pre-Tale unit) for The Cathedral's ability to convert enemy units and
+collect taxes up to 2 spaces away rather than just 1 — implemented via
+`coordsWithinDistance()` (`src/engine/board.ts`, a BFS generalizing the
+existing adjacent-only `neighborCoords`) and `isWithinDistance()`/
+`unitsWithinDistance()` (`src/engine/unitActions.ts`). The cliff-crossing
+rule is skipped entirely once `maxDistance > 1`, since a cliff is only ever
+defined between two adjacent hexes. `VARIANTS_PLAN.md` calls out
+`maxDistance` as reusable infrastructure a later Tale (the Psy-Monks guild)
+will need too.
 
 ## Note on the engine's `Terrain`/`UnitMovement` types (resolved)
 

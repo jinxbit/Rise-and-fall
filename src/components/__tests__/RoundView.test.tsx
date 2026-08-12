@@ -7,6 +7,7 @@ import { createEmptyBoard, setTile } from '../../engine/board'
 import { cardIdFor, createPlayerCards, syncCardZonesWithBoard } from '../../engine/cards'
 import { createNewGame } from '../../engine/createGame'
 import { beginSelectCardsPhase } from '../../engine/round'
+import { EMPTY_TALE_CONTENT } from '../../engine/taleContent'
 import type { GameState, Player, Resources, Unit, UnitMovement } from '../../engine/types'
 import type { TurnReview } from '../../engine/turnReview'
 import { EMPTY_UNIT_CONTENT } from '../../engine/unitContent'
@@ -83,6 +84,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         myPlayerId="p1"
         unitContent={EMPTY_UNIT_CONTENT}
         achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
         onToggleHistory={() => {}}
@@ -120,6 +122,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         myPlayerId="p1"
         unitContent={EMPTY_UNIT_CONTENT}
         achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
         onToggleHistory={() => {}}
@@ -158,6 +161,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         myPlayerId="p1"
         unitContent={EMPTY_UNIT_CONTENT}
         achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
         onToggleHistory={() => {}}
@@ -188,6 +192,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         myPlayerId="p1"
         unitContent={EMPTY_UNIT_CONTENT}
         achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
         onToggleHistory={() => {}}
@@ -218,6 +223,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         myPlayerId="p1"
         unitContent={EMPTY_UNIT_CONTENT}
         achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
         onToggleHistory={() => {}}
@@ -243,6 +249,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         myPlayerId="p1"
         unitContent={EMPTY_UNIT_CONTENT}
         achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
         onToggleHistory={() => {}}
@@ -270,6 +277,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         myPlayerId="p1"
         unitContent={EMPTY_UNIT_CONTENT}
         achievementContent={{ ...EMPTY_ACHIEVEMENT_CONTENT, purchaseCostTable: [5, 10, 20] }}
+        taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
         onToggleHistory={() => {}}
@@ -295,6 +303,94 @@ describe('RoundView — player status summary and achievements panel', () => {
     expect(buybackParagraph?.textContent).toContain('— next: 10 → 20 gold')
   })
 
+  it("shows a Tale controllable structure (e.g. The Cathedral) in its own 'claimable' section, separate from real achievements", () => {
+    const state = makeState()
+    state.units = [{ id: 'cathedral_1', ownerId: 'p2', kind: 'cathedral', coord: { q: 0, r: 0 }, movement: { isMobile: false, terrains: [], canCrossCliffs: false }, traits: [] }]
+    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
+    const taleContent = { ...EMPTY_TALE_CONTENT, controllableStructures: [{ kind: 'cathedral', name: 'The Cathedral', victoryPoints: 15 }] }
+
+    render(
+      <RoundView
+        state={state}
+        players={players}
+        myPlayerId="p1"
+        unitContent={EMPTY_UNIT_CONTENT}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={taleContent}
+        turnReview={null}
+        showHistory={false}
+        onToggleHistory={() => {}}
+        gameLog={[]}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+
+    expect(screen.getByText('Tale bonuses (claimable)')).toBeInTheDocument()
+    expect(screen.getByText(/^The Cathedral.*Bob/)).toBeInTheDocument()
+  })
+
+  it("marks a Tale controllable structure 'unclaimed' before it's ever built", () => {
+    const state = makeState() // no cathedral unit anywhere
+    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
+    const taleContent = { ...EMPTY_TALE_CONTENT, controllableStructures: [{ kind: 'cathedral', name: 'The Cathedral', victoryPoints: 15 }] }
+
+    render(
+      <RoundView
+        state={state}
+        players={players}
+        myPlayerId="p1"
+        unitContent={EMPTY_UNIT_CONTENT}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={taleContent}
+        turnReview={null}
+        showHistory={false}
+        onToggleHistory={() => {}}
+        gameLog={[]}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+
+    expect(screen.getByText(/^The Cathedral.*unclaimed/)).toBeInTheDocument()
+  })
+
+  it('shows no Tale bonuses section when no active Tale contributes one', () => {
+    const state = makeState()
+    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
+
+    render(
+      <RoundView
+        state={state}
+        players={players}
+        myPlayerId="p1"
+        unitContent={EMPTY_UNIT_CONTENT}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
+        turnReview={null}
+        showHistory={false}
+        onToggleHistory={() => {}}
+        gameLog={[]}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+
+    expect(screen.queryByText('Tale bonuses (claimable)')).not.toBeInTheDocument()
+  })
+
   it("shows how many achievements have been claimed out of the game's configured length", () => {
     const state = makeState()
     const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
@@ -306,6 +402,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         myPlayerId="p1"
         unitContent={EMPTY_UNIT_CONTENT}
         achievementContent={{ ...EMPTY_ACHIEVEMENT_CONTENT, gameLength: 4 }}
+        taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
         onToggleHistory={() => {}}
@@ -334,6 +431,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         myPlayerId="p1"
         unitContent={EMPTY_UNIT_CONTENT}
         achievementContent={{ ...EMPTY_ACHIEVEMENT_CONTENT, purchaseCostTable: [5, 10, 20, 40], gameLength: 3 }}
+        taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
         onToggleHistory={() => {}}
@@ -374,6 +472,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         myPlayerId="p1"
         unitContent={unitContent}
         achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
         onToggleHistory={() => {}}
@@ -408,6 +507,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         myPlayerId="p1"
         unitContent={EMPTY_UNIT_CONTENT}
         achievementContent={{ ...EMPTY_ACHIEVEMENT_CONTENT, achievementVictoryPoints: { 'city-mastery': 5 } }}
+        taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
         onToggleHistory={() => {}}
@@ -448,6 +548,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         myPlayerId="p1"
         unitContent={EMPTY_UNIT_CONTENT}
         achievementContent={{ ...EMPTY_ACHIEVEMENT_CONTENT, achievementVictoryPoints: { 'city-mastery': 5 }, terrainVictoryPoints: { plain: 3 } }}
+        taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
         onToggleHistory={() => {}}
@@ -482,6 +583,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         myPlayerId="p1"
         unitContent={EMPTY_UNIT_CONTENT}
         achievementContent={{ ...EMPTY_ACHIEVEMENT_CONTENT, achievementVictoryPoints: { 'city-mastery': 5 }, goldPerVictoryPoint: 2 }}
+        taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
         onToggleHistory={() => {}}
@@ -512,6 +614,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         myPlayerId="p1"
         unitContent={EMPTY_UNIT_CONTENT}
         achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
         onToggleHistory={() => {}}
@@ -548,6 +651,7 @@ describe('RoundView — "Expand board" toggle', () => {
         myPlayerId="p1"
         unitContent={EMPTY_UNIT_CONTENT}
         achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
         onToggleHistory={() => {}}
@@ -599,6 +703,7 @@ describe('RoundView — player detail panel (click a player chip for more info)'
         myPlayerId="p1"
         unitContent={EMPTY_UNIT_CONTENT}
         achievementContent={{ ...EMPTY_ACHIEVEMENT_CONTENT, unitBoardCountVP: { nomad: [1, 3] }, goldPerVictoryPoint: 2 }}
+        taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
         onToggleHistory={() => {}}
@@ -652,6 +757,7 @@ describe('RoundView — player detail panel (click a player chip for more info)'
         myPlayerId="p1"
         unitContent={EMPTY_UNIT_CONTENT}
         achievementContent={{ ...EMPTY_ACHIEVEMENT_CONTENT, achievementVictoryPoints: { 'city-mastery': 5 } }}
+        taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
         onToggleHistory={() => {}}
@@ -747,6 +853,7 @@ describe("RoundView — City's Convert to Merchant/Mountaineer (bug report: \"no
         myPlayerId="p1"
         unitContent={content}
         achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
         onToggleHistory={() => {}}
@@ -845,6 +952,7 @@ describe('RoundView — stacked units on one hex (Ship + Port, The Ports Tale)',
         myPlayerId="p1"
         unitContent={content}
         achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
         onToggleHistory={() => {}}
@@ -909,6 +1017,7 @@ describe('RoundView — history review toggle', () => {
         myPlayerId="p1"
         unitContent={EMPTY_UNIT_CONTENT}
         achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
         turnReview={turnReview}
         showHistory={showHistory}
         onToggleHistory={onToggleHistory}
@@ -934,6 +1043,7 @@ describe('RoundView — history review toggle', () => {
         myPlayerId="p1"
         unitContent={EMPTY_UNIT_CONTENT}
         achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
         turnReview={{ events: [], resourceDeltaByPlayerId: {} }}
         showHistory={false}
         onToggleHistory={() => {}}

@@ -14,6 +14,7 @@ import { createEmptyBoard, setTile } from '../board'
 import { createNewGame } from '../createGame'
 import { EMPTY_ACHIEVEMENT_CONTENT } from '../achievementContent'
 import type { AchievementContent } from '../achievementContent'
+import { EMPTY_TALE_CONTENT } from '../taleContent'
 import type { Coordinate, GameState, Player, Unit } from '../types'
 
 let unitCounter = 0
@@ -237,29 +238,40 @@ describe('calculateVPBreakdown', () => {
     goldPerVictoryPoint: 2,
   }
 
-  it('combines all four VP sources per player into one breakdown, with a correct total', () => {
+  it('combines all five VP sources per player into one breakdown, with a correct total', () => {
     const breakdown = calculateVPBreakdown(baseState(), content)
 
-    expect(breakdown.p1).toEqual({ achievements: 3, boardCount: 2, terrainControl: 2, gold: 2, total: 9 })
+    expect(breakdown.p1).toEqual({ achievements: 3, boardCount: 2, terrainControl: 2, gold: 2, controllableStructures: 0, total: 9 })
   })
 
   it('includes a player who scored 0 on every source, unlike the individual calculate*VP functions', () => {
     const breakdown = calculateVPBreakdown(baseState(), content)
 
-    expect(breakdown.p2).toEqual({ achievements: 0, boardCount: 0, terrainControl: 0, gold: 0, total: 0 })
+    expect(breakdown.p2).toEqual({ achievements: 0, boardCount: 0, terrainControl: 0, gold: 0, controllableStructures: 0, total: 0 })
   })
 
   it('includes every player in state.players even with no achievement/terrain/unit/gold content supplied', () => {
     const breakdown = calculateVPBreakdown(baseState(), EMPTY_ACHIEVEMENT_CONTENT)
 
     expect(breakdown).toEqual({
-      p1: { achievements: 0, boardCount: 0, terrainControl: 0, gold: 0, total: 0 },
-      p2: { achievements: 0, boardCount: 0, terrainControl: 0, gold: 0, total: 0 },
+      p1: { achievements: 0, boardCount: 0, terrainControl: 0, gold: 0, controllableStructures: 0, total: 0 },
+      p2: { achievements: 0, boardCount: 0, terrainControl: 0, gold: 0, controllableStructures: 0, total: 0 },
     })
   })
 
+  it("adds a Tale controllable structure's VP to whoever controls it, via taleContent", () => {
+    const state = { ...baseState(), units: [...baseState().units, unitAt('p1', 'cathedral', { q: 5, r: 5 })] }
+    const taleContent = { ...EMPTY_TALE_CONTENT, controllableStructures: [{ kind: 'cathedral', name: 'The Cathedral', victoryPoints: 15 }] }
+
+    const breakdown = calculateVPBreakdown(state, content, taleContent)
+
+    expect(breakdown.p1.controllableStructures).toBe(15)
+    expect(breakdown.p1.total).toBe(9 + 15)
+    expect(breakdown.p2.controllableStructures).toBe(0)
+  })
+
   describe('calculateVPDetail', () => {
-    it('itemizes each of the four VP sources — what the player has, and the points it is worth — with a total matching calculateVPBreakdown', () => {
+    it('itemizes each of the five VP sources — what the player has, and the points it is worth — with a total matching calculateVPBreakdown', () => {
       const state = baseState()
       const detail = calculateVPDetail(state, content)
 
@@ -272,6 +284,7 @@ describe('calculateVPBreakdown', () => {
         boardCount: [{ kind: 'city', count: 2, vp: 2 }],
         terrainControl: [{ terrain: 'water', hexCount: 2, vp: 2 }],
         gold: { amount: 5, vp: 2 },
+        controllableStructures: [],
         total: 9,
       })
       expect(detail.p1.total).toBe(calculateVPBreakdown(state, content).p1.total)
@@ -280,7 +293,24 @@ describe('calculateVPBreakdown', () => {
     it('gives a player with nothing on every source empty lists, a 0-VP gold entry, and a 0 total', () => {
       const detail = calculateVPDetail(baseState(), content)
 
-      expect(detail.p2).toEqual({ achievements: [], boardCount: [], terrainControl: [], gold: { amount: 0, vp: 0 }, total: 0 })
+      expect(detail.p2).toEqual({
+        achievements: [],
+        boardCount: [],
+        terrainControl: [],
+        gold: { amount: 0, vp: 0 },
+        controllableStructures: [],
+        total: 0,
+      })
+    })
+
+    it("itemizes a Tale controllable structure the player controls", () => {
+      const state = { ...baseState(), units: [...baseState().units, unitAt('p1', 'cathedral', { q: 5, r: 5 })] }
+      const taleContent = { ...EMPTY_TALE_CONTENT, controllableStructures: [{ kind: 'cathedral', name: 'The Cathedral', victoryPoints: 15 }] }
+
+      const detail = calculateVPDetail(state, content, taleContent)
+
+      expect(detail.p1.controllableStructures).toEqual([{ kind: 'cathedral', name: 'The Cathedral', vp: 15 }])
+      expect(detail.p1.total).toBe(9 + 15)
     })
   })
 })

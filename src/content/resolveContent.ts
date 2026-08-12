@@ -15,7 +15,7 @@ import unitsJson from './units.json'
 import type { AchievementContent } from '../engine/achievementContent'
 import { createEmptyBoard, setTile } from '../engine/board'
 import type { BoardGenerationContent, TileTierContent } from '../engine/boardGenerationContent'
-import type { FantasticEvent, TaleContent, TaleExtraUnitContent } from '../engine/taleContent'
+import type { FantasticEvent, TaleContent, TaleControllableStructure, TaleExtraUnitContent } from '../engine/taleContent'
 import type { UnitAction, UnitContent } from '../engine/unitContent'
 import type { Board, BoardShape, Resources, Terrain, UnitMovement } from '../engine/types'
 
@@ -101,6 +101,7 @@ export function resolveTaleContent(activeTaleIds: string[], playerCount: number)
   const extraActionsByKind: Record<string, UnitAction[]> = {}
   const movementOverridesByKind: Record<string, Partial<UnitMovement>> = {}
   const fantasticEvents: FantasticEvent[] = []
+  const controllableStructures: TaleControllableStructure[] = []
 
   for (const tale of activeTales) {
     for (const unit of tale.extraUnits ?? []) {
@@ -118,9 +119,10 @@ export function resolveTaleContent(activeTaleIds: string[], playerCount: number)
       movementOverridesByKind[kind] = { ...movementOverridesByKind[kind], ...(override as Partial<UnitMovement>) }
     }
     fantasticEvents.push(...((tale as { fantasticEvents?: FantasticEvent[] }).fantasticEvents ?? []))
+    controllableStructures.push(...((tale as { controllableStructures?: TaleControllableStructure[] }).controllableStructures ?? []))
   }
 
-  return { extraUnitKinds, extraActionsByKind, movementOverridesByKind, fantasticEvents }
+  return { extraUnitKinds, extraActionsByKind, movementOverridesByKind, fantasticEvents, controllableStructures }
 }
 
 export function resolveResourceBank(playerCount: number): Resources {

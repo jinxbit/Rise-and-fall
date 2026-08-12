@@ -1,4 +1,4 @@
-import { connectedTerrainRegion, getTile, neighborCoords } from './board'
+import { connectedTerrainRegion, coordsWithinDistance, getTile, neighborCoords } from './board'
 import { syncCardZonesWithBoard } from './cards'
 import { isCliffBetweenTerrains } from './cliffs'
 import { nextSequenceId } from './idSequence'
@@ -36,6 +36,18 @@ export function isAdjacent(state: GameState, a: Coordinate, b: Coordinate): bool
 function adjacentUnits(state: GameState, coord: Coordinate): Unit[] {
   const neighborKeys = new Set(neighborCoords(state.board, coord).map(coordKey))
   return state.units.filter((u) => neighborKeys.has(coordKey(u.coord)))
+}
+
+/** Whether `to` is within `maxDistance` hex-steps of `from` (not including `from` itself) — see ConvertEffect.maxDistance/IncomeEffect.maxDistance. `maxDistance: 1` is exactly isAdjacent. */
+export function isWithinDistance(state: GameState, from: Coordinate, to: Coordinate, maxDistance: number): boolean {
+  const key = coordKey(to)
+  return coordsWithinDistance(state.board, from, maxDistance).some((c) => coordKey(c) === key)
+}
+
+/** Every unit within `maxDistance` hex-steps of `coord` (not including `coord` itself) — the longer-range counterpart to adjacentUnits, see IncomeEffect.maxDistance. */
+function unitsWithinDistance(state: GameState, coord: Coordinate, maxDistance: number): Unit[] {
+  const keys = new Set(coordsWithinDistance(state.board, coord, maxDistance).map(coordKey))
+  return state.units.filter((u) => keys.has(coordKey(u.coord)))
 }
 
 export function crossesCliff(state: GameState, from: Coordinate, to: Coordinate, terrainLevels: Record<string, number>): boolean {
@@ -144,6 +156,16 @@ export function hasAdjacentOwnUnitKind(state: GameState, playerId: string, coord
   return adjacentUnits(state, coord).some((u) => u.ownerId === playerId && u.kind === kind)
 }
 
+/** Whether `playerId` currently controls at least `atLeast` units of `kind` anywhere on the board — see TransformEffect.requiredOwnKindCount. */
+export function hasOwnKindCountAtLeast(state: GameState, playerId: string, kind: string, atLeast: number): boolean {
+  return state.units.filter((u) => u.ownerId === playerId && u.kind === kind).length >= atLeast
+}
+
+/** Whether any unit of `kind` (any owner) currently exists anywhere on the board — see TransformEffect.forbiddenIfBoardHasKind. */
+export function boardHasUnitOfKind(state: GameState, kind: string): boolean {
+  return state.units.some((u) => u.kind === kind)
+}
+
 /**
  * The actual cost a `transform` action would charge right now — `effect.cost`
  * plus, if `extraCostPerBoardUnitCount` is set, that much extra per existing
@@ -183,7 +205,8 @@ export function computeIncomeGold(state: GameState, playerId: string, unit: Unit
 
   if (effect.goldPerAdjacentOwnUnit !== undefined) {
     const exclude = new Set(effect.excludeUnitTypes ?? [])
-    const count = adjacentUnits(state, unit.coord).filter((u) => u.ownerId === playerId && !exclude.has(u.kind)).length
+    const nearby = effect.maxDistance ? unitsWithinDistance(state, unit.coord, effect.maxDistance) : adjacentUnits(state, unit.coord)
+    const count = nearby.filter((u) => u.ownerId === playerId && !exclude.has(u.kind)).length
     gold += count * effect.goldPerAdjacentOwnUnit
   }
 
@@ -375,6 +398,8 @@ function applyTransform(state: GameState, playerId: string, unit: Unit, effect: 
   if (!isCreationAllowedOnTerrain(effect.targetUnit, targetTile.terrain)) return state
   if (effect.requiredAdjacentTerrain && !hasAdjacentTerrain(state, unit.coord, effect.requiredAdjacentTerrain)) return state
   if (effect.requiredAdjacentOwnUnitKind && !hasAdjacentOwnUnitKind(state, playerId, unit.coord, effect.requiredAdjacentOwnUnitKind)) return state
+  if (effect.requiredOwnKindCount && !hasOwnKindCountAtLeast(state, playerId, effect.requiredOwnKindCount.kind, effect.requiredOwnKindCount.atLeast)) return state
+  if (effect.forbiddenIfBoardHasKind && boardHasUnitOfKind(state, effect.forbiddenIfBoardHasKind)) return state
 
   if (effect.targetHex.location === 'adj') {
     if (!isAdjacent(state, unit.coord, resolvedTargetCoord)) return state
@@ -403,16 +428,21 @@ function applyTransform(state: GameState, playerId: string, unit: Unit, effect: 
 
 /**
  * Per ruling: convert can never cross a cliff either (same rule as
- * create/transform). Covers two shapes: 'enemy' steals an adjacent enemy
- * unit outright (kind unchanged — e.g. Temple's Convert Enemy Unit);
- * 'own' upgrades one of the acting player's own adjacent units into a
- * different kind in place (e.g. a City converting an adjacent Nomad into
- * a Merchant/Mountaineer) — see ConvertEffect's doc comment.
+ * create/transform) — but only meaningful at the default adjacent range,
+ * since a cliff is a single hexside between two adjacent hexes; a longer
+ * ConvertEffect.maxDistance (e.g. The Cathedral Tale, range 2) has no
+ * single edge to check, so the cliff rule is skipped there entirely.
+ * Covers two shapes: 'enemy' steals an enemy unit outright (kind
+ * unchanged — e.g. Temple's Convert Enemy Unit); 'own' upgrades one of
+ * the acting player's own units into a different kind in place (e.g. a
+ * City converting an adjacent Nomad into a Merchant/Mountaineer) — see
+ * ConvertEffect's doc comment.
  */
 function applyConvert(state: GameState, playerId: string, unit: Unit, effect: ConvertEffect, targetCoord: Coordinate | undefined, content: UnitContent): GameState {
   if (!targetCoord) return state
-  if (!isAdjacent(state, unit.coord, targetCoord)) return state
-  if (crossesCliff(state, unit.coord, targetCoord, content.terrainLevels)) return state
+  const maxDistance = effect.maxDistance ?? 1
+  if (!isWithinDistance(state, unit.coord, targetCoord, maxDistance)) return state
+  if (maxDistance <= 1 && crossesCliff(state, unit.coord, targetCoord, content.terrainLevels)) return state
 
   const targetUnit = unitsAt(state, targetCoord).find((u) =>
     effect.targetOwner === 'own'

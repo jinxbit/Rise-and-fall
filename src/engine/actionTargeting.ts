@@ -1,7 +1,8 @@
-import { getTile, neighborCoords } from './board'
+import { coordsWithinDistance, getTile, neighborCoords } from './board'
 import { legalMoveDestinations } from './movement'
 import { wouldGainResource } from './resources'
 import {
+  boardHasUnitOfKind,
   canAffordCost,
   computeEffectiveTransformCost,
   computeIncomeGold,
@@ -11,6 +12,7 @@ import {
   crossesCliff,
   hasAdjacentOwnUnitKind,
   hasAdjacentTerrain,
+  hasOwnKindCountAtLeast,
   hasReachedSupplyCap,
   isCreationAllowedOnTerrain,
   unitsAt,
@@ -52,6 +54,8 @@ export function legalTransformTargets(state: GameState, playerId: string, unit: 
   if (hasReachedSupplyCap(state, playerId, effect.targetUnit, content.unitSupplyCaps)) return []
   if (effect.requiredAdjacentTerrain && !hasAdjacentTerrain(state, unit.coord, effect.requiredAdjacentTerrain)) return []
   if (effect.requiredAdjacentOwnUnitKind && !hasAdjacentOwnUnitKind(state, playerId, unit.coord, effect.requiredAdjacentOwnUnitKind)) return []
+  if (effect.requiredOwnKindCount && !hasOwnKindCountAtLeast(state, playerId, effect.requiredOwnKindCount.kind, effect.requiredOwnKindCount.atLeast)) return []
+  if (effect.forbiddenIfBoardHasKind && boardHasUnitOfKind(state, effect.forbiddenIfBoardHasKind)) return []
 
   if (effect.targetHex.location === 'self') {
     const tile = getTile(state.board, unit.coord)
@@ -84,8 +88,14 @@ export function legalConvertTargets(state: GameState, playerId: string, unit: Un
   const player = state.players.find((p) => p.id === playerId)
   if (!player) return []
 
-  return neighborCoords(state.board, unit.coord).filter((coord) => {
-    if (crossesCliff(state, unit.coord, coord, content.terrainLevels)) return false
+  const maxDistance = effect.maxDistance ?? 1
+  const candidates = maxDistance === 1 ? neighborCoords(state.board, unit.coord) : coordsWithinDistance(state.board, unit.coord, maxDistance)
+
+  return candidates.filter((coord) => {
+    // See applyConvert's matching comment (./unitActions.ts): a cliff edge
+    // only exists between adjacent hexes, so this only ever applies at the
+    // default range.
+    if (maxDistance <= 1 && crossesCliff(state, unit.coord, coord, content.terrainLevels)) return false
     const target = unitsAt(state, coord).find((u) =>
       effect.targetOwner === 'own'
         ? u.ownerId === playerId && (!effect.requiredTargetKind || u.kind === effect.requiredTargetKind)

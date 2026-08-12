@@ -5,6 +5,7 @@ import { EMPTY_ACHIEVEMENT_CONTENT } from '../../engine/achievementContent'
 import type { AchievementContent } from '../../engine/achievementContent'
 import { createEmptyBoard } from '../../engine/board'
 import { createPlayerCards } from '../../engine/cards'
+import { EMPTY_TALE_CONTENT } from '../../engine/taleContent'
 import type { GameState, Player, Unit } from '../../engine/types'
 import type { PlayerRow } from '../../lib/dbTypes'
 
@@ -77,7 +78,7 @@ describe('EndGameView', () => {
     const state = makeState()
     const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
 
-    const { container } = render(<EndGameView state={state} players={players} achievementContent={content} />)
+    const { container } = render(<EndGameView state={state} players={players} achievementContent={content} taleContent={EMPTY_TALE_CONTENT} />)
 
     // p1 (Alice): City (3) + 1 City board-count (1) + 4 Gold (2) = 6.
     // Real content/achievements.json's display name for 'city-mastery' is
@@ -106,7 +107,7 @@ describe('EndGameView', () => {
     const state = makeState()
     const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
 
-    render(<EndGameView state={state} players={players} achievementContent={content} />)
+    render(<EndGameView state={state} players={players} achievementContent={content} taleContent={EMPTY_TALE_CONTENT} />)
 
     const winnerHeader = screen.getByText('Alice').closest('div')
     expect(winnerHeader).toHaveTextContent('🏆')
@@ -119,9 +120,22 @@ describe('EndGameView', () => {
     const state = { ...makeState(), winnerPlayerIds: ['p1', 'p2'] }
     const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
 
-    render(<EndGameView state={state} players={players} achievementContent={content} />)
+    render(<EndGameView state={state} players={players} achievementContent={content} taleContent={EMPTY_TALE_CONTENT} />)
 
     expect(screen.getByText('Winners:', { exact: false })).toBeInTheDocument()
     expect(screen.getByText(/Alice, Bob/)).toBeInTheDocument()
+  })
+
+  it("scores a Tale controllable structure (e.g. The Cathedral) for whoever controls it, itemized by name", () => {
+    const state = { ...makeState(), units: [...makeState().units, unitAt('p2', 'cathedral')] }
+    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
+    const taleContent = { ...EMPTY_TALE_CONTENT, controllableStructures: [{ kind: 'cathedral', name: 'The Cathedral', victoryPoints: 15 }] }
+
+    render(<EndGameView state={state} players={players} achievementContent={content} taleContent={taleContent} />)
+
+    // p2 (Bob) had "No points scored" without the Cathedral; now scores exactly its 15 VP.
+    expect(screen.getByText('The Cathedral:', { exact: false })).toBeInTheDocument()
+    const bobHeader = screen.getByText('Bob').closest('div')
+    expect(bobHeader).toHaveTextContent('15 points')
   })
 })

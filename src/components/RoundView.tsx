@@ -7,6 +7,7 @@ import type { TurnReview, UnitReviewEvent } from '../engine/turnReview'
 import { calculateVPBreakdown } from '../engine/victoryPoints'
 import type { VPBreakdown } from '../engine/victoryPoints'
 import type { AchievementContent } from '../engine/achievementContent'
+import type { TaleContent } from '../engine/taleContent'
 import { listAchievements } from '../content/resolveContent'
 import type { Card, Coordinate, GameEvent, GameState, Player, Resources, RoundPhase, Unit } from '../engine/types'
 import type { UnitAction, UnitContent } from '../engine/unitContent'
@@ -252,6 +253,7 @@ function PlayersStrip({
   myPlayerId,
   unitContent,
   achievementContent,
+  taleContent,
   resourceDeltaByPlayerId,
 }: {
   state: GameState
@@ -259,11 +261,12 @@ function PlayersStrip({
   myPlayerId: string | null
   unitContent: UnitContent
   achievementContent: AchievementContent
+  taleContent: TaleContent
   /** From TurnReview, only while the history review is toggled on — see RoundView's showHistory. */
   resourceDeltaByPlayerId?: Record<string, Resources> | null
 }) {
   const [expandedPlayerId, setExpandedPlayerId] = useState<string | null>(null)
-  const breakdownByPlayerId = calculateVPBreakdown(state, achievementContent)
+  const breakdownByPlayerId = calculateVPBreakdown(state, achievementContent, taleContent)
   const expandedPlayer = expandedPlayerId ? state.players.find((p) => p.id === expandedPlayerId) : null
 
   return (
@@ -388,7 +391,17 @@ function purchasePriceLadder(
  * move in lockstep with the same number (achievements claimed so far, see
  * calculatePurchaseCost), not because they're otherwise related.
  */
-function AchievementsPanel({ state, players, achievementContent }: { state: GameState; players: PlayerRow[]; achievementContent: AchievementContent }) {
+function AchievementsPanel({
+  state,
+  players,
+  achievementContent,
+  taleContent,
+}: {
+  state: GameState
+  players: PlayerRow[]
+  achievementContent: AchievementContent
+  taleContent: TaleContent
+}) {
   const achievementsClaimed = Object.keys(state.claimedByAchievementId).length
   const { current: buybackPrice, upcoming, isCurrentFinal } = purchasePriceLadder(
     achievementsClaimed,
@@ -442,6 +455,30 @@ function AchievementsPanel({ state, players, achievementContent }: { state: Game
           )
         })}
       </div>
+      {taleContent.controllableStructures.length > 0 && (
+        <>
+          {/* Not real achievements — Tale-contributed bonuses that don't correspond to any content/achievements.json entry, and (unlike a real achievement) whoever holds one can change over the course of the game — see TaleControllableStructure's doc comment. Kept in its own section so it's never confused with a permanent claim. */}
+          <p className="mt-1 text-neutral-500">Tale bonuses (claimable)</p>
+          <div className="flex flex-wrap gap-2">
+            {taleContent.controllableStructures.map((structure) => {
+              const controller = state.units.find((u) => u.kind === structure.kind)
+              return (
+                <span
+                  key={structure.kind}
+                  className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 ${
+                    controller ? 'border-amber-700/50 bg-amber-500/10 text-amber-400' : 'border-neutral-800 text-neutral-500'
+                  }`}
+                >
+                  <UnitIcon kind={structure.kind} className="h-3.5 w-3.5 shrink-0" />
+                  <span>
+                    {structure.name} ({structure.victoryPoints} VP) — {controller ? playerName(players, controller.ownerId) : 'unclaimed'}
+                  </span>
+                </span>
+              )
+            })}
+          </div>
+        </>
+      )}
     </div>
   )
 }
@@ -627,6 +664,8 @@ export function RoundView(props: {
   myPlayerId: string | null
   unitContent: UnitContent
   achievementContent: AchievementContent
+  /** Drives the achievements panel's "Tale bonuses" section and its contribution to each player's live score (see calculateVPBreakdown) — EMPTY_TALE_CONTENT for a game with no Tales active. */
+  taleContent: TaleContent
   /**
    * "What happened since I last acted" (see engine/turnReview.ts) —
    * GamePage.tsx computes this from the full actionHistory, since it needs
@@ -645,7 +684,7 @@ export function RoundView(props: {
   onPurchaseCard: (cardId: string) => void
   onPassPurchase: () => void
 }) {
-  const { state, players, myPlayerId, unitContent, achievementContent, turnReview, showHistory } = props
+  const { state, players, myPlayerId, unitContent, achievementContent, taleContent, turnReview, showHistory } = props
   const [mode, setMode] = useState<ActionUiMode>({ kind: 'idle' })
   /** Hides the full player roster + achievements sidebar so the board can grow into the freed space — see the "Expand board" toggle below. */
   const [sidebarHidden, setSidebarHidden] = useState(false)
@@ -829,9 +868,10 @@ export function RoundView(props: {
               myPlayerId={myPlayerId}
               unitContent={unitContent}
               achievementContent={achievementContent}
+              taleContent={taleContent}
               resourceDeltaByPlayerId={showHistory ? turnReview?.resourceDeltaByPlayerId : null}
             />
-            <AchievementsPanel state={state} players={players} achievementContent={achievementContent} />
+            <AchievementsPanel state={state} players={players} achievementContent={achievementContent} taleContent={taleContent} />
           </div>
         )}
       </div>

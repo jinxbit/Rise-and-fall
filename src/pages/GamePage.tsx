@@ -538,7 +538,9 @@ export function GamePage() {
         />
       )}
 
-      {gameState?.status === 'completed' && <EndGameView state={gameState} players={players} achievementContent={achievementContent} />}
+      {gameState?.status === 'completed' && (
+        <EndGameView state={gameState} players={players} achievementContent={achievementContent} taleContent={taleContent} />
+      )}
 
       {!needsHotseatGate && gameState?.status === 'active' && (
         <RoundView
@@ -547,6 +549,7 @@ export function GamePage() {
           myPlayerId={me?.id ?? null}
           unitContent={unitContent}
           achievementContent={achievementContent}
+          taleContent={taleContent}
           turnReview={turnReview}
           showHistory={showHistory}
           onToggleHistory={() => setShowHistory((v) => !v)}

@@ -14,6 +14,7 @@ import { coordKey } from '../types'
 import type { ConvertEffect, IncomeEffect, TransformEffect, UnitContent } from '../unitContent'
 import { EMPTY_UNIT_CONTENT } from '../unitContent'
 import { applyUnitActionEffect, computeIncomeGold } from '../unitActions'
+import { calculateControllableStructureVP } from '../victoryPoints'
 
 // --- shared fixtures, same conventions as movement.test.ts/applyAction.test.ts ---
 
@@ -676,5 +677,355 @@ describe('Fantastic Events (finishRound) — Economic Collapse', () => {
     const next = finishRound(state, undefined, EMPTY_TALE_CONTENT)
 
     expect(next.units.filter((u) => u.kind === 'bank')).toHaveLength(3)
+  })
+})
+
+// --- Group 6: The Cathedral (Tale #8) ---
+
+const cathedralMovement: UnitMovement = { isMobile: false, terrains: [], canCrossCliffs: false }
+const templeMovement: UnitMovement = { isMobile: false, terrains: [], canCrossCliffs: false }
+
+describe('resolveTaleContent + applyTaleModifiers — The Cathedral, against real content/tales.json + units.json', () => {
+  it('merges Cathedral as a Temple companion, with its own two actions', () => {
+    const base = resolveUnitContent(3)
+    const merged = applyTaleModifiers(base, resolveTaleContent(['the-cathedral'], 3))
+
+    expect(merged.companionKindsByCardKind.temple).toEqual(['cathedral'])
+    expect(merged.unitSupplyCaps.cathedral).toBe(1)
+    expect(merged.actionsByKind.cathedral?.map((a) => a.id).sort()).toEqual(['convert-enemy-unit', 'generate-income'])
+    expect(merged.movementByKind.cathedral).toEqual(cathedralMovement)
+  })
+
+  it("appends construct-cathedral onto Temple's actions, without dropping Temple's base actions", () => {
+    const base = resolveUnitContent(3)
+    const merged = applyTaleModifiers(base, resolveTaleContent(['the-cathedral'], 3))
+
+    const templeActionIds = merged.actionsByKind.temple.map((a) => a.id)
+    expect(templeActionIds).toContain('construct-cathedral')
+    expect(templeActionIds).toContain('convert-enemy-unit') // base action still present
+    expect(templeActionIds).toContain('generate-income') // base action still present
+  })
+
+  it('resolves a single controllable structure worth 15 VP', () => {
+    const taleContent = resolveTaleContent(['the-cathedral'], 3)
+    expect(taleContent.controllableStructures).toEqual([{ kind: 'cathedral', name: 'The Cathedral', victoryPoints: 15 }])
+  })
+
+  it("real Cathedral convert-enemy-unit has maxDistance 2 and Temple's own costByTargetKind", () => {
+    const merged = applyTaleModifiers(resolveUnitContent(2), resolveTaleContent(['the-cathedral'], 2))
+    const effect = merged.actionsByKind.cathedral.find((a) => a.id === 'convert-enemy-unit')!.effect as ConvertEffect
+    expect(effect.maxDistance).toBe(2)
+    expect(effect.costByTargetKind).toEqual({
+      nomad: { gold: 2 },
+      mountaineer: { gold: 3 },
+      merchant: { gold: 5 },
+      ship: { gold: 5 },
+    })
+  })
+
+  it('real Cathedral generate-income has maxDistance 2 and excludes Temple, same as the base Temple action', () => {
+    const merged = applyTaleModifiers(resolveUnitContent(2), resolveTaleContent(['the-cathedral'], 2))
+    const cathedralEffect = merged.actionsByKind.cathedral.find((a) => a.id === 'generate-income')!.effect as IncomeEffect
+    const templeEffect = merged.actionsByKind.temple.find((a) => a.id === 'generate-income')!.effect as IncomeEffect
+    expect(cathedralEffect.maxDistance).toBe(2)
+    expect(cathedralEffect.goldPerAdjacentOwnUnit).toBe(templeEffect.goldPerAdjacentOwnUnit)
+    expect(cathedralEffect.excludeUnitTypes).toEqual(templeEffect.excludeUnitTypes)
+  })
+})
+
+describe('transform effect: requiredOwnKindCount + forbiddenIfBoardHasKind (Temple: Construct the Cathedral)', () => {
+  const content: UnitContent = {
+    ...EMPTY_UNIT_CONTENT,
+    movementByKind: { cathedral: cathedralMovement },
+    terrainLevels: TERRAIN_LEVELS,
+    resourceCaps: { gold: null, wood: 5, stone: 5 },
+    unitSupplyCaps: { cathedral: 1 },
+  }
+  const effect: TransformEffect = {
+    actionType: 'transform',
+    targetUnit: 'cathedral',
+    targetHex: { terrainType: ['plain', 'mountain'], location: 'self' },
+    destroySelf: true,
+    cost: { gold: 0, wood: 3, stone: 5 },
+    requiredOwnKindCount: { kind: 'temple', atLeast: 3 },
+    forbiddenIfBoardHasKind: 'cathedral',
+  }
+  const action = { id: 'construct-cathedral', name: 'Construct the Cathedral', description: '', effect }
+
+  it('succeeds when the player has all 3 Temples in play and no Cathedral exists yet', () => {
+    const board = boardOf([[0, 0, 'plain'], [1, 0, 'plain'], [2, 0, 'plain']])
+    const actingTemple = makeUnit('p1', 'temple', { q: 0, r: 0 }, templeMovement)
+    const otherTemple1 = makeUnit('p1', 'temple', { q: 1, r: 0 }, templeMovement)
+    const otherTemple2 = makeUnit('p1', 'temple', { q: 2, r: 0 }, templeMovement)
+    const state = makeState({
+      board,
+      units: [actingTemple, otherTemple1, otherTemple2],
+      players: [makePlayer('p1', { resources: { gold: 0, wood: 5, stone: 5 } })],
+    })
+
+    const next = applyUnitActionEffect(state, 'p1', 'temple', action, {}, content, [actingTemple.id])
+
+    expect(next.units.find((u) => u.id === actingTemple.id)).toBeUndefined() // destroySelf
+    expect(next.units.some((u) => u.kind === 'cathedral' && coordKey(u.coord) === coordKey(actingTemple.coord))).toBe(true)
+    expect(next.units.filter((u) => u.kind === 'temple')).toHaveLength(2) // the other two remain
+    const player = next.players.find((p) => p.id === 'p1')!
+    expect(player.resources).toEqual({ gold: 0, wood: 2, stone: 0 })
+  })
+
+  it('is rejected with fewer than 3 Temples in play', () => {
+    const board = boardOf([[0, 0, 'plain'], [1, 0, 'plain']])
+    const actingTemple = makeUnit('p1', 'temple', { q: 0, r: 0 }, templeMovement)
+    const otherTemple = makeUnit('p1', 'temple', { q: 1, r: 0 }, templeMovement)
+    const state = makeState({
+      board,
+      units: [actingTemple, otherTemple],
+      players: [makePlayer('p1', { resources: { gold: 0, wood: 5, stone: 5 } })],
+    })
+
+    const next = applyUnitActionEffect(state, 'p1', 'temple', action, {}, content, [actingTemple.id])
+
+    expect(next).toBe(state)
+  })
+
+  it('is rejected once a Cathedral already exists anywhere in the World, even for a different player', () => {
+    const board = boardOf([[0, 0, 'plain'], [1, 0, 'plain'], [2, 0, 'plain'], [9, 9, 'plain']])
+    const actingTemple = makeUnit('p1', 'temple', { q: 0, r: 0 }, templeMovement)
+    const otherTemple1 = makeUnit('p1', 'temple', { q: 1, r: 0 }, templeMovement)
+    const otherTemple2 = makeUnit('p1', 'temple', { q: 2, r: 0 }, templeMovement)
+    const existingCathedral = makeUnit('p2', 'cathedral', { q: 9, r: 9 }, cathedralMovement)
+    const state = makeState({
+      board,
+      units: [actingTemple, otherTemple1, otherTemple2, existingCathedral],
+      players: [makePlayer('p1', { resources: { gold: 0, wood: 5, stone: 5 } }), makePlayer('p2')],
+    })
+
+    const next = applyUnitActionEffect(state, 'p1', 'temple', action, {}, content, [actingTemple.id])
+
+    expect(next).toBe(state)
+  })
+
+  it('legalTransformTargets is empty with fewer than 3 Temples, and non-empty with all 3', () => {
+    const board = boardOf([[0, 0, 'plain'], [1, 0, 'plain'], [2, 0, 'plain']])
+    const actingTemple = makeUnit('p1', 'temple', { q: 0, r: 0 }, templeMovement)
+    const stateShort = makeState({ board, units: [actingTemple], players: [makePlayer('p1', { resources: { gold: 0, wood: 5, stone: 5 } })] })
+    expect(legalTransformTargets(stateShort, 'p1', actingTemple, effect, content)).toEqual([])
+
+    const otherTemple1 = makeUnit('p1', 'temple', { q: 1, r: 0 }, templeMovement)
+    const otherTemple2 = makeUnit('p1', 'temple', { q: 2, r: 0 }, templeMovement)
+    const stateFull = makeState({
+      board,
+      units: [actingTemple, otherTemple1, otherTemple2],
+      players: [makePlayer('p1', { resources: { gold: 0, wood: 5, stone: 5 } })],
+    })
+    expect(legalTransformTargets(stateFull, 'p1', actingTemple, effect, content)).toEqual([actingTemple.coord])
+  })
+})
+
+describe("convert effect's maxDistance (Cathedral: Convert Enemy Unit at range 2)", () => {
+  const content: UnitContent = { ...EMPTY_UNIT_CONTENT, movementByKind: { nomad: { isMobile: true, terrains: ['plain'], canCrossCliffs: false } } }
+  const effect: ConvertEffect = { actionType: 'convert', targetHex: { location: 'adj' }, targetOwner: 'enemy', targetMobileOnly: true, maxDistance: 2, cost: {} }
+  const action = { id: 'convert-enemy-unit', name: 'Convert Enemy Unit', description: '', effect }
+
+  it('reaches an enemy unit 2 spaces away, not just adjacent', () => {
+    const board = boardOf([[0, 0, 'plain'], [1, 0, 'plain'], [2, 0, 'plain']])
+    const cathedral = makeUnit('p1', 'cathedral', { q: 0, r: 0 }, cathedralMovement)
+    const enemyNomad = makeUnit('p2', 'nomad', { q: 2, r: 0 }, { isMobile: true, terrains: ['plain'], canCrossCliffs: false })
+    const state = makeState({ board, units: [cathedral, enemyNomad], players: [makePlayer('p1'), makePlayer('p2')] })
+
+    const next = applyUnitActionEffect(state, 'p1', 'cathedral', action, { [cathedral.id]: enemyNomad.coord }, content)
+
+    expect(next.units.find((u) => u.id === enemyNomad.id)?.ownerId).toBe('p1')
+  })
+
+  it('does not reach 3 spaces away', () => {
+    const board = boardOf([[0, 0, 'plain'], [1, 0, 'plain'], [2, 0, 'plain'], [3, 0, 'plain']])
+    const cathedral = makeUnit('p1', 'cathedral', { q: 0, r: 0 }, cathedralMovement)
+    const enemyNomad = makeUnit('p2', 'nomad', { q: 3, r: 0 }, { isMobile: true, terrains: ['plain'], canCrossCliffs: false })
+    const state = makeState({ board, units: [cathedral, enemyNomad], players: [makePlayer('p1'), makePlayer('p2')] })
+
+    const next = applyUnitActionEffect(state, 'p1', 'cathedral', action, { [cathedral.id]: enemyNomad.coord }, content)
+
+    expect(next).toBe(state)
+  })
+
+  it('legalConvertTargets at range 2 includes a hex 2 steps away', () => {
+    const board = boardOf([[0, 0, 'plain'], [1, 0, 'plain'], [2, 0, 'plain']])
+    const cathedral = makeUnit('p1', 'cathedral', { q: 0, r: 0 }, cathedralMovement)
+    const enemyNomad = makeUnit('p2', 'nomad', { q: 2, r: 0 }, { isMobile: true, terrains: ['plain'], canCrossCliffs: false })
+    const state = makeState({ board, units: [cathedral, enemyNomad], players: [makePlayer('p1'), makePlayer('p2')] })
+
+    expect(legalConvertTargets(state, 'p1', cathedral, effect, content).map(coordKey)).toContain(coordKey(enemyNomad.coord))
+  })
+
+  it('is not blocked by a cliff at range 2 (no single hexside to check)', () => {
+    const board = boardOf([[0, 0, 'mountain'], [1, 0, 'plain'], [2, 0, 'water']]) // mountain(3) -> water(0) would be a cliff if adjacent
+    const cathedral = makeUnit('p1', 'cathedral', { q: 0, r: 0 }, cathedralMovement)
+    const enemyNomad = makeUnit('p2', 'nomad', { q: 2, r: 0 }, { isMobile: true, terrains: ['plain'], canCrossCliffs: false })
+    const state = makeState({ board, units: [cathedral, enemyNomad], players: [makePlayer('p1'), makePlayer('p2')] })
+
+    const next = applyUnitActionEffect(state, 'p1', 'cathedral', action, { [cathedral.id]: enemyNomad.coord }, content)
+
+    expect(next.units.find((u) => u.id === enemyNomad.id)?.ownerId).toBe('p1')
+  })
+})
+
+describe("income effect's maxDistance (Cathedral: Generate Income at range 2)", () => {
+  const effect: IncomeEffect = { actionType: 'income', goldPerAdjacentOwnUnit: 2, excludeUnitTypes: ['temple'], maxDistance: 2 }
+
+  it('counts an own non-Temple unit 2 spaces away, not just adjacent', () => {
+    const board = boardOf([[0, 0, 'plain'], [1, 0, 'plain'], [2, 0, 'plain']])
+    const cathedral = makeUnit('p1', 'cathedral', { q: 0, r: 0 }, cathedralMovement)
+    const ownNomad = makeUnit('p1', 'nomad', { q: 2, r: 0 }, { isMobile: true, terrains: ['plain'], canCrossCliffs: false })
+    const state = makeState({ board, units: [cathedral, ownNomad] })
+
+    expect(computeIncomeGold(state, 'p1', cathedral, effect)).toBe(2)
+  })
+
+  it('excludes Temples within range, same as the base Temple action', () => {
+    const board = boardOf([[0, 0, 'plain'], [1, 0, 'plain'], [2, 0, 'plain']])
+    const cathedral = makeUnit('p1', 'cathedral', { q: 0, r: 0 }, cathedralMovement)
+    const ownTemple = makeUnit('p1', 'temple', { q: 2, r: 0 }, templeMovement)
+    const state = makeState({ board, units: [cathedral, ownTemple] })
+
+    expect(computeIncomeGold(state, 'p1', cathedral, effect)).toBe(0)
+  })
+
+  it('does not count a unit 3 spaces away', () => {
+    const board = boardOf([[0, 0, 'plain'], [1, 0, 'plain'], [2, 0, 'plain'], [3, 0, 'plain']])
+    const cathedral = makeUnit('p1', 'cathedral', { q: 0, r: 0 }, cathedralMovement)
+    const farNomad = makeUnit('p1', 'nomad', { q: 3, r: 0 }, { isMobile: true, terrains: ['plain'], canCrossCliffs: false })
+    const state = makeState({ board, units: [cathedral, farNomad] })
+
+    expect(computeIncomeGold(state, 'p1', cathedral, effect)).toBe(0)
+  })
+})
+
+describe('convert immunity — a Cathedral is immobile, so a Convert Enemy Unit with targetMobileOnly: true never reaches it', () => {
+  it('excludes an adjacent enemy Cathedral', () => {
+    const board = boardOf([[0, 0, 'plain'], [1, 0, 'plain']])
+    const temple = makeUnit('p1', 'temple', { q: 0, r: 0 }, templeMovement)
+    const enemyCathedral = makeUnit('p2', 'cathedral', { q: 1, r: 0 }, cathedralMovement)
+    const state = makeState({ board, units: [temple, enemyCathedral], players: [makePlayer('p1'), makePlayer('p2')] })
+    const content: UnitContent = { ...EMPTY_UNIT_CONTENT, movementByKind: { cathedral: cathedralMovement } }
+    const effect: ConvertEffect = { actionType: 'convert', targetHex: { location: 'adj' }, targetOwner: 'enemy', targetMobileOnly: true, cost: {} }
+
+    expect(legalConvertTargets(state, 'p1', temple, effect, content)).toEqual([])
+  })
+})
+
+describe('calculateControllableStructureVP — The Cathedral, against real content/tales.json', () => {
+  it('awards the real 15 VP to whoever controls the Cathedral, and 0 to everyone else', () => {
+    const taleContent = resolveTaleContent(['the-cathedral'], 2)
+    const cathedral = makeUnit('p1', 'cathedral', { q: 0, r: 0 }, cathedralMovement)
+
+    const vp = calculateControllableStructureVP([cathedral], taleContent.controllableStructures)
+
+    expect(vp).toEqual({ p1: 15 })
+  })
+
+  it('awards nothing while no Cathedral has been built', () => {
+    const taleContent = resolveTaleContent(['the-cathedral'], 2)
+
+    expect(calculateControllableStructureVP([], taleContent.controllableStructures)).toEqual({})
+  })
+})
+
+describe('companion piece dispatch — Cathedral activates alongside the Temple card, not the turn it is built', () => {
+  const content: UnitContent = {
+    actionsByKind: {
+      temple: [
+        { id: 'temple-income', name: 'Temple Income', description: '', effect: { actionType: 'income', goldByTerrain: { plain: 3 } } },
+        {
+          id: 'construct-cathedral',
+          name: 'Construct the Cathedral',
+          description: '',
+          effect: {
+            actionType: 'transform',
+            targetUnit: 'cathedral',
+            targetHex: { terrainType: ['plain', 'mountain'], location: 'self' },
+            destroySelf: true,
+            cost: {},
+            requiredOwnKindCount: { kind: 'temple', atLeast: 1 },
+            forbiddenIfBoardHasKind: 'cathedral',
+          },
+        },
+      ],
+      cathedral: [{ id: 'cathedral-income', name: 'Cathedral Income', description: '', effect: { actionType: 'income', goldByTerrain: { plain: 5 } } }],
+    },
+    movementByKind: { temple: templeMovement, cathedral: cathedralMovement },
+    terrainLevels: TERRAIN_LEVELS,
+    resourceCaps: { gold: null, wood: 5, stone: 5 },
+    unitSupplyCaps: { temple: 10, cathedral: 1 },
+    companionKindsByCardKind: { temple: ['cathedral'] },
+  }
+
+  // Two players (see the matching Ports test's comment above for why):
+  // otherwise finishing p1's only acting unit's turn cascades the whole
+  // round to completion before these tests can inspect the mid-turn state.
+  function makeGameWithTempleAndCathedral(includeCathedral: boolean): GameState {
+    const p1Cards = createPlayerCards('p1')
+    const p2Cards = createPlayerCards('p2')
+    const cards = [...p1Cards, ...p2Cards].reduce((acc, c) => ({ ...acc, [c.id]: c }), {} as GameState['cards'])
+    const temple = makeUnit('p1', 'temple', { q: 0, r: 0 }, templeMovement)
+    const units = includeCathedral ? [temple, makeUnit('p1', 'cathedral', { q: 1, r: 0 }, cathedralMovement)] : [temple]
+    const board = boardOf([[0, 0, 'plain'], [1, 0, 'plain']])
+
+    let state = makeState({
+      board,
+      units,
+      cards,
+      players: [
+        makePlayer('p1', { handCardIds: [cardIdFor('p1', 'temple')] }),
+        makePlayer('p2', { handCardIds: [cardIdFor('p2', 'nomad')] }),
+      ],
+      turnOrder: ['p1', 'p2'],
+      roundPhase: 'selectCards',
+    })
+    state = beginSelectCardsPhase(state)
+    return state
+  }
+
+  function chooseCards(state: GameState): GameState {
+    const p1Choice = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'temple') }, content)
+    if (!p1Choice.ok) throw new Error('p1 setup failed')
+    const p2Choice = applyAction(p1Choice.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'nomad') }, content)
+    if (!p2Choice.ok) throw new Error('p2 setup failed')
+    return p2Choice.state
+  }
+
+  it('lets a pre-existing Cathedral act (its own action) when the Temple card is played', () => {
+    const state = chooseCards(makeGameWithTempleAndCathedral(true))
+
+    const cathedral = state.units.find((u) => u.kind === 'cathedral')!
+    const result = applyAction(state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [{ unitId: cathedral.id, actionId: 'cathedral-income' }] }, content)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.state.players.find((p) => p.id === 'p1')?.resources.gold).toBe(5)
+  })
+
+  it("rejects a companion Cathedral acting the same turn it was built (can't activate the turn it's constructed)", () => {
+    let state = chooseCards(makeGameWithTempleAndCathedral(false))
+    const secondTemple = makeUnit('p1', 'temple', { q: 1, r: 0 }, templeMovement)
+    state = { ...state, units: [...state.units, secondTemple] }
+
+    const temple = state.units.find((u) => u.kind === 'temple' && u.id !== secondTemple.id)!
+    const built = applyAction(
+      state,
+      { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [{ unitId: temple.id, actionId: 'construct-cathedral' }] },
+      content,
+    )
+    if (!built.ok) throw new Error('temple-to-cathedral transform failed')
+    expect(built.state.roundPhase).toBe('actions') // still p1's turn — the untouched second Temple kept it open
+    const newCathedral = built.state.units.find((u) => u.kind === 'cathedral')!
+    expect(built.state.unitsCreatedThisTurn).toContain(newCathedral.id)
+
+    const result = applyAction(
+      built.state,
+      { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [{ unitId: newCathedral.id, actionId: 'cathedral-income' }] },
+      content,
+    )
+
+    expect(result.ok).toBe(false)
   })
 })

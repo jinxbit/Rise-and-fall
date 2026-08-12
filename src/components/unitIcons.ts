@@ -85,7 +85,20 @@ export const UNIT_ICONS: Record<string, IconShape[]> = {
     { kind: 'rect', x: 11.3, y: 6.4, width: 1.4, height: 2.4 },
     { kind: 'rect', x: 16.3, y: 9.5, width: 2.4, height: 1.4 },
   ],
+  // The Cathedral Tale — twin flanking spires plus a taller central spire
+  // over the nave, with a doorway sliver. Reads as "grander than a Temple"
+  // through sheer roofline height rather than reusing Temple's column
+  // motif, since only one Cathedral ever exists at once.
+  cathedral: [
+    { kind: 'rect', x: 3.5, y: 11, width: 3.4, height: 9 },
+    { kind: 'polygon', points: '3.5,11 5.2,5 6.9,11' },
+    { kind: 'rect', x: 16.6, y: 11, width: 3.4, height: 9 },
+    { kind: 'polygon', points: '16.6,11 18.3,5 20,11' },
+    { kind: 'rect', x: 8.3, y: 13, width: 7.4, height: 7 },
+    { kind: 'polygon', points: '8.3,13 12,7.5 15.7,13' },
+    { kind: 'rect', x: 11.1, y: 16, width: 1.8, height: 4 },
+  ],
 }
 
-/** City and Temple are immobile structures (never move once placed) — marked with a rectangle instead of the mobile units' circle. Port (The Ports Tale) and Bank (The Banks Tale) are likewise immobile once built. */
-export const STATIC_UNIT_KINDS = new Set(['city', 'temple', 'port', 'bank'])
+/** City and Temple are immobile structures (never move once placed) — marked with a rectangle instead of the mobile units' circle. Port (The Ports Tale), Bank (The Banks Tale), and Cathedral (The Cathedral Tale) are likewise immobile once built. */
+export const STATIC_UNIT_KINDS = new Set(['city', 'temple', 'port', 'bank', 'cathedral'])

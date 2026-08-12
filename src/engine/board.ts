@@ -55,6 +55,37 @@ export function neighborTiles(board: Board, coord: Coordinate): Tile[] {
 }
 
 /**
+ * Every hex within `maxDistance` steps of `coord` (not including `coord`
+ * itself) — for a Tale ability with a farther-than-adjacent range (e.g.
+ * The Cathedral Tale's convert/income at distance 2), same neighbor-
+ * direction stepping legalConvertTargets/computeIncomeGold otherwise use
+ * for distance 1. Doesn't filter by whether a hex actually has a tile —
+ * same convention as neighborCoords, whose callers filter via getTile as
+ * needed.
+ */
+export function coordsWithinDistance(board: Board, coord: Coordinate, maxDistance: number): Coordinate[] {
+  const visited = new Set([coordKey(coord)])
+  const result: Coordinate[] = []
+  let frontier: Coordinate[] = [coord]
+
+  for (let step = 0; step < maxDistance; step++) {
+    const next: Coordinate[] = []
+    for (const from of frontier) {
+      for (const neighbor of neighborCoords(board, from)) {
+        const key = coordKey(neighbor)
+        if (visited.has(key)) continue
+        visited.add(key)
+        result.push(neighbor)
+        next.push(neighbor)
+      }
+    }
+    frontier = next
+  }
+
+  return result
+}
+
+/**
  * Flood-fills every hex reachable from `start` while staying on the same
  * terrain as `start`'s own tile — e.g. a Ship's whole contiguous "sea area"
  * for its Trade action. Adjacency alone decides the region; cliffs never
