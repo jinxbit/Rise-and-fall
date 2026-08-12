@@ -27,6 +27,8 @@ export function buildGenesisState(game: GameRow, players: PlayerRow[]): GameStat
       color: p.color,
     })),
     resourceBank: resolveResourceBank(players.length),
+    activeTaleIds: game.active_tale_ids,
+    gameLength: game.game_length,
   })
 
   if (game.map_template_id) {

@@ -260,6 +260,27 @@ export interface GameState {
   gameId: string
   playMode: PlayMode
   status: GameStatus
+  /**
+   * Content ids of active Tales (content/tales.json) for this game — a
+   * creation-time choice (games.active_tale_ids), immutable for the whole
+   * game, carried here (set once by createNewGame/buildGenesisState) so a
+   * caller resolving this game's effective content (resolveTaleContent +
+   * applyTaleModifiers) never needs the DB row itself, and so an exported
+   * GameState (RAF-STATE-1, ./gameStateExport.ts) is self-describing.
+   * Empty means the Tales variant is off. The engine itself never reads
+   * this — it stays content-agnostic, same as every other Tale mechanic.
+   */
+  activeTaleIds: string[]
+  /**
+   * Total achievements claimed (across all players) that ends the game —
+   * a creation-time choice (games.game_length), immutable for the whole
+   * game, carried here for the same reason as activeTaleIds above: the
+   * caller resolves this into AchievementContent.gameLength
+   * (resolveAchievementContent), the engine itself never reads this field
+   * directly. content/achievements.json's gameLength.min/max bounds the
+   * value a caller should actually resolve it against.
+   */
+  gameLength: number
   /** Round number — increments each time a round finishes (see ./round.ts). */
   turn: number
   /**

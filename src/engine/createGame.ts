@@ -22,6 +22,11 @@ const EMPTY_RESOURCES: Resources = { gold: 0, wood: 0, stone: 0 }
  * content-agnostic (see UNIT_KINDS in ./cards.ts), so the caller resolves
  * it. Optional and defaults to empty (no resources) so existing
  * callers/tests that don't touch it aren't forced to pass it.
+ *
+ * `activeTaleIds`/`gameLength` are just carried into the resulting
+ * GameState verbatim (see GameState's own doc comments) — the engine
+ * never interprets either itself, so both are optional and default to
+ * "off"/"unset" (`[]`/`Infinity`) for callers/tests that don't care.
  */
 export function createNewGame(params: {
   gameId: string
@@ -29,6 +34,8 @@ export function createNewGame(params: {
   board: Board
   players: PlayerSeed[]
   resourceBank?: Resources
+  activeTaleIds?: string[]
+  gameLength?: number
 }): GameState {
   const cards: Record<string, Card> = {}
   const players: Player[] = params.players.map((seed) => {
@@ -57,6 +64,8 @@ export function createNewGame(params: {
     gameId: params.gameId,
     playMode: params.playMode,
     status: 'lobby',
+    activeTaleIds: params.activeTaleIds ?? [],
+    gameLength: params.gameLength ?? Infinity,
     turn: 0,
     activePlayerId: null,
     roundPhase: 'selectCards',

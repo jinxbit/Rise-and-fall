@@ -54,6 +54,8 @@ function makeState(): GameState {
     units: [unitAt('p1', 'city')],
     cards,
     resourceBank: { gold: 100, wood: 100, stone: 100 },
+    activeTaleIds: [],
+    gameLength: Infinity,
     winnerPlayerIds: ['p1'],
     claimedByAchievementId: { 'city-mastery': 'p1' },
     achievementsClaimedThisRound: 0,

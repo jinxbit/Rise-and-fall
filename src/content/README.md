@@ -241,15 +241,18 @@ and part of final scoring:
   before the game ends. `default` is the standard game (4); `min`/`max`
   bound what players may pick instead. `max` is 6 because each of the 6
   achievements can only ever be claimed once, by one player. The actual
-  choice is `games.game_length` (`0006_game_length.sql`, defaults to 4),
-  set at creation via `HomePage.tsx`'s `GameLengthSelector` (offers 4/5/6 —
-  1-3 technically fits `min`/`max` but ends the game too fast to bother
-  offering) and read by `GamePage.tsx` into
-  `resolveAchievementContent(game.game_length)`
-  (`content/resolveContent.ts`), which clamps it back to `min`/`max` for
-  safety. `RoundView.tsx`'s achievements panel shows "N of gameLength
-  achievements claimed" and marks whichever decline buyback price
-  corresponds to the game-ending achievement.
+  choice starts as `games.game_length` (`0006_game_length.sql`, defaults
+  to 4), set at creation via `HomePage.tsx`'s `GameLengthSelector` (offers
+  4/5/6 — 1-3 technically fits `min`/`max` but ends the game too fast to
+  bother offering); `buildGenesisState` (`src/lib/gameGenesis.ts`) carries
+  it into `GameState.gameLength` at genesis, so once a game is under way
+  `GamePage.tsx` reads it from there (`resolveAchievementContent(gameState.
+  gameLength)`, `content/resolveContent.ts`, which clamps it back to
+  `min`/`max` for safety) rather than the `games` row — same reason
+  `activeTaleIds` moved onto `GameState` too, see below. `RoundView.tsx`'s
+  achievements panel shows "N of gameLength achievements claimed" and
+  marks whichever decline buyback price corresponds to the game-ending
+  achievement.
 - `purchaseCost.byAchievementCount` — the gold cost to buy a card back from
   decline, indexed the same way as `victoryPoints.byBoardCount` in
   `units.json`: index 0 is the cost once 1 achievement has been claimed in
@@ -387,10 +390,16 @@ Tale-selection UI) regardless of which are active anywhere.
 **Which Tales are active is a per-game, creation-time choice** — the
 `games.active_tale_ids` column (`supabase/migrations/0005_tales_variant.
 sql`), set via `HomePage.tsx`'s `TaleSelector` (checkbox list + a
-"Randomize" shuffle) and read by `GamePage.tsx` to build the game's
-effective `UnitContent` once, memoized alongside the base
-`resolveUnitContent()` call. Empty (the default) behaves exactly like a
-game from before this variant existed.
+"Randomize" shuffle). That column only matters up through the lobby,
+though: `buildGenesisState` (`src/lib/gameGenesis.ts`) carries the chosen
+ids into `GameState.activeTaleIds` once the game starts, so from then on
+`GamePage.tsx` builds the game's effective `UnitContent` from
+`gameState.activeTaleIds` (memoized alongside the base
+`resolveUnitContent()` call), not the `games` row — a running game (and
+its RAF-STATE-1 export) is self-contained, and Undo/replay naturally stay
+consistent since `activeTaleIds` rides along on every replayed state.
+Empty (the default) behaves exactly like a game from before this variant
+existed.
 
 **Scope note:** the round-play UI (`RoundView.tsx`) doesn't yet know
 about companion-piece units — its action-phase panel only highlights

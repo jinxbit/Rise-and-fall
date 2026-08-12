@@ -46,6 +46,8 @@ function makeWaterPlacementState(board: GameState['board']): GameState {
     units: [],
     cards: {},
     resourceBank: { gold: 0, wood: 0, stone: 0 },
+    activeTaleIds: [],
+    gameLength: Infinity,
     winnerPlayerIds: [],
     claimedByAchievementId: {},
     achievementsClaimedThisRound: 0,

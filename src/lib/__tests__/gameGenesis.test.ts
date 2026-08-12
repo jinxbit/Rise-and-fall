@@ -70,6 +70,16 @@ describe('buildGenesisState', () => {
     expect(genesis.turnOrder).toEqual(['p1', 'p2'])
   })
 
+  // GameState.activeTaleIds/gameLength carry the games row's creation-time
+  // choice into the running game (see GameState's own doc comments) — once
+  // genesis is built, GamePage.tsx reads these off gameState, not `game`,
+  // so a game (and its RAF-STATE-1 export) is self-contained.
+  it("carries the game row's active_tale_ids/game_length into GameState", () => {
+    const genesis = buildGenesisState(makeGame({ active_tale_ids: ['the-ports'], game_length: 6 }), makePlayers())
+    expect(genesis.activeTaleIds).toEqual(['the-ports'])
+    expect(genesis.gameLength).toBe(6)
+  })
+
   it('undo mechanism: replaying genesis + history.slice(0, -1) reconstructs the pre-action state', () => {
     // GamePage.tsx's handleUndo does exactly this: rebuild genesis (since
     // it isn't stored) and replay every logged action except the last one.

@@ -130,17 +130,21 @@ export function GamePage() {
   }, [game])
 
   const boardGenerationContent = useMemo(() => resolveBoardGenerationContent(players.length), [players.length])
-  // Tales (src/content/tales.json) chosen at game creation (game.active_tale_ids
-  // — see HomePage.tsx's TaleSelector) are merged onto the base UnitContent
-  // here, once, so every RESOLVE_UNIT_ACTION/replay/undo call below sees the
-  // same effective content — applyTaleModifiers is a no-op for a game with
-  // none active (the default, and every game before this variant existed).
+  // Tales (src/content/tales.json) and the achievement target chosen at
+  // game creation (games.active_tale_ids/game_length — see HomePage.tsx's
+  // TaleSelector/GameLengthSelector) are carried into GameState itself
+  // once genesis is built (GameState.activeTaleIds/gameLength — see
+  // buildGenesisState), so once a game is under way this reads the
+  // running gameState, not the games row — self-contained the same way a
+  // RAF-STATE-1 export is. applyTaleModifiers is a no-op for a game with
+  // no Tales active (the default, and every game before this variant
+  // existed).
   const taleContent = useMemo(
-    () => resolveTaleContent(game?.active_tale_ids ?? [], players.length),
-    [players.length, game?.active_tale_ids],
+    () => resolveTaleContent(gameState?.activeTaleIds ?? [], players.length),
+    [players.length, gameState?.activeTaleIds],
   )
   const unitContent = useMemo(() => applyTaleModifiers(resolveUnitContent(players.length), taleContent), [players.length, taleContent])
-  const achievementContent = useMemo(() => resolveAchievementContent(game?.game_length), [game?.game_length])
+  const achievementContent = useMemo(() => resolveAchievementContent(gameState?.gameLength), [gameState?.gameLength])
 
   const isHotseat = game?.play_mode === 'hotseat'
   // Creation-time opt-out (HomePage.tsx's checkbox) for groups that don't

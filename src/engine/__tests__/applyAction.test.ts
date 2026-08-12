@@ -115,6 +115,34 @@ describe('createNewGame / startGame', () => {
     const active: GameState = { ...lobby, status: 'active' }
     expect(() => startGame(active, EMPTY_BOARD_GENERATION_CONTENT)).toThrow()
   })
+
+  // activeTaleIds/gameLength are pure passthrough data (see GameState's own
+  // doc comments) — the engine never interprets either, so createNewGame
+  // just carries whatever the caller passes, defaulting to "off"/"unset"
+  // for callers (mostly other tests) that don't care.
+  it('carries activeTaleIds/gameLength through when given', () => {
+    const lobby = createNewGame({
+      gameId: 'game_1',
+      playMode: 'hotseat',
+      board: createEmptyBoard('hex'),
+      players: [{ id: 'p1', authUserId: 'auth_1', displayName: 'Alice', color: 'red' }],
+      activeTaleIds: ['the-ports', 'the-banks'],
+      gameLength: 5,
+    })
+    expect(lobby.activeTaleIds).toEqual(['the-ports', 'the-banks'])
+    expect(lobby.gameLength).toBe(5)
+  })
+
+  it('defaults activeTaleIds/gameLength to "off"/"unset" when omitted', () => {
+    const lobby = createNewGame({
+      gameId: 'game_1',
+      playMode: 'hotseat',
+      board: createEmptyBoard('hex'),
+      players: [{ id: 'p1', authUserId: 'auth_1', displayName: 'Alice', color: 'red' }],
+    })
+    expect(lobby.activeTaleIds).toEqual([])
+    expect(lobby.gameLength).toBe(Infinity)
+  })
 })
 
 describe('applyAction', () => {
