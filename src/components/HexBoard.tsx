@@ -142,10 +142,11 @@ export interface HistoryArrow {
 /**
  * A live "this unit just gained/spent resources" callout (see GamePage.tsx's
  * showProductionPopup) — unlike UnitMarker.historyLabel (only shown while
- * the history-review toggle is on, sitting above the unit, and static),
- * this is always on, drawn below the unit, and self-removing: `id` is
- * unique per occurrence, so mounting it plays its rise-and-fade animation
- * once and the caller drops it from its list a moment later.
+ * the history-review toggle is on, sitting beside the unit, and static),
+ * this is always on, centered right on top of the unit and self-removing:
+ * `id` is unique per occurrence, so mounting it plays its rise-and-fade
+ * animation once, directly on the unit's own position, and the caller drops
+ * it from its list a moment later.
  */
 export interface ProductionPopup {
   id: string
@@ -485,12 +486,13 @@ export function HexBoard(props: {
   for (const { x, y } of historyLabelPositions.values()) {
     boundsPoints.push({ x: x + size * HISTORY_LABEL_WIDTH_FACTOR, y: y + size * HISTORY_LABEL_HEIGHT_FACTOR })
   }
-  // A production popup (see ProductionPopup) sits below its unit's hex —
-  // extend the viewBox the same way history labels do above it, so one
-  // near the board's bottom edge doesn't get clipped.
+  // A production popup (see ProductionPopup) is centered on its unit and
+  // rises from there (rf-float-up) — extend the viewBox above the hex the
+  // same way history labels do, so one near the board's top edge doesn't
+  // get clipped mid-rise, and sideways for its own text width.
   for (const popup of props.productionPopups ?? []) {
     const { x, y } = axialToPixel(popup.coord, size)
-    boundsPoints.push({ x: x + size * HISTORY_LABEL_WIDTH_FACTOR, y: y + size * 2.2 })
+    boundsPoints.push({ x: x + size * HISTORY_LABEL_WIDTH_FACTOR, y: y - size * 1.6 })
   }
   const minX = Math.min(...boundsPoints.map((p) => p.x)) - pad
   const maxX = Math.max(...boundsPoints.map((p) => p.x)) + pad
@@ -696,15 +698,22 @@ export function HexBoard(props: {
         const width = size * HISTORY_LABEL_WIDTH_FACTOR
         const height = size * HISTORY_LABEL_HEIGHT_FACTOR * (parts.length > 2 ? 2 : 1)
         return (
+          // Centered directly on the unit's own position (not offset beside
+          // it) and rising from there via rf-float-up — reads as the unit
+          // itself producing the number, not a separate side label.
           // `key={popup.id}` is unique per occurrence (see ProductionPopup's
           // doc comment) — mounting this foreignObject is itself the trigger
-          // for `rf-float-up`'s rise-and-fade (index.css), no separate
-          // "start animating now" state needed. The caller (GamePage.tsx)
-          // drops the popup from its list once the animation's had time to
-          // finish; nothing here re-renders in between.
-          <foreignObject key={popup.id} x={x - width / 2} y={y + size * 0.75} width={width} height={height} pointerEvents="none">
+          // for that rise-and-fade (index.css), no separate "start animating
+          // now" state needed. The caller (GamePage.tsx) drops the popup
+          // from its list once the animation's had time to finish; nothing
+          // here re-renders in between.
+          <foreignObject key={popup.id} x={x - width / 2} y={y - height / 2} width={width} height={height} pointerEvents="none">
             <div
-              style={{ fontSize: size * 0.32, lineHeight: 1.3 }}
+              // The text shadow keeps the number legible sitting directly on
+              // top of the unit's own plate/glyph and whatever terrain color
+              // is behind it, in place of a background box that would just
+              // hide the unit underneath instead.
+              style={{ fontSize: size * 0.34, lineHeight: 1.3, textShadow: '0 1px 3px rgba(0,0,0,0.95), 0 0 4px rgba(0,0,0,0.95)' }}
               className="rf-float-up flex h-full w-full flex-wrap items-center justify-center gap-x-1.5 whitespace-nowrap text-center font-semibold"
             >
               {parts.map(({ key, icon, amount }) => (
