@@ -80,13 +80,29 @@ function PhaseBanner({ state }: { state: GameState }) {
   )
 }
 
+/**
+ * A resource total (bank or player), animated: remounting on every value
+ * change via `key={value}` replays a quick pop (see .rf-pop in index.css) —
+ * production, spending, and undo/redo all flow through this same prop, so
+ * one small component covers "animate resource production" everywhere a
+ * total is shown, with no diffing/refs needed to know a value "changed".
+ */
+function AnimatedNumber({ value }: { value: number }) {
+  return (
+    <span key={value} className="rf-pop">
+      {value}
+    </span>
+  )
+}
+
 /** How much of each resource is left in the shared bank for players to draw from — see GameState.resourceBank. */
 function BankResources({ state }: { state: GameState }) {
   return (
     <p className="text-sm text-neutral-400" title="Resources remaining in the shared bank">
       Bank:{' '}
       <span className="font-medium text-neutral-200">
-        {state.resourceBank.gold} gold, {state.resourceBank.wood} wood, {state.resourceBank.stone} stone
+        <AnimatedNumber value={state.resourceBank.gold} /> gold, <AnimatedNumber value={state.resourceBank.wood} /> wood,{' '}
+        <AnimatedNumber value={state.resourceBank.stone} /> stone
       </span>
     </p>
   )
@@ -240,7 +256,8 @@ function PlayerDetailPanel({ state, player, breakdown }: { state: GameState; pla
       <div>
         <p className="mb-1 font-medium text-neutral-200">Resources</p>
         <p>
-          Gold {player.resources.gold}, Wood {player.resources.wood}, Stone {player.resources.stone}
+          Gold <AnimatedNumber value={player.resources.gold} />, Wood <AnimatedNumber value={player.resources.wood} />, Stone{' '}
+          <AnimatedNumber value={player.resources.stone} />
         </p>
       </div>
     </div>
@@ -317,15 +334,15 @@ function PlayersStrip({
                 </span>
                 <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                   <span>
-                    Gold {player.resources.gold}
+                    Gold <AnimatedNumber value={player.resources.gold} />
                     {delta && <span className="text-emerald-400">{deltaSuffix(delta.gold)}</span>}
                   </span>
                   <span>
-                    Wood {player.resources.wood}
+                    Wood <AnimatedNumber value={player.resources.wood} />
                     {delta && <span className="text-emerald-400">{deltaSuffix(delta.wood)}</span>}
                   </span>
                   <span>
-                    Stone {player.resources.stone}
+                    Stone <AnimatedNumber value={player.resources.stone} />
                     {delta && <span className="text-emerald-400">{deltaSuffix(delta.stone)}</span>}
                   </span>
                 </span>
@@ -767,6 +784,7 @@ export function RoundView(props: {
   const units: UnitMarker[] = state.units.map((u) => {
     const history = historyByUnit?.get(u.id)
     return {
+      id: u.id,
       coord: u.coord,
       color: players.find((p) => p.id === u.ownerId)?.color ?? '#a3a3a3',
       kind: u.kind,

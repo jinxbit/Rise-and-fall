@@ -8,3 +8,44 @@ body {
   margin: 0;
   min-height: 100svh;
 }
+
+/*
+ * Shared, deliberately tiny animation vocabulary for issue #13 (movement,
+ * conversion, resource production, undo/redo). Unit movement itself is a
+ * plain CSS transition on cx/cy/x/y set inline in HexBoard.tsx (so it works
+ * for every state change, including undo/redo, with no extra JS) — these
+ * two keyframes cover the two things a transition can't express: a value or
+ * unit that's suddenly *new* rather than moved/recolored.
+ */
+@keyframes rf-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes rf-pop {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.3);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+.rf-fade-in {
+  animation: rf-fade-in 0.25s ease-out;
+}
+.rf-pop {
+  display: inline-block;
+  animation: rf-pop 0.3s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .rf-fade-in,
+  .rf-pop {
+    animation: none;
+  }
+}

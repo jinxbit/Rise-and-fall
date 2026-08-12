@@ -112,6 +112,15 @@ const HISTORY_HALO_COLOR: Record<HistoryHaloType, string> = {
 }
 
 export interface UnitMarker {
+  /**
+   * The underlying Unit's id — used as this marker's React key so a unit
+   * that moves, converts, or has its resources change keeps the same DOM
+   * node across a re-render instead of a fresh one, which is what lets the
+   * `transition:` on cx/cy/x/y below actually glide instead of jump.
+   * Optional (falls back to array-index keying, no glide) since some
+   * callers/tests still build markers without one.
+   */
+  id?: string
   coord: Coordinate
   color: string
   /** Selects both the pictogram (see unitIcons.ts) and the marker shape (rectangle for City/Temple, circle otherwise). */
@@ -135,11 +144,37 @@ const UNIT_GLYPH_COLOR = '#14161a'
 /** The marker's fixed backdrop behind the glyph — deliberately NOT the player's colour (see unitIcons.ts's doc comment for why). Ownership shows instead as a small colour bar beneath it. */
 const UNIT_PLATE_COLOR = '#f2f2ef'
 
+/**
+ * Inline `transition` for a unit marker's position (see UnitMarker.id's doc
+ * comment) — cx/cy cover the circle-shaped (mobile-unit) plate and the
+ * highlight/history-halo rings, x/y cover the rect-shaped (City/Temple)
+ * plate, the ownership bar, and the glyph's own nested <svg>. `fill` rides
+ * along on the same elements so a Convert's owner-color change (see
+ * unitActions.ts's applyConvert) glides too, not just repositioning.
+ * Deliberately short and CSS-only: it costs nothing when nothing moves, and
+ * "as simple as possible" per issue #13 rules out a JS animation loop.
+ */
+const UNIT_MOVE_TRANSITION = 'cx 0.35s ease-out, cy 0.35s ease-out, x 0.35s ease-out, y 0.35s ease-out, fill 0.35s ease-out'
+
 /** A unit kind's pictogram, centered at (x, y) at `size` pixels square, in the fixed ink colour. */
 function UnitGlyph({ kind, x, y, size }: { kind: string; x: number; y: number; size: number }) {
   const shapes = UNIT_ICONS[kind] ?? []
   return (
-    <svg x={x - size / 2} y={y - size / 2} width={size} height={size} viewBox="0 0 24 24" pointerEvents="none">
+    <svg
+      x={x - size / 2}
+      y={y - size / 2}
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      pointerEvents="none"
+      // Keying by kind at the call site (below) remounts this <svg> only
+      // when a unit's kind actually changes (Convert/Transform) — its own
+      // fade-in then doubles as the "this unit just converted" cue, with no
+      // extra state to track. `style` still carries the position
+      // transition so a same-kind move keeps gliding as normal.
+      className="rf-fade-in"
+      style={{ transition: 'x 0.35s ease-out, y 0.35s ease-out' }}
+    >
       {shapes.map((shape: IconShape, i) => {
         switch (shape.kind) {
           case 'polygon':
@@ -535,9 +570,26 @@ export function HexBoard(props: {
         const barY = y + plateSize / 2 - barHeight * 0.25
         const historyHalos = unit.historyHalos ?? []
         return (
-          <g key={i} pointerEvents="none">
+          // Keyed by the unit's own id (falling back to array index only
+          // for the rare marker built without one, e.g. some tests) so
+          // React reuses this same <g> across a re-render instead of
+          // remounting it — that's what lets the position/color transitions
+          // below actually glide instead of snapping, for every kind of
+          // state change (a normal action, undo, redo, or a realtime sync
+          // snapshot alike, since none of those are special-cased here).
+          // `rf-fade-in` only plays once, on this <g>'s own first mount —
+          // i.e. exactly when a brand-new unit id appears on the board.
+          <g key={unit.id ?? `idx-${i}`} pointerEvents="none" className="rf-fade-in">
             {unit.highlighted && (
-              <circle cx={x} cy={y} r={size * 0.55 * scale} fill="none" stroke="#fbbf24" strokeWidth={2}>
+              <circle
+                cx={x}
+                cy={y}
+                r={size * 0.55 * scale}
+                fill="none"
+                stroke="#fbbf24"
+                strokeWidth={2}
+                style={{ transition: 'cx 0.35s ease-out, cy 0.35s ease-out' }}
+              >
                 <animate attributeName="opacity" values="1;0.35;1" dur="1.4s" repeatCount="indefinite" />
               </circle>
             )}
@@ -550,6 +602,7 @@ export function HexBoard(props: {
                 fill="none"
                 stroke={HISTORY_HALO_COLOR[haloType]}
                 strokeWidth={2.5}
+                style={{ transition: 'cx 0.35s ease-out, cy 0.35s ease-out' }}
               >
                 <title>{haloType}</title>
               </circle>
@@ -564,9 +617,10 @@ export function HexBoard(props: {
                 fill={UNIT_PLATE_COLOR}
                 stroke="#000"
                 strokeWidth={1}
+                style={{ transition: UNIT_MOVE_TRANSITION }}
               />
             ) : (
-              <circle cx={x} cy={y} r={plateSize / 2} fill={UNIT_PLATE_COLOR} stroke="#000" strokeWidth={1} />
+              <circle cx={x} cy={y} r={plateSize / 2} fill={UNIT_PLATE_COLOR} stroke="#000" strokeWidth={1} style={{ transition: UNIT_MOVE_TRANSITION }} />
             )}
             <rect
               x={x - barWidth / 2}
@@ -577,8 +631,13 @@ export function HexBoard(props: {
               fill={unit.color}
               stroke="#000"
               strokeWidth={0.75}
+              style={{ transition: UNIT_MOVE_TRANSITION }}
             />
-            <UnitGlyph kind={unit.kind} x={x} y={y} size={glyphSize} />
+            {/* Keyed by kind: a Convert/Transform that changes what this unit
+                is remounts just the glyph, replaying its fade-in as the "this
+                unit just converted" cue — a plain move (same kind) keeps the
+                same glyph node and just glides via the x/y transition above. */}
+            <UnitGlyph key={unit.kind} kind={unit.kind} x={x} y={y} size={glyphSize} />
             {unit.historyLabel && historyLabelPositions.has(i) && (
               <foreignObject
                 x={historyLabelPositions.get(i)!.x}

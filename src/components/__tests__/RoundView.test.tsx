@@ -744,7 +744,11 @@ describe('RoundView — player detail panel (click a player chip for more info)'
     expect(screen.getByText(/^Supply:/)).toBeInTheDocument()
     // "Units on board" renders as an icon+count badge (title = kind name).
     expect(container.querySelector('span[title="Nomad"]')?.textContent).toBe('2')
-    expect(screen.getByText('Gold 5, Wood 2, Stone 1')).toBeInTheDocument()
+    // Each resource total is its own element (see AnimatedNumber in
+    // RoundView.tsx, which remounts on value change to replay a small pop
+    // animation — issue #13), so the line's text is split across elements;
+    // match on the full textContent instead, as above for the card zones.
+    expect(fullTextP('Gold 5, Wood 2, Stone 1')).toBeInTheDocument()
     // Hand cards render as icons (title = kind name) — one Nomad and one
     // Ship icon in the strip's chip, and again in the detail panel's own
     // "Hand: ..." line — two places.
