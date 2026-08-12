@@ -1,5 +1,5 @@
 import { isCliffEdge } from '../engine/cliffs'
-import type { Board, Coordinate, Terrain } from '../engine/types'
+import type { Board, Coordinate, Resources, Terrain } from '../engine/types'
 import { coordKey } from '../engine/types'
 import type { IconShape } from './unitIcons'
 import { STATIC_UNIT_KINDS, UNIT_ICONS } from './unitIcons'
@@ -138,6 +138,23 @@ export interface HistoryArrow {
   from: Coordinate
   to: Coordinate
 }
+
+/**
+ * A live "this unit just gained/spent resources" callout (see GamePage.tsx's
+ * showProductionPopup) — unlike UnitMarker.historyLabel (only shown while
+ * the history-review toggle is on, sitting above the unit, and static),
+ * this is always on, drawn below the unit, and self-removing: `id` is
+ * unique per occurrence, so mounting it plays its rise-and-fade animation
+ * once and the caller drops it from its list a moment later.
+ */
+export interface ProductionPopup {
+  id: string
+  coord: Coordinate
+  delta: Partial<Resources>
+}
+
+const RESOURCE_ICON: Record<keyof Resources, string> = { gold: '🪙', wood: '🪵', stone: '🪨' }
+const RESOURCE_ORDER: (keyof Resources)[] = ['gold', 'wood', 'stone']
 
 /** The unit glyph's fixed ink colour — always drawn on UNIT_PLATE_COLOR (see UnitGlyph), so contrast is guaranteed regardless of player colour or terrain. */
 const UNIT_GLYPH_COLOR = '#14161a'
@@ -413,6 +430,8 @@ export function HexBoard(props: {
   units?: UnitMarker[]
   /** History-review overlay (see RoundView.tsx's history toggle): one arrow per movement hop since the reviewed window began. */
   arrows?: HistoryArrow[]
+  /** Live "just gained/spent resources" callouts, always on (not gated by history-review) — see ProductionPopup's doc comment. */
+  productionPopups?: ProductionPopup[]
   actionMenu?: ActionMenu
   selectedCoord?: Coordinate | null
   interactive?: boolean
@@ -465,6 +484,13 @@ export function HexBoard(props: {
   const unitStackPositions = computeUnitStackPositions(props.units ?? [], size)
   for (const { x, y } of historyLabelPositions.values()) {
     boundsPoints.push({ x: x + size * HISTORY_LABEL_WIDTH_FACTOR, y: y + size * HISTORY_LABEL_HEIGHT_FACTOR })
+  }
+  // A production popup (see ProductionPopup) sits below its unit's hex —
+  // extend the viewBox the same way history labels do above it, so one
+  // near the board's bottom edge doesn't get clipped.
+  for (const popup of props.productionPopups ?? []) {
+    const { x, y } = axialToPixel(popup.coord, size)
+    boundsPoints.push({ x: x + size * HISTORY_LABEL_WIDTH_FACTOR, y: y + size * 2.2 })
   }
   const minX = Math.min(...boundsPoints.map((p) => p.x)) - pad
   const maxX = Math.max(...boundsPoints.map((p) => p.x)) + pad
@@ -661,6 +687,35 @@ export function HexBoard(props: {
               </foreignObject>
             )}
           </g>
+        )
+      })}
+      {(props.productionPopups ?? []).map((popup) => {
+        const { x, y } = axialToPixel(popup.coord, size)
+        const parts = RESOURCE_ORDER.filter((key) => popup.delta[key]).map((key) => ({ key, icon: RESOURCE_ICON[key], amount: popup.delta[key]! }))
+        if (parts.length === 0) return null
+        const width = size * HISTORY_LABEL_WIDTH_FACTOR
+        const height = size * HISTORY_LABEL_HEIGHT_FACTOR * (parts.length > 2 ? 2 : 1)
+        return (
+          // `key={popup.id}` is unique per occurrence (see ProductionPopup's
+          // doc comment) — mounting this foreignObject is itself the trigger
+          // for `rf-float-up`'s rise-and-fade (index.css), no separate
+          // "start animating now" state needed. The caller (GamePage.tsx)
+          // drops the popup from its list once the animation's had time to
+          // finish; nothing here re-renders in between.
+          <foreignObject key={popup.id} x={x - width / 2} y={y + size * 0.75} width={width} height={height} pointerEvents="none">
+            <div
+              style={{ fontSize: size * 0.32, lineHeight: 1.3 }}
+              className="rf-float-up flex h-full w-full flex-wrap items-center justify-center gap-x-1.5 whitespace-nowrap text-center font-semibold"
+            >
+              {parts.map(({ key, icon, amount }) => (
+                <span key={key} className={amount > 0 ? 'text-emerald-400' : 'text-red-400'}>
+                  {icon}
+                  {amount > 0 ? '+' : ''}
+                  {amount}
+                </span>
+              ))}
+            </div>
+          </foreignObject>
         )
       })}
       {props.actionMenu && actionMenuCenter && (

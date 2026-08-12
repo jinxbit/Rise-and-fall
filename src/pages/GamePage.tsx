@@ -9,8 +9,8 @@ import { applyActionAndFastForwardTiles } from '../engine/applyAction'
 import { buildGameLog } from '../engine/gameLog'
 import { replayActions } from '../engine/replay'
 import { applyTaleModifiers } from '../engine/tales'
-import type { ActionResult, GameState as EngineGameState, Coordinate } from '../engine/types'
-import { buildTurnReview, findReviewWindowStart } from '../engine/turnReview'
+import type { ActionResult, GameState as EngineGameState, Coordinate, Resources } from '../engine/types'
+import { buildTurnReview, diffResources, findReviewWindowStart } from '../engine/turnReview'
 import { currentActorId, pendingActorIds } from '../engine/turnOrder'
 import { useAuth } from '../hooks/useAuth'
 import type { GameRow, PlayerRow } from '../lib/dbTypes'
@@ -33,6 +33,9 @@ import { sendDiscordNotification, turnNotificationMessage } from '../lib/discord
  * error instead of hanging.
  */
 const MAX_WRITE_RETRIES = 3
+
+/** Slightly longer than index.css's rf-float-up animation (1.3s) so a popup never gets yanked off mid-fade. */
+const PRODUCTION_POPUP_DURATION_MS = 1400
 
 export function GamePage() {
   const { roomCode } = useParams<{ roomCode: string }>()
@@ -67,6 +70,16 @@ export function GamePage() {
    */
   const [redoStack, setRedoStack] = useState<Action[]>([])
   const [showHistory, setShowHistory] = useState(false)
+  /**
+   * Live "this unit just produced/gained/spent resources" callouts (see
+   * HexBoard.tsx's ProductionPopup) — entirely local UI state, like
+   * redoStack: derived fresh from whatever action just went through
+   * (submit, undo, or redo — see showProductionPopup below), never
+   * persisted or synced. Each entry removes itself via its own setTimeout
+   * once its rise-and-fade animation (index.css's rf-float-up) has had time
+   * to finish.
+   */
+  const [productionPopups, setProductionPopups] = useState<{ id: string; coord: Coordinate; delta: Partial<Resources> }[]>([])
   /**
    * Hotseat pass-and-play: which seated player the shared device is
    * currently "handed to" — distinct from auth identity, since every
@@ -237,6 +250,34 @@ export function GamePage() {
   }
 
   /**
+   * Popups the resource gain/spend a RESOLVE_UNIT_ACTION just caused, right
+   * where it happened — see HexBoard.tsx's ProductionPopup. Fires from
+   * every path that can change resources this way: a live submit, an Undo
+   * (reverting the gain, so the delta comes out negative — still worth
+   * showing, e.g. "you just gave back +2 Wood"), and a Redo. All three
+   * already compute a `before`/`after` GameState pair around one action, so
+   * this just needs hooking in with whichever pair and action that call
+   * site has; every other action type (choosing/purchasing a card, passing,
+   * declining) is a no-op here since only a unit's own action ever moves
+   * its owner's resources this way. `before`/`after` are compared once, up
+   * front (not by rebuilding a fresh diff per resource), reusing the exact
+   * comparison history-review already relies on (diffResources).
+   */
+  function showProductionPopup(before: EngineGameState, after: EngineGameState, action: Action) {
+    if (action.type !== 'RESOLVE_UNIT_ACTION' || action.unitActions.length !== 1) return
+    const unitId = action.unitActions[0].unitId
+    const beforePlayer = before.players.find((p) => p.id === action.playerId)
+    const afterPlayer = after.players.find((p) => p.id === action.playerId)
+    const coord = after.units.find((u) => u.id === unitId)?.coord
+    if (!beforePlayer || !afterPlayer || !coord) return
+    const delta = diffResources(beforePlayer.resources, afterPlayer.resources)
+    if (Object.keys(delta).length === 0) return
+    const id = `${unitId}-${Date.now()}`
+    setProductionPopups((popups) => [...popups, { id, coord, delta }])
+    setTimeout(() => setProductionPopups((popups) => popups.filter((p) => p.id !== id)), PRODUCTION_POPUP_DURATION_MS)
+  }
+
+  /**
    * Writes whatever `computeNext` derives from the current state, retrying
    * against freshly refetched state (up to MAX_WRITE_RETRIES times) if the
    * write loses the optimistic-concurrency race — see MAX_WRITE_RETRIES's
@@ -274,8 +315,12 @@ export function GamePage() {
   }
 
   async function submitAction(action: Action) {
+    const beforeState = gameState
     const result = await writeWithRetry((state) => applyActionAndFastForwardTiles(state, action, unitContent, achievementContent, boardGenerationContent, taleContent))
-    if (result.ok) setRedoStack([])
+    if (result.ok) {
+      setRedoStack([])
+      if (beforeState) showProductionPopup(beforeState, result.state, action)
+    }
     setActionError(result.ok ? null : result.error)
   }
 
@@ -317,6 +362,7 @@ export function GamePage() {
     if (!game) return
     setUndoing(true)
     let undoneAction: Action | null = null
+    const beforeState = gameState
     try {
       const result = await writeWithRetry((state) => {
         if (state.actionHistory.length === 0) {
@@ -330,6 +376,7 @@ export function GamePage() {
       })
       if (result.ok && undoneAction) {
         setRedoStack((stack) => [...stack, undoneAction as Action])
+        if (beforeState) showProductionPopup(beforeState, result.state, undoneAction)
       }
       setActionError(result.ok ? null : result.error)
     } catch (err) {
@@ -352,8 +399,10 @@ export function GamePage() {
     const action = redoStack[redoStack.length - 1]
     setRedoing(true)
     setRedoStack((stack) => stack.slice(0, -1))
+    const beforeState = gameState
     try {
       const result = await writeWithRetry((state) => applyActionAndFastForwardTiles(state, action, unitContent, achievementContent, boardGenerationContent, taleContent))
+      if (result.ok && beforeState) showProductionPopup(beforeState, result.state, action)
       setActionError(result.ok ? null : result.error)
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Failed to redo')
@@ -554,6 +603,7 @@ export function GamePage() {
           showHistory={showHistory}
           onToggleHistory={() => setShowHistory((v) => !v)}
           gameLog={gameLog}
+          productionPopups={productionPopups}
           onChooseCard={(cardId) => {
             if (!me) return
             void submitAction({ type: 'CHOOSE_CARD', playerId: me.id, cardId })

@@ -36,6 +36,22 @@ body {
     transform: scale(1);
   }
 }
+/* A live production/income callout (see HexBoard.tsx's ProductionPopup):
+   rises a short distance and fades out over its whole lifetime, so it's
+   gone by the time GamePage.tsx drops it from the popup list. */
+@keyframes rf-float-up {
+  0% {
+    opacity: 0;
+    transform: translateY(0);
+  }
+  15% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-14px);
+  }
+}
 .rf-fade-in {
   animation: rf-fade-in 0.25s ease-out;
 }
@@ -43,9 +59,13 @@ body {
   display: inline-block;
   animation: rf-pop 0.3s ease-out;
 }
+.rf-float-up {
+  animation: rf-float-up 1.3s ease-out forwards;
+}
 @media (prefers-reduced-motion: reduce) {
   .rf-fade-in,
-  .rf-pop {
+  .rf-pop,
+  .rf-float-up {
     animation: none;
   }
 }

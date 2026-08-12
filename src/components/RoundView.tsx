@@ -12,7 +12,7 @@ import { listAchievements } from '../content/resolveContent'
 import type { Card, Coordinate, GameEvent, GameState, Player, Resources, RoundPhase, Unit } from '../engine/types'
 import type { UnitAction, UnitContent } from '../engine/unitContent'
 import type { PlayerRow } from '../lib/dbTypes'
-import type { GhostCell, HistoryArrow, HistoryHaloType, UnitMarker } from './HexBoard'
+import type { GhostCell, HistoryArrow, HistoryHaloType, ProductionPopup, UnitMarker } from './HexBoard'
 import { HexBoard } from './HexBoard'
 import { UnitIcon } from './UnitIcon'
 
@@ -701,6 +701,8 @@ export function RoundView(props: {
   onToggleHistory: () => void
   /** The running narration log — derived from actionHistory, see engine/gameLog.ts's buildGameLog. */
   gameLog: GameEvent[]
+  /** Live "just produced/gained/spent resources" callouts near the acting unit — see GamePage.tsx's showProductionPopup and HexBoard.tsx's ProductionPopup. Always on, unlike the history-review overlay. Optional (defaults to none) so callers/tests that don't care about it don't need to pass an empty array. */
+  productionPopups?: ProductionPopup[]
   onChooseCard: (cardId: string) => void
   onResolveUnit: (unitId: string, actionId: string, target?: Coordinate) => void
   onPassActions: () => void
@@ -861,6 +863,7 @@ export function RoundView(props: {
             board={state.board}
             units={units}
             arrows={historyArrows}
+            productionPopups={props.productionPopups}
             ghostCells={ghostCells}
             actionMenu={actionMenu}
             interactive={isMyActionTurn}
