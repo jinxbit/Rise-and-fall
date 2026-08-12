@@ -131,8 +131,8 @@ export function GamePage() {
 
   const boardGenerationContent = useMemo(() => resolveBoardGenerationContent(players.length), [players.length])
   // Tales (src/content/tales.json) and the achievement target chosen at
-  // game creation (games.active_tale_ids/game_length — see HomePage.tsx's
-  // TaleSelector/GameLengthSelector) are carried into GameState itself
+  // game creation (games.settings.activeTaleIds/gameLength — see
+  // HomePage.tsx's TaleSelector/GameLengthSelector) are carried into GameState itself
   // once genesis is built (GameState.activeTaleIds/gameLength — see
   // buildGenesisState), so once a game is under way this reads the
   // running gameState, not the games row — self-contained the same way a
@@ -150,7 +150,7 @@ export function GamePage() {
   // Creation-time opt-out (HomePage.tsx's checkbox) for groups that don't
   // want the extra tap every turn — when set, `me` just always follows
   // whoever must act next, and the gate never has anything to catch it on.
-  const skipHotseatGate = game?.skip_hotseat_pass_gate ?? false
+  const skipHotseatGate = game?.settings.skipHotseatPassGate ?? false
   /**
    * Whichever seated player must act next (see engine/turnOrder.ts) — used
    * to know who the pass-the-device gate should hand the shared device to.

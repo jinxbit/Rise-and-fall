@@ -1,6 +1,6 @@
 import { supabase } from './supabase'
 import { nextSeatIndex } from './seatIndex'
-import type { GameRow, GameStateRow, PlayerRow } from './dbTypes'
+import type { GameRow, GameSettings, GameStateRow, PlayerRow } from './dbTypes'
 import type { GameState as EngineGameState, PlayMode } from '../engine/types'
 
 /**
@@ -43,12 +43,19 @@ export async function createGame(params: {
   mapTemplateId?: string | null
   /** Hotseat only: skip the "pass the device" confirmation gate between local players' turns (see GamePage.tsx). Ignored for live/async. Defaults to false (gate shown), matching the checkbox's unchecked default in HomePage.tsx. */
   skipHotseatPassGate?: boolean
-  /** Content ids of active Tales (src/content/tales.json) for the Tales variant, or omitted/empty for none. See 0005_tales_variant.sql. */
+  /** Content ids of active Tales (src/content/tales.json) for the Tales variant, or omitted/empty for none. */
   activeTaleIds?: string[]
-  /** Total achievements claimed (across all players) that ends the game — content/achievements.json's gameLength.min/max bounds it (1-6). Defaults to gameLength.default (4). See 0006_game_length.sql. */
+  /** Total achievements claimed (across all players) that ends the game — content/achievements.json's gameLength.min/max bounds it (1-6). Defaults to gameLength.default (4). */
   gameLength?: number
 }): Promise<{ game: GameRow; player: PlayerRow }> {
   const roomCode = generateRoomCode()
+
+  const settings: GameSettings = {
+    mapTemplateId: params.mapTemplateId ?? null,
+    skipHotseatPassGate: params.skipHotseatPassGate ?? false,
+    activeTaleIds: params.activeTaleIds ?? [],
+    gameLength: params.gameLength ?? 4,
+  }
 
   const { data: game, error: gameError } = await supabase
     .from('games')
@@ -58,10 +65,7 @@ export async function createGame(params: {
       created_by: params.userId,
       min_players: params.minPlayers ?? 2,
       max_players: params.maxPlayers ?? 4,
-      map_template_id: params.mapTemplateId ?? null,
-      skip_hotseat_pass_gate: params.skipHotseatPassGate ?? false,
-      active_tale_ids: params.activeTaleIds ?? [],
-      game_length: params.gameLength ?? 4,
+      settings,
     })
     .select()
     .single()

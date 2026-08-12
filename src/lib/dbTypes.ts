@@ -5,6 +5,27 @@
 
 import type { PlayMode, GameState as EngineGameState } from '../engine/types'
 
+/**
+ * Per-game, creation-time configuration — a single JSONB column
+ * (games.settings, see 0007_game_settings.sql) instead of one column per
+ * setting, so a new pregame toggle doesn't need its own migration. Only
+ * meaningful up through the lobby: set at creation (HomePage.tsx), read by
+ * LobbyPage.tsx's summary and buildGenesisState. Once a game is actually
+ * running, GamePage.tsx reads the equivalent settings off GameState
+ * instead (GameState.activeTaleIds/gameLength — see their own doc
+ * comments), not this column.
+ */
+export interface GameSettings {
+  /** Content id of a pre-made map template (src/content/mapTemplates.json), or null to build the map interactively as usual. */
+  mapTemplateId: string | null
+  /** Hotseat only: skip GamePage.tsx's "pass the device" confirmation gate between local players' turns. Irrelevant for live/async. */
+  skipHotseatPassGate: boolean
+  /** Content ids of active Tales (src/content/tales.json). Empty = Tales variant off. */
+  activeTaleIds: string[]
+  /** Total achievements claimed (across all players) that ends the game. content/achievements.json's gameLength.min/max bounds it (1-6). */
+  gameLength: number
+}
+
 export interface GameRow {
   id: string
   room_code: string
@@ -15,14 +36,7 @@ export interface GameRow {
   created_by: string
   created_at: string
   updated_at: string
-  /** Content id of a pre-made map template (src/content/mapTemplates.json), or null to build the map interactively as usual. */
-  map_template_id: string | null
-  /** Hotseat only: skip GamePage.tsx's "pass the device" confirmation gate between local players' turns. Set at creation (HomePage.tsx); irrelevant for live/async. */
-  skip_hotseat_pass_gate: boolean
-  /** Content ids of active Tales (src/content/tales.json) — see 0005_tales_variant.sql. Empty = Tales variant off. Set at creation (HomePage.tsx); merged into the effective UnitContent by GamePage.tsx. */
-  active_tale_ids: string[]
-  /** Total achievements claimed (across all players) that ends the game — see 0006_game_length.sql. Set at creation (HomePage.tsx); passed to resolveAchievementContent by GamePage.tsx. */
-  game_length: number
+  settings: GameSettings
 }
 
 export interface PlayerRow {

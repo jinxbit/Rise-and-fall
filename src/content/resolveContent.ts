@@ -145,8 +145,8 @@ export function listMapTemplates(): MapTemplateSummary[] {
 
 /**
  * Builds the finished Board for a map template id, or null if no template
- * with that id exists (e.g. a game's map_template_id references a template
- * that's since been renamed/removed). Passed to
+ * with that id exists (e.g. a game's settings.mapTemplateId references a
+ * template that's since been renamed/removed). Passed to
  * src/engine/createGame.ts's startGameWithPresetBoard.
  */
 export function resolveMapTemplateBoard(templateId: string): Board | null {
@@ -201,8 +201,9 @@ export function listGameLengthBounds(): GameLengthBounds {
 }
 
 /**
- * `gameLength` is the players' chosen target (games.game_length — see
- * 0006_game_length.sql), clamped to content/achievements.json's
+ * `gameLength` is the players' chosen target (games.settings.gameLength
+ * up through the lobby, GameState.gameLength once a game is running — see
+ * 0007_game_settings.sql), clamped to content/achievements.json's
  * gameLength.min/max so a stale or malformed value can never push the
  * game-end check outside what the achievement table actually supports.
  * Omitted (the default) falls back to gameLength.default, same as before

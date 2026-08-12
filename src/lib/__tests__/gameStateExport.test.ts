@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { buildGenesisState } from '../gameGenesis'
 import { GAME_STATE_EXPORT_SCHEMA, decodeGameStateExport, encodeGameStateExport } from '../gameStateExport'
-import type { GameRow, PlayerRow } from '../dbTypes'
+import type { GameRow, GameSettings, PlayerRow } from '../dbTypes'
 
-function makeGame(overrides: Partial<GameRow> = {}): GameRow {
+function makeGame(overrides: Partial<GameRow> = {}, settingsOverrides: Partial<GameSettings> = {}): GameRow {
   return {
     id: 'game_1',
     room_code: 'ABCDE',
@@ -14,10 +14,7 @@ function makeGame(overrides: Partial<GameRow> = {}): GameRow {
     created_by: 'auth_1',
     created_at: '',
     updated_at: '',
-    map_template_id: null,
-    skip_hotseat_pass_gate: false,
-    active_tale_ids: [],
-    game_length: 4,
+    settings: { mapTemplateId: null, skipHotseatPassGate: false, activeTaleIds: [], gameLength: 4, ...settingsOverrides },
     ...overrides,
   }
 }
@@ -42,7 +39,7 @@ describe('gameStateExport', () => {
   })
 
   it('is dramatically smaller than the pretty-printed JSON it replaces', async () => {
-    const state = buildGenesisState(makeGame({ map_template_id: 'classic' }), makePlayers())
+    const state = buildGenesisState(makeGame({}, { mapTemplateId: 'classic' }), makePlayers())
     const pretty = JSON.stringify(state, null, 2)
 
     const encoded = await encodeGameStateExport(state)

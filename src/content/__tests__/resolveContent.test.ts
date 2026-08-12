@@ -11,7 +11,7 @@ describe('resolveUnitContent — real content/units.json movement facts', () => 
   })
 })
 
-describe('resolveAchievementContent — configurable gameLength (games.game_length)', () => {
+describe('resolveAchievementContent — configurable gameLength (games.settings.gameLength)', () => {
   it('defaults to gameLength.default when no override is given', () => {
     const { default: defaultLength } = listGameLengthBounds()
     expect(resolveAchievementContent().gameLength).toBe(defaultLength)

@@ -27,13 +27,13 @@ export function buildGenesisState(game: GameRow, players: PlayerRow[]): GameStat
       color: p.color,
     })),
     resourceBank: resolveResourceBank(players.length),
-    activeTaleIds: game.active_tale_ids,
-    gameLength: game.game_length,
+    activeTaleIds: game.settings.activeTaleIds,
+    gameLength: game.settings.gameLength,
   })
 
-  if (game.map_template_id) {
-    const presetBoard = resolveMapTemplateBoard(game.map_template_id)
-    if (!presetBoard) throw new Error(`Unknown map template: ${game.map_template_id}`)
+  if (game.settings.mapTemplateId) {
+    const presetBoard = resolveMapTemplateBoard(game.settings.mapTemplateId)
+    if (!presetBoard) throw new Error(`Unknown map template: ${game.settings.mapTemplateId}`)
     return startGameWithPresetBoard(lobbyState, presetBoard)
   }
   return startGame(lobbyState, resolveBoardGenerationContent(players.length))

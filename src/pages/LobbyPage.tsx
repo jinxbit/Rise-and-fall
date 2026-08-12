@@ -147,15 +147,15 @@ export function LobbyPage() {
       <header>
         <h1 className="text-2xl font-semibold">Room {game.room_code}</h1>
         <p className="text-neutral-400">
-          {game.play_mode} · {players.length}/{game.max_players} players · {game.game_length} achievements ·{' '}
-          {game.map_template_id
-            ? (listMapTemplates().find((t) => t.id === game.map_template_id)?.name ?? game.map_template_id)
+          {game.play_mode} · {players.length}/{game.max_players} players · {game.settings.gameLength} achievements ·{' '}
+          {game.settings.mapTemplateId
+            ? (listMapTemplates().find((t) => t.id === game.settings.mapTemplateId)?.name ?? game.settings.mapTemplateId)
             : 'interactive map'}
         </p>
-        {game.active_tale_ids.length > 0 && (
+        {game.settings.activeTaleIds.length > 0 && (
           <p className="text-sm text-neutral-500">
             Tales:{' '}
-            {game.active_tale_ids
+            {game.settings.activeTaleIds
               .map((id) => listTales().find((t) => t.id === id)?.name ?? id)
               .join(', ')}
           </p>
