@@ -115,12 +115,16 @@ describe('real content/units.json + terrain.json + resources.json', () => {
     expect(destinations.some((c) => c.q === 1 && c.r === 0)).toBe(false)
   })
 
-  // Bug report: "the last merchant to act should be able to transform into
-  // a ship" — the Merchant was standing on a Mountain adjacent to Water
-  // across a cliff edge (level diff 3). Confirmed against the real content:
-  // Merchant's canCrossCliffs is true, so its adjacent-location Transform
-  // to Ship should succeed across that cliff, same as its own movement.
-  it("Merchant's real Transform to Ship succeeds across a cliff edge", () => {
+  // Bug report: "there is a merchant [on Plains, adjacent to Water, no
+  // cliff involved] and the player has 1 wood, but the action to transform
+  // into ship is not available." Root cause: Merchant's Transform to Ship
+  // cost 2 wood (unitsJson) while the otherwise-identical Nomad action
+  // costs 1 — a copy/data-entry mismatch, not a cliff or terrain issue.
+  it("Merchant's real Transform to Ship costs 1 wood, same as Nomad's identical action", () => {
+    expect(findAction('merchant', 'transform-to-ship', content).effect).toMatchObject({ cost: { gold: 0, wood: 1, stone: 0 } })
+  })
+
+  it("Merchant's real Transform to Ship is still unconditionally blocked by a cliff, same as create/convert", () => {
     const board = setTile(setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'mountain'), { q: 1, r: 0 }, 'water')
     const merchant: Unit = { id: 'u1', ownerId: 'p1', kind: 'merchant', coord: { q: 0, r: 0 }, movement: content.movementByKind.merchant, traits: [] }
     const state: GameState = {
@@ -148,13 +152,10 @@ describe('real content/units.json + terrain.json + resources.json', () => {
       actionHistory: [],
     }
 
-    expect(content.movementByKind.merchant.canCrossCliffs).toBe(true)
-
     const action = findAction('merchant', 'transform-to-ship', content)
     const next = applyUnitActionEffect(state, 'p1', 'merchant', action, { [merchant.id]: { q: 1, r: 0 } }, content)
 
-    expect(next.units).toHaveLength(1)
-    expect(next.units[0]).toMatchObject({ kind: 'ship', coord: { q: 1, r: 0 } })
+    expect(next.units[0].kind).toBe('merchant') // blocked by the cliff — no-op
   })
 
   it("City's Generate Income pays out per the real goldByTerrain table", () => {

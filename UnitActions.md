@@ -33,13 +33,10 @@ dispatcher is `applyUnitActionEffect()` in `src/engine/unitActions.ts`.
 Tested both with synthetic fixtures (`unitActions.test.ts`) and against the
 real JSON content (`unitActions.realContent.test.ts`).
 
-**Cliff rule:** create and convert can never cross a cliff edge — absolute,
-regardless of the acting unit's own `canCrossCliffs` capability, since the
-acting unit stays in place for both. An `'adj'`-location transform is
-different: the acting unit's own presence relocates to the target hex
-(functionally the same as the `move` action), so it respects the acting
-unit's own `canCrossCliffs` — e.g. a cliff-crossing Merchant transforming
-into a Ship across a cliff edge.
+**Cliff rule (applies to all targeted actions):** create, an
+`'adj'`-location transform, and convert can never cross a cliff edge —
+absolute, regardless of the acting unit's own `canCrossCliffs` capability
+(that capability is for movement, not these actions).
 
 Status legend: ✅ implemented & tested
 
@@ -122,15 +119,13 @@ All four open questions from the first implementation pass are resolved:
    choice — but the choice is made by picking *which action* to play
    (Buy Wood / Sell Wood / Buy Stone / Sell Stone are 4 separate actions,
    see above), not a per-unit input at resolve time.
-3. **Cliff-crossing on transform/convert** — revised: create and convert
-   never cross a cliff, regardless of the acting unit's movement
-   capability (`create`'s now-redundant `targetHex.crossCliff` field was
-   removed from `units.json`/`unitContent.ts`). An `'adj'`-location
-   transform relocates the acting unit itself, so it's gated on that
-   unit's own `canCrossCliffs` instead — same as the `move` action (fixed
-   after a reported game where a cliff-crossing Merchant couldn't
-   transform into a Ship across a cliff edge it should have been able to
-   cross).
+3. **Cliff-crossing on transform/convert** — same absolute rule as create:
+   never allowed, regardless of the acting unit's movement capability.
+   `create`'s now-redundant `targetHex.crossCliff` field was removed from
+   `units.json`/`unitContent.ts` — cliff-blocking is unconditional for
+   every targeted action (create, `'adj'`-transform, convert). (A game
+   report that first looked like a cliff-crossing bug turned out to be an
+   unrelated Merchant "Transform to Ship" cost mismatch — see units.json.)
 4. **Create + supply cap** — confirmed: create always respects the target
    kind's supply cap (`units.json`'s `supply.byPlayerCount`); a City can't
    create a Nomad if the player already holds their full Nomad supply.

@@ -365,16 +365,7 @@ function applyCreate(state: GameState, playerId: string, unit: Unit, effect: Cre
   return { ...afterCost, idSequence, units: [...afterCost.units, newUnit] }
 }
 
-/**
- * Per ruling: create and convert can never cross a cliff, regardless of the
- * acting unit's own movement capability — the acting unit stays put in
- * both, reaching out to an adjacent hex rather than moving there itself.
- * An 'adj'-location transform is different: the acting unit's own presence
- * relocates to (and becomes) the target hex, functionally the same as the
- * `move` action — so it respects the acting unit's own `canCrossCliffs`,
- * same as movement (e.g. a cliff-crossing Merchant transforming into a
- * Ship on an adjacent-but-cliff-separated Water hex).
- */
+/** Per ruling: like create, an 'adj'-location transform can never cross a cliff, regardless of the acting unit's own movement capability. */
 function applyTransform(state: GameState, playerId: string, unit: Unit, effect: TransformEffect, targetCoord: Coordinate | undefined, content: UnitContent): GameState {
   const resolvedTargetCoord = effect.targetHex.location === 'self' ? unit.coord : targetCoord
   if (!resolvedTargetCoord) return state
@@ -388,7 +379,7 @@ function applyTransform(state: GameState, playerId: string, unit: Unit, effect: 
   if (effect.targetHex.location === 'adj') {
     if (!isAdjacent(state, unit.coord, resolvedTargetCoord)) return state
     if (unitsAt(state, resolvedTargetCoord).length > 0) return state
-    if (!unit.movement.canCrossCliffs && crossesCliff(state, unit.coord, resolvedTargetCoord, content.terrainLevels)) return state
+    if (crossesCliff(state, unit.coord, resolvedTargetCoord, content.terrainLevels)) return state
   }
 
   if (hasReachedSupplyCap(state, playerId, effect.targetUnit, content.unitSupplyCaps)) return state

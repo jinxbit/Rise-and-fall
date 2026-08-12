@@ -64,10 +64,7 @@ export function legalTransformTargets(state: GameState, playerId: string, unit: 
     if (!tile || !effect.targetHex.terrainType.includes(tile.terrain)) return false
     if (!isCreationAllowedOnTerrain(effect.targetUnit, tile.terrain)) return false
     if (unitsAt(state, coord).length > 0) return false
-    // See applyTransform's matching comment (./unitActions.ts): an
-    // 'adj'-location transform relocates the acting unit itself, so it
-    // respects the acting unit's own canCrossCliffs, unlike create/convert.
-    if (!unit.movement.canCrossCliffs && crossesCliff(state, unit.coord, coord, content.terrainLevels)) return false
+    if (crossesCliff(state, unit.coord, coord, content.terrainLevels)) return false
     return true
   })
 }

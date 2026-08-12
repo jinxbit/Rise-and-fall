@@ -259,7 +259,7 @@
             "targetUnit": "ship",
             "targetHex": { "terrainType": ["water"], "location": "adj" },
             "destroySelf": true,
-            "cost": { "gold": 0, "wood": 2, "stone": 0 }
+            "cost": { "gold": 0, "wood": 1, "stone": 0 }
           }
         },
         {
