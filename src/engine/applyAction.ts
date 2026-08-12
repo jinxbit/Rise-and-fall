@@ -73,7 +73,7 @@ export function applyAction(
   boardGenerationContent: BoardGenerationContent = EMPTY_BOARD_GENERATION_CONTENT,
   taleContent: TaleContent = EMPTY_TALE_CONTENT,
 ): ActionResult {
-  const result = dispatchAction(state, action, unitContent, achievementContent, boardGenerationContent, taleContent)
+  const result = dispatchAction(resyncUnitMovementFromContent(state, unitContent), action, unitContent, achievementContent, boardGenerationContent, taleContent)
   if (!result.ok) return result
 
   const loggedAction: LoggedAction = { action, turn: result.state.turn, timestamp: new Date().toISOString() }
@@ -138,6 +138,30 @@ function nextTileFastForward(state: GameState, boardGenerationContent: BoardGene
   if (!playerId) return null
 
   return { type: 'PLACE_TILE', playerId, anchor: forced.anchor, rotationSteps: forced.rotationSteps }
+}
+
+/**
+ * Refreshes every on-board unit's `movement` profile from `unitContent`
+ * (keyed by kind) before an action is dispatched. Unit.movement is a copy
+ * stamped once, at the moment a unit is created (placeUnit/applyCreate/
+ * applyTransform) — a later content-driven rules fix (e.g. a corrected
+ * canCrossCliffs) would otherwise never reach a unit already on the
+ * board, only ones created afterward. Every acting player's next action
+ * self-heals the whole game's units against whatever content is current,
+ * same convergence idea as syncCardZonesWithBoard (./cards.ts) for card
+ * zones. Returns the same state reference when nothing actually changed
+ * (a content-less caller, or a kind with no movement in unitContent), so
+ * this never spuriously affects no-op detection deeper in the dispatch.
+ */
+function resyncUnitMovementFromContent(state: GameState, unitContent: UnitContent): GameState {
+  let changed = false
+  const units = state.units.map((unit) => {
+    const movement = unitContent.movementByKind[unit.kind]
+    if (!movement || JSON.stringify(movement) === JSON.stringify(unit.movement)) return unit
+    changed = true
+    return { ...unit, movement }
+  })
+  return changed ? { ...state, units } : state
 }
 
 function dispatchAction(

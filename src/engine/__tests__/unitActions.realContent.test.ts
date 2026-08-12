@@ -115,6 +115,48 @@ describe('real content/units.json + terrain.json + resources.json', () => {
     expect(destinations.some((c) => c.q === 1 && c.r === 0)).toBe(false)
   })
 
+  // Bug report: "the last merchant to act should be able to transform into
+  // a ship" — the Merchant was standing on a Mountain adjacent to Water
+  // across a cliff edge (level diff 3). Confirmed against the real content:
+  // Merchant's canCrossCliffs is true, so its adjacent-location Transform
+  // to Ship should succeed across that cliff, same as its own movement.
+  it("Merchant's real Transform to Ship succeeds across a cliff edge", () => {
+    const board = setTile(setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'mountain'), { q: 1, r: 0 }, 'water')
+    const merchant: Unit = { id: 'u1', ownerId: 'p1', kind: 'merchant', coord: { q: 0, r: 0 }, movement: content.movementByKind.merchant, traits: [] }
+    const state: GameState = {
+      gameId: 'g',
+      playMode: 'hotseat',
+      status: 'active',
+      turn: 1,
+      activePlayerId: null,
+      roundPhase: 'actions',
+      chosenCardIdByPlayerId: {},
+      pendingPlayerIds: [],
+      resolvedUnitIdsThisTurn: [],
+      unitsCreatedThisTurn: [],
+      turnOrder: ['p1'],
+      board,
+      players: [makePlayer('p1', { gold: 0, wood: 5, stone: 0 })],
+      units: [merchant],
+      cards: {},
+      resourceBank: { gold: 1000, wood: 1000, stone: 1000 },
+      winnerPlayerIds: [],
+      claimedByAchievementId: {},
+      achievementsClaimedThisRound: 0,
+      boardSetup: null,
+      idSequence: 0,
+      actionHistory: [],
+    }
+
+    expect(content.movementByKind.merchant.canCrossCliffs).toBe(true)
+
+    const action = findAction('merchant', 'transform-to-ship', content)
+    const next = applyUnitActionEffect(state, 'p1', 'merchant', action, { [merchant.id]: { q: 1, r: 0 } }, content)
+
+    expect(next.units).toHaveLength(1)
+    expect(next.units[0]).toMatchObject({ kind: 'ship', coord: { q: 1, r: 0 } })
+  })
+
   it("City's Generate Income pays out per the real goldByTerrain table", () => {
     const board = setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'forest')
     const state: GameState = {

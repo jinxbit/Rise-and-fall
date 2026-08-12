@@ -7,6 +7,7 @@ import { cardIdFor, syncCardZonesWithBoard } from '../cards'
 import { createNewGame, startGame } from '../createGame'
 import { beginSelectCardsPhase } from '../round'
 import type { Coordinate, GameState, Unit } from '../types'
+import { EMPTY_UNIT_CONTENT } from '../unitContent'
 import type { UnitContent } from '../unitContent'
 
 let placeholderUnitCounter = 0
@@ -185,6 +186,43 @@ describe('applyAction', () => {
     const lobbyState: GameState = { ...state, status: 'lobby' }
     const result = applyAction(lobbyState, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'ship') })
     expect(result.ok).toBe(false)
+  })
+})
+
+describe('applyAction — resyncs unit movement from unitContent before dispatching', () => {
+  // Regression: a reported game had a Merchant whose movement.canCrossCliffs
+  // was stamped false at creation time, from before a content rules fix
+  // (canCrossCliffs: true) landed — the fix alone never reached that
+  // already-placed unit, since Unit.movement is a one-time copy, not a
+  // live lookup. Every action now refreshes every unit's movement from the
+  // current unitContent first, so an already-placed unit picks up a
+  // content-driven rules fix on the very next action, not just new ones.
+  it("refreshes an already-placed unit's stale movement profile from current content", () => {
+    const state = makeActiveGame()
+    const staleUnits = state.units.map((u) => (u.kind === 'ship' ? { ...u, movement: { ...u.movement, canCrossCliffs: false } } : u))
+    const staleState: GameState = { ...state, units: staleUnits }
+    const freshContent: UnitContent = {
+      ...EMPTY_UNIT_CONTENT,
+      movementByKind: { ship: { isMobile: true, terrains: ['water'], canCrossCliffs: true, moveDistance: 1 } },
+    }
+
+    const result = applyAction(staleState, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'ship') }, freshContent)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const ships = result.state.units.filter((u) => u.kind === 'ship')
+    expect(ships.length).toBeGreaterThan(0)
+    expect(ships.every((u) => u.movement.canCrossCliffs)).toBe(true)
+  })
+
+  it('leaves units untouched when unitContent has no movement entry for their kind', () => {
+    const state = makeActiveGame()
+
+    const result = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'ship') }, EMPTY_UNIT_CONTENT)
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.state.units).toEqual(state.units)
   })
 })
 

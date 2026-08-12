@@ -200,6 +200,42 @@ describe('legalTransformTargets', () => {
     expect(legalTransformTargets(state, 'p1', unit, effect, emptyContent)).toEqual([{ q: 1, r: 0 }])
   })
 
+  it('excludes a target hex across a cliff when the acting unit cannot cross cliffs', () => {
+    const effect: TransformEffect = {
+      actionType: 'transform',
+      targetUnit: 'ship',
+      targetHex: { terrainType: ['water'], location: 'adj' },
+      destroySelf: true,
+      cost: {},
+    }
+    const board = boardOf([
+      [0, 0, 'mountain'], // level 3
+      [1, 0, 'water'], // level 0 — diff 3, a cliff
+    ])
+    const unit = makeUnit('p1', 'nomad', { q: 0, r: 0 }, { canCrossCliffs: false })
+    const state = makeState({ board, units: [unit], players: [makePlayer('p1')] })
+
+    expect(legalTransformTargets(state, 'p1', unit, effect, emptyContent)).toEqual([])
+  })
+
+  it('includes a target hex across a cliff when the acting unit can cross cliffs — it relocates itself there, same as the move action', () => {
+    const effect: TransformEffect = {
+      actionType: 'transform',
+      targetUnit: 'ship',
+      targetHex: { terrainType: ['water'], location: 'adj' },
+      destroySelf: true,
+      cost: {},
+    }
+    const board = boardOf([
+      [0, 0, 'mountain'], // level 3
+      [1, 0, 'water'], // level 0 — diff 3, a cliff
+    ])
+    const unit = makeUnit('p1', 'nomad', { q: 0, r: 0 }, { canCrossCliffs: true })
+    const state = makeState({ board, units: [unit], players: [makePlayer('p1')] })
+
+    expect(legalTransformTargets(state, 'p1', unit, effect, emptyContent)).toEqual([{ q: 1, r: 0 }])
+  })
+
   it('excludes Water for a non-Ship target unit even if the content terrainType mistakenly allows it', () => {
     const effect: TransformEffect = {
       actionType: 'transform',

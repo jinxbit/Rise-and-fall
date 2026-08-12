@@ -710,7 +710,25 @@ describe('applyUnitActionEffect — transform', () => {
     expect(next.units[0].kind).toBe('nomad')
   })
 
-  it('adjacent-location: always blocked by a cliff, even for an acting unit that can normally cross cliffs', () => {
+  it('adjacent-location: blocked by a cliff for an acting unit that cannot cross cliffs', () => {
+    const action: UnitAction = {
+      id: 'transform-to-ship',
+      name: 'Transform to Ship',
+      description: '',
+      effect: { actionType: 'transform', targetUnit: 'ship', targetHex: { terrainType: ['water'], location: 'adj' }, destroySelf: true, cost: {} },
+    }
+    const board = boardOf([
+      [0, 0, 'mountain'], // level 3
+      [1, 0, 'water'], // level 0 — diff 3, a cliff
+    ])
+    const state = makeState({ board, units: [makeUnit('p1', 'nomad', { q: 0, r: 0 }, { canCrossCliffs: false })] })
+
+    const next = applyUnitActionEffect(state, 'p1', 'nomad', action, { [state.units[0].id]: { q: 1, r: 0 } }, content)
+
+    expect(next.units[0].kind).toBe('nomad')
+  })
+
+  it('adjacent-location: NOT blocked by a cliff for an acting unit that can cross cliffs — it relocates itself there, same as the move action', () => {
     const action: UnitAction = {
       id: 'transform-to-ship',
       name: 'Transform to Ship',
@@ -726,7 +744,8 @@ describe('applyUnitActionEffect — transform', () => {
 
     const next = applyUnitActionEffect(state, 'p1', 'nomad', action, { [state.units[0].id]: { q: 1, r: 0 } }, crossingContent)
 
-    expect(next.units[0].kind).toBe('nomad')
+    expect(next.units).toHaveLength(1)
+    expect(next.units[0]).toMatchObject({ kind: 'ship', coord: { q: 1, r: 0 } })
   })
 
   it("a destroySelf transform (net-zero units.length change) never reuses the removed unit's id for the next created unit", () => {
