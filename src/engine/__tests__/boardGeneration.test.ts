@@ -7,6 +7,7 @@ import {
   placedShapeCells,
   rotateShape,
   seedStartingWaterTiles,
+  shapeCenterCell,
   touchesEnoughExistingTerrain,
   wouldEncloseEmptyHexes,
 } from '../boardGeneration'
@@ -74,6 +75,21 @@ describe('placedShapeCells', () => {
     const cells = [{ q: 0, r: 0 }, { q: 1, r: 0 }]
     // {1,0} rotated 1 step -> {1,-1}, then translated by {5,-3} -> {6,-4}.
     expect(placedShapeCells(cells, { q: 5, r: -3 }, 1)).toEqual([{ q: 5, r: -3 }, { q: 6, r: -4 }])
+  })
+})
+
+describe('shapeCenterCell', () => {
+  it("finds the water expansion tile's true center hex — the flower shape is a full hex-plus-its-six-neighbors", () => {
+    const flower = terrainJson.terrainTypes.find((t) => t.id === 'water')!.shapeGroups.find((g) => g.id === 'expansion')!.shapes[0].cells
+    expect(shapeCenterCell(flower)).toEqual({ q: 0, r: 1 })
+  })
+
+  it('is a fixed point of {0,0} for a shape whose only cell is {0,0}', () => {
+    expect(shapeCenterCell([{ q: 0, r: 0 }])).toEqual({ q: 0, r: 0 })
+  })
+
+  it('lands on the cell closest to the centroid even for a shape with no exact single center (e.g. a 2-cell domino)', () => {
+    expect(shapeCenterCell([{ q: 0, r: 0 }, { q: 1, r: 0 }])).toEqual({ q: 1, r: 0 })
   })
 })
 

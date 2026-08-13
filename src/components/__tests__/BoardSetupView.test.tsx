@@ -78,10 +78,14 @@ describe('BoardSetupView — tile placement ghost legality', () => {
       />,
     )
 
-    // (1,0)-(2,0): only (1,0) touches the lone existing Sea tile at (0,0) —
-    // one short of the required 2, so this placement is illegal even
-    // though isLegalTilePlacement's basic covering check alone would pass.
-    const hex = container.querySelector('polygon[data-coord="1,0"]')
+    // Clicking a hex places the shape's center there (see
+    // shapeCenterCell in boardGeneration.ts), not its cells[0] corner —
+    // for this 2-cell domino, that's the *second* cell, so clicking (2,0)
+    // covers (1,0)-(2,0). Only (1,0) touches the lone existing Sea tile at
+    // (0,0) — one short of the required 2, so this placement is illegal
+    // even though isLegalTilePlacement's basic covering check alone would
+    // pass.
+    const hex = container.querySelector('polygon[data-coord="2,0"]')
     expect(hex).not.toBeNull()
     fireEvent.click(hex!)
 
@@ -112,8 +116,9 @@ describe('BoardSetupView — tile placement ghost legality', () => {
       />,
     )
 
-    // (1,0)-(2,0): both (0,0) and (1,-1) touch (1,0) — 2 distinct Sea tiles.
-    const hex = container.querySelector('polygon[data-coord="1,0"]')
+    // (1,0)-(2,0), reached by clicking (2,0) — see the center-click note
+    // above: both (0,0) and (1,-1) touch (1,0) — 2 distinct Sea tiles.
+    const hex = container.querySelector('polygon[data-coord="2,0"]')
     fireEvent.click(hex!)
 
     const ghostCovered = container.querySelector('polygon[data-ghost-coord="1,0"]')

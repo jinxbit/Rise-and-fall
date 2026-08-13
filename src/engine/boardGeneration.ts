@@ -44,6 +44,38 @@ export function placedShapeCells(cells: Coordinate[], anchor: Coordinate, rotati
   return rotateShape(cells, rotationSteps).map((c) => ({ q: c.q + anchor.q, r: c.r + anchor.r }))
 }
 
+/**
+ * The hex nearest a shape's own geometric centroid, in the shape's local
+ * (unrotated) coordinates — i.e. its offset from `cells[0]` (the {0,0}
+ * anchor cell, see terrain.schema.json). Used so that clicking a hex during
+ * tile placement (see BoardSetupView.tsx) lands the *middle* of the tile
+ * under the cursor rather than its cells[0] corner, which for an
+ * asymmetric shape can be a hex or more away from where the player
+ * actually clicked. Standard cube-coordinate rounding of the fractional
+ * centroid (redblobgames.com/grids/hexagons/#rounding) — for shapes
+ * without a true single center hex (an even cell count, or one without
+ * six-fold symmetry) this still lands on the cell closest to the middle.
+ */
+export function shapeCenterCell(cells: Coordinate[]): Coordinate {
+  const avgQ = cells.reduce((sum, c) => sum + c.q, 0) / cells.length
+  const avgR = cells.reduce((sum, c) => sum + c.r, 0) / cells.length
+  const x = avgQ
+  const z = avgR
+  const y = -x - z
+
+  let rx = Math.round(x)
+  let ry = Math.round(y)
+  let rz = Math.round(z)
+  const xDiff = Math.abs(rx - x)
+  const yDiff = Math.abs(ry - y)
+  const zDiff = Math.abs(rz - z)
+  if (xDiff > yDiff && xDiff > zDiff) rx = -ry - rz
+  else if (yDiff > zDiff) ry = -rx - rz
+  else rz = -rx - ry
+
+  return { q: rx, r: rz }
+}
+
 // --- placement legality -------------------------------------------------------
 
 /**
