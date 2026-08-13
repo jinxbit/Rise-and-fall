@@ -7,7 +7,7 @@ import type { GameState, Player } from '../../engine/types'
 import type { PlayerRow } from '../../lib/dbTypes'
 
 function makePlayerRow(id: string, displayName: string): PlayerRow {
-  return { id, game_id: 'g1', user_id: id, display_name: displayName, avatar_url: null, seat_index: 0, color: '#ff0000', is_active: true, joined_at: '' }
+  return { id, game_id: 'g1', user_id: id, display_name: displayName, avatar_url: null, seat_index: 0, color: '#ff0000', is_active: true, joined_at: '', ready_for_version: 0 }
 }
 
 function makeEnginePlayer(id: string): Player {

@@ -46,6 +46,8 @@ export interface GameRow {
   created_at: string
   updated_at: string
   settings: GameSettings
+  /** Bumped by 0009_config_versioning.sql's trigger every time `settings` changes while the room is still in the lobby. Compare against a PlayerRow's `ready_for_version` to know if that player has acknowledged the current config (see roomReadiness.ts). */
+  config_version: number
 }
 
 export interface PlayerRow {
@@ -58,6 +60,8 @@ export interface PlayerRow {
   color: string
   is_active: boolean
   joined_at: string
+  /** The GameRow.config_version this player last confirmed Ready for (0009_config_versioning.sql). Set automatically to the game's current config_version on insert; only changes afterward via markReady in gameApi.ts. */
+  ready_for_version: number
 }
 
 export interface GameStateRow {

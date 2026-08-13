@@ -23,6 +23,8 @@ export async function saveDiscordWebhookUrl(userId: string, webhookUrl: string |
 }
 
 const PLAYER_COLORS = ['#ef4444', '#3b82f6', '#22c55e', '#eab308']
+/** One color per seat (PLAYER_COLORS above), so this is also the hard ceiling on max_players — used by LobbyPage.tsx's config editor to bound the input. */
+export const MAX_PLAYERS = PLAYER_COLORS.length
 const ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789' // no 0/O/1/I
 
 export function generateRoomCode(length = 5): string {
@@ -250,6 +252,36 @@ export async function removePlayer(playerId: string): Promise<void> {
 
 export async function setGameStatus(gameId: string, status: GameRow['status']): Promise<void> {
   const { error } = await supabase.from('games').update({ status }).eq('id', gameId)
+  if (error) throw error
+}
+
+/**
+ * Owner-only (RLS's "room owner can update their game" policy), and only
+ * while the room is still in the lobby (0009_config_versioning.sql's
+ * `games_bump_config_version` trigger rejects it otherwise). Bumps
+ * `config_version` server-side, which is what makes every non-Owner seated
+ * player Not Ready again — see the room lifecycle spec's sections 7 (player
+ * count is configuration too) and 9, and roomReadiness.ts.
+ */
+export async function updateGameSettings(
+  gameId: string,
+  params: { settings: GameSettings; minPlayers: number; maxPlayers: number },
+): Promise<void> {
+  const { error } = await supabase
+    .from('games')
+    .update({ settings: params.settings, min_players: params.minPlayers, max_players: params.maxPlayers })
+    .eq('id', gameId)
+  if (error) throw error
+}
+
+/**
+ * A seated player confirms they've seen the room's current configuration.
+ * `configVersion` must be the room's *current* config_version — the
+ * `players_enforce_ready_for_version` trigger rejects any other value, so a
+ * stale client can't mark itself ready for a version that's since moved on.
+ */
+export async function markReady(playerId: string, configVersion: number): Promise<void> {
+  const { error } = await supabase.from('players').update({ ready_for_version: configVersion }).eq('id', playerId)
   if (error) throw error
 }
 
