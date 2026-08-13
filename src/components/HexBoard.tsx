@@ -150,6 +150,18 @@ export interface HistoryArrow {
  */
 export interface ProductionPopup {
   id: string
+  /**
+   * The unit that produced this — used to center the popup on that unit's
+   * own on-screen marker (see computeUnitStackPositions) rather than the
+   * raw hex center. Matters when two units share a hex (e.g. a Merchant
+   * docked at its own City, The Ports Tale's Ship-and-Port) — each is
+   * offset away from hex center, so anchoring on the hex instead of the
+   * acting unit put the popup off the unit and toward/on top of its
+   * hex-mate. Falls back to the hex center if no unit with this id is
+   * currently on the board (e.g. it was the last thing to happen before an
+   * undo removed the unit).
+   */
+  unitId: string
   coord: Coordinate
   delta: Partial<Resources>
 }
@@ -166,7 +178,9 @@ const UNIT_PLATE_COLOR = '#f2f2ef'
  * Inline `transition` for a unit marker's position (see UnitMarker.id's doc
  * comment) — cx/cy cover the circle-shaped (mobile-unit) plate and the
  * highlight/history-halo rings, x/y cover the rect-shaped (City/Temple)
- * plate, the ownership bar, and the glyph's own nested <svg>. `fill` rides
+ * plate and the ownership bar. (The glyph's own nested <svg> — see
+ * UnitGlyph — glides via a separate CSS `transform` transition instead of
+ * x/y, since nested-<svg> x/y isn't reliably animatable.) `fill` rides
  * along on the same elements so a Convert's owner-color change (see
  * unitActions.ts's applyConvert) glides too, not just repositioning.
  * Deliberately short and CSS-only: it costs nothing when nothing moves, and
@@ -179,8 +193,15 @@ function UnitGlyph({ kind, x, y, size }: { kind: string; x: number; y: number; s
   const shapes = UNIT_ICONS[kind] ?? []
   return (
     <svg
-      x={x - size / 2}
-      y={y - size / 2}
+      // Fixed local offset (not `x - size / 2`/`y - size / 2` as attributes)
+      // — position instead rides on the CSS `transform` below. Browsers
+      // don't reliably treat a nested <svg>'s `x`/`y` *attributes* as
+      // animatable CSS properties the way they do `cx`/`cy` on <circle>/
+      // <rect> (what the outer plate below uses), so transitioning those
+      // directly left the glyph snapping to its new spot while the plate
+      // glided. `transform: translate()` is universally transition-able.
+      x={-size / 2}
+      y={-size / 2}
       width={size}
       height={size}
       viewBox="0 0 24 24"
@@ -191,7 +212,7 @@ function UnitGlyph({ kind, x, y, size }: { kind: string; x: number; y: number; s
       // extra state to track. `style` still carries the position
       // transition so a same-kind move keeps gliding as normal.
       className="rf-fade-in"
-      style={{ transition: 'x 0.35s ease-out, y 0.35s ease-out' }}
+      style={{ transform: `translate(${x}px, ${y}px)`, transition: 'transform 0.35s ease-out' }}
     >
       {shapes.map((shape: IconShape, i) => {
         switch (shape.kind) {
@@ -692,7 +713,8 @@ export function HexBoard(props: {
         )
       })}
       {(props.productionPopups ?? []).map((popup) => {
-        const { x, y } = axialToPixel(popup.coord, size)
+        const unitIndex = (props.units ?? []).findIndex((u) => u.id === popup.unitId)
+        const { x, y } = (unitIndex >= 0 ? unitStackPositions.get(unitIndex) : null) ?? axialToPixel(popup.coord, size)
         const parts = RESOURCE_ORDER.filter((key) => popup.delta[key]).map((key) => ({ key, icon: RESOURCE_ICON[key], amount: popup.delta[key]! }))
         if (parts.length === 0) return null
         const width = size * HISTORY_LABEL_WIDTH_FACTOR

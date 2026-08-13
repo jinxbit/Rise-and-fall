@@ -79,7 +79,7 @@ export function GamePage() {
    * once its rise-and-fade animation (index.css's rf-float-up) has had time
    * to finish.
    */
-  const [productionPopups, setProductionPopups] = useState<{ id: string; coord: Coordinate; delta: Partial<Resources> }[]>([])
+  const [productionPopups, setProductionPopups] = useState<{ id: string; unitId: string; coord: Coordinate; delta: Partial<Resources> }[]>([])
   /**
    * Hotseat pass-and-play: which seated player the shared device is
    * currently "handed to" — distinct from auth identity, since every
@@ -273,7 +273,7 @@ export function GamePage() {
     const delta = diffResources(beforePlayer.resources, afterPlayer.resources)
     if (Object.keys(delta).length === 0) return
     const id = `${unitId}-${Date.now()}`
-    setProductionPopups((popups) => [...popups, { id, coord, delta }])
+    setProductionPopups((popups) => [...popups, { id, unitId, coord, delta }])
     setTimeout(() => setProductionPopups((popups) => popups.filter((p) => p.id !== id)), PRODUCTION_POPUP_DURATION_MS)
   }
 
