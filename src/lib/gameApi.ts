@@ -47,13 +47,13 @@ export async function createGame(params: {
   maxPlayers?: number
   /** Content id of a pre-made map template (src/content/mapTemplates.json) to skip interactive tile placement, or null/omitted for the usual interactive setup. */
   mapTemplateId?: string | null
-  /** Hotseat only: skip the "pass the device" confirmation gate between local players' turns (see GamePage.tsx). Ignored for live/async. Defaults to false (gate shown), matching the checkbox's unchecked default in HomePage.tsx. */
+  /** Hotseat only: skip the "pass the device" confirmation gate between local players' turns (see GamePage.tsx). Ignored for live/async. Defaults to false (gate shown) when omitted; CreateGamePage.tsx's checkbox defaults to checked (true). */
   skipHotseatPassGate?: boolean
   /** Content ids of active Tales (src/content/tales.json) for the Tales variant, or omitted/empty for none. */
   activeTaleIds?: string[]
   /** Total achievements claimed (across all players) that ends the game — content/achievements.json's gameLength.min/max bounds it (1-6). Defaults to gameLength.default (4). */
   gameLength?: number
-  /** Whether the room is listed on the Public Rooms screen (issue #40 section 4-5). Defaults to 'private', matching every room's behavior before this option existed. */
+  /** Whether the room is listed on the Public Rooms screen (issue #40 section 4-5). Defaults to 'private' when omitted; CreateGamePage.tsx's checkbox defaults to checked ('public'). */
   visibility?: GameRow['visibility']
 }): Promise<{ game: GameRow; player: PlayerRow }> {
   const roomCode = generateRoomCode()

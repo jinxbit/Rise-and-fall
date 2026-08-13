@@ -165,7 +165,7 @@ export function GamePage() {
   const boardGenerationContent = useMemo(() => resolveBoardGenerationContent(players.length), [players.length])
   // Tales (src/content/tales.json) and the achievement target chosen at
   // game creation (games.settings.activeTaleIds/gameLength — see
-  // HomePage.tsx's TaleSelector/GameLengthSelector) are carried into GameState itself
+  // CreateGamePage.tsx's TaleSelector/GameLengthSelector) are carried into GameState itself
   // once genesis is built (GameState.activeTaleIds/gameLength — see
   // buildGenesisState), so once a game is under way this reads the
   // running gameState, not the games row — self-contained the same way a
@@ -198,7 +198,7 @@ export function GamePage() {
   const isSeatedPlayer = players.some((p) => p.user_id === session?.user.id)
   const amObserving = observers.some((o) => o.user_id === session?.user.id)
   const canObserve = !isSeatedPlayer && game?.status === 'active' && !amObserving
-  // Creation-time opt-out (HomePage.tsx's checkbox) for groups that don't
+  // Creation-time opt-out (CreateGamePage.tsx's checkbox, checked by default) for groups that don't
   // want the extra tap every turn — when set, `me` just always follows
   // whoever must act next, and the gate never has anything to catch it on.
   const skipHotseatGate = game?.settings.skipHotseatPassGate ?? false

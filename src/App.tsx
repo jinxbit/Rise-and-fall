@@ -1,4 +1,5 @@
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
+import { CreateGamePage } from './pages/CreateGamePage'
 import { GamePage } from './pages/GamePage'
 import { HomePage } from './pages/HomePage'
 import { LobbyPage } from './pages/LobbyPage'
@@ -11,6 +12,7 @@ function App() {
       <div className="min-h-screen bg-neutral-950 text-neutral-100">
         <Routes>
           <Route path="/" element={<HomePage />} />
+          <Route path="/create" element={<CreateGamePage />} />
           <Route path="/games" element={<MyGamesPage />} />
           <Route path="/public" element={<PublicRoomsPage />} />
           <Route path="/lobby/:roomCode" element={<LobbyPage />} />

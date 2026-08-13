@@ -1,31 +1,64 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { DiscordSignIn } from '../components/DiscordSignIn'
 import { DiscordWebhookSettings } from '../components/DiscordWebhookSettings'
-import { GameLengthSelector } from '../components/GameLengthSelector'
 import { GuestSignIn } from '../components/GuestSignIn'
-import { MapTemplateSelector } from '../components/MapTemplateSelector'
-import { PlayModeSelector } from '../components/PlayModeSelector'
-import { TaleSelector } from '../components/TaleSelector'
+import { Pagination } from '../components/Pagination'
 import { useAuth } from '../hooks/useAuth'
-import { createGame, getGameByRoomCode } from '../lib/gameApi'
+import { getGameByRoomCode, listMyGames, listPublicRooms } from '../lib/gameApi'
 import { signOut } from '../lib/auth'
-import type { PlayMode } from '../engine/types'
+import { paginate } from '../lib/pagination'
+import { groupMyGames, isMyTurn, myGameStatus, type MyGameEntry, type MyGameStatus } from '../lib/myGamesView'
+import { groupPublicRooms, isJoinable, type PublicRoomEntry } from '../lib/publicRoomsView'
+
+const PAGE_SIZE = 10
+
+const STATUS_LABEL: Record<MyGameStatus, string> = {
+  lobby: 'Waiting in lobby',
+  boardSetup: 'Setting up board',
+  active: 'In progress',
+  completed: 'Finished',
+  canceled: 'Canceled',
+}
+
+/** Same routing rule as MyGamesPage.tsx's gamePath — no game_state row yet means the room is still in the lobby. */
+function gamePath(entry: MyGameEntry): string {
+  return entry.gameState === null ? `/lobby/${entry.game.room_code}` : `/game/${entry.game.room_code}`
+}
 
 export function HomePage() {
   const { session, loading } = useAuth()
   const navigate = useNavigate()
 
-  const [name, setName] = useState('')
-  const [playMode, setPlayMode] = useState<PlayMode>('live')
-  const [mapTemplateId, setMapTemplateId] = useState<string | null>(null)
-  const [skipHotseatPassGate, setSkipHotseatPassGate] = useState(false)
-  const [activeTaleIds, setActiveTaleIds] = useState<string[]>([])
-  const [gameLength, setGameLength] = useState(4)
-  const [visibility, setVisibility] = useState<'public' | 'private'>('private')
   const [roomCodeInput, setRoomCodeInput] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+
+  const [myEntries, setMyEntries] = useState<MyGameEntry[] | null>(null)
+  const [publicEntries, setPublicEntries] = useState<PublicRoomEntry[] | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+
+  const [myGamesPage, setMyGamesPage] = useState(0)
+  const [joinablePage, setJoinablePage] = useState(0)
+  const [inProgressPage, setInProgressPage] = useState(0)
+
+  useEffect(() => {
+    if (!session) return
+    let cancelled = false
+    setLoadError(null)
+    Promise.all([listMyGames(session.user.id), listPublicRooms()])
+      .then(([myGames, publicRooms]) => {
+        if (cancelled) return
+        setMyEntries(myGames)
+        setPublicEntries(publicRooms)
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setLoadError(err instanceof Error ? err.message : 'Failed to load games')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [session])
 
   if (loading) {
     return <div className="p-8 text-neutral-400">Loading…</div>
@@ -55,30 +88,6 @@ export function HomePage() {
     'Player'
   const avatarUrl = (user.user_metadata?.avatar_url as string | undefined) ?? null
 
-  async function handleCreate() {
-    setError(null)
-    setBusy(true)
-    try {
-      const { game } = await createGame({
-        name,
-        playMode,
-        userId: user.id,
-        displayName,
-        avatarUrl,
-        mapTemplateId,
-        skipHotseatPassGate,
-        activeTaleIds,
-        gameLength,
-        visibility,
-      })
-      navigate(`/lobby/${game.room_code}`)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create game')
-    } finally {
-      setBusy(false)
-    }
-  }
-
   async function handleJoin() {
     setError(null)
     setBusy(true)
@@ -95,6 +104,19 @@ export function HomePage() {
       setBusy(false)
     }
   }
+
+  const { active: myGamesInProgress } = groupMyGames(myEntries ?? [])
+  const { notStarted, inProgress: publicInProgress } = groupPublicRooms(publicEntries ?? [])
+  // "Latest" here means most-recently created — unlike the in-progress list
+  // below, a fresh lobby's updated_at rarely differs from its created_at, but
+  // created_at is the literal reading of "the latest 10 joinable games".
+  const joinablePublic = notStarted
+    .filter(isJoinable)
+    .sort((a, b) => new Date(b.game.created_at).getTime() - new Date(a.game.created_at).getTime())
+
+  const myGamesPageItems = paginate(myGamesInProgress, myGamesPage, PAGE_SIZE)
+  const joinablePageItems = paginate(joinablePublic, joinablePage, PAGE_SIZE)
+  const inProgressPageItems = paginate(publicInProgress, inProgressPage, PAGE_SIZE)
 
   return (
     <div className="mx-auto flex max-w-lg flex-col gap-8 p-8">
@@ -116,60 +138,17 @@ export function HomePage() {
       </header>
 
       {error && <div className="rounded-md bg-red-500/10 p-3 text-sm text-red-400">{error}</div>}
+      {loadError && <div className="rounded-md bg-red-500/10 p-3 text-sm text-red-400">{loadError}</div>}
 
       <DiscordWebhookSettings userId={user.id} />
 
       <section className="flex flex-col gap-3">
-        <h2 className="font-medium text-neutral-200">Create a game</h2>
-        <label className="flex flex-col gap-1 text-sm text-neutral-400">
-          Room name
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. Friday night showdown"
-            maxLength={60}
-            className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100"
-          />
-        </label>
-        <p className="text-xs text-neutral-500">Choose carefully — the room name can&apos;t be changed later.</p>
-        <PlayModeSelector value={playMode} onChange={setPlayMode} />
-        {playMode === 'hotseat' && (
-          <label className="flex items-center gap-2 text-sm text-neutral-400">
-            <input
-              type="checkbox"
-              checked={skipHotseatPassGate}
-              onChange={(e) => setSkipHotseatPassGate(e.target.checked)}
-              className="h-4 w-4 rounded border-neutral-700 bg-neutral-900"
-            />
-            Don&apos;t show a &quot;pass the device&quot; message every turn
-          </label>
-        )}
-        <h3 className="text-sm font-medium text-neutral-400">Game length</h3>
-        <GameLengthSelector value={gameLength} onChange={setGameLength} />
-        <h3 className="text-sm font-medium text-neutral-400">Map</h3>
-        <MapTemplateSelector value={mapTemplateId} onChange={setMapTemplateId} />
-        <h3 className="text-sm font-medium text-neutral-400">Tales (variant)</h3>
-        <TaleSelector value={activeTaleIds} onChange={setActiveTaleIds} />
-        <label className="flex items-center gap-2 text-sm text-neutral-400">
-          <input
-            type="checkbox"
-            checked={visibility === 'public'}
-            onChange={(e) => setVisibility(e.target.checked ? 'public' : 'private')}
-            className="h-4 w-4 rounded border-neutral-700 bg-neutral-900"
-          />
-          List this room on the Public rooms screen
-        </label>
-        <button
-          disabled={busy || name.trim().length === 0}
-          onClick={() => void handleCreate()}
-          className="rounded-md bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
+        <Link
+          to="/create"
+          className="rounded-md bg-indigo-600 px-4 py-2 text-center font-medium text-white hover:bg-indigo-500"
         >
-          Create game
-        </button>
-      </section>
-
-      <section className="flex flex-col gap-3">
-        <h2 className="font-medium text-neutral-200">Join a game</h2>
+          Create a game
+        </Link>
         <div className="flex gap-2">
           <input
             value={roomCodeInput}
@@ -187,6 +166,108 @@ export function HomePage() {
           </button>
         </div>
       </section>
+
+      {myEntries === null && !loadError && <div className="text-neutral-400">Loading your games…</div>}
+
+      {myEntries !== null && (
+        <section className="flex flex-col gap-3">
+          <h2 className="font-medium text-neutral-200">Your games in progress</h2>
+          {myGamesInProgress.length === 0 ? (
+            <p className="text-sm text-neutral-500">No games in progress.</p>
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {myGamesPageItems.map((entry) => (
+                <MyGameRow key={entry.game.id} entry={entry} onOpen={() => navigate(gamePath(entry))} />
+              ))}
+            </ul>
+          )}
+          <Pagination page={myGamesPage} pageSize={PAGE_SIZE} total={myGamesInProgress.length} onChange={setMyGamesPage} />
+        </section>
+      )}
+
+      {publicEntries !== null && (
+        <section className="flex flex-col gap-3">
+          <h2 className="font-medium text-neutral-200">Public games — joinable</h2>
+          {joinablePublic.length === 0 ? (
+            <p className="text-sm text-neutral-500">No joinable public games right now.</p>
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {joinablePageItems.map((entry) => (
+                <PublicGameRow
+                  key={entry.game.id}
+                  entry={entry}
+                  action="Join"
+                  onOpen={() => navigate(`/lobby/${entry.game.room_code}`)}
+                />
+              ))}
+            </ul>
+          )}
+          <Pagination page={joinablePage} pageSize={PAGE_SIZE} total={joinablePublic.length} onChange={setJoinablePage} />
+        </section>
+      )}
+
+      {publicEntries !== null && (
+        <section className="flex flex-col gap-3">
+          <h2 className="font-medium text-neutral-200">Public games — in progress</h2>
+          {publicInProgress.length === 0 ? (
+            <p className="text-sm text-neutral-500">No public games in progress right now.</p>
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {inProgressPageItems.map((entry) => (
+                <PublicGameRow
+                  key={entry.game.id}
+                  entry={entry}
+                  action="Observe"
+                  onOpen={() => navigate(`/game/${entry.game.room_code}`)}
+                />
+              ))}
+            </ul>
+          )}
+          <Pagination page={inProgressPage} pageSize={PAGE_SIZE} total={publicInProgress.length} onChange={setInProgressPage} />
+        </section>
+      )}
     </div>
+  )
+}
+
+function MyGameRow({ entry, onOpen }: { entry: MyGameEntry; onOpen: () => void }) {
+  const myTurn = isMyTurn(entry)
+  const status = myGameStatus(entry)
+
+  return (
+    <li>
+      <button
+        onClick={onOpen}
+        className="flex w-full items-center justify-between gap-3 rounded-md border border-neutral-800 bg-neutral-900 px-4 py-3 text-left hover:border-neutral-600"
+      >
+        <div className="flex flex-col gap-1">
+          <span className="font-medium">{entry.game.name}</span>
+          <span className="text-sm text-neutral-400">
+            Room {entry.game.room_code} · {STATUS_LABEL[status]} · {entry.players.map((p) => p.display_name).join(', ')}
+          </span>
+        </div>
+        {myTurn && <span className="shrink-0 rounded-full bg-indigo-600 px-3 py-1 text-xs font-medium text-white">Your turn</span>}
+      </button>
+    </li>
+  )
+}
+
+function PublicGameRow({ entry, action, onOpen }: { entry: PublicRoomEntry; action: string; onOpen: () => void }) {
+  return (
+    <li>
+      <button
+        onClick={onOpen}
+        className="flex w-full items-center justify-between gap-3 rounded-md border border-neutral-800 bg-neutral-900 px-4 py-3 text-left hover:border-neutral-600"
+      >
+        <div className="flex flex-col gap-1">
+          <span className="font-medium">{entry.game.name}</span>
+          <span className="text-sm text-neutral-400">
+            Room {entry.game.room_code} · {entry.game.play_mode} · {entry.players.length}/{entry.game.max_players} players ·{' '}
+            {entry.players.map((p) => p.display_name).join(', ') || 'no players yet'}
+          </span>
+        </div>
+        <span className="shrink-0 rounded-full bg-indigo-600 px-3 py-1 text-xs font-medium text-white">{action}</span>
+      </button>
+    </li>
   )
 }

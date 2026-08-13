@@ -9,7 +9,7 @@ import type { PlayMode, GameState as EngineGameState } from '../engine/types'
  * Per-game, creation-time configuration — a single JSONB column
  * (games.settings, see 0007_game_settings.sql) instead of one column per
  * setting, so a new pregame toggle doesn't need its own migration. Only
- * meaningful up through the lobby: set at creation (HomePage.tsx), read by
+ * meaningful up through the lobby: set at creation (CreateGamePage.tsx), read by
  * LobbyPage.tsx's summary and buildGenesisState. Once a game is actually
  * running, GamePage.tsx reads the equivalent settings off GameState
  * instead (GameState.activeTaleIds/gameLength — see their own doc
@@ -38,7 +38,7 @@ export interface GameSettings {
 export interface GameRow {
   id: string
   room_code: string
-  /** Owner-chosen at creation (HomePage.tsx); immutable afterward — enforced server-side by 0012_room_name.sql's trigger. */
+  /** Owner-chosen at creation (CreateGamePage.tsx); immutable afterward — enforced server-side by 0012_room_name.sql's trigger. */
   name: string
   play_mode: PlayMode
   status: 'lobby' | 'active' | 'completed' | 'canceled'

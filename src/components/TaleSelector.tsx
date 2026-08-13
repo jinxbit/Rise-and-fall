@@ -12,7 +12,7 @@ const CATEGORY_LABEL: Record<string, string> = {
  * single-choice buttons. "Randomize" is a convenience shuffle (each Tale
  * independently included at 50/50), not the rulebook's "draw one per
  * player" — that count depends on how many players actually join, which
- * isn't known yet at game-creation time (see HomePage.tsx), and doesn't
+ * isn't known yet at game-creation time (see CreateGamePage.tsx), and doesn't
  * mean much anyway while the catalog only has one Tale implemented.
  * Host-picking specific Tales (checking/unchecking directly) is the
  * primary flow; Randomize is just a starting point to react to.
