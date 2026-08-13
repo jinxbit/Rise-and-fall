@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildGenesisState } from '../gameGenesis'
-import { groupMyGames, isFinished, isMyTurn, myGameStatus, type MyGameEntry } from '../myGamesView'
+import { groupMyGames, isCanceled, isFinished, isMyTurn, myGameStatus, type MyGameEntry } from '../myGamesView'
 import type { GameRow, GameSettings, PlayerRow } from '../dbTypes'
 import type { GameState as EngineGameState } from '../../engine/types'
 
@@ -53,6 +53,14 @@ describe('myGameStatus', () => {
   it('reads the status off gameState, not games.status (which never records boardSetup/completed)', () => {
     expect(myGameStatus(makeEntry({ gameState: makeActiveState({ status: 'completed' }) }))).toBe('completed')
   })
+
+  it('reports canceled off games.status even with a live (pre-cancel) gameState', () => {
+    expect(myGameStatus(makeEntry({ game: makeGame({ status: 'canceled' }) }))).toBe('canceled')
+  })
+
+  it('reports canceled for a room canceled before it ever started (no gameState row yet)', () => {
+    expect(myGameStatus(makeEntry({ game: makeGame({ status: 'canceled' }), gameState: null }))).toBe('canceled')
+  })
 })
 
 describe('isFinished', () => {
@@ -62,6 +70,20 @@ describe('isFinished', () => {
 
   it('is true once gameState.status is completed', () => {
     expect(isFinished(makeEntry({ gameState: makeActiveState({ status: 'completed' }) }))).toBe(true)
+  })
+
+  it('is false for a canceled game', () => {
+    expect(isFinished(makeEntry({ game: makeGame({ status: 'canceled' }) }))).toBe(false)
+  })
+})
+
+describe('isCanceled', () => {
+  it('is false for an in-progress game', () => {
+    expect(isCanceled(makeEntry())).toBe(false)
+  })
+
+  it('is true once games.status is canceled', () => {
+    expect(isCanceled(makeEntry({ game: makeGame({ status: 'canceled' }) }))).toBe(true)
   })
 })
 
@@ -97,17 +119,22 @@ describe('isMyTurn', () => {
 })
 
 describe('groupMyGames', () => {
-  it('splits active and finished games', () => {
+  it('splits active, finished, and canceled games', () => {
     const activeEntry = makeEntry({ game: makeGame({ id: 'g1', room_code: 'AAAAA' }), gameState: makeActiveState() })
     const finishedEntry = makeEntry({
       game: makeGame({ id: 'g2', room_code: 'BBBBB' }),
       gameState: makeActiveState({ status: 'completed' }),
     })
+    const canceledEntry = makeEntry({
+      game: makeGame({ id: 'g3', room_code: 'CCCCC', status: 'canceled' }),
+      gameState: makeActiveState(),
+    })
 
-    const { active, finished } = groupMyGames([activeEntry, finishedEntry])
+    const { active, finished, canceled } = groupMyGames([activeEntry, finishedEntry, canceledEntry])
 
     expect(active.map((e) => e.game.id)).toEqual(['g1'])
     expect(finished.map((e) => e.game.id)).toEqual(['g2'])
+    expect(canceled.map((e) => e.game.id)).toEqual(['g3'])
   })
 
   it('sorts active games with "your turn" first, ties broken by most-recently-updated', () => {

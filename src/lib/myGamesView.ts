@@ -23,19 +23,26 @@ export interface MyGameEntry {
 
 /**
  * The status that actually matters for this screen. games.status (the DB
- * row) only ever tracks 'lobby' -> 'active' — 'boardSetup' and 'completed'
- * live exclusively in game_state.state.status (see dbTypes.ts's GameRow
- * comment and GamePage.tsx's status checks), so a finished game still shows
- * games.status: 'active' unless we look at gameState instead.
+ * row) only ever tracks 'lobby' -> 'active' (-> 'canceled') — 'boardSetup'
+ * and 'completed' live exclusively in game_state.state.status (see
+ * dbTypes.ts's GameRow comment and GamePage.tsx's status checks), so a
+ * finished game still shows games.status: 'active' unless we look at
+ * gameState instead. 'canceled' is the one value that *is* authoritative on
+ * games.status — it's checked first, ahead of gameState.
  */
-export type MyGameStatus = 'lobby' | 'boardSetup' | 'active' | 'completed'
+export type MyGameStatus = 'lobby' | 'boardSetup' | 'active' | 'completed' | 'canceled'
 
 export function myGameStatus(entry: MyGameEntry): MyGameStatus {
+  if (entry.game.status === 'canceled') return 'canceled'
   return entry.gameState?.status ?? 'lobby'
 }
 
 export function isFinished(entry: MyGameEntry): boolean {
   return myGameStatus(entry) === 'completed'
+}
+
+export function isCanceled(entry: MyGameEntry): boolean {
+  return myGameStatus(entry) === 'canceled'
 }
 
 /** True if any of the current user's seats is one of the players pendingActorIds() says must act next. */
@@ -46,19 +53,23 @@ export function isMyTurn(entry: MyGameEntry): boolean {
 }
 
 /**
- * Splits into active/finished and sorts each: active games where it's the
- * user's turn float to the top (then most-recently-updated first), finished
- * games are most-recently-updated first.
+ * Splits into active/finished/canceled and sorts each: active games where
+ * it's the user's turn float to the top (then most-recently-updated first);
+ * finished and canceled games are each most-recently-updated first.
  */
-export function groupMyGames(entries: MyGameEntry[]): { active: MyGameEntry[]; finished: MyGameEntry[] } {
-  const active = entries.filter((entry) => !isFinished(entry))
+export function groupMyGames(
+  entries: MyGameEntry[],
+): { active: MyGameEntry[]; finished: MyGameEntry[]; canceled: MyGameEntry[] } {
+  const active = entries.filter((entry) => !isFinished(entry) && !isCanceled(entry))
   const finished = entries.filter((entry) => isFinished(entry))
+  const canceled = entries.filter((entry) => isCanceled(entry))
 
   const byUpdatedDesc = (a: MyGameEntry, b: MyGameEntry) =>
     new Date(b.game.updated_at).getTime() - new Date(a.game.updated_at).getTime()
 
   active.sort((a, b) => Number(isMyTurn(b)) - Number(isMyTurn(a)) || byUpdatedDesc(a, b))
   finished.sort(byUpdatedDesc)
+  canceled.sort(byUpdatedDesc)
 
-  return { active, finished }
+  return { active, finished, canceled }
 }

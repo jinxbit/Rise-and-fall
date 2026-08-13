@@ -5,6 +5,8 @@ import { listMapTemplates, listTales } from '../content/resolveContent'
 import { buildGenesisState } from '../lib/gameGenesis'
 import {
   addLocalPlayer,
+  cancelGame,
+  deleteGame,
   getGameByRoomCode,
   getGameState,
   insertGameState,
@@ -64,6 +66,11 @@ export function LobbyPage() {
   const isHotseat = game.play_mode === 'hotseat'
   const canStart = isCreator && players.length >= game.min_players && game.status === 'lobby'
   const canAddPlayer = isHotseat && isCreator && game.status === 'lobby' && players.length < game.max_players
+  // Owner-only lifecycle actions (0008_room_lifecycle.sql's RLS is the real
+  // guard; these just decide what to render — see the room lifecycle spec's
+  // sections 3/12 for the deletable/cancelable states).
+  const canCancel = isCreator && game.status === 'lobby'
+  const canDelete = isCreator && (game.status === 'lobby' || game.status === 'canceled')
 
   async function handleJoin() {
     if (!game) return
@@ -142,6 +149,31 @@ export function LobbyPage() {
     }
   }
 
+  async function handleCancel() {
+    if (!game) return
+    setBusy(true)
+    try {
+      await cancelGame(game.id)
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to cancel room')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleDelete() {
+    if (!game) return
+    setBusy(true)
+    try {
+      await deleteGame(game.id)
+      navigate('/')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete room')
+      setBusy(false)
+    }
+  }
+
   return (
     <div className="mx-auto flex max-w-lg flex-col gap-6 p-8">
       <header>
@@ -163,6 +195,13 @@ export function LobbyPage() {
       </header>
 
       {error && <div className="rounded-md bg-red-500/10 p-3 text-sm text-red-400">{error}</div>}
+
+      {game.status === 'canceled' && (
+        <div className="rounded-md bg-neutral-800/60 p-3 text-sm text-neutral-300">
+          This room was canceled{isCreator ? '' : ' by the host'}. It stays here for reference until{' '}
+          {isCreator ? 'you delete it.' : 'the host deletes it.'}
+        </div>
+      )}
 
       <ul className="flex flex-col gap-2">
         {players.map((p) => (
@@ -218,7 +257,7 @@ export function LobbyPage() {
         </p>
       )}
 
-      {!isHotseat && !isSeated && (
+      {!isHotseat && !isSeated && game.status === 'lobby' && (
         <button
           disabled={busy}
           onClick={() => void handleJoin()}
@@ -236,6 +275,33 @@ export function LobbyPage() {
         >
           {isCreator ? `Start game (needs ${game.min_players}+ players)` : 'Waiting for host to start…'}
         </button>
+      )}
+
+      {(canCancel || canDelete) && (
+        <div className="flex gap-2 border-t border-neutral-800 pt-4">
+          {canCancel && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void handleCancel()}
+              title="Cancel this room — it stays visible for reference until deleted, but nobody can join or start it anymore."
+              className="rounded-md border border-neutral-700 px-3 py-2 text-sm text-neutral-300 hover:border-red-400 hover:text-red-400 disabled:opacity-50"
+            >
+              Cancel room
+            </button>
+          )}
+          {canDelete && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void handleDelete()}
+              title="Permanently delete this room."
+              className="rounded-md border border-neutral-700 px-3 py-2 text-sm text-neutral-300 hover:border-red-400 hover:text-red-400 disabled:opacity-50"
+            >
+              Delete room
+            </button>
+          )}
+        </div>
       )}
     </div>
   )
