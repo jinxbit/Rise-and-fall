@@ -37,6 +37,8 @@ export function generateRoomCode(length = 5): string {
 }
 
 export async function createGame(params: {
+  /** Owner-chosen room name, immutable after creation (see dbTypes.ts's GameRow.name). Trimmed and length-checked here to match 0012_room_name.sql's constraint; the DB is the source of truth. */
+  name: string
   playMode: PlayMode
   userId: string
   displayName: string
@@ -55,6 +57,10 @@ export async function createGame(params: {
   visibility?: GameRow['visibility']
 }): Promise<{ game: GameRow; player: PlayerRow }> {
   const roomCode = generateRoomCode()
+  const name = params.name.trim()
+  if (name.length === 0 || name.length > 60) {
+    throw new Error('Room name must be between 1 and 60 characters')
+  }
 
   const settings: GameSettings = {
     mapTemplateId: params.mapTemplateId ?? null,
@@ -67,6 +73,7 @@ export async function createGame(params: {
     .from('games')
     .insert({
       room_code: roomCode,
+      name,
       play_mode: params.playMode,
       created_by: params.userId,
       min_players: params.minPlayers ?? 2,

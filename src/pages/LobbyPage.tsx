@@ -262,7 +262,8 @@ export function LobbyPage() {
   return (
     <div className="mx-auto flex max-w-lg flex-col gap-6 p-8">
       <header>
-        <h1 className="text-2xl font-semibold">Room {game.room_code}</h1>
+        <h1 className="text-2xl font-semibold">{game.name}</h1>
+        <p className="text-sm text-neutral-500">Room {game.room_code}</p>
         <p className="text-neutral-400">
           {game.play_mode} · {players.length}/{game.max_players} players · {game.settings.gameLength} achievements ·{' '}
           {game.settings.mapTemplateId

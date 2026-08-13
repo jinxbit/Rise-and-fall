@@ -630,7 +630,8 @@ export function GamePage() {
               </div>
             )}
           </div>
-          <h1 className="text-2xl font-semibold">Room {game.room_code}</h1>
+          <h1 className="text-2xl font-semibold">{game.name}</h1>
+          <p className="text-sm text-neutral-500">Room {game.room_code}</p>
           <ul className="flex flex-wrap gap-3 text-sm text-neutral-400">
             {players.map((p) => (
               <li key={p.id} className="flex items-center gap-1">
