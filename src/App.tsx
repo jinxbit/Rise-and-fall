@@ -2,6 +2,7 @@ import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { GamePage } from './pages/GamePage'
 import { HomePage } from './pages/HomePage'
 import { LobbyPage } from './pages/LobbyPage'
+import { MyGamesPage } from './pages/MyGamesPage'
 
 function App() {
   return (
@@ -9,6 +10,7 @@ function App() {
       <div className="min-h-screen bg-neutral-950 text-neutral-100">
         <Routes>
           <Route path="/" element={<HomePage />} />
+          <Route path="/games" element={<MyGamesPage />} />
           <Route path="/lobby/:roomCode" element={<LobbyPage />} />
           <Route path="/game/:roomCode" element={<GamePage />} />
         </Routes>
