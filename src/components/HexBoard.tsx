@@ -503,9 +503,9 @@ export function HexBoard(props: {
             key={`ghost-${coordKey(coord)}`}
             data-ghost-coord={coordKey(coord)}
             points={hexPoints(x, y, size - 1)}
-            fill={ghost.legal ? 'rgba(34,197,94,0.25)' : 'rgba(239,68,68,0.2)'}
+            fill={ghost.legal ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)'}
             stroke={ghost.legal ? '#22c55e' : '#ef4444'}
-            strokeWidth={2}
+            strokeWidth={3}
             pointerEvents="none"
           />
         )
