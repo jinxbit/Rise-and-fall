@@ -369,6 +369,58 @@ describe('round flow', () => {
     expect(p1After.declineCardIds).toEqual(expect.arrayContaining([cardIdFor('p1', 'temple'), cardIdFor('p1', 'nomad')]))
   })
 
+  // Bug report: a player who owes more than one card this phase (2+
+  // achievements claimed this round) but only has a single card available
+  // was getting eliminated the moment they ran out on their second
+  // occurrence — even though they'd already complied by declining the only
+  // card they had. They should be excused from the unmeetable second
+  // occurrence instead, and stay in the game.
+  it('excuses rather than eliminates a player who declines their last card but still owes a second one', () => {
+    let state = makeActiveGameWithFullHands()
+    const p1Index = state.players.findIndex((p) => p.id === 'p1')
+    let p1 = state.players[p1Index]
+    // Strip p1 down to just their City card (their only card of any kind);
+    // everything else goes to supply, out of hand/discard reach entirely.
+    const keepCardId = cardIdFor('p1', 'city')
+    for (const cardId of p1.handCardIds.filter((id) => id !== keepCardId)) {
+      p1 = moveCard(p1, cardId, 'supply')
+    }
+    const players = [...state.players]
+    players[p1Index] = p1
+    state = { ...state, players, achievementsClaimedThisRound: 2 }
+
+    let result = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: keepCardId })
+    if (!result.ok) throw new Error('setup failed')
+    result = applyAction(result.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') })
+    if (!result.ok) throw new Error('setup failed')
+    result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p1' })
+    if (!result.ok) throw new Error('setup failed')
+    result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p2' })
+    if (!result.ok) throw new Error('setup failed')
+    expect(result.state.roundPhase).toBe('decline')
+    // p1 owes 2 occurrences but only has the City card (now in discard) to give.
+    expect(result.state.pendingPlayerIds).toEqual(['p1', 'p1', 'p2', 'p2'])
+
+    result = applyAction(result.state, { type: 'MOVE_TO_DECLINE', playerId: 'p1', cardId: keepCardId })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    // p1's now-unmeetable second occurrence is dropped, not punished with elimination.
+    expect(result.state.pendingPlayerIds).toEqual(['p2', 'p2'])
+    const p1After = result.state.players.find((p) => p.id === 'p1')!
+    expect(p1After.eliminated).toBe(false)
+    expect(p1After.declineCardIds).toContain(keepCardId)
+
+    result = applyAction(result.state, { type: 'MOVE_TO_DECLINE', playerId: 'p2', cardId: cardIdFor('p2', 'temple') })
+    if (!result.ok) throw new Error('setup failed')
+    result = applyAction(result.state, { type: 'MOVE_TO_DECLINE', playerId: 'p2', cardId: cardIdFor('p2', 'nomad') })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    // The round still finishes normally once p2 has met their own obligation.
+    expect(result.state.roundPhase).toBe('purchase')
+  })
+
   it('ends the game once gameLength achievements are claimed, crowning the highest-VP player(s)', () => {
     let state = makeActiveGameWithFullHands()
     state = {

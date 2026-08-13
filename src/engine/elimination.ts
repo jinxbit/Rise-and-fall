@@ -82,17 +82,33 @@ export function eliminatePlayersWithNoCardToPlay(state: GameState): GameState {
  * Decline phase (rule 3, simultaneous like select-cards — a player may owe
  * more than one card, see beginDeclinePhase in ./round.ts, but still isn't
  * on anyone else's turn): eliminates every currently pending player who has
- * nothing left to decline (hand and discard both empty). Must be re-run
- * after each MOVE_TO_DECLINE, not just once at phase start, since
- * multi-card decline can leave a player owing more cards than they have
- * left partway through their own declines.
+ * nothing left to decline (hand and discard both empty) AND never supplied
+ * any of their owed cards this phase. Must be re-run after each
+ * MOVE_TO_DECLINE, not just once at phase start, since multi-card decline
+ * can leave a player owing more cards than they have left partway through
+ * their own declines.
+ *
+ * A player who DID supply at least one card this phase but runs out before
+ * meeting a multi-card obligation (achievementsClaimedThisRound > 1) is not
+ * eliminated for it — they're simply excused from the remaining occurrences
+ * they can no longer fulfill. Elimination is reserved for a player who had
+ * nothing to decline at all. Every player starts the phase owed the same
+ * `max(1, achievementsClaimedThisRound)` occurrences (beginDeclinePhase
+ * seeds pendingPlayerIds uniformly across turnOrder), so comparing a
+ * player's current occurrence count against that owed count tells the two
+ * cases apart without needing separate bookkeeping.
  */
 export function eliminatePlayersWithNoCardToDecline(state: GameState): GameState {
   if (state.roundPhase !== 'decline') return state
 
+  const cardsOwedPerPlayer = Math.max(1, state.achievementsClaimedThisRound)
   let nextState = state
   for (const playerId of new Set(state.pendingPlayerIds)) {
-    if (hasNoCardToDecline(nextState, playerId)) {
+    if (!hasNoCardToDecline(nextState, playerId)) continue
+    const occurrencesRemaining = nextState.pendingPlayerIds.filter((id) => id === playerId).length
+    if (occurrencesRemaining < cardsOwedPerPlayer) {
+      nextState = { ...nextState, pendingPlayerIds: nextState.pendingPlayerIds.filter((id) => id !== playerId) }
+    } else {
       nextState = eliminatePlayer(nextState, playerId)
     }
   }

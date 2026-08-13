@@ -270,6 +270,49 @@ describe('eliminatePlayersWithNoCardToDecline', () => {
     expect(next.activePlayerId).toBeNull()
     expect(next.pendingPlayerIds).toEqual([])
   })
+
+  // Bug report: a player who owes more than one card this phase (2+
+  // achievements claimed this round, see beginDeclinePhase in ./round.ts)
+  // and only had a single card to give was getting fully eliminated once
+  // they ran dry on the second occurrence — indistinguishable, until now,
+  // from a player who never had anything to decline in the first place.
+  // Declining your last card should excuse you from any further
+  // now-unmeetable obligation this phase, not eliminate you.
+  it('excuses (does not eliminate) a player who already declined their last card but still owed more', () => {
+    const state = makeState({
+      roundPhase: 'decline',
+      turnOrder: ['p1', 'p2'],
+      // p1 owed 2 occurrences (2 achievements claimed this round) but
+      // already supplied one, leaving a single remaining occurrence with
+      // nothing left in hand/discard to cover it.
+      pendingPlayerIds: ['p1', 'p2'],
+      activePlayerId: null,
+      achievementsClaimedThisRound: 2,
+      players: [makePlayer('p1', { handCardIds: [], discardCardIds: [] }), makePlayer('p2', { handCardIds: ['card_p2_city'] })],
+    })
+
+    const next = eliminatePlayersWithNoCardToDecline(state)
+
+    expect(next.players.find((p) => p.id === 'p1')?.eliminated).toBe(false)
+    expect(next.pendingPlayerIds).toEqual(['p2'])
+  })
+
+  it('still eliminates a player who owed multiple cards but never had anything to decline at all', () => {
+    const state = makeState({
+      roundPhase: 'decline',
+      turnOrder: ['p1', 'p2'],
+      // p1 owes both occurrences up front and has never declined anything.
+      pendingPlayerIds: ['p1', 'p1', 'p2'],
+      activePlayerId: null,
+      achievementsClaimedThisRound: 2,
+      players: [makePlayer('p1', { handCardIds: [], discardCardIds: [] }), makePlayer('p2', { handCardIds: ['card_p2_city'] })],
+    })
+
+    const next = eliminatePlayersWithNoCardToDecline(state)
+
+    expect(next.players.find((p) => p.id === 'p1')?.eliminated).toBe(true)
+    expect(next.pendingPlayerIds).toEqual(['p2'])
+  })
 })
 
 describe('elimination wired into round phases', () => {
