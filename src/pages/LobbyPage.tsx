@@ -19,6 +19,7 @@ import {
   MAX_PLAYERS,
   removePlayer,
   setGameStatus,
+  setGameVisibility,
   subscribeToGame,
   subscribeToPlayers,
   updateGameSettings,
@@ -87,6 +88,10 @@ export function LobbyPage() {
   // Configuration editing (issue section 9): Owner-only, and only pre-start —
   // 0009_config_versioning.sql's trigger rejects it once the room isn't lobby.
   const canEditConfig = isCreator && game.status === 'lobby'
+  // Visibility (issue section 4): Owner-only, any time short of canceled —
+  // unlike settings/min-max players this isn't gameplay configuration, so
+  // it's not locked once the room leaves the lobby (see setGameVisibility).
+  const canEditVisibility = isCreator && game.status !== 'canceled'
   const meNeedsReady = isSeated && !isCreator && game.status === 'lobby' && me !== null && !isPlayerReady(game, me)
 
   function openConfigEditor() {
@@ -204,6 +209,20 @@ export function LobbyPage() {
     }
   }
 
+  async function handleToggleVisibility() {
+    if (!game) return
+    setError(null)
+    setBusy(true)
+    try {
+      await setGameVisibility(game.id, game.visibility === 'public' ? 'private' : 'public')
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update visibility')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function handleSaveConfig() {
     if (!game || !draftSettings) return
     setError(null)
@@ -258,6 +277,19 @@ export function LobbyPage() {
               .join(', ')}
           </p>
         )}
+        <p className="mt-1 text-sm text-neutral-500">
+          {game.visibility === 'public' ? 'Public — listed on the Public rooms screen' : 'Private — only reachable via this room’s link/code'}
+          {canEditVisibility && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void handleToggleVisibility()}
+              className="ml-2 text-indigo-400 hover:text-indigo-300 disabled:opacity-50"
+            >
+              Make {game.visibility === 'public' ? 'private' : 'public'}
+            </button>
+          )}
+        </p>
         {canEditConfig && !configOpen && (
           <button
             type="button"

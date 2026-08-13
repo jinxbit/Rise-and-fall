@@ -17,6 +17,7 @@ function makeGame(overrides: Partial<GameRow> = {}, settingsOverrides: Partial<G
     updated_at: '2026-01-01T00:00:00Z',
     settings: { mapTemplateId: 'classic', skipHotseatPassGate: false, activeTaleIds: [], gameLength: 4, ...settingsOverrides },
     config_version: 0,
+    visibility: 'private',
     ...overrides,
   }
 }

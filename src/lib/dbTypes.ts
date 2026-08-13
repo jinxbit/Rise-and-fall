@@ -48,6 +48,13 @@ export interface GameRow {
   settings: GameSettings
   /** Bumped by 0009_config_versioning.sql's trigger every time `settings` changes while the room is still in the lobby. Compare against a PlayerRow's `ready_for_version` to know if that player has acknowledged the current config (see roomReadiness.ts). */
   config_version: number
+  /**
+   * 'private' (default) rooms are reachable only via room code/link, same as
+   * every room before this column existed. 'public' rooms additionally show
+   * up on the Public Rooms screen (0011_room_visibility.sql, issue #40
+   * sections 4-5, see publicRoomsView.ts). Owner-only to change.
+   */
+  visibility: 'public' | 'private'
 }
 
 export interface PlayerRow {

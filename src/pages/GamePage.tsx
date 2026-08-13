@@ -25,6 +25,7 @@ import {
   leaveAsObserver,
   listObservers,
   listPlayers,
+  setGameVisibility,
   subscribeToGame,
   subscribeToGameState,
   subscribeToObservers,
@@ -185,6 +186,10 @@ export function GamePage() {
   // engine status rules out canceling a game that's already over.
   const canCancel = isCreator && game?.status === 'active' && gameState?.status !== 'completed'
   const canDelete = isCreator && game?.status === 'canceled'
+  // Visibility (issue section 4): Owner-only, any time short of canceled —
+  // not gameplay configuration, so it stays editable after the room leaves
+  // the lobby (see LobbyPage.tsx's matching toggle and setGameVisibility).
+  const canEditVisibility = isCreator && game?.status !== 'canceled'
   const isHotseat = game?.play_mode === 'hotseat'
   // Observers (issue section 6): view-only, don't occupy a seat. Joining is
   // only offered once the room is genuinely Active — same 'active' gate as
@@ -452,6 +457,19 @@ export function GamePage() {
     }
   }
 
+  async function handleToggleVisibility() {
+    if (!game) return
+    setLifecycleBusy(true)
+    setLifecycleError(null)
+    try {
+      await setGameVisibility(game.id, game.visibility === 'public' ? 'private' : 'public')
+    } catch (err) {
+      setLifecycleError(err instanceof Error ? err.message : 'Failed to update visibility')
+    } finally {
+      setLifecycleBusy(false)
+    }
+  }
+
   async function handleDeleteRoom() {
     if (!game) return
     setLifecycleBusy(true)
@@ -564,6 +582,21 @@ export function GamePage() {
                 >
                   {showStateJson ? 'Hide' : 'Show'} game state JSON
                 </button>
+                {canEditVisibility && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    disabled={lifecycleBusy}
+                    onClick={() => {
+                      setMenuOpen(false)
+                      void handleToggleVisibility()
+                    }}
+                    title="Toggle whether this room is listed on the Public rooms screen."
+                    className="px-3 py-2 text-left hover:bg-neutral-800 disabled:opacity-50"
+                  >
+                    Make {game.visibility === 'public' ? 'private' : 'public'}
+                  </button>
+                )}
                 {canCancel && (
                   <button
                     type="button"
