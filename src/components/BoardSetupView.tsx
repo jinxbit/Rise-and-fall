@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { getTile } from '../engine/board'
-import { placedShapeCells } from '../engine/boardGeneration'
+import { placedShapeCells, rotateShape, shapeCenterCell } from '../engine/boardGeneration'
 import type { BoardGenerationContent } from '../engine/boardGenerationContent'
 import { checkTilePlacementLegality, currentTilePlacerId, currentUnitPlacerId, isLegalStartingUnitPlacement } from '../engine/boardSetup'
 import type { Board, Coordinate, GameState } from '../engine/types'
@@ -53,19 +53,27 @@ function TilePlacementPanel(props: {
   const placerId = currentTilePlacerId(state)
   const isMyTurn = placerId !== null && placerId === myPlayerId
 
-  const [anchor, setAnchor] = useState<Coordinate | null>(null)
+  // The hex the player actually clicked — kept separate from `anchor`
+  // (the shape's cells[0] position, see placedShapeCells) so that clicking
+  // a hex places the *center* of the tile there rather than its cells[0]
+  // corner, which for an asymmetric shape can land a hex or more away from
+  // where the player clicked.
+  const [center, setCenter] = useState<Coordinate | null>(null)
   const [rotation, setRotation] = useState(0)
 
   // A new turn (mine or someone else's) starts fresh — clears any pending,
   // unconfirmed choice left over from before.
   useEffect(() => {
-    setAnchor(null)
+    setCenter(null)
     setRotation(0)
   }, [boardSetup.tilePlacerIndex, boardSetup.tileTierQueue.length])
 
   if (!tierContent) {
     return <p className="text-red-400">No board-generation content for tier &apos;{tier}&apos;.</p>
   }
+
+  const rotatedCenterOffset = rotateShape([shapeCenterCell(tierContent.shapeCells)], rotation)[0]
+  const anchor = center ? { q: center.q - rotatedCenterOffset.q, r: center.r - rotatedCenterOffset.r } : null
 
   const placedCells = anchor ? placedShapeCells(tierContent.shapeCells, anchor, rotation) : []
   const legalityError = anchor ? checkTilePlacementLegality(state, anchor, rotation, boardGenerationContent) : null
@@ -75,10 +83,10 @@ function TilePlacementPanel(props: {
 
   function handleHexClick(coord: Coordinate) {
     if (!isMyTurn) return
-    if (coordEquals(anchor, coord)) {
+    if (coordEquals(center, coord)) {
       setRotation((r) => (r + 1) % 6)
     } else {
-      setAnchor(coord)
+      setCenter(coord)
     }
   }
 
@@ -114,7 +122,7 @@ function TilePlacementPanel(props: {
               >
                 Confirm placement
               </button>
-              <button onClick={() => setAnchor(null)} className="text-neutral-500 underline hover:text-neutral-300">
+              <button onClick={() => setCenter(null)} className="text-neutral-500 underline hover:text-neutral-300">
                 Cancel
               </button>
               {legalityError && <span className="text-red-400">{legalityError}</span>}
@@ -127,7 +135,7 @@ function TilePlacementPanel(props: {
         board={state.board}
         extraCoords={extraCoords}
         ghostCells={ghostCells}
-        selectedCoord={anchor}
+        selectedCoord={center}
         interactive={isMyTurn}
         onHexClick={handleHexClick}
       />
