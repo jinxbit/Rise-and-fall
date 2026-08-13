@@ -649,6 +649,101 @@ describe('RoundView — player status summary and achievements panel', () => {
   })
 })
 
+describe('RoundView — select-cards phase auto-plays a single-card hand (issue #25)', () => {
+  it("submits the only card in hand on your turn to choose, without needing a click", () => {
+    const state = makeState() // p2's hand is just ['city']
+    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
+    const onChooseCard = vi.fn()
+
+    render(
+      <RoundView
+        state={state}
+        players={players}
+        myPlayerId="p2"
+        unitContent={EMPTY_UNIT_CONTENT}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
+        turnReview={null}
+        showHistory={false}
+        onToggleHistory={() => {}}
+        gameLog={[]}
+        onChooseCard={onChooseCard}
+        onResolveUnit={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+
+    expect(onChooseCard).toHaveBeenCalledTimes(1)
+    expect(onChooseCard).toHaveBeenCalledWith(cardIdFor('p2', 'city'))
+    // No clickable card button rendered — there's nothing left to decide.
+    expect(screen.queryByRole('button', { name: 'City' })).not.toBeInTheDocument()
+  })
+
+  it('still shows a clickable choice when the hand has more than one card', () => {
+    const state = makeState() // p1's hand is ['nomad', 'ship']
+    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
+    const onChooseCard = vi.fn()
+
+    render(
+      <RoundView
+        state={state}
+        players={players}
+        myPlayerId="p1"
+        unitContent={EMPTY_UNIT_CONTENT}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
+        turnReview={null}
+        showHistory={false}
+        onToggleHistory={() => {}}
+        gameLog={[]}
+        onChooseCard={onChooseCard}
+        onResolveUnit={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+
+    expect(onChooseCard).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Nomad' }))
+    expect(onChooseCard).toHaveBeenCalledWith(cardIdFor('p1', 'nomad'))
+  })
+
+  it("does not auto-play a card that isn't yours to choose (already resolved this round)", () => {
+    const state = { ...makeState(), pendingPlayerIds: ['p1'] } // p2 already chosen/resolved
+    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
+    const onChooseCard = vi.fn()
+
+    render(
+      <RoundView
+        state={state}
+        players={players}
+        myPlayerId="p2"
+        unitContent={EMPTY_UNIT_CONTENT}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
+        turnReview={null}
+        showHistory={false}
+        onToggleHistory={() => {}}
+        gameLog={[]}
+        onChooseCard={onChooseCard}
+        onResolveUnit={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+
+    expect(onChooseCard).not.toHaveBeenCalled()
+    expect(screen.getByText('Waiting for: Alice')).toBeInTheDocument()
+  })
+})
+
 describe('RoundView — "Expand board" toggle', () => {
   it('hides the full player roster and achievements panel, and brings them back', () => {
     const state = makeState()

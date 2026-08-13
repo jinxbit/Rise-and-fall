@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { isActionAvailableForUnit, legalConvertTargets, legalCreateTargets, legalTransformTargets } from '../engine/actionTargeting'
 import { UNIT_KINDS } from '../engine/cards'
 import { legalMoveDestinations } from '../engine/movement'
@@ -504,14 +504,32 @@ function LogPanel({ gameLog }: { gameLog: GameEvent[] }) {
 
 function SelectCardsPanel(props: { state: GameState; players: PlayerRow[]; myPlayerId: string | null; onChooseCard: (cardId: string) => void }) {
   const { state, players, myPlayerId, onChooseCard } = props
+  const me = myPlayerId ? state.players.find((p) => p.id === myPlayerId) : undefined
+  const isPending = !!myPlayerId && state.pendingPlayerIds.includes(myPlayerId)
+  const onlyCardId = isPending && me && me.handCardIds.length === 1 ? me.handCardIds[0] : null
+
+  // A hand with only one card isn't really a choice, so play it
+  // automatically instead of making the player click it. autoChosenRef
+  // guards against re-submitting: onChooseCard is a fresh function identity
+  // on every parent render, so a plain effect dependency would refire on
+  // every re-render between submitting and the resulting state update
+  // clearing `isPending`.
+  const autoChosenRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (onlyCardId && autoChosenRef.current !== onlyCardId) {
+      autoChosenRef.current = onlyCardId
+      onChooseCard(onlyCardId)
+    }
+  }, [onlyCardId, onChooseCard])
+
   if (!myPlayerId) return null
 
-  if (!state.pendingPlayerIds.includes(myPlayerId)) {
+  if (!isPending) {
     return <p className="text-sm text-neutral-300">Waiting for: {state.pendingPlayerIds.map((id) => playerName(players, id)).join(', ') || '…'}</p>
   }
 
-  const me = state.players.find((p) => p.id === myPlayerId)
   if (!me) return null
+  if (onlyCardId) return null // auto-chosen above; nothing to render while the submission is in flight
 
   return (
     <div className="flex flex-col gap-2 text-sm">
