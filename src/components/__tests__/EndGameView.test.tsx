@@ -101,6 +101,27 @@ describe('EndGameView', () => {
     expect(aliceIndex).toBeLessThan(bobIndex)
 
     expect(screen.getByText('Winner:', { exact: false })).toBeInTheDocument()
+
+    // Final standings: Alice (6 points) is 1st, Bob (0 points) is 2nd.
+    const aliceCard = screen.getByText('Alice').closest('.rounded-md.border.p-3')
+    const bobCard = screen.getByText('Bob').closest('.rounded-md.border.p-3')
+    expect(aliceCard).toHaveTextContent('1st place')
+    expect(bobCard).toHaveTextContent('2nd place')
+  })
+
+  it('gives tied players the same place', () => {
+    const state = { ...makeState(), winnerPlayerIds: ['p1', 'p2'] }
+    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
+    // Zero out every VP source so both players (one with gold/an achievement,
+    // one with neither) score an identical 0 total — a real tie for 1st.
+    const tiedContent: AchievementContent = { ...EMPTY_ACHIEVEMENT_CONTENT, achievementVictoryPoints: { 'city-mastery': 0 }, unitBoardCountVP: { city: [0] } }
+
+    render(<EndGameView state={state} players={players} achievementContent={tiedContent} taleContent={EMPTY_TALE_CONTENT} />)
+
+    const aliceCard = screen.getByText('Alice').closest('.rounded-md.border.p-3')
+    const bobCard = screen.getByText('Bob').closest('.rounded-md.border.p-3')
+    expect(aliceCard).toHaveTextContent('1st place')
+    expect(bobCard).toHaveTextContent('1st place')
   })
 
   it("highlights the winner(s) with a trophy, even ranked below someone eliminated", () => {

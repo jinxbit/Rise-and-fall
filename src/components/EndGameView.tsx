@@ -21,6 +21,31 @@ function terrainName(terrainId: string): string {
   return TERRAIN_TYPES.find((t) => t.id === terrainId)?.name ?? capitalize(terrainId)
 }
 
+function ordinal(n: number): string {
+  const mod100 = n % 100
+  if (mod100 >= 11 && mod100 <= 13) return `${n}th`
+  switch (n % 10) {
+    case 1:
+      return `${n}st`
+    case 2:
+      return `${n}nd`
+    case 3:
+      return `${n}rd`
+    default:
+      return `${n}th`
+  }
+}
+
+/**
+ * Standard competition ranking (1224): players tied on total VP share the
+ * same place, and the next distinct total skips ahead by however many
+ * players are tied above it — e.g. two players tied for 1st means the next
+ * player is 3rd, not 2nd. `totals` must already be sorted descending.
+ */
+function ranksFor(totals: number[]): number[] {
+  return totals.map((total) => totals.findIndex((t) => t === total) + 1)
+}
+
 interface ScoreLine {
   label: string
   vp: number
@@ -78,6 +103,7 @@ export function EndGameView({
   const winnerIds = new Set(state.winnerPlayerIds)
 
   const ranked = [...state.players].sort((a, b) => (detailByPlayerId[b.id]?.total ?? 0) - (detailByPlayerId[a.id]?.total ?? 0))
+  const positions = ranksFor(ranked.map((player) => detailByPlayerId[player.id]?.total ?? 0))
 
   return (
     <div className="flex flex-col gap-4 rounded-md border border-amber-700/50 bg-amber-500/10 p-4">
@@ -90,7 +116,7 @@ export function EndGameView({
       </div>
 
       <div className="flex flex-col gap-3">
-        {ranked.map((player) => {
+        {ranked.map((player, i) => {
           const row = players.find((p) => p.id === player.id)
           const detail = detailByPlayerId[player.id]
           const isWinner = winnerIds.has(player.id)
@@ -109,6 +135,7 @@ export function EndGameView({
                   {detail?.total ?? 0} point{detail?.total === 1 ? '' : 's'}
                 </span>
               </div>
+              <p className="pl-4 text-xs text-neutral-500">{ordinal(positions[i])} place</p>
 
               {lines.length > 0 ? (
                 <ul className="mt-2 flex flex-col gap-0.5 pl-4 text-xs text-neutral-400">
