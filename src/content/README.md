@@ -242,7 +242,7 @@ and part of final scoring:
   bound what players may pick instead. `max` is 6 because each of the 6
   achievements can only ever be claimed once, by one player. The actual
   choice starts as `games.settings.gameLength` (`0007_game_settings.sql`,
-  defaults to 4), set at creation via `HomePage.tsx`'s `GameLengthSelector` (offers
+  defaults to 4), set at creation via `CreateGamePage.tsx`'s `GameLengthSelector` (offers
   4/5/6 — 1-3 technically fits `min`/`max` but ends the game too fast to
   bother offering); `buildGenesisState` (`src/lib/gameGenesis.ts`) carries
   it into `GameState.gameLength` at genesis, so once a game is under way
@@ -406,7 +406,7 @@ Tale-selection UI) regardless of which are active anywhere.
 **Which Tales are active is a per-game, creation-time choice** — part of
 `games.settings` (`src/lib/dbTypes.ts`'s `GameSettings.activeTaleIds`,
 consolidated by `supabase/migrations/0007_game_settings.sql`), set via
-`HomePage.tsx`'s `TaleSelector` (checkbox list + a "Randomize" shuffle).
+`CreateGamePage.tsx`'s `TaleSelector` (checkbox list + a "Randomize" shuffle).
 That column only matters up through the lobby, though: `buildGenesisState`
 (`src/lib/gameGenesis.ts`) carries the chosen
 ids into `GameState.activeTaleIds` once the game starts, so from then on
