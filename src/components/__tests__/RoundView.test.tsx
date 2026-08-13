@@ -937,7 +937,7 @@ describe("RoundView — City's Convert to Merchant/Mountaineer (bug report: \"no
     // Selecting the action must enter targeting mode — the legal (adjacent,
     // own-Nomad) hex highlighted green — not resolve immediately.
     expect(onResolveUnit).not.toHaveBeenCalled()
-    expect(container.querySelectorAll('polygon[fill="rgba(34,197,94,0.25)"]')).toHaveLength(1)
+    expect(container.querySelectorAll('polygon[fill="rgba(34,197,94,0.1)"]')).toHaveLength(1)
 
     fireEvent.click(boardSvg.querySelectorAll(':scope > polygon')[1])
 
