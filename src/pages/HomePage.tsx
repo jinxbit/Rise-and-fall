@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { DiscordSignIn } from '../components/DiscordSignIn'
 import { DiscordWebhookSettings } from '../components/DiscordWebhookSettings'
 import { GameLengthSelector } from '../components/GameLengthSelector'
@@ -99,6 +99,9 @@ export function HomePage() {
         <div className="flex items-center gap-3 text-sm text-neutral-400">
           {avatarUrl && <img src={avatarUrl} alt="" className="h-8 w-8 rounded-full" />}
           <span>{displayName}</span>
+          <Link to="/games" className="underline hover:text-neutral-200">
+            My games
+          </Link>
           <button onClick={() => void signOut()} className="underline hover:text-neutral-200">
             Sign out
           </button>

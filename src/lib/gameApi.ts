@@ -1,6 +1,7 @@
 import { supabase } from './supabase'
 import { nextSeatIndex } from './seatIndex'
 import type { GameRow, GameSettings, GameStateRow, PlayerRow } from './dbTypes'
+import type { MyGameEntry } from './myGamesView'
 import type { GameState as EngineGameState, PlayMode } from '../engine/types'
 
 /**
@@ -110,6 +111,61 @@ export async function listPlayers(gameId: string): Promise<PlayerRow[]> {
 
   if (error) throw error
   return data as PlayerRow[]
+}
+
+/**
+ * Every game the given user is seated in — for the "My games" screen
+ * (MyGamesPage.tsx). Includes each game's full GameState (not just the
+ * denormalized game_state.active_player_id column) so myGamesView.ts can
+ * classify turn/finished status via the same pendingActorIds() the game
+ * screen itself uses; games.status alone can't tell 'boardSetup' or
+ * 'completed' apart from 'active' (see dbTypes.ts's GameRow comment).
+ * `gameState` is left null for games still in the lobby, which have no
+ * game_state row yet. RLS already scopes game_state reads to seated
+ * players, and a personal game list is small enough that fetching each
+ * one's state up front is cheap.
+ */
+export async function listMyGames(userId: string): Promise<MyGameEntry[]> {
+  const { data: myRows, error: myRowsError } = await supabase.from('players').select().eq('user_id', userId)
+  if (myRowsError) throw myRowsError
+
+  const gameIds = [...new Set((myRows as PlayerRow[]).map((p) => p.game_id))]
+  if (gameIds.length === 0) return []
+
+  const [
+    { data: games, error: gamesError },
+    { data: allPlayers, error: allPlayersError },
+    { data: states, error: statesError },
+  ] = await Promise.all([
+    supabase.from('games').select().in('id', gameIds),
+    supabase.from('players').select().in('game_id', gameIds),
+    supabase.from('game_state').select('game_id, state').in('game_id', gameIds),
+  ])
+  if (gamesError) throw gamesError
+  if (allPlayersError) throw allPlayersError
+  if (statesError) throw statesError
+
+  const playersByGame = new Map<string, PlayerRow[]>()
+  for (const p of allPlayers as PlayerRow[]) {
+    const list = playersByGame.get(p.game_id) ?? []
+    list.push(p)
+    playersByGame.set(p.game_id, list)
+  }
+
+  const stateByGame = new Map<string, EngineGameState>()
+  for (const row of states as { game_id: string; state: EngineGameState }[]) {
+    stateByGame.set(row.game_id, row.state)
+  }
+
+  return (games as GameRow[]).map((game) => {
+    const gamePlayers = (playersByGame.get(game.id) ?? []).sort((a, b) => a.seat_index - b.seat_index)
+    return {
+      game,
+      players: gamePlayers,
+      gameState: stateByGame.get(game.id) ?? null,
+      myPlayerIds: gamePlayers.filter((p) => p.user_id === userId).map((p) => p.id),
+    }
+  })
 }
 
 export async function joinGame(params: {
