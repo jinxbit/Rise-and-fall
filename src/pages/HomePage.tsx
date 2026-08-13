@@ -21,6 +21,7 @@ export function HomePage() {
   const [skipHotseatPassGate, setSkipHotseatPassGate] = useState(false)
   const [activeTaleIds, setActiveTaleIds] = useState<string[]>([])
   const [gameLength, setGameLength] = useState(4)
+  const [visibility, setVisibility] = useState<'public' | 'private'>('private')
   const [roomCodeInput, setRoomCodeInput] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -66,6 +67,7 @@ export function HomePage() {
         skipHotseatPassGate,
         activeTaleIds,
         gameLength,
+        visibility,
       })
       navigate(`/lobby/${game.room_code}`)
     } catch (err) {
@@ -102,6 +104,9 @@ export function HomePage() {
           <Link to="/games" className="underline hover:text-neutral-200">
             My games
           </Link>
+          <Link to="/public" className="underline hover:text-neutral-200">
+            Public rooms
+          </Link>
           <button onClick={() => void signOut()} className="underline hover:text-neutral-200">
             Sign out
           </button>
@@ -132,6 +137,15 @@ export function HomePage() {
         <MapTemplateSelector value={mapTemplateId} onChange={setMapTemplateId} />
         <h3 className="text-sm font-medium text-neutral-400">Tales (variant)</h3>
         <TaleSelector value={activeTaleIds} onChange={setActiveTaleIds} />
+        <label className="flex items-center gap-2 text-sm text-neutral-400">
+          <input
+            type="checkbox"
+            checked={visibility === 'public'}
+            onChange={(e) => setVisibility(e.target.checked ? 'public' : 'private')}
+            className="h-4 w-4 rounded border-neutral-700 bg-neutral-900"
+          />
+          List this room on the Public rooms screen
+        </label>
         <button
           disabled={busy}
           onClick={() => void handleCreate()}

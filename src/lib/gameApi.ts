@@ -2,6 +2,7 @@ import { supabase } from './supabase'
 import { nextSeatIndex } from './seatIndex'
 import type { GameRow, GameSettings, GameStateRow, ObserverRow, PlayerRow } from './dbTypes'
 import type { MyGameEntry } from './myGamesView'
+import type { PublicRoomEntry } from './publicRoomsView'
 import type { GameState as EngineGameState, PlayMode } from '../engine/types'
 
 /**
@@ -50,6 +51,8 @@ export async function createGame(params: {
   activeTaleIds?: string[]
   /** Total achievements claimed (across all players) that ends the game — content/achievements.json's gameLength.min/max bounds it (1-6). Defaults to gameLength.default (4). */
   gameLength?: number
+  /** Whether the room is listed on the Public Rooms screen (issue #40 section 4-5). Defaults to 'private', matching every room's behavior before this option existed. */
+  visibility?: GameRow['visibility']
 }): Promise<{ game: GameRow; player: PlayerRow }> {
   const roomCode = generateRoomCode()
 
@@ -69,6 +72,7 @@ export async function createGame(params: {
       min_players: params.minPlayers ?? 2,
       max_players: params.maxPlayers ?? 4,
       settings,
+      visibility: params.visibility ?? 'private',
     })
     .select()
     .single()
@@ -170,6 +174,57 @@ export async function listMyGames(userId: string): Promise<MyGameEntry[]> {
   })
 }
 
+/**
+ * Every room currently listed on the Public Rooms screen (issue #40
+ * sections 4-5): visibility 'public', excluding 'canceled' (issue section 5:
+ * "Canceled and Deleted rooms do not appear in the listing" — deleted rows
+ * don't exist to query at all). Shaped like listMyGames's MyGameEntry
+ * (game/players/gameState) minus the caller-specific `myPlayerIds`, since
+ * this list isn't scoped to any one user — see publicRoomsView.ts for the
+ * grouping/status logic built on top of it.
+ */
+export async function listPublicRooms(): Promise<PublicRoomEntry[]> {
+  const { data: games, error: gamesError } = await supabase
+    .from('games')
+    .select()
+    .eq('visibility', 'public')
+    .neq('status', 'canceled')
+    .order('updated_at', { ascending: false })
+  if (gamesError) throw gamesError
+
+  const gameRows = games as GameRow[]
+  if (gameRows.length === 0) return []
+  const gameIds = gameRows.map((g) => g.id)
+
+  const [
+    { data: allPlayers, error: allPlayersError },
+    { data: states, error: statesError },
+  ] = await Promise.all([
+    supabase.from('players').select().in('game_id', gameIds),
+    supabase.from('game_state').select('game_id, state').in('game_id', gameIds),
+  ])
+  if (allPlayersError) throw allPlayersError
+  if (statesError) throw statesError
+
+  const playersByGame = new Map<string, PlayerRow[]>()
+  for (const p of allPlayers as PlayerRow[]) {
+    const list = playersByGame.get(p.game_id) ?? []
+    list.push(p)
+    playersByGame.set(p.game_id, list)
+  }
+
+  const stateByGame = new Map<string, EngineGameState>()
+  for (const row of states as { game_id: string; state: EngineGameState }[]) {
+    stateByGame.set(row.game_id, row.state)
+  }
+
+  return gameRows.map((game) => ({
+    game,
+    players: (playersByGame.get(game.id) ?? []).sort((a, b) => a.seat_index - b.seat_index),
+    gameState: stateByGame.get(game.id) ?? null,
+  }))
+}
+
 export async function joinGame(params: {
   game: GameRow
   userId: string
@@ -252,6 +307,19 @@ export async function removePlayer(playerId: string): Promise<void> {
 
 export async function setGameStatus(gameId: string, status: GameRow['status']): Promise<void> {
   const { error } = await supabase.from('games').update({ status }).eq('id', gameId)
+  if (error) throw error
+}
+
+/**
+ * Owner-only (RLS's "room owner can update their game" policy): toggles
+ * whether the room is listed on the Public Rooms screen (issue #40 sections
+ * 4-5, 0011_room_visibility.sql). Deliberately separate from
+ * updateGameSettings — visibility isn't part of the game's rules
+ * configuration (issue section 7), so changing it does not bump
+ * `config_version` or reset player readiness.
+ */
+export async function setGameVisibility(gameId: string, visibility: GameRow['visibility']): Promise<void> {
+  const { error } = await supabase.from('games').update({ visibility }).eq('id', gameId)
   if (error) throw error
 }
 
