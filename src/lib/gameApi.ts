@@ -253,6 +253,28 @@ export async function setGameStatus(gameId: string, status: GameRow['status']): 
   if (error) throw error
 }
 
+/**
+ * Owner-only (0008_room_lifecycle.sql's RLS policy silently drops the write
+ * for anyone else): moves a room from 'lobby' or 'active' to 'canceled'.
+ * Disables further `game_state` writes and blocks new joins (joinGame
+ * already rejects any `status !== 'lobby'`) — see the room lifecycle spec's
+ * section 11.
+ */
+export async function cancelGame(gameId: string): Promise<void> {
+  const { error } = await supabase.from('games').update({ status: 'canceled' }).eq('id', gameId)
+  if (error) throw error
+}
+
+/**
+ * Owner-only, and only from a deletable state ('lobby' or 'canceled' —
+ * 0008_room_lifecycle.sql's delete policy enforces both). Cascades remove
+ * the room's `players`/`game_state` rows via their existing FKs.
+ */
+export async function deleteGame(gameId: string): Promise<void> {
+  const { error } = await supabase.from('games').delete().eq('id', gameId)
+  if (error) throw error
+}
+
 export function subscribeToPlayers(gameId: string, onChange: () => void): () => void {
   const channel = supabase
     .channel(`players:${gameId}`)

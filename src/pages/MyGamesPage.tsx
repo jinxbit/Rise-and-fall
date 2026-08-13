@@ -9,11 +9,18 @@ const STATUS_LABEL: Record<MyGameStatus, string> = {
   boardSetup: 'Setting up board',
   active: 'In progress',
   completed: 'Finished',
+  canceled: 'Canceled',
 }
 
-/** Where clicking a game row should go — the DB row's status (not the richer GameState one) is what actually gates the lobby route, see LobbyPage's own navigate-on-'active' check. */
+/**
+ * Where clicking a game row should go. Keyed off whether a game_state row
+ * exists yet, not `games.status === 'lobby'` — a room canceled before it
+ * ever started has `status: 'canceled'` with no `gameState`, and still
+ * belongs on the lobby screen (LobbyPage shows the canceled banner/Delete
+ * there), not GamePage.
+ */
 function gamePath(entry: MyGameEntry): string {
-  return entry.game.status === 'lobby' ? `/lobby/${entry.game.room_code}` : `/game/${entry.game.room_code}`
+  return entry.gameState === null ? `/lobby/${entry.game.room_code}` : `/game/${entry.game.room_code}`
 }
 
 export function MyGamesPage() {
@@ -52,7 +59,7 @@ export function MyGamesPage() {
     )
   }
 
-  const { active, finished } = groupMyGames(entries ?? [])
+  const { active, finished, canceled } = groupMyGames(entries ?? [])
 
   return (
     <div className="mx-auto flex max-w-lg flex-col gap-8 p-8">
@@ -87,6 +94,17 @@ export function MyGamesPage() {
           <h2 className="font-medium text-neutral-200">Finished</h2>
           <ul className="flex flex-col gap-2">
             {finished.map((entry) => (
+              <GameRowItem key={entry.game.id} entry={entry} onOpen={() => navigate(gamePath(entry))} />
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {canceled.length > 0 && (
+        <section className="flex flex-col gap-3">
+          <h2 className="font-medium text-neutral-200">Canceled</h2>
+          <ul className="flex flex-col gap-2">
+            {canceled.map((entry) => (
               <GameRowItem key={entry.game.id} entry={entry} onOpen={() => navigate(gamePath(entry))} />
             ))}
           </ul>

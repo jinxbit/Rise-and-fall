@@ -15,7 +15,18 @@ import { currentActorId, pendingActorIds } from '../engine/turnOrder'
 import { useAuth } from '../hooks/useAuth'
 import type { GameRow, PlayerRow } from '../lib/dbTypes'
 import { buildGenesisState } from '../lib/gameGenesis'
-import { getDiscordWebhookUrl, getGameByRoomCode, getGameState, listPlayers, subscribeToGameState, subscribeToPlayers, writeGameState } from '../lib/gameApi'
+import {
+  cancelGame,
+  deleteGame,
+  getDiscordWebhookUrl,
+  getGameByRoomCode,
+  getGameState,
+  listPlayers,
+  subscribeToGame,
+  subscribeToGameState,
+  subscribeToPlayers,
+  writeGameState,
+} from '../lib/gameApi'
 import { encodeGameStateExport } from '../lib/gameStateExport'
 import { sendDiscordNotification, turnNotificationMessage } from '../lib/discordNotify'
 
@@ -75,6 +86,8 @@ export function GamePage() {
    * below, and reset whenever a fresh room loads.
    */
   const [hotseatActivePlayerId, setHotseatActivePlayerId] = useState<string | null>(null)
+  const [lifecycleBusy, setLifecycleBusy] = useState(false)
+  const [lifecycleError, setLifecycleError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!menuOpen) return
@@ -121,11 +134,16 @@ export function GamePage() {
     const unsubscribePlayers = subscribeToPlayers(game.id, () => {
       void listPlayers(game.id).then(setPlayers)
     })
+    // Live status updates (e.g. the Owner canceling from another tab/device)
+    // — GamePage otherwise only fetches `game` once on mount, unlike
+    // LobbyPage which already subscribes for its own status-driven navigate.
+    const unsubscribeGame = subscribeToGame(game.id, setGame)
 
     return () => {
       cancelled = true
       unsubscribeGameState()
       unsubscribePlayers()
+      unsubscribeGame()
     }
   }, [game])
 
@@ -146,6 +164,13 @@ export function GamePage() {
   const unitContent = useMemo(() => applyTaleModifiers(resolveUnitContent(players.length), taleContent), [players.length, taleContent])
   const achievementContent = useMemo(() => resolveAchievementContent(gameState?.gameLength), [gameState?.gameLength])
 
+  const isCreator = game?.created_by === session?.user.id
+  // Cancel is only offered while the room is genuinely Active (issue
+  // section 11) — a finished game still reads `game.status === 'active'`
+  // here too (see dbTypes.ts's GameRow comment), so the finer-grained
+  // engine status rules out canceling a game that's already over.
+  const canCancel = isCreator && game?.status === 'active' && gameState?.status !== 'completed'
+  const canDelete = isCreator && game?.status === 'canceled'
   const isHotseat = game?.play_mode === 'hotseat'
   // Creation-time opt-out (HomePage.tsx's checkbox) for groups that don't
   // want the extra tap every turn — when set, `me` just always follows
@@ -248,6 +273,11 @@ export function GamePage() {
   async function writeWithRetry(computeNext: (state: EngineGameState) => ActionResult): Promise<ActionResult> {
     if (!game || !gameState || version === null) {
       return { ok: false, error: 'Game not loaded yet' }
+    }
+    if (game.status === 'canceled') {
+      // Belt-and-suspenders alongside 0008_room_lifecycle.sql's RLS policy,
+      // which is the actual guard against a stale/malicious client.
+      return { ok: false, error: 'This room has been canceled.' }
     }
     let state = gameState
     let ver = version
@@ -388,6 +418,32 @@ export function GamePage() {
     }
   }
 
+  async function handleCancelRoom() {
+    if (!game) return
+    setLifecycleBusy(true)
+    setLifecycleError(null)
+    try {
+      await cancelGame(game.id)
+    } catch (err) {
+      setLifecycleError(err instanceof Error ? err.message : 'Failed to cancel room')
+    } finally {
+      setLifecycleBusy(false)
+    }
+  }
+
+  async function handleDeleteRoom() {
+    if (!game) return
+    setLifecycleBusy(true)
+    setLifecycleError(null)
+    try {
+      await deleteGame(game.id)
+      navigate('/')
+    } catch (err) {
+      setLifecycleError(err instanceof Error ? err.message : 'Failed to delete room')
+      setLifecycleBusy(false)
+    }
+  }
+
   if (authLoading) return <div className="p-8 text-neutral-400">Loading…</div>
   if (!session) return <div className="p-8 text-neutral-400">Sign in from the home page first.</div>
   if (!game) return <div className="p-8 text-neutral-400">Looking for room {roomCode}…</div>
@@ -441,6 +497,36 @@ export function GamePage() {
                 >
                   {showStateJson ? 'Hide' : 'Show'} game state JSON
                 </button>
+                {canCancel && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    disabled={lifecycleBusy}
+                    onClick={() => {
+                      setMenuOpen(false)
+                      void handleCancelRoom()
+                    }}
+                    title="Cancel this room — disables further play; it stays visible for reference until deleted."
+                    className="px-3 py-2 text-left text-red-400 hover:bg-neutral-800 disabled:opacity-50"
+                  >
+                    Cancel room
+                  </button>
+                )}
+                {canDelete && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    disabled={lifecycleBusy}
+                    onClick={() => {
+                      setMenuOpen(false)
+                      void handleDeleteRoom()
+                    }}
+                    title="Permanently delete this room."
+                    className="px-3 py-2 text-left text-red-400 hover:bg-neutral-800 disabled:opacity-50"
+                  >
+                    Delete room
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -477,6 +563,15 @@ export function GamePage() {
       </header>
 
       {stateExportError && <div className="rounded-md bg-red-500/10 p-3 text-sm text-red-400">{stateExportError}</div>}
+
+      {lifecycleError && <div className="rounded-md bg-red-500/10 p-3 text-sm text-red-400">{lifecycleError}</div>}
+
+      {game.status === 'canceled' && (
+        <div className="rounded-md bg-neutral-800/60 p-3 text-sm text-neutral-300">
+          This room was canceled{isCreator ? '' : ' by the host'}. Play is disabled — it stays here for reference until{' '}
+          {isCreator ? 'you delete it.' : 'the host deletes it.'}
+        </div>
+      )}
 
       {showStateJson && gameState && (
         <div className="flex flex-col gap-2">

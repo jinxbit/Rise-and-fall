@@ -26,11 +26,20 @@ export interface GameSettings {
   gameLength: number
 }
 
+/**
+ * `status` only ever tracks the transitions this DB row can actually see
+ * (see 0008_room_lifecycle.sql's trigger): 'lobby' -> 'active' -> 'canceled'
+ * or 'lobby' -> 'canceled'. It never becomes 'completed' — a finished game
+ * still reads 'active' here; that's tracked separately in
+ * `game_state.state.status` instead (see GameStateRow, myGamesView.ts).
+ * 'completed' is kept as an allowed DB value for forward compatibility only.
+ * Only the room's Owner (`created_by`) may update or delete this row.
+ */
 export interface GameRow {
   id: string
   room_code: string
   play_mode: PlayMode
-  status: 'lobby' | 'active' | 'completed'
+  status: 'lobby' | 'active' | 'completed' | 'canceled'
   min_players: number
   max_players: number
   created_by: string
