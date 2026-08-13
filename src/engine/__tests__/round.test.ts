@@ -369,6 +369,46 @@ describe('round flow', () => {
     expect(p1After.declineCardIds).toEqual(expect.arrayContaining([cardIdFor('p1', 'temple'), cardIdFor('p1', 'nomad')]))
   })
 
+  it('eliminates a player who owes more decline cards than they have, even after declining everything they could', () => {
+    // p1 is left with only one card total (city) -- everything else moved
+    // out to supply -- but owes two (2 achievements claimed this round).
+    // Playing + declining that one card (it ends up in discard after
+    // PASS_ACTIONS, per finishActionsTurn) fully uses up what's available;
+    // they still can't meet the second required card, so they're
+    // eliminated for the unmeetable remainder.
+    let state = makeActiveGameWithFullHands()
+    const p1Index = state.players.findIndex((p) => p.id === 'p1')
+    let p1 = state.players[p1Index]
+    const onlyCard = cardIdFor('p1', 'city')
+    for (const cardId of p1.handCardIds.filter((id) => id !== onlyCard)) {
+      p1 = moveCard(p1, cardId, 'supply')
+    }
+    const players = [...state.players]
+    players[p1Index] = p1
+    state = { ...state, players, achievementsClaimedThisRound: 2 }
+
+    let result = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: onlyCard })
+    if (!result.ok) throw new Error('setup failed')
+    result = applyAction(result.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') })
+    if (!result.ok) throw new Error('setup failed')
+    result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p1' })
+    if (!result.ok) throw new Error('setup failed')
+    result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p2' })
+    if (!result.ok) throw new Error('setup failed')
+    expect(result.state.roundPhase).toBe('decline')
+    // p1 owes 2, has exactly 1 available (onlyCard, now in discard) -> still shows up twice up front.
+    expect(result.state.pendingPlayerIds).toEqual(expect.arrayContaining(['p1', 'p1']))
+
+    result = applyAction(result.state, { type: 'MOVE_TO_DECLINE', playerId: 'p1', cardId: onlyCard })
+    if (!result.ok) throw new Error('setup failed')
+
+    const p1After = result.state.players.find((p) => p.id === 'p1')!
+    expect(p1After.eliminated).toBe(true)
+    expect(p1After.declineCardIds).toEqual([onlyCard])
+    // p1 no longer appears in pendingPlayerIds -- eliminated players drop out immediately.
+    expect(result.state.pendingPlayerIds).not.toContain('p1')
+  })
+
   it('ends the game once gameLength achievements are claimed, crowning the highest-VP player(s)', () => {
     let state = makeActiveGameWithFullHands()
     state = {
@@ -435,6 +475,32 @@ describe('round flow', () => {
     // 2 gold/point is worth 5 more VP (p1's 0 gold is worth 0) -> p2 wins
     // outright, which only happens if gold actually got counted.
     expect(result.state.winnerPlayerIds).toEqual(['p2'])
+  })
+
+  it('does not eliminate a player who finishes the game with an empty hand', () => {
+    // A player's hand can legitimately empty out (everything played or
+    // discarded) in the very round that reaches gameLength. finishRound
+    // checks the game-end condition before ever chaining into the next
+    // round's beginSelectCardsPhase (see round.ts), which is the only place
+    // an empty hand would normally trigger elimination — so this must not
+    // eliminate them, no matter how few cards they end up with.
+    let state = makeActiveGameWithFullHands()
+    const p1Index = state.players.findIndex((p) => p.id === 'p1')
+    let p1 = state.players[p1Index]
+    for (const cardId of [...p1.handCardIds, ...p1.discardCardIds]) {
+      p1 = moveCard(p1, cardId, 'supply')
+    }
+    const players = [...state.players]
+    players[p1Index] = p1
+    state = { ...state, players, claimedByAchievementId: { 'city-mastery': 'p1' } }
+
+    const achievementContent: AchievementContent = { ...EMPTY_ACHIEVEMENT_CONTENT, gameLength: 1 }
+    const result = finishRound(state, achievementContent)
+
+    expect(result.status).toBe('completed')
+    const p1After = result.players.find((p) => p.id === 'p1')!
+    expect(p1After.handCardIds).toHaveLength(0)
+    expect(p1After.eliminated).toBe(false)
   })
 
   it('does not end the game below gameLength, even with achievements already claimed', () => {
