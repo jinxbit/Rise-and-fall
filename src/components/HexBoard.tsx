@@ -1,5 +1,5 @@
 import { isCliffEdge } from '../engine/cliffs'
-import type { Board, Coordinate, Terrain } from '../engine/types'
+import type { Board, Coordinate, Resources, Terrain } from '../engine/types'
 import { coordKey } from '../engine/types'
 import type { IconShape } from './unitIcons'
 import { STATIC_UNIT_KINDS, UNIT_ICONS } from './unitIcons'
@@ -112,6 +112,15 @@ const HISTORY_HALO_COLOR: Record<HistoryHaloType, string> = {
 }
 
 export interface UnitMarker {
+  /**
+   * The underlying Unit's id — used as this marker's React key so a unit
+   * that moves, converts, or has its resources change keeps the same DOM
+   * node across a re-render instead of a fresh one, which is what lets the
+   * `transition:` on cx/cy/x/y below actually glide instead of jump.
+   * Optional (falls back to array-index keying, no glide) since some
+   * callers/tests still build markers without one.
+   */
+  id?: string
   coord: Coordinate
   color: string
   /** Selects both the pictogram (see unitIcons.ts) and the marker shape (rectangle for City/Temple, circle otherwise). */
@@ -130,16 +139,81 @@ export interface HistoryArrow {
   to: Coordinate
 }
 
+/**
+ * A live "this unit just gained/spent resources" callout (see GamePage.tsx's
+ * showProductionPopup) — unlike UnitMarker.historyLabel (only shown while
+ * the history-review toggle is on, sitting beside the unit, and static),
+ * this is always on, centered right on top of the unit and self-removing:
+ * `id` is unique per occurrence, so mounting it plays its rise-and-fade
+ * animation once, directly on the unit's own position, and the caller drops
+ * it from its list a moment later.
+ */
+export interface ProductionPopup {
+  id: string
+  /**
+   * The unit that produced this — used to center the popup on that unit's
+   * own on-screen marker (see computeUnitStackPositions) rather than the
+   * raw hex center. Matters when two units share a hex (e.g. a Merchant
+   * docked at its own City, The Ports Tale's Ship-and-Port) — each is
+   * offset away from hex center, so anchoring on the hex instead of the
+   * acting unit put the popup off the unit and toward/on top of its
+   * hex-mate. Falls back to the hex center if no unit with this id is
+   * currently on the board (e.g. it was the last thing to happen before an
+   * undo removed the unit).
+   */
+  unitId: string
+  coord: Coordinate
+  delta: Partial<Resources>
+}
+
+const RESOURCE_ICON: Record<keyof Resources, string> = { gold: '🪙', wood: '🪵', stone: '🪨' }
+const RESOURCE_ORDER: (keyof Resources)[] = ['gold', 'wood', 'stone']
+
 /** The unit glyph's fixed ink colour — always drawn on UNIT_PLATE_COLOR (see UnitGlyph), so contrast is guaranteed regardless of player colour or terrain. */
 const UNIT_GLYPH_COLOR = '#14161a'
 /** The marker's fixed backdrop behind the glyph — deliberately NOT the player's colour (see unitIcons.ts's doc comment for why). Ownership shows instead as a small colour bar beneath it. */
 const UNIT_PLATE_COLOR = '#f2f2ef'
 
+/**
+ * Inline `transition` for a unit marker's position (see UnitMarker.id's doc
+ * comment) — cx/cy cover the circle-shaped (mobile-unit) plate and the
+ * highlight/history-halo rings, x/y cover the rect-shaped (City/Temple)
+ * plate and the ownership bar. (The glyph's own nested <svg> — see
+ * UnitGlyph — glides via a separate CSS `transform` transition instead of
+ * x/y, since nested-<svg> x/y isn't reliably animatable.) `fill` rides
+ * along on the same elements so a Convert's owner-color change (see
+ * unitActions.ts's applyConvert) glides too, not just repositioning.
+ * Deliberately short and CSS-only: it costs nothing when nothing moves, and
+ * "as simple as possible" per issue #13 rules out a JS animation loop.
+ */
+const UNIT_MOVE_TRANSITION = 'cx 0.35s ease-out, cy 0.35s ease-out, x 0.35s ease-out, y 0.35s ease-out, fill 0.35s ease-out'
+
 /** A unit kind's pictogram, centered at (x, y) at `size` pixels square, in the fixed ink colour. */
 function UnitGlyph({ kind, x, y, size }: { kind: string; x: number; y: number; size: number }) {
   const shapes = UNIT_ICONS[kind] ?? []
   return (
-    <svg x={x - size / 2} y={y - size / 2} width={size} height={size} viewBox="0 0 24 24" pointerEvents="none">
+    <svg
+      // Fixed local offset (not `x - size / 2`/`y - size / 2` as attributes)
+      // — position instead rides on the CSS `transform` below. Browsers
+      // don't reliably treat a nested <svg>'s `x`/`y` *attributes* as
+      // animatable CSS properties the way they do `cx`/`cy` on <circle>/
+      // <rect> (what the outer plate below uses), so transitioning those
+      // directly left the glyph snapping to its new spot while the plate
+      // glided. `transform: translate()` is universally transition-able.
+      x={-size / 2}
+      y={-size / 2}
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      pointerEvents="none"
+      // Keying by kind at the call site (below) remounts this <svg> only
+      // when a unit's kind actually changes (Convert/Transform) — its own
+      // fade-in then doubles as the "this unit just converted" cue, with no
+      // extra state to track. `style` still carries the position
+      // transition so a same-kind move keeps gliding as normal.
+      className="rf-fade-in"
+      style={{ transform: `translate(${x}px, ${y}px)`, transition: 'transform 0.35s ease-out' }}
+    >
       {shapes.map((shape: IconShape, i) => {
         switch (shape.kind) {
           case 'polygon':
@@ -378,6 +452,8 @@ export function HexBoard(props: {
   units?: UnitMarker[]
   /** History-review overlay (see RoundView.tsx's history toggle): one arrow per movement hop since the reviewed window began. */
   arrows?: HistoryArrow[]
+  /** Live "just gained/spent resources" callouts, always on (not gated by history-review) — see ProductionPopup's doc comment. */
+  productionPopups?: ProductionPopup[]
   actionMenu?: ActionMenu
   selectedCoord?: Coordinate | null
   interactive?: boolean
@@ -430,6 +506,14 @@ export function HexBoard(props: {
   const unitStackPositions = computeUnitStackPositions(props.units ?? [], size)
   for (const { x, y } of historyLabelPositions.values()) {
     boundsPoints.push({ x: x + size * HISTORY_LABEL_WIDTH_FACTOR, y: y + size * HISTORY_LABEL_HEIGHT_FACTOR })
+  }
+  // A production popup (see ProductionPopup) is centered on its unit and
+  // rises from there (rf-float-up) — extend the viewBox above the hex the
+  // same way history labels do, so one near the board's top edge doesn't
+  // get clipped mid-rise, and sideways for its own text width.
+  for (const popup of props.productionPopups ?? []) {
+    const { x, y } = axialToPixel(popup.coord, size)
+    boundsPoints.push({ x: x + size * HISTORY_LABEL_WIDTH_FACTOR, y: y - size * 1.6 })
   }
   const minX = Math.min(...boundsPoints.map((p) => p.x)) - pad
   const maxX = Math.max(...boundsPoints.map((p) => p.x)) + pad
@@ -535,9 +619,26 @@ export function HexBoard(props: {
         const barY = y + plateSize / 2 - barHeight * 0.25
         const historyHalos = unit.historyHalos ?? []
         return (
-          <g key={i} pointerEvents="none">
+          // Keyed by the unit's own id (falling back to array index only
+          // for the rare marker built without one, e.g. some tests) so
+          // React reuses this same <g> across a re-render instead of
+          // remounting it — that's what lets the position/color transitions
+          // below actually glide instead of snapping, for every kind of
+          // state change (a normal action, undo, redo, or a realtime sync
+          // snapshot alike, since none of those are special-cased here).
+          // `rf-fade-in` only plays once, on this <g>'s own first mount —
+          // i.e. exactly when a brand-new unit id appears on the board.
+          <g key={unit.id ?? `idx-${i}`} pointerEvents="none" className="rf-fade-in">
             {unit.highlighted && (
-              <circle cx={x} cy={y} r={size * 0.55 * scale} fill="none" stroke="#fbbf24" strokeWidth={2}>
+              <circle
+                cx={x}
+                cy={y}
+                r={size * 0.55 * scale}
+                fill="none"
+                stroke="#fbbf24"
+                strokeWidth={2}
+                style={{ transition: 'cx 0.35s ease-out, cy 0.35s ease-out' }}
+              >
                 <animate attributeName="opacity" values="1;0.35;1" dur="1.4s" repeatCount="indefinite" />
               </circle>
             )}
@@ -550,6 +651,7 @@ export function HexBoard(props: {
                 fill="none"
                 stroke={HISTORY_HALO_COLOR[haloType]}
                 strokeWidth={2.5}
+                style={{ transition: 'cx 0.35s ease-out, cy 0.35s ease-out' }}
               >
                 <title>{haloType}</title>
               </circle>
@@ -564,9 +666,10 @@ export function HexBoard(props: {
                 fill={UNIT_PLATE_COLOR}
                 stroke="#000"
                 strokeWidth={1}
+                style={{ transition: UNIT_MOVE_TRANSITION }}
               />
             ) : (
-              <circle cx={x} cy={y} r={plateSize / 2} fill={UNIT_PLATE_COLOR} stroke="#000" strokeWidth={1} />
+              <circle cx={x} cy={y} r={plateSize / 2} fill={UNIT_PLATE_COLOR} stroke="#000" strokeWidth={1} style={{ transition: UNIT_MOVE_TRANSITION }} />
             )}
             <rect
               x={x - barWidth / 2}
@@ -577,8 +680,13 @@ export function HexBoard(props: {
               fill={unit.color}
               stroke="#000"
               strokeWidth={0.75}
+              style={{ transition: UNIT_MOVE_TRANSITION }}
             />
-            <UnitGlyph kind={unit.kind} x={x} y={y} size={glyphSize} />
+            {/* Keyed by kind: a Convert/Transform that changes what this unit
+                is remounts just the glyph, replaying its fade-in as the "this
+                unit just converted" cue — a plain move (same kind) keeps the
+                same glyph node and just glides via the x/y transition above. */}
+            <UnitGlyph key={unit.kind} kind={unit.kind} x={x} y={y} size={glyphSize} />
             {unit.historyLabel && historyLabelPositions.has(i) && (
               <foreignObject
                 x={historyLabelPositions.get(i)!.x}
@@ -602,6 +710,43 @@ export function HexBoard(props: {
               </foreignObject>
             )}
           </g>
+        )
+      })}
+      {(props.productionPopups ?? []).map((popup) => {
+        const unitIndex = (props.units ?? []).findIndex((u) => u.id === popup.unitId)
+        const { x, y } = (unitIndex >= 0 ? unitStackPositions.get(unitIndex) : null) ?? axialToPixel(popup.coord, size)
+        const parts = RESOURCE_ORDER.filter((key) => popup.delta[key]).map((key) => ({ key, icon: RESOURCE_ICON[key], amount: popup.delta[key]! }))
+        if (parts.length === 0) return null
+        const width = size * HISTORY_LABEL_WIDTH_FACTOR
+        const height = size * HISTORY_LABEL_HEIGHT_FACTOR * (parts.length > 2 ? 2 : 1)
+        return (
+          // Centered directly on the unit's own position (not offset beside
+          // it) and rising from there via rf-float-up — reads as the unit
+          // itself producing the number, not a separate side label.
+          // `key={popup.id}` is unique per occurrence (see ProductionPopup's
+          // doc comment) — mounting this foreignObject is itself the trigger
+          // for that rise-and-fade (index.css), no separate "start animating
+          // now" state needed. The caller (GamePage.tsx) drops the popup
+          // from its list once the animation's had time to finish; nothing
+          // here re-renders in between.
+          <foreignObject key={popup.id} x={x - width / 2} y={y - height / 2} width={width} height={height} pointerEvents="none">
+            <div
+              // The text shadow keeps the number legible sitting directly on
+              // top of the unit's own plate/glyph and whatever terrain color
+              // is behind it, in place of a background box that would just
+              // hide the unit underneath instead.
+              style={{ fontSize: size * 0.34, lineHeight: 1.3, textShadow: '0 1px 3px rgba(0,0,0,0.95), 0 0 4px rgba(0,0,0,0.95)' }}
+              className="rf-float-up flex h-full w-full flex-wrap items-center justify-center gap-x-1.5 whitespace-nowrap text-center font-semibold"
+            >
+              {parts.map(({ key, icon, amount }) => (
+                <span key={key} className={amount > 0 ? 'text-emerald-400' : 'text-red-400'}>
+                  {icon}
+                  {amount > 0 ? '+' : ''}
+                  {amount}
+                </span>
+              ))}
+            </div>
+          </foreignObject>
         )
       })}
       {props.actionMenu && actionMenuCenter && (

@@ -49,7 +49,8 @@ export function findReviewWindowStart(actionHistory: LoggedAction[], playerId: s
   return 0
 }
 
-function diffResources(before: Resources, after: Resources): Partial<Resources> {
+/** Per-resource `after - before`, omitting anything that didn't change — shared with GamePage.tsx's live "just produced/gained" popups (see HexBoard.tsx's ProductionPopup), the same comparison this module already needs for its own history-review resourceDelta events. */
+export function diffResources(before: Resources, after: Resources): Partial<Resources> {
   const delta: Partial<Resources> = {}
   for (const key of ['gold', 'wood', 'stone'] as const) {
     const amount = after[key] - before[key]

@@ -8,3 +8,64 @@ body {
   margin: 0;
   min-height: 100svh;
 }
+
+/*
+ * Shared, deliberately tiny animation vocabulary for issue #13 (movement,
+ * conversion, resource production, undo/redo). Unit movement itself is a
+ * plain CSS transition on cx/cy/x/y set inline in HexBoard.tsx (so it works
+ * for every state change, including undo/redo, with no extra JS) — these
+ * two keyframes cover the two things a transition can't express: a value or
+ * unit that's suddenly *new* rather than moved/recolored.
+ */
+@keyframes rf-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes rf-pop {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.3);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+/* A live production/income callout (see HexBoard.tsx's ProductionPopup):
+   rises a short distance and fades out over its whole lifetime, so it's
+   gone by the time GamePage.tsx drops it from the popup list. */
+@keyframes rf-float-up {
+  0% {
+    opacity: 0;
+    transform: translateY(0);
+  }
+  15% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-14px);
+  }
+}
+.rf-fade-in {
+  animation: rf-fade-in 0.25s ease-out;
+}
+.rf-pop {
+  display: inline-block;
+  animation: rf-pop 0.3s ease-out;
+}
+.rf-float-up {
+  animation: rf-float-up 1.3s ease-out forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .rf-fade-in,
+  .rf-pop,
+  .rf-float-up {
+    animation: none;
+  }
+}
