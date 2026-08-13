@@ -11,6 +11,7 @@ import {
   sumVP,
 } from '../victoryPoints'
 import { createEmptyBoard, setTile } from '../board'
+import { cardIdFor } from '../cards'
 import { createNewGame } from '../createGame'
 import { EMPTY_ACHIEVEMENT_CONTENT } from '../achievementContent'
 import type { AchievementContent } from '../achievementContent'
@@ -44,6 +45,10 @@ function playerWithGold(id: string, gold: number): Player {
     eliminated: false,
     resources: { gold, wood: 0, stone: 0 },
   }
+}
+
+function playerWithDeclinedKinds(id: string, declinedKinds: string[]): Player {
+  return { ...playerWithGold(id, 0), declineCardIds: declinedKinds.map((kind) => cardIdFor(id, kind)) }
 }
 
 describe('calculateAchievementVP', () => {
@@ -92,7 +97,7 @@ describe('calculateBoardCountVP', () => {
   it('scores each player by their per-kind board count via that kind\'s curve', () => {
     const units = [unitAt('p1', 'city'), unitAt('p1', 'city'), unitAt('p1', 'city'), unitAt('p2', 'city')]
 
-    const vp = calculateBoardCountVP(units, curves)
+    const vp = calculateBoardCountVP(units, curves, [])
 
     expect(vp).toEqual({ p1: 3, p2: 1 })
   })
@@ -100,7 +105,7 @@ describe('calculateBoardCountVP', () => {
   it('uses the curve\'s last entry when the count exceeds the array length', () => {
     const units = [unitAt('p1', 'city'), unitAt('p1', 'city'), unitAt('p1', 'city'), unitAt('p1', 'city'), unitAt('p1', 'city')]
 
-    const vp = calculateBoardCountVP(units, curves)
+    const vp = calculateBoardCountVP(units, curves, [])
 
     expect(vp).toEqual({ p1: 4 })
   })
@@ -108,16 +113,43 @@ describe('calculateBoardCountVP', () => {
   it('scores a unit kind with no curve entry (or an empty curve) as 0', () => {
     const units = [unitAt('p1', 'temple')]
 
-    expect(calculateBoardCountVP(units, { temple: [] })).toEqual({})
-    expect(calculateBoardCountVP(units, {})).toEqual({})
+    expect(calculateBoardCountVP(units, { temple: [] }, [])).toEqual({})
+    expect(calculateBoardCountVP(units, {}, [])).toEqual({})
   })
 
   it('sums across multiple unit kinds for the same player', () => {
     const units = [unitAt('p1', 'city'), unitAt('p1', 'city'), unitAt('p1', 'temple')]
 
-    const vp = calculateBoardCountVP(units, { city: [1, 2, 3], temple: [5] })
+    const vp = calculateBoardCountVP(units, { city: [1, 2, 3], temple: [5] }, [])
 
     expect(vp).toEqual({ p1: 7 })
+  })
+
+  it("excludes units whose owner's card for that kind is currently in decline — the reported bug", () => {
+    const units = [unitAt('p1', 'city'), unitAt('p1', 'city'), unitAt('p2', 'city')]
+    const players = [playerWithDeclinedKinds('p1', ['city'])]
+
+    const vp = calculateBoardCountVP(units, curves, players)
+
+    expect(vp).toEqual({ p2: 1 })
+  })
+
+  it("only excludes the declined kind — other kinds from the same player still count", () => {
+    const units = [unitAt('p1', 'city'), unitAt('p1', 'temple')]
+    const players = [playerWithDeclinedKinds('p1', ['city'])]
+
+    const vp = calculateBoardCountVP(units, { city: [1, 2], temple: [5] }, players)
+
+    expect(vp).toEqual({ p1: 5 })
+  })
+
+  it('counts a unit again once its card is no longer in decline (not in declineCardIds)', () => {
+    const units = [unitAt('p1', 'city')]
+    const players = [playerWithGold('p1', 0)]
+
+    const vp = calculateBoardCountVP(units, curves, players)
+
+    expect(vp).toEqual({ p1: 1 })
   })
 })
 
@@ -127,7 +159,7 @@ describe('calculateBoardCountDetail', () => {
   it("itemizes the same result calculateBoardCountVP sums, one entry per (player, kind)", () => {
     const units = [unitAt('p1', 'city'), unitAt('p1', 'city'), unitAt('p1', 'city'), unitAt('p2', 'city')]
 
-    const detail = calculateBoardCountDetail(units, curves)
+    const detail = calculateBoardCountDetail(units, curves, [])
 
     expect(detail).toEqual({ p1: [{ kind: 'city', count: 3, vp: 3 }], p2: [{ kind: 'city', count: 1, vp: 1 }] })
   })
@@ -135,7 +167,7 @@ describe('calculateBoardCountDetail', () => {
   it("uses the curve's last entry when the count exceeds the array length", () => {
     const units = [unitAt('p1', 'city'), unitAt('p1', 'city'), unitAt('p1', 'city'), unitAt('p1', 'city'), unitAt('p1', 'city')]
 
-    const detail = calculateBoardCountDetail(units, curves)
+    const detail = calculateBoardCountDetail(units, curves, [])
 
     expect(detail).toEqual({ p1: [{ kind: 'city', count: 5, vp: 4 }] })
   })
@@ -143,17 +175,26 @@ describe('calculateBoardCountDetail', () => {
   it('omits a unit kind with no curve entry (or an empty curve), same as calculateBoardCountVP', () => {
     const units = [unitAt('p1', 'temple')]
 
-    expect(calculateBoardCountDetail(units, { temple: [] })).toEqual({})
-    expect(calculateBoardCountDetail(units, {})).toEqual({})
+    expect(calculateBoardCountDetail(units, { temple: [] }, [])).toEqual({})
+    expect(calculateBoardCountDetail(units, {}, [])).toEqual({})
   })
 
   it('lists multiple unit kinds for the same player as separate entries', () => {
     const units = [unitAt('p1', 'city'), unitAt('p1', 'city'), unitAt('p1', 'temple')]
 
-    const detail = calculateBoardCountDetail(units, { city: [1, 2, 3], temple: [5] })
+    const detail = calculateBoardCountDetail(units, { city: [1, 2, 3], temple: [5] }, [])
 
     expect(detail.p1).toEqual(expect.arrayContaining([{ kind: 'city', count: 2, vp: 2 }, { kind: 'temple', count: 1, vp: 5 }]))
     expect(detail.p1).toHaveLength(2)
+  })
+
+  it("omits a unit kind entirely once its owner's card for that kind is in decline — the reported bug", () => {
+    const units = [unitAt('p1', 'city'), unitAt('p1', 'temple')]
+    const players = [playerWithDeclinedKinds('p1', ['city'])]
+
+    const detail = calculateBoardCountDetail(units, { city: [1, 2], temple: [5] }, players)
+
+    expect(detail).toEqual({ p1: [{ kind: 'temple', count: 1, vp: 5 }] })
   })
 })
 
@@ -268,6 +309,15 @@ describe('calculateVPBreakdown', () => {
     expect(breakdown.p1.controllableStructures).toBe(15)
     expect(breakdown.p1.total).toBe(9 + 15)
     expect(breakdown.p2.controllableStructures).toBe(0)
+  })
+
+  it("drops boardCount (but not the other sources) for a player whose card for that kind is in decline — the reported bug", () => {
+    const state = baseState()
+    const players = state.players.map((player) => (player.id === 'p1' ? { ...player, declineCardIds: [cardIdFor('p1', 'city')] } : player))
+
+    const breakdown = calculateVPBreakdown({ ...state, players }, content)
+
+    expect(breakdown.p1).toEqual({ achievements: 3, boardCount: 0, terrainControl: 2, gold: 2, controllableStructures: 0, total: 7 })
   })
 
   describe('calculateVPDetail', () => {
