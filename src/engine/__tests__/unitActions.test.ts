@@ -1208,4 +1208,28 @@ describe('applyUnitActionEffect — move', () => {
 
     expect(next.units.find((u) => u.id === mover.id)?.coord).toEqual({ q: 0, r: 0 })
   })
+
+  it('moves the unit to the end of state.units — the array order HexBoard paints from, last = on top — so a unit entering an occupied hex always renders on top of one that was already there', () => {
+    const board = boardOf([
+      [0, 0, 'plain'],
+      [1, 0, 'plain'],
+    ])
+    const city = makeUnit('p2', 'city', { q: 1, r: 0 }, { isMobile: false, terrains: [], canCrossCliffs: false })
+    const merchant = makeUnit('p1', 'merchant', { q: 0, r: 0 }, {
+      isMobile: true,
+      terrains: ['plain'],
+      moveDistance: 1,
+      blockedByUnits: 'none',
+      canEndMoveOnUnitTypes: ['city'],
+    })
+    // The merchant is listed BEFORE the city here — a naive in-place update
+    // (`.map()`, preserving index) would leave it there, painted underneath
+    // the city after landing on its hex, even though it just arrived.
+    const state = makeState({ board, units: [merchant, city] })
+
+    const next = applyUnitActionEffect(state, 'p1', 'merchant', action, { [merchant.id]: { q: 1, r: 0 } }, emptyContent)
+
+    expect(next.units.map((u) => u.id)).toEqual([city.id, merchant.id])
+    expect(next.units[next.units.length - 1].id).toBe(merchant.id)
+  })
 })

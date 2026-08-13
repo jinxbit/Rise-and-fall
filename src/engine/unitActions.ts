@@ -515,7 +515,13 @@ function applyMove(state: GameState, unit: Unit, targetCoord: Coordinate | undef
   const legalDestinations = legalMoveDestinations(state, unit, unit.movement, content.terrainLevels)
   if (!legalDestinations.some((c) => coordKey(c) === coordKey(targetCoord))) return state
 
-  const units = state.units.map((u) => (u.id === unit.id ? { ...u, coord: targetCoord } : u))
+  // `state.units`' order doubles as render/paint order (HexBoard.tsx draws
+  // later entries over earlier ones) — moving a unit in place would leave a
+  // unit that just arrived on a shared hex (e.g. a Merchant landing on a
+  // City) painted underneath a unit that's simply been on the board longer.
+  // Move it to the end of the array so the unit that just entered a hex is
+  // always the one on top, same as a freshly created unit already is.
+  const units = [...state.units.filter((u) => u.id !== unit.id), { ...unit, coord: targetCoord }]
   return { ...state, units }
 }
 
