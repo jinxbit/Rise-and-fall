@@ -18,7 +18,7 @@ import terrainJson from '../../content/terrain.json'
 import resourcesJson from '../../content/resources.json'
 
 function makePlayerRow(id: string, displayName: string, color: string): PlayerRow {
-  return { id, game_id: 'g1', user_id: id, display_name: displayName, avatar_url: null, seat_index: 0, color, is_active: true, joined_at: '' }
+  return { id, game_id: 'g1', user_id: id, display_name: displayName, avatar_url: null, seat_index: 0, color, is_active: true, joined_at: '', ready_for_version: 0 }
 }
 
 function makeEnginePlayer(id: string, handKinds: string[]): Player {

@@ -16,14 +16,15 @@ function makeGame(overrides: Partial<GameRow> = {}, settingsOverrides: Partial<G
     created_at: '',
     updated_at: '2026-01-01T00:00:00Z',
     settings: { mapTemplateId: 'classic', skipHotseatPassGate: false, activeTaleIds: [], gameLength: 4, ...settingsOverrides },
+    config_version: 0,
     ...overrides,
   }
 }
 
 function makePlayers(gameId: string): PlayerRow[] {
   return [
-    { id: 'p1', game_id: gameId, user_id: 'auth_1', display_name: 'Alice', avatar_url: null, seat_index: 0, color: '#ef4444', is_active: true, joined_at: '' },
-    { id: 'p2', game_id: gameId, user_id: 'auth_2', display_name: 'Bob', avatar_url: null, seat_index: 1, color: '#3b82f6', is_active: true, joined_at: '' },
+    { id: 'p1', game_id: gameId, user_id: 'auth_1', display_name: 'Alice', avatar_url: null, seat_index: 0, color: '#ef4444', is_active: true, joined_at: '', ready_for_version: 0 },
+    { id: 'p2', game_id: gameId, user_id: 'auth_2', display_name: 'Bob', avatar_url: null, seat_index: 1, color: '#3b82f6', is_active: true, joined_at: '', ready_for_version: 0 },
   ]
 }
 

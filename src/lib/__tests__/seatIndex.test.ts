@@ -13,6 +13,7 @@ function makePlayerRow(seatIndex: number): PlayerRow {
     color: '#ef4444',
     is_active: true,
     joined_at: '',
+    ready_for_version: 0,
   }
 }
 
