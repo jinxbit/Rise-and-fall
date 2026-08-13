@@ -16,6 +16,7 @@ export function HomePage() {
   const { session, loading } = useAuth()
   const navigate = useNavigate()
 
+  const [name, setName] = useState('')
   const [playMode, setPlayMode] = useState<PlayMode>('live')
   const [mapTemplateId, setMapTemplateId] = useState<string | null>(null)
   const [skipHotseatPassGate, setSkipHotseatPassGate] = useState(false)
@@ -59,6 +60,7 @@ export function HomePage() {
     setBusy(true)
     try {
       const { game } = await createGame({
+        name,
         playMode,
         userId: user.id,
         displayName,
@@ -119,6 +121,17 @@ export function HomePage() {
 
       <section className="flex flex-col gap-3">
         <h2 className="font-medium text-neutral-200">Create a game</h2>
+        <label className="flex flex-col gap-1 text-sm text-neutral-400">
+          Room name
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. Friday night showdown"
+            maxLength={60}
+            className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100"
+          />
+        </label>
+        <p className="text-xs text-neutral-500">Choose carefully — the room name can&apos;t be changed later.</p>
         <PlayModeSelector value={playMode} onChange={setPlayMode} />
         {playMode === 'hotseat' && (
           <label className="flex items-center gap-2 text-sm text-neutral-400">
@@ -147,7 +160,7 @@ export function HomePage() {
           List this room on the Public rooms screen
         </label>
         <button
-          disabled={busy}
+          disabled={busy || name.trim().length === 0}
           onClick={() => void handleCreate()}
           className="rounded-md bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
         >

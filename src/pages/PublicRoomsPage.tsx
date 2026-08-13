@@ -118,9 +118,9 @@ function RoomSection({
               className="flex w-full items-center justify-between gap-3 rounded-md border border-neutral-800 bg-neutral-900 px-4 py-3 text-left hover:border-neutral-600"
             >
               <div className="flex flex-col gap-1">
-                <span className="font-medium">Room {entry.game.room_code}</span>
+                <span className="font-medium">{entry.game.name}</span>
                 <span className="text-sm text-neutral-400">
-                  {entry.game.play_mode} · {entry.players.length}/{entry.game.max_players} players ·{' '}
+                  Room {entry.game.room_code} · {entry.game.play_mode} · {entry.players.length}/{entry.game.max_players} players ·{' '}
                   {entry.players.map((p) => p.display_name).join(', ') || 'no players yet'}
                 </span>
               </div>

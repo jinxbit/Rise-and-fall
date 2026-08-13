@@ -125,9 +125,9 @@ function GameRowItem({ entry, onOpen }: { entry: MyGameEntry; onOpen: () => void
         className="flex w-full items-center justify-between gap-3 rounded-md border border-neutral-800 bg-neutral-900 px-4 py-3 text-left hover:border-neutral-600"
       >
         <div className="flex flex-col gap-1">
-          <span className="font-medium">Room {entry.game.room_code}</span>
+          <span className="font-medium">{entry.game.name}</span>
           <span className="text-sm text-neutral-400">
-            {STATUS_LABEL[status]} · {entry.players.map((p) => p.display_name).join(', ')}
+            Room {entry.game.room_code} · {STATUS_LABEL[status]} · {entry.players.map((p) => p.display_name).join(', ')}
           </span>
         </div>
         {myTurn && <span className="shrink-0 rounded-full bg-indigo-600 px-3 py-1 text-xs font-medium text-white">Your turn</span>}

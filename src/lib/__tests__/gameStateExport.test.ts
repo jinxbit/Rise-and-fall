@@ -7,6 +7,7 @@ function makeGame(overrides: Partial<GameRow> = {}, settingsOverrides: Partial<G
   return {
     id: 'game_1',
     room_code: 'ABCDE',
+    name: 'Test room',
     play_mode: 'hotseat',
     status: 'lobby',
     min_players: 2,

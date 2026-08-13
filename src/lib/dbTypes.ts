@@ -38,6 +38,8 @@ export interface GameSettings {
 export interface GameRow {
   id: string
   room_code: string
+  /** Owner-chosen at creation (HomePage.tsx); immutable afterward — enforced server-side by 0012_room_name.sql's trigger. */
+  name: string
   play_mode: PlayMode
   status: 'lobby' | 'active' | 'completed' | 'canceled'
   min_players: number
