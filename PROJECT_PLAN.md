@@ -225,6 +225,19 @@ decisions get made.
       per player). Full design, card-by-card catalog, and phased roadmap
       in `VARIANTS_PLAN.md`. Not started.
 
+## 8. Room lifecycle & visibility
+
+- [ ] Explicit room lifecycle (add `canceled`/delete on top of today's
+      `lobby | active | completed`), Owner-gated transitions enforced in
+      RLS (not just the client), a configuration-versioned player
+      readiness system (players re-confirm after the owner changes
+      settings before the game can start), and an Observer role
+      (view-only, doesn't occupy a player seat). Public Rooms
+      discovery/visibility is scoped but deferred pending an actual need
+      for it, given the app's current friend-group-only scope. Gap
+      analysis against the current schema/API and phased roadmap in
+      `ROOM_LIFECYCLE_PLAN.md`. Not started.
+
 ---
 
 ## Open decisions blocking progress
