@@ -498,14 +498,18 @@ export function HexBoard(props: {
         // making it invisible rather than just hard to see. Highlighting the
         // whole hex instead still shows past the unit's circular plate, at
         // the hex's own corners, regardless of what's drawn on top of it.
+        // A solid 20-25% fill washed out the terrain color underneath
+        // (especially on the green-ish plain/forest tiles), making it hard
+        // to tell what terrain a highlighted hex was — legality now reads
+        // mainly from the thicker border ring instead of a heavy tint.
         return (
           <polygon
             key={`ghost-${coordKey(coord)}`}
             data-ghost-coord={coordKey(coord)}
             points={hexPoints(x, y, size - 1)}
-            fill={ghost.legal ? 'rgba(34,197,94,0.25)' : 'rgba(239,68,68,0.2)'}
+            fill={ghost.legal ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)'}
             stroke={ghost.legal ? '#22c55e' : '#ef4444'}
-            strokeWidth={2}
+            strokeWidth={3}
             pointerEvents="none"
           />
         )
