@@ -13,7 +13,7 @@ import type { ActionResult, GameState as EngineGameState, Coordinate } from '../
 import { buildTurnReview, findReviewWindowStart } from '../engine/turnReview'
 import { currentActorId, pendingActorIds } from '../engine/turnOrder'
 import { useAuth } from '../hooks/useAuth'
-import type { GameRow, PlayerRow } from '../lib/dbTypes'
+import type { GameRow, ObserverRow, PlayerRow } from '../lib/dbTypes'
 import { buildGenesisState } from '../lib/gameGenesis'
 import {
   cancelGame,
@@ -21,9 +21,13 @@ import {
   getDiscordWebhookUrl,
   getGameByRoomCode,
   getGameState,
+  joinAsObserver,
+  leaveAsObserver,
+  listObservers,
   listPlayers,
   subscribeToGame,
   subscribeToGameState,
+  subscribeToObservers,
   subscribeToPlayers,
   writeGameState,
 } from '../lib/gameApi'
@@ -88,6 +92,9 @@ export function GamePage() {
   const [hotseatActivePlayerId, setHotseatActivePlayerId] = useState<string | null>(null)
   const [lifecycleBusy, setLifecycleBusy] = useState(false)
   const [lifecycleError, setLifecycleError] = useState<string | null>(null)
+  const [observers, setObservers] = useState<ObserverRow[]>([])
+  const [observerBusy, setObserverBusy] = useState(false)
+  const [observerError, setObserverError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!menuOpen) return
@@ -111,7 +118,10 @@ export function GamePage() {
     void (async () => {
       const foundGame = await getGameByRoomCode(roomCode)
       setGame(foundGame)
-      if (foundGame) setPlayers(await listPlayers(foundGame.id))
+      if (foundGame) {
+        setPlayers(await listPlayers(foundGame.id))
+        setObservers(await listObservers(foundGame.id))
+      }
     })()
   }, [roomCode])
 
@@ -134,6 +144,9 @@ export function GamePage() {
     const unsubscribePlayers = subscribeToPlayers(game.id, () => {
       void listPlayers(game.id).then(setPlayers)
     })
+    const unsubscribeObservers = subscribeToObservers(game.id, () => {
+      void listObservers(game.id).then(setObservers)
+    })
     // Live status updates (e.g. the Owner canceling from another tab/device)
     // — GamePage otherwise only fetches `game` once on mount, unlike
     // LobbyPage which already subscribes for its own status-driven navigate.
@@ -143,6 +156,7 @@ export function GamePage() {
       cancelled = true
       unsubscribeGameState()
       unsubscribePlayers()
+      unsubscribeObservers()
       unsubscribeGame()
     }
   }, [game])
@@ -172,6 +186,13 @@ export function GamePage() {
   const canCancel = isCreator && game?.status === 'active' && gameState?.status !== 'completed'
   const canDelete = isCreator && game?.status === 'canceled'
   const isHotseat = game?.play_mode === 'hotseat'
+  // Observers (issue section 6): view-only, don't occupy a seat. Joining is
+  // only offered once the room is genuinely Active — same 'active' gate as
+  // 0010_observers.sql's RLS (games.status can't distinguish In Progress
+  // from Finished, see dbTypes.ts's GameRow comment).
+  const isSeatedPlayer = players.some((p) => p.user_id === session?.user.id)
+  const amObserving = observers.some((o) => o.user_id === session?.user.id)
+  const canObserve = !isSeatedPlayer && game?.status === 'active' && !amObserving
   // Creation-time opt-out (HomePage.tsx's checkbox) for groups that don't
   // want the extra tap every turn — when set, `me` just always follows
   // whoever must act next, and the gate never has anything to catch it on.
@@ -444,6 +465,52 @@ export function GamePage() {
     }
   }
 
+  async function handleObserve() {
+    if (!game || !session) return
+    setObserverBusy(true)
+    setObserverError(null)
+    try {
+      await joinAsObserver({
+        gameId: game.id,
+        userId: session.user.id,
+        displayName:
+          (session.user.user_metadata?.full_name as string | undefined) ??
+          (session.user.user_metadata?.name as string | undefined) ??
+          session.user.email ??
+          'Observer',
+        avatarUrl: (session.user.user_metadata?.avatar_url as string | undefined) ?? null,
+      })
+      setObservers(await listObservers(game.id))
+      // Joining flips the game_state select RLS from "no rows visible" to
+      // "readable" for this user — refetch now rather than waiting for the
+      // next unrelated `game` effect re-run (see the game-load effect above,
+      // which only fires once per `game` reference).
+      const snapshot = await getGameState(game.id)
+      if (snapshot) {
+        setGameState(snapshot.state)
+        setVersion(snapshot.version)
+      }
+    } catch (err) {
+      setObserverError(err instanceof Error ? err.message : 'Failed to start observing')
+    } finally {
+      setObserverBusy(false)
+    }
+  }
+
+  async function handleStopObserving() {
+    if (!game || !session) return
+    setObserverBusy(true)
+    setObserverError(null)
+    try {
+      await leaveAsObserver(game.id, session.user.id)
+      setObservers(await listObservers(game.id))
+    } catch (err) {
+      setObserverError(err instanceof Error ? err.message : 'Failed to stop observing')
+    } finally {
+      setObserverBusy(false)
+    }
+  }
+
   if (authLoading) return <div className="p-8 text-neutral-400">Loading…</div>
   if (!session) return <div className="p-8 text-neutral-400">Sign in from the home page first.</div>
   if (!game) return <div className="p-8 text-neutral-400">Looking for room {roomCode}…</div>
@@ -539,8 +606,24 @@ export function GamePage() {
               </li>
             ))}
           </ul>
+          {observers.length > 0 && (
+            <p className="text-xs text-neutral-500">
+              Observing: {observers.map((o) => o.display_name).join(', ')}
+            </p>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {amObserving && (
+            <button
+              type="button"
+              disabled={observerBusy}
+              onClick={() => void handleStopObserving()}
+              title="Stop observing this game."
+              className="rounded-md border border-neutral-700 px-3 py-1 text-sm hover:border-neutral-500 disabled:opacity-50"
+            >
+              Stop observing
+            </button>
+          )}
           <button
             type="button"
             disabled={undoing || !gameState || gameState.actionHistory.length === 0}
@@ -565,6 +648,8 @@ export function GamePage() {
       {stateExportError && <div className="rounded-md bg-red-500/10 p-3 text-sm text-red-400">{stateExportError}</div>}
 
       {lifecycleError && <div className="rounded-md bg-red-500/10 p-3 text-sm text-red-400">{lifecycleError}</div>}
+
+      {observerError && <div className="rounded-md bg-red-500/10 p-3 text-sm text-red-400">{observerError}</div>}
 
       {game.status === 'canceled' && (
         <div className="rounded-md bg-neutral-800/60 p-3 text-sm text-neutral-300">
@@ -600,7 +685,21 @@ export function GamePage() {
 
       {actionError && <div className="rounded-md bg-red-500/10 p-3 text-sm text-red-400">{actionError}</div>}
 
-      {!gameState && <p className="text-neutral-400">Setting up the game…</p>}
+      {!gameState && canObserve && (
+        <div className="flex flex-col items-center gap-4 rounded-md border border-neutral-800 p-12 text-center">
+          <p className="text-neutral-400">You&apos;re not seated in this game.</p>
+          <button
+            type="button"
+            disabled={observerBusy}
+            onClick={() => void handleObserve()}
+            className="rounded-md bg-indigo-600 px-6 py-2 font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
+          >
+            Observe this game
+          </button>
+        </div>
+      )}
+
+      {!gameState && !canObserve && <p className="text-neutral-400">Setting up the game…</p>}
 
       {needsHotseatGate && pendingActorId && (
         <div className="flex flex-col items-center gap-4 rounded-md border border-neutral-800 p-12 text-center">
