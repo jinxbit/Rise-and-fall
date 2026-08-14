@@ -156,7 +156,11 @@ export function buildTurnReview(
       }
     }
 
-    const result = applyAction(state, action, unitContent, achievementContent, boardGenerationContent, taleContent)
+    // trustedReplay: `action` comes straight from actionHistory, already
+    // validated once when originally submitted (see applyAction's own doc
+    // comment) — reviewing it again doesn't need PLACE_TILE's expensive
+    // room-search recheck.
+    const result = applyAction(state, action, unitContent, achievementContent, boardGenerationContent, taleContent, true)
     if (!result.ok) break // a validly-logged action should never fail to reapply; bail defensively rather than throw mid-review
     const afterState = result.state
 

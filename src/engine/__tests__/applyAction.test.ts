@@ -873,6 +873,39 @@ describe('applyAction — PLACE_TILE/PLACE_UNIT dispatch during boardSetup', () 
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.error).toContain('not active')
   })
+
+  it('trustedReplay (7th param) reaches placeTile and skips its legality check', () => {
+    // A PLACE_TILE anchor that isn't covering the required lower terrain at
+    // all — ordinarily rejected outright — succeeds once `trustedReplay` is
+    // passed, proving the flag threads all the way from applyAction through
+    // dispatchAction into placeTile's own skipLegalityCheck (see
+    // replayActions/gameLog.ts's extendGameLog/turnReview.ts's
+    // buildTurnReview, which all pass this for reconstructing already-
+    // validated history rather than re-running PLACE_TILE's expensive
+    // room-search check on every replay).
+    const state = makeBoardSetupState()
+    const untrusted = applyAction(
+      state,
+      { type: 'PLACE_TILE', playerId: 'p1', anchor: { q: 50, r: 50 }, rotationSteps: 0 },
+      undefined,
+      undefined,
+      boardGenerationContent,
+    )
+    expect(untrusted.ok).toBe(false)
+
+    const trusted = applyAction(
+      state,
+      { type: 'PLACE_TILE', playerId: 'p1', anchor: { q: 50, r: 50 }, rotationSteps: 0 },
+      undefined,
+      undefined,
+      boardGenerationContent,
+      undefined,
+      true,
+    )
+    expect(trusted.ok).toBe(true)
+    if (!trusted.ok) return
+    expect(getTile(trusted.state.board, { q: 50, r: 50 })?.terrain).toBe('plain')
+  })
 })
 
 describe('applyActionAndFastForwardTiles', () => {

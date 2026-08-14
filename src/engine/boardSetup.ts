@@ -171,13 +171,28 @@ export function checkTilePlacementLegality(
   return null
 }
 
-/** PLACE_TILE: places one tile of the current tier (see PlaceTileAction in ./actions.ts). */
+/**
+ * PLACE_TILE: places one tile of the current tier (see PlaceTileAction in
+ * ./actions.ts). `skipLegalityCheck` bypasses checkTilePlacementLegality —
+ * including canPlaceRemainingTiles's bounded combinatorial search, the
+ * single most expensive thing this engine does — for callers replaying an
+ * action that's already known-legal: either a previously-*submitted* and
+ * accepted placement being reconstructed from actionHistory (see
+ * applyAction's own `trustedReplay` param, threaded here from
+ * replayActions/extendGameLog/buildTurnReview), or a forced placement this
+ * same engine just derived itself via findForcedPlacement, whose legality
+ * is already guaranteed by construction (see applyActionAndFastForwardTiles
+ * in ./applyAction.ts). The turn-order check below still runs regardless —
+ * it's cheap, and a real guard against replaying entries out of order, not
+ * just a legality precondition.
+ */
 export function placeTile(
   state: GameState,
   playerId: string,
   anchor: Coordinate,
   rotationSteps: number,
   content: BoardGenerationContent,
+  skipLegalityCheck = false,
 ): ActionResult {
   if (state.status !== 'boardSetup') {
     return { ok: false, error: `Not currently placing tiles (status: ${state.status})` }
@@ -191,9 +206,11 @@ export function placeTile(
     return { ok: false, error: "It is not this player's turn to place a tile" }
   }
 
-  const legalityError = checkTilePlacementLegality(state, anchor, rotationSteps, content)
-  if (legalityError) {
-    return { ok: false, error: legalityError }
+  if (!skipLegalityCheck) {
+    const legalityError = checkTilePlacementLegality(state, anchor, rotationSteps, content)
+    if (legalityError) {
+      return { ok: false, error: legalityError }
+    }
   }
 
   const tierContent = findTierContent(content, boardSetup.tileTierQueue[0])
