@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { isActionAvailableForUnit, legalConvertTargets, legalCreateTargets, legalTransformTargets } from '../engine/actionTargeting'
-import { UNIT_KINDS } from '../engine/cards'
+import { sortCardIdsForDisplay, UNIT_KINDS } from '../engine/cards'
 import { legalMoveDestinations } from '../engine/movement'
 import { calculatePurchaseCost } from '../engine/purchaseCost'
 import type { TurnReview, UnitReviewEvent } from '../engine/turnReview'
@@ -152,9 +152,11 @@ function deltaSuffix(amount: number | undefined): string {
   return ` (${amount > 0 ? '+' : ''}${amount})`
 }
 
-/** The unit kind each of a set of card ids corresponds to, one entry per card (so a zone with two Cities lists 'city' twice). */
+/** The unit kind each of a set of card ids corresponds to, in display order, one entry per card (so a zone with two Cities lists 'city' twice). */
 function kindsInZone(cardIds: string[], cards: Record<string, Card>): string[] {
-  return cardIds.map((id) => cards[id]?.kind).filter((kind): kind is string => Boolean(kind))
+  return sortCardIdsForDisplay(cardIds, cards)
+    .map((id) => cards[id]?.kind)
+    .filter((kind): kind is string => Boolean(kind))
 }
 
 /** One small icon per unit kind in `kinds` — the compact, at-a-glance stand-in for what used to be a comma-separated list of kind names. */
@@ -506,7 +508,8 @@ function SelectCardsPanel(props: { state: GameState; players: PlayerRow[]; myPla
   const { state, players, myPlayerId, onChooseCard } = props
   const me = myPlayerId ? state.players.find((p) => p.id === myPlayerId) : undefined
   const isPending = !!myPlayerId && state.pendingPlayerIds.includes(myPlayerId)
-  const onlyCardId = isPending && me && me.handCardIds.length === 1 ? me.handCardIds[0] : null
+  const handCardIds = me ? sortCardIdsForDisplay(me.handCardIds, state.cards) : []
+  const onlyCardId = isPending && handCardIds.length === 1 ? handCardIds[0] : null
 
   // A hand with only one card isn't really a choice, so play it
   // automatically instead of making the player click it. autoChosenRef
@@ -535,7 +538,7 @@ function SelectCardsPanel(props: { state: GameState; players: PlayerRow[]; myPla
     <div className="flex flex-col gap-2 text-sm">
       <p className="font-medium text-indigo-400">Your turn — choose a card to play.</p>
       <div className="flex flex-wrap gap-2">
-        {me.handCardIds.map((cardId) => {
+        {handCardIds.map((cardId) => {
           const card = state.cards[cardId]
           return (
             <button
@@ -547,7 +550,7 @@ function SelectCardsPanel(props: { state: GameState; players: PlayerRow[]; myPla
             </button>
           )
         })}
-        {me.handCardIds.length === 0 && <p className="text-neutral-500">No cards in hand.</p>}
+        {handCardIds.length === 0 && <p className="text-neutral-500">No cards in hand.</p>}
       </div>
     </div>
   )
@@ -606,7 +609,7 @@ function DeclinePanel(props: { state: GameState; players: PlayerRow[]; myPlayerI
 
   const me = state.players.find((p) => p.id === myPlayerId)
   if (!me) return null
-  const candidates = [...me.handCardIds, ...me.discardCardIds]
+  const candidates = sortCardIdsForDisplay([...me.handCardIds, ...me.discardCardIds], state.cards)
 
   return (
     <div className="flex flex-col gap-2 text-sm">
@@ -650,6 +653,7 @@ function PurchasePanel(props: {
   if (!me) return null
   const achievementsClaimed = Object.keys(state.claimedByAchievementId).length
   const { current: cost, upcoming } = purchasePriceLadder(achievementsClaimed, achievementContent.purchaseCostTable, achievementContent.gameLength)
+  const declineCardIds = sortCardIdsForDisplay(me.declineCardIds, state.cards)
 
   return (
     <div className="flex flex-col gap-2 text-sm">
@@ -661,7 +665,7 @@ function PurchasePanel(props: {
         )}
       </p>
       <div className="flex flex-wrap gap-2">
-        {me.declineCardIds.map((cardId) => {
+        {declineCardIds.map((cardId) => {
           const card = state.cards[cardId]
           return (
             <button
