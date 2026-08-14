@@ -400,6 +400,16 @@ function addCoord(a: Coordinate, b: Coordinate): Coordinate {
  *   descend from the cross tile, or cross from the descend tile) — every
  *   tile touches 2 of the other 3, with only the shape's own natural
  *   (unavoidable) point-tip notches left uncovered, no enclosed gaps.
+ * - 5-8 players -> per the 5-8 player rules, the pool of starting tiles
+ *   isn't one per player (an odd player count leaves one player without a
+ *   tile of their own) but the largest even number <= playerCount, i.e.
+ *   `2 * floor(playerCount / 2)` (5 -> 4, 6 -> 6, 7 -> 6, 8 -> 8) — matching
+ *   content/terrain.json's water/`initial` shapeGroup limits. Arranged in
+ *   two rows of `floor(playerCount / 2)` tiles each, "like the 4 player
+ *   game": a top row built by repeating the cross offset from the origin,
+ *   and a bottom row the same top row shifted down by the descend offset.
+ *   Brute-force checked (see boardGeneration.test.ts) for 2-4 columns: no
+ *   overlaps, and every tile touches every other tile in the group.
  *
  * `hourglassCells` is content/terrain.json's water/`initial` shapeGroup's
  * one shape's `cells` (the engine stays content-agnostic — see UNIT_KINDS
@@ -426,8 +436,17 @@ export function seedStartingWaterTiles(playerCount: number, hourglassCells: Coor
     case 3:
       anchors = [origin, descend, opposite]
       break
-    default:
+    case 4:
       anchors = [origin, descend, cross, square]
+      break
+    default: {
+      const cols = Math.floor(playerCount / 2)
+      const topRow: Coordinate[] = []
+      for (let i = 0, anchor = origin; i < cols; i++, anchor = addCoord(anchor, STARTING_WATER_CROSS_OFFSET)) {
+        topRow.push(anchor)
+      }
+      anchors = [...topRow, ...topRow.map((a) => addCoord(a, STARTING_WATER_DESCEND_OFFSET))]
+    }
   }
 
   // Each anchor is its own physical hourglass tile (see Tile.placementId) —
