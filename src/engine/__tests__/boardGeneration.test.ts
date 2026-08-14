@@ -11,7 +11,7 @@ import {
   touchesEnoughExistingTerrain,
   wouldEncloseEmptyHexes,
 } from '../boardGeneration'
-import { createEmptyBoard, getTile, setTile } from '../board'
+import { connectedTerrainRegion, createEmptyBoard, getTile, neighborCoords, setTile } from '../board'
 import type { Board, Coordinate, Terrain } from '../types'
 import terrainJson from '../../content/terrain.json'
 
@@ -395,7 +395,7 @@ describe('seedStartingWaterTiles', () => {
     expect(firstTile[0]?.placementId).not.toBe(secondTile[0]?.placementId)
   })
 
-  it('chains 3 shapes for 3 players via the same (2,1) offset applied cumulatively', () => {
+  it('forms a "V" for 3 players: descend, then ascend (mirror) from the middle tile', () => {
     const board = seedStartingWaterTiles(3, domino)
     const coords = Object.values(board.tiles).map((t) => t.coord)
     expect(coords).toHaveLength(6)
@@ -403,17 +403,25 @@ describe('seedStartingWaterTiles', () => {
       keySet([
         { q: 0, r: 0 }, { q: 1, r: 0 },
         { q: 2, r: 1 }, { q: 3, r: 1 },
-        { q: 4, r: 2 }, { q: 5, r: 2 },
+        { q: 5, r: 0 }, { q: 6, r: 0 },
       ]),
     )
   })
 
-  it('places 2 separate pairs (not one chain of 4) for 4 players', () => {
+  it('forms a square of 4 mutually-adjacent tiles for 4 players (no overlaps, no gaps)', () => {
     const board = seedStartingWaterTiles(4, domino)
     const coords = Object.values(board.tiles).map((t) => t.coord)
     expect(coords).toHaveLength(8)
     // No overlaps between any of the 4 placed shapes.
     expect(keySet(coords).size).toBe(8)
+    expect(keySet(coords)).toEqual(
+      keySet([
+        { q: 0, r: 0 }, { q: 1, r: 0 },
+        { q: 2, r: 1 }, { q: 3, r: 1 },
+        { q: -2, r: 3 }, { q: -1, r: 3 },
+        { q: 0, r: 4 }, { q: 1, r: 4 },
+      ]),
+    )
   })
 
   it("against the real content/terrain.json hourglass shape: 8 hexes per player, no overlaps", () => {
@@ -426,6 +434,40 @@ describe('seedStartingWaterTiles', () => {
       expect(coords).toHaveLength(playerCount * 8)
       expect(keySet(coords).size).toBe(playerCount * 8)
       expect(Object.values(board.tiles).every((t) => t.terrain === 'water')).toBe(true)
+    }
+  })
+
+  it('forms a single connected region (every tile reachable from every other) for 3 and 4 players', () => {
+    const hourglass = terrainJson.terrainTypes.find((t) => t.id === 'water')!.shapeGroups.find((g) => g.id === 'initial')!
+      .shapes[0].cells
+
+    for (const playerCount of [3, 4]) {
+      const board = seedStartingWaterTiles(playerCount, hourglass)
+      const allCoords = Object.values(board.tiles).map((t) => t.coord)
+      const region = connectedTerrainRegion(board, allCoords[0])
+      expect(keySet(region)).toEqual(keySet(allCoords))
+    }
+  })
+
+  it('for 4 players, every one of the 4 tiles is adjacent to at least 2 of the other 3 (no isolated pair)', () => {
+    const hourglass = terrainJson.terrainTypes.find((t) => t.id === 'water')!.shapeGroups.find((g) => g.id === 'initial')!
+      .shapes[0].cells
+    const board = seedStartingWaterTiles(4, hourglass)
+
+    const byPlacementId = new Map<string, Coordinate[]>()
+    for (const tile of Object.values(board.tiles)) {
+      const id = tile.placementId!
+      byPlacementId.set(id, [...(byPlacementId.get(id) ?? []), tile.coord])
+    }
+    const tileGroups = [...byPlacementId.values()]
+    expect(tileGroups).toHaveLength(4)
+
+    const adjacentGroupCount = (a: Coordinate[], b: Coordinate[]) =>
+      a.some((ca) => neighborCoords(board, ca).some((n) => b.some((cb) => cb.q === n.q && cb.r === n.r)))
+
+    for (let i = 0; i < tileGroups.length; i++) {
+      const touchingOthers = tileGroups.filter((_, j) => j !== i && adjacentGroupCount(tileGroups[i], tileGroups[j])).length
+      expect(touchingOthers).toBeGreaterThanOrEqual(2)
     }
   })
 })
