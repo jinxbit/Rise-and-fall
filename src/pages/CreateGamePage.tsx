@@ -18,13 +18,24 @@ export function CreateGamePage() {
   const [skipHotseatPassGate, setSkipHotseatPassGate] = useState(true)
   const [activeTaleIds, setActiveTaleIds] = useState<string[]>([])
   const [gameLength, setGameLength] = useState(4)
-  const [minPlayers, setMinPlayers] = useState(2)
-  const [maxPlayers, setMaxPlayers] = useState(8)
+  const [minPlayersInput, setMinPlayersInput] = useState('2')
+  const [maxPlayersInput, setMaxPlayersInput] = useState('8')
   const [visibility, setVisibility] = useState<'public' | 'private'>('public')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
-  const playerCountValid = minPlayers >= 1 && maxPlayers >= minPlayers && maxPlayers <= MAX_PLAYERS
+  const minPlayers = Number(minPlayersInput)
+  const maxPlayers = Number(maxPlayersInput)
+  const minPlayersValid = /^\d+$/.test(minPlayersInput.trim()) && minPlayers >= 1
+  const maxPlayersValid = /^\d+$/.test(maxPlayersInput.trim()) && maxPlayers >= 1 && maxPlayers <= MAX_PLAYERS
+  const playerCountValid = minPlayersValid && maxPlayersValid && maxPlayers >= minPlayers
+  const playerCountError = !minPlayersValid
+    ? `Min players must be a whole number of at least 1.`
+    : !maxPlayersValid
+      ? `Max players must be a whole number between 1 and ${MAX_PLAYERS}.`
+      : maxPlayers < minPlayers
+        ? `Max players can't be lower than min players.`
+        : null
 
   if (loading) {
     return <div className="p-8 text-neutral-400">Loading…</div>
@@ -118,30 +129,28 @@ export function CreateGamePage() {
             Min players
             <input
               type="number"
-              min={1}
-              max={MAX_PLAYERS}
-              value={minPlayers}
-              onChange={(e) => setMinPlayers(Number(e.target.value))}
-              className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100"
+              inputMode="numeric"
+              value={minPlayersInput}
+              onChange={(e) => setMinPlayersInput(e.target.value)}
+              className={`rounded-md border bg-neutral-900 px-3 py-2 text-neutral-100 ${
+                minPlayersValid ? 'border-neutral-700' : 'border-red-500'
+              }`}
             />
           </label>
           <label className="flex flex-1 flex-col gap-1 text-sm text-neutral-400">
             Max players
             <input
               type="number"
-              min={1}
-              max={MAX_PLAYERS}
-              value={maxPlayers}
-              onChange={(e) => setMaxPlayers(Number(e.target.value))}
-              className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100"
+              inputMode="numeric"
+              value={maxPlayersInput}
+              onChange={(e) => setMaxPlayersInput(e.target.value)}
+              className={`rounded-md border bg-neutral-900 px-3 py-2 text-neutral-100 ${
+                maxPlayersValid && maxPlayers >= minPlayers ? 'border-neutral-700' : 'border-red-500'
+              }`}
             />
           </label>
         </div>
-        {!playerCountValid && (
-          <p className="text-sm text-red-400">
-            Min players must be at least 1, and max players must be between min players and {MAX_PLAYERS}.
-          </p>
-        )}
+        {playerCountError && <p className="text-sm text-red-400">{playerCountError}</p>}
         <h3 className="text-sm font-medium text-neutral-400">Map</h3>
         <MapTemplateSelector value={mapTemplateId} onChange={setMapTemplateId} />
         <details className="rounded-md border border-neutral-800 p-3">
