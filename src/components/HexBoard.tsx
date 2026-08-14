@@ -402,6 +402,18 @@ export function HexBoard(props: {
   for (const c of props.extraCoords ?? []) allCoords.set(coordKey(c), c)
   for (const g of props.ghostCells ?? []) allCoords.set(coordKey(g.coord), g.coord)
 
+  // Coords that are allowed to size the viewBox — tiles and `extraCoords`
+  // only, never `ghostCells`. `extraCoords` is where a caller like
+  // BoardSetupView pre-reserves the untiled hexes a pending placement could
+  // ever land on, so it already covers the ghost's reach; keying the bounds
+  // off the ghost's own (moving) coords instead made the whole board visibly
+  // shift every time the player picked a different hex to preview a tile or
+  // unit placement at. `pixels` below still includes ghost-only coords so
+  // they render, just not so they influence `minX/minY/maxX/maxY`.
+  const boundsCoordKeys = new Set<string>()
+  for (const tile of Object.values(props.board.tiles)) boundsCoordKeys.add(coordKey(tile.coord))
+  for (const c of props.extraCoords ?? []) boundsCoordKeys.add(coordKey(c))
+
   const clickableKeys = props.clickableCoords ? new Set(props.clickableCoords.map(coordKey)) : null
 
   const coords = [...allCoords.values()]
@@ -415,7 +427,7 @@ export function HexBoard(props: {
 
   const pixels = coords.map((coord) => ({ coord, ...axialToPixel(coord, size) }))
   const pad = size * 1.5
-  const boundsPoints = [...pixels.map((p) => ({ x: p.x, y: p.y }))]
+  const boundsPoints = pixels.filter((p) => boundsCoordKeys.has(coordKey(p.coord))).map((p) => ({ x: p.x, y: p.y }))
   // The action menu is intentionally excluded from this bounding-box
   // calculation: folding its reach into `minX/minY/maxX/maxY` would resize
   // and recenter the viewBox the instant the menu opens/closes, making the

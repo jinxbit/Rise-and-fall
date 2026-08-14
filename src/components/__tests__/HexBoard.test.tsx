@@ -74,6 +74,27 @@ describe('HexBoard — unit markers', () => {
   })
 })
 
+describe('HexBoard — ghost cell placement preview', () => {
+  it('does not resize or shift the viewBox as the ghost preview moves between hexes — bug report: "the whole map moves when moving the tile"', () => {
+    const board = makeBoard()
+    const extraCoords = [
+      { q: -2, r: 0 },
+      { q: 5, r: 0 },
+    ]
+    const { container, rerender } = render(
+      <HexBoard board={board} extraCoords={extraCoords} ghostCells={[{ coord: { q: 1, r: 0 }, legal: true }]} />,
+    )
+    const svg = container.querySelector('svg')!
+    const viewBoxBefore = svg.getAttribute('viewBox')
+
+    rerender(<HexBoard board={board} extraCoords={extraCoords} ghostCells={[{ coord: { q: 5, r: 0 }, legal: false }]} />)
+    expect(svg.getAttribute('viewBox')).toBe(viewBoxBefore)
+
+    rerender(<HexBoard board={board} extraCoords={extraCoords} ghostCells={[{ coord: { q: -2, r: 0 }, legal: true }]} />)
+    expect(svg.getAttribute('viewBox')).toBe(viewBoxBefore)
+  })
+})
+
 describe('HexBoard — two units sharing one hex (e.g. Merchant landed on a City)', () => {
   it("offsets both plates to different centers instead of drawing one directly on top of the other — bug report: \"when merchant stops in city, the city icon is blocked\"", () => {
     const units: UnitMarker[] = [
