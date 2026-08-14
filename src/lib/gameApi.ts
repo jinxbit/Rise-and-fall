@@ -77,7 +77,7 @@ export async function createGame(params: {
       play_mode: params.playMode,
       created_by: params.userId,
       min_players: params.minPlayers ?? 2,
-      max_players: params.maxPlayers ?? 4,
+      max_players: params.maxPlayers ?? 8,
       settings,
       visibility: params.visibility ?? 'private',
     })

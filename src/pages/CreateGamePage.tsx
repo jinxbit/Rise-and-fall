@@ -19,7 +19,7 @@ export function CreateGamePage() {
   const [activeTaleIds, setActiveTaleIds] = useState<string[]>([])
   const [gameLength, setGameLength] = useState(4)
   const [minPlayers, setMinPlayers] = useState(2)
-  const [maxPlayers, setMaxPlayers] = useState(4)
+  const [maxPlayers, setMaxPlayers] = useState(8)
   const [visibility, setVisibility] = useState<'public' | 'private'>('public')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
