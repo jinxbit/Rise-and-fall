@@ -11,14 +11,13 @@ import { replayActions } from '../engine/replay'
 import { applyTaleModifiers } from '../engine/tales'
 import type { ActionResult, GameState as EngineGameState, Coordinate } from '../engine/types'
 import { buildTurnReview, findReviewWindowStart } from '../engine/turnReview'
-import { currentActorId, pendingActorIds } from '../engine/turnOrder'
+import { currentActorId } from '../engine/turnOrder'
 import { useAuth } from '../hooks/useAuth'
 import type { GameRow, ObserverRow, PlayerRow } from '../lib/dbTypes'
 import { buildGenesisState } from '../lib/gameGenesis'
 import {
   cancelGame,
   deleteGame,
-  getDiscordWebhookUrl,
   getGameByRoomCode,
   getGameState,
   joinAsObserver,
@@ -33,7 +32,6 @@ import {
   writeGameState,
 } from '../lib/gameApi'
 import { encodeGameStateExport } from '../lib/gameStateExport'
-import { sendDiscordNotification, turnNotificationMessage } from '../lib/discordNotify'
 
 /**
  * Two players' writes racing the game_state row's optimistic-concurrency
@@ -260,34 +258,6 @@ export function GamePage() {
   }, [game, gameState?.actionHistory.length, players, unitContent, achievementContent, boardGenerationContent, taleContent])
 
   /**
-   * Async-mode "your turn" nudge (see discordNotify.ts): compares who must
-   * act before vs. after a write and pings each player newly added to that
-   * set on their own Discord webhook, if they've set one
-   * (DiscordWebhookSettings.tsx). Live/hotseat games skip this — live
-   * players already get pushed the update via Realtime, and hotseat is one
-   * shared device with nobody to page. Fire-and-forget: this runs after the
-   * write has already succeeded, so nothing here should ever block the UI
-   * or surface as a game-facing error (sendDiscordNotification already
-   * swallows its own failures; the .catch below only guards the webhook
-   * lookup itself).
-   */
-  function notifyNewlyPendingPlayers(prevState: EngineGameState, nextState: EngineGameState) {
-    if (!game || game.play_mode !== 'async') return
-    const wasPending = new Set(pendingActorIds(prevState))
-    const nowPending = pendingActorIds(nextState).filter((id) => !wasPending.has(id))
-    for (const playerId of nowPending) {
-      const player = players.find((p) => p.id === playerId)
-      if (!player) continue
-      void getDiscordWebhookUrl(player.user_id)
-        .then((webhookUrl) => {
-          if (!webhookUrl) return
-          void sendDiscordNotification(webhookUrl, turnNotificationMessage({ roomCode: game.room_code, displayName: player.display_name }))
-        })
-        .catch(() => {})
-    }
-  }
-
-  /**
    * Writes whatever `computeNext` derives from the current state, retrying
    * against freshly refetched state (up to MAX_WRITE_RETRIES times) if the
    * write loses the optimistic-concurrency race — see MAX_WRITE_RETRIES's
@@ -315,7 +285,6 @@ export function GamePage() {
       if (wrote) {
         setGameState(result.state)
         setVersion(ver + 1)
-        notifyNewlyPendingPlayers(state, result.state)
         return result
       }
 

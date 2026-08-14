@@ -1,9 +1,14 @@
 // Discord "your turn" notifications. Each player pastes in their own
 // webhook URL (src/components/DiscordWebhookSettings.tsx) — no bot install
-// or server-side integration required. Since this app has no backend
-// beyond Supabase (see README), notifications are posted directly from
-// whichever browser triggered the turn change straight to Discord's
-// webhook endpoint, which allows cross-origin POSTs from a browser.
+// required. The actual "it's your turn" ping is sent server-side by the
+// supabase/functions/notify-discord-turn Edge Function (triggered by a
+// Database Webhook on game_state UPDATE, see that function's doc comment),
+// using the service-role key to read the target player's webhook URL —
+// browsers no longer need (or have RLS access) to read a co-player's
+// webhook URL. `sendDiscordNotification` below still lives here for
+// DiscordWebhookSettings.tsx's "Send test" button, which posts to the
+// signed-in player's *own* webhook to confirm it's wired up correctly —
+// that's not a leak since nothing about a co-player's webhook is exposed.
 
 const WEBHOOK_URL_PATTERN = /^https:\/\/(?:discord\.com|discordapp\.com)\/api\/webhooks\/\d+\/[\w-]+$/
 
@@ -16,10 +21,8 @@ export function turnNotificationMessage(params: { roomCode: string; displayName:
 }
 
 /**
- * Best-effort: a bad/deleted webhook, an offline player, or a network
- * hiccup here should never block or surface an error on the game action
- * that triggered it — this is a nice-to-have nudge, not part of the
- * write path that actually has to succeed.
+ * Best-effort: a bad/deleted webhook or a network hiccup here should never
+ * surface as an error to the player just trying to test their own webhook.
  */
 export async function sendDiscordNotification(webhookUrl: string, content: string): Promise<void> {
   try {
