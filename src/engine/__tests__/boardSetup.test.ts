@@ -347,6 +347,53 @@ describe('placeTile', () => {
     const result = placeTile(state, 'p1', { q: 0, r: 0 }, 0, content)
     expect(result.ok).toBe(false)
   })
+
+  describe('skipLegalityCheck (trusted replay)', () => {
+    it('still enforces turn order even when skipping the legality check', () => {
+      const state = makeSetupState({
+        board: boardOf([[0, 0, 'water'], [1, 0, 'water']]),
+        boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 3, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+      })
+
+      const result = placeTile(state, 'p2', { q: 0, r: 0 }, 0, content, true)
+
+      expect(result.ok).toBe(false)
+    })
+
+    it('bypasses checkTilePlacementLegality (including the combinatorial rule-4 room search) for an otherwise-legal-shaped but rule-4-illegal placement', () => {
+      // Same fixture as "rejects a placement that would leave nowhere legal
+      // for the tier's remaining tiles" above — without skipLegalityCheck
+      // this is rejected; with it, the placement goes through untouched,
+      // proving the flag actually reaches (and skips) checkTilePlacementLegality.
+      const state = makeSetupState({
+        board: boardOf([[0, 0, 'water'], [1, 0, 'water'], [5, 5, 'water'], [8, 8, 'water']]),
+        boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 2, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+      })
+
+      const result = placeTile(state, 'p1', { q: 0, r: 0 }, 0, content, true)
+
+      expect(result.ok).toBe(true)
+      if (!result.ok) return
+      expect(getTile(result.state.board, { q: 0, r: 0 })?.terrain).toBe('plain')
+    })
+
+    it('produces the exact same resulting state as a normal validated placement when the placement is actually legal', () => {
+      const state = makeSetupState({
+        board: boardOf([
+          [0, 0, 'water'], [1, 0, 'water'],
+          [10, 0, 'water'], [11, 0, 'water'],
+          [20, 0, 'water'], [21, 0, 'water'],
+        ]),
+        boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 3, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+      })
+
+      const validated = placeTile(state, 'p1', { q: 0, r: 0 }, 0, content)
+      const trusted = placeTile(state, 'p1', { q: 0, r: 0 }, 0, content, true)
+
+      expect(validated.ok).toBe(true)
+      expect(trusted).toEqual(validated)
+    })
+  })
 })
 
 describe('placeTile — water-expansion-only extra rules (placesOn: null)', () => {

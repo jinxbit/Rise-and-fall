@@ -187,7 +187,10 @@ export function extendGameLog(
 
   for (const logged of actions) {
     const before = state
-    const result = applyAction(before, logged.action, unitContent, achievementContent, boardGenerationContent, taleContent)
+    // trustedReplay: `logged` was already validated once, when originally
+    // submitted (see applyAction's own doc comment) — narrating it again
+    // doesn't need PLACE_TILE's expensive room-search recheck.
+    const result = applyAction(before, logged.action, unitContent, achievementContent, boardGenerationContent, taleContent, true)
     if (!result.ok) break // a validly-logged action should never fail to reapply; bail defensively rather than throw mid-log
     const after = result.state
 

@@ -25,6 +25,13 @@ import type { UnitContent } from './unitContent'
  * Throws if any logged action is rejected by applyAction() — a genesis/
  * content mismatch or a corrupted history, either of which means the
  * replayed state can no longer be trusted to match the original.
+ *
+ * Every entry here was already validated once, when it was originally
+ * submitted and accepted into actionHistory — reconstructing that same
+ * state doesn't need to re-run that validation (in particular PLACE_TILE's
+ * bounded combinatorial room-search, by far the most expensive check this
+ * engine has), so this always replays `trustedReplay: true` (see
+ * applyAction's own doc comment in ./applyAction.ts).
  */
 export function replayActions(
   genesis: GameState,
@@ -36,7 +43,7 @@ export function replayActions(
 ): GameState {
   let state = genesis
   for (const entry of history) {
-    const result = applyAction(state, entry.action, unitContent, achievementContent, boardGenerationContent, taleContent)
+    const result = applyAction(state, entry.action, unitContent, achievementContent, boardGenerationContent, taleContent, true)
     if (!result.ok) {
       throw new Error(`Replay failed at action ${JSON.stringify(entry.action)}: ${result.error}`)
     }

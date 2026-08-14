@@ -371,40 +371,111 @@ export function GamePage() {
   const isReviewingHistory = reviewIndex !== null
 
   /**
-   * The state at `reviewIndex` (see its doc comment above) — a plain
-   * client-side replay of a prefix of `actionHistory` on top of genesis,
-   * the same primitive Undo uses, just never written back anywhere. Only
-   * computed while actually reviewing, so a normal game in progress pays
-   * nothing extra for this feature existing.
+   * The state (for BoardSetupView/RoundView) and narration log (see
+   * engine/gameLog.ts) at `reviewIndex` (see its doc comment above) —
+   * reusing `gameLog` above as-is for the log would leak entries from after
+   * the reviewed point (and everyone else's future moves, in an async
+   * game), defeating the point of a spoiler-free "what did the board look
+   * like back then" view, so both are rebuilt from genesis up to
+   * `reviewIndex` specifically.
+   *
+   * Scrubbing through review (the Prev/Next buttons and slider) used to
+   * replay the *entire* prefix from genesis on every single step — the
+   * same O(n) per-step / O(n^2) over a scrub session that made the live
+   * narration log slow before it got gameLogCacheRef below. This keeps its
+   * own equivalent: `reviewCacheRef` remembers every state/log-so-far it's
+   * ever derived, indexed by how many actions had been applied, and only
+   * computes the actions between the highest index already cached and
+   * whatever's newly requested — because each step is derived from the one
+   * before it, walking forward to a never-before-seen index naturally
+   * back-fills every index in between too, so the cache ends up dense
+   * (0..maxIndex), not just holding whichever indices were explicitly
+   * visited. Revisiting any already-cached index (stepping back, or
+   * forward within ground already covered) is then a plain array lookup.
+   * Same prefix-validity/invalidation rule as gameLogCacheRef above
+   * (actionHistory only ever appends or, via Undo, truncates from the end)
+   * — a truncation invalidates the whole cache, since indices past the
+   * truncation point may now derive from different actions.
    */
-  const reviewState = useMemo(() => {
-    if (reviewIndex === null || !game || !gameState || players.length === 0) return null
-    try {
-      const genesis = buildGenesisState(game, players)
-      return replayActions(genesis, gameState.actionHistory.slice(0, reviewIndex), unitContent, achievementContent, boardGenerationContent, taleContent)
-    } catch {
-      return null
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reviewIndex, game, gameState?.actionHistory.length, players, unitContent, achievementContent, boardGenerationContent, taleContent])
+  const reviewCacheRef = useRef<{
+    gameId: string
+    playersSignature: string
+    unitContent: typeof unitContent
+    achievementContent: typeof achievementContent
+    boardGenerationContent: typeof boardGenerationContent
+    taleContent: typeof taleContent
+    actionHistory: LoggedAction[]
+    states: EngineGameState[]
+    events: GameEvent[]
+    eventCountAtIndex: number[]
+  } | null>(null)
 
-  /**
-   * The narration log truncated to what had actually happened by
-   * `reviewIndex` — reusing `gameLog` above as-is would leak entries from
-   * after the reviewed point (and everyone else's future moves, in an
-   * async game), defeating the point of a spoiler-free "what did the board
-   * look like back then" view.
-   */
-  const reviewGameLog = useMemo(() => {
-    if (reviewIndex === null || !game || players.length === 0) return []
+  const { reviewState, reviewGameLog } = useMemo((): { reviewState: EngineGameState | null; reviewGameLog: GameEvent[] } => {
+    if (reviewIndex === null || !game || !genesis || !gameState) return { reviewState: null, reviewGameLog: [] }
+    const actionHistory = gameState.actionHistory
+    let cache = reviewCacheRef.current
+
+    const cacheCoversPrefix =
+      !!cache &&
+      cache.gameId === game.id &&
+      cache.playersSignature === playersSignature &&
+      cache.unitContent === unitContent &&
+      cache.achievementContent === achievementContent &&
+      cache.boardGenerationContent === boardGenerationContent &&
+      cache.taleContent === taleContent &&
+      cache.actionHistory.length <= actionHistory.length &&
+      (cache.actionHistory.length === 0 ||
+        JSON.stringify(cache.actionHistory[cache.actionHistory.length - 1]) === JSON.stringify(actionHistory[cache.actionHistory.length - 1]))
+
     try {
-      const genesis = buildGenesisState(game, players)
-      return buildGameLog(genesis, gameState?.actionHistory.slice(0, reviewIndex) ?? [], unitContent, achievementContent, boardGenerationContent, taleContent)
+      if (!cacheCoversPrefix || !cache) {
+        const initialEvents: GameEvent[] =
+          genesis.status === 'boardSetup' ? [{ id: 'evt_1', turn: genesis.turn, playerId: null, message: 'Board setup begins', timestamp: '' }] : []
+        cache = {
+          gameId: game.id,
+          playersSignature,
+          unitContent,
+          achievementContent,
+          boardGenerationContent,
+          taleContent,
+          actionHistory,
+          states: [genesis],
+          events: initialEvents,
+          eventCountAtIndex: [initialEvents.length],
+        }
+      }
+
+      while (cache.states.length - 1 < reviewIndex) {
+        const fromIndex = cache.states.length - 1
+        const extended = extendGameLog(
+          cache.states[fromIndex],
+          [actionHistory[fromIndex]],
+          cache.events.length + 1,
+          unitContent,
+          achievementContent,
+          boardGenerationContent,
+          taleContent,
+        )
+        if (extended.state === cache.states[fromIndex]) {
+          // A validly-logged action should never fail to reapply — bail
+          // defensively (caught below) rather than cache a duplicate state
+          // under the wrong index and silently desync every later index.
+          throw new Error(`Review replay failed at action ${fromIndex}`)
+        }
+        cache.states.push(extended.state)
+        cache.events = [...cache.events, ...extended.events]
+        cache.eventCountAtIndex.push(cache.events.length)
+      }
+      cache.actionHistory = actionHistory
+      reviewCacheRef.current = cache
+
+      return { reviewState: cache.states[reviewIndex], reviewGameLog: cache.events.slice(0, cache.eventCountAtIndex[reviewIndex]) }
     } catch {
-      return []
+      reviewCacheRef.current = null
+      return { reviewState: null, reviewGameLog: [] }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reviewIndex, game, gameState?.actionHistory.length, players, unitContent, achievementContent, boardGenerationContent, taleContent])
+  }, [reviewIndex, game, genesis, gameState?.actionHistory, playersSignature, unitContent, achievementContent, boardGenerationContent, taleContent])
 
   /** The action most recently applied as of `reviewIndex`, for the review banner's label — null at genesis (reviewIndex 0). */
   const reviewActionMeta = reviewIndex !== null && reviewIndex > 0 ? (gameState?.actionHistory[reviewIndex - 1] ?? null) : null

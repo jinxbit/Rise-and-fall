@@ -64,6 +64,15 @@ export type { ActionResult } from './types'
  * below) call that wrapper instead — it's still just repeated calls to
  * this same function under the hood, so every fast-forwarded placement
  * gets its own perfectly ordinary actionHistory entry.
+ *
+ * `trustedReplay` skips PLACE_TILE's legality/room-search recheck (see
+ * placeTile's `skipLegalityCheck` in ./boardSetup.ts) — safe only for an
+ * action already known-legal, i.e. one being *replayed* from
+ * actionHistory rather than freshly submitted by a player: pass `true`
+ * from a reconstruction path (replayActions, gameLog's
+ * extendGameLog, turnReview's buildTurnReview), never from a live
+ * submission, which still needs the real check to reject an actually
+ * illegal placement.
  */
 export function applyAction(
   state: GameState,
@@ -72,8 +81,9 @@ export function applyAction(
   achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT,
   boardGenerationContent: BoardGenerationContent = EMPTY_BOARD_GENERATION_CONTENT,
   taleContent: TaleContent = EMPTY_TALE_CONTENT,
+  trustedReplay = false,
 ): ActionResult {
-  const result = dispatchAction(resyncUnitMovementFromContent(state, unitContent), action, unitContent, achievementContent, boardGenerationContent, taleContent)
+  const result = dispatchAction(resyncUnitMovementFromContent(state, unitContent), action, unitContent, achievementContent, boardGenerationContent, taleContent, trustedReplay)
   if (!result.ok) return result
 
   const loggedAction: LoggedAction = { action, turn: result.state.turn, timestamp: new Date().toISOString() }
@@ -115,7 +125,11 @@ export function applyActionAndFastForwardTiles(
     forced;
     forced = nextTileFastForward(nextState, boardGenerationContent)
   ) {
-    const cascadeResult = applyAction(nextState, forced, unitContent, achievementContent, boardGenerationContent, taleContent)
+    // trustedReplay: `forced` was just derived by findForcedPlacement's own
+    // combinatorial search, so it's already known-legal by construction —
+    // re-running checkTilePlacementLegality's search on top of the search
+    // that produced it would be pure waste.
+    const cascadeResult = applyAction(nextState, forced, unitContent, achievementContent, boardGenerationContent, taleContent, true)
     if (!cascadeResult.ok) break // defensive only — findForcedPlacement's own combo is always legal by construction
     nextState = cascadeResult.state
   }
@@ -171,9 +185,10 @@ function dispatchAction(
   achievementContent: AchievementContent,
   boardGenerationContent: BoardGenerationContent,
   taleContent: TaleContent,
+  trustedReplay: boolean,
 ): ActionResult {
   if (action.type === 'PLACE_TILE') {
-    return placeTile(state, action.playerId, action.anchor, action.rotationSteps, boardGenerationContent)
+    return placeTile(state, action.playerId, action.anchor, action.rotationSteps, boardGenerationContent, trustedReplay)
   }
   if (action.type === 'PLACE_UNIT') {
     return placeUnit(state, action.playerId, action.unitKind, action.coord, unitContent)
