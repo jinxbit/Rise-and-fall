@@ -40,8 +40,8 @@ export function LobbyPage() {
 
   const [configOpen, setConfigOpen] = useState(false)
   const [draftSettings, setDraftSettings] = useState<GameSettings | null>(null)
-  const [draftMinPlayers, setDraftMinPlayers] = useState(2)
-  const [draftMaxPlayers, setDraftMaxPlayers] = useState(4)
+  const [draftMinPlayersInput, setDraftMinPlayersInput] = useState('2')
+  const [draftMaxPlayersInput, setDraftMaxPlayersInput] = useState('4')
 
   const load = useCallback(async () => {
     if (!roomCode) return
@@ -117,8 +117,8 @@ export function LobbyPage() {
   function openConfigEditor() {
     if (!game) return
     setDraftSettings(game.settings)
-    setDraftMinPlayers(game.min_players)
-    setDraftMaxPlayers(game.max_players)
+    setDraftMinPlayersInput(String(game.min_players))
+    setDraftMaxPlayersInput(String(game.max_players))
     setConfigOpen(true)
   }
 
@@ -286,12 +286,26 @@ export function LobbyPage() {
     }
   }
 
+  const draftMinPlayers = Number(draftMinPlayersInput)
+  const draftMaxPlayers = Number(draftMaxPlayersInput)
+  const draftMinPlayersValid = /^\d+$/.test(draftMinPlayersInput.trim()) && draftMinPlayers >= 1
+  const draftMaxPlayersValid =
+    /^\d+$/.test(draftMaxPlayersInput.trim()) && draftMaxPlayers >= 1 && draftMaxPlayers <= MAX_PLAYERS
   const draftConfigValid =
     draftSettings !== null &&
-    draftMinPlayers >= 1 &&
+    draftMinPlayersValid &&
+    draftMaxPlayersValid &&
     draftMaxPlayers >= draftMinPlayers &&
-    draftMaxPlayers <= MAX_PLAYERS &&
     draftMaxPlayers >= players.length
+  const draftPlayerCountError = !draftMinPlayersValid
+    ? `Min players must be a whole number of at least 1.`
+    : !draftMaxPlayersValid
+      ? `Max players must be a whole number between 1 and ${MAX_PLAYERS}.`
+      : draftMaxPlayers < draftMinPlayers
+        ? `Max players can't be lower than min players.`
+        : draftMaxPlayers < players.length
+          ? `Max players can't go below the ${players.length} already seated.`
+          : null
 
   return (
     <div className="mx-auto flex max-w-lg flex-col gap-6 p-8">
@@ -357,30 +371,30 @@ export function LobbyPage() {
               Min players
               <input
                 type="number"
-                min={1}
-                max={MAX_PLAYERS}
-                value={draftMinPlayers}
-                onChange={(e) => setDraftMinPlayers(Number(e.target.value))}
-                className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100"
+                inputMode="numeric"
+                value={draftMinPlayersInput}
+                onChange={(e) => setDraftMinPlayersInput(e.target.value)}
+                className={`rounded-md border bg-neutral-900 px-3 py-2 text-neutral-100 ${
+                  draftMinPlayersValid ? 'border-neutral-700' : 'border-red-500'
+                }`}
               />
             </label>
             <label className="flex flex-1 flex-col gap-1 text-sm text-neutral-400">
               Max players
               <input
                 type="number"
-                min={1}
-                max={MAX_PLAYERS}
-                value={draftMaxPlayers}
-                onChange={(e) => setDraftMaxPlayers(Number(e.target.value))}
-                className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100"
+                inputMode="numeric"
+                value={draftMaxPlayersInput}
+                onChange={(e) => setDraftMaxPlayersInput(e.target.value)}
+                className={`rounded-md border bg-neutral-900 px-3 py-2 text-neutral-100 ${
+                  draftMaxPlayersValid && draftMaxPlayers >= draftMinPlayers && draftMaxPlayers >= players.length
+                    ? 'border-neutral-700'
+                    : 'border-red-500'
+                }`}
               />
             </label>
           </div>
-          {draftMaxPlayers < players.length && (
-            <p className="text-sm text-red-400">
-              Max players can&apos;t go below the {players.length} already seated.
-            </p>
-          )}
+          {draftPlayerCountError && <p className="text-sm text-red-400">{draftPlayerCountError}</p>}
 
           <div>
             <h3 className="mb-2 text-sm font-medium text-neutral-400">Game length</h3>
