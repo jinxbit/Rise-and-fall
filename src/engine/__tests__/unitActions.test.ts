@@ -973,7 +973,7 @@ describe('applyUnitActionEffect — convert (Temple)', () => {
   it('ignoresCliff lets Temple convert an adjacent enemy unit across a cliff edge (issue #101)', () => {
     const actionIgnoringCliff: UnitAction = {
       ...action,
-      effect: { ...action.effect, ignoresCliff: true },
+      effect: { actionType: 'convert', targetHex: { location: 'adj' }, targetOwner: 'enemy', targetMobileOnly: true, cost: {}, ignoresCliff: true },
     }
     const board = boardOf([
       [0, 0, 'plain'], // level 1
