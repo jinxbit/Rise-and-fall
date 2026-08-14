@@ -446,6 +446,7 @@ export function GamePage() {
 
   async function handleCancelRoom() {
     if (!game) return
+    if (!window.confirm('Cancel this room? Play will be disabled for everyone — this cannot be undone.')) return
     setLifecycleBusy(true)
     setLifecycleError(null)
     try {
