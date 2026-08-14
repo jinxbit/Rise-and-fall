@@ -428,12 +428,6 @@ export function HexBoard(props: {
   const pixels = coords.map((coord) => ({ coord, ...axialToPixel(coord, size) }))
   const pad = size * 1.5
   const boundsPoints = pixels.filter((p) => boundsCoordKeys.has(coordKey(p.coord))).map((p) => ({ x: p.x, y: p.y }))
-  // The action menu is intentionally excluded from this bounding-box
-  // calculation: folding its reach into `minX/minY/maxX/maxY` would resize
-  // and recenter the viewBox the instant the menu opens/closes, making the
-  // whole board visibly jump. The <svg> below renders with
-  // `overflow: visible` instead, so the menu can extend past the fitted
-  // board bounds without perturbing them.
   // A history-review label (see UnitMarker.historyLabel) sits well outside
   // its own hex, and can get stacked further down still to dodge a nearby
   // label — extend the viewBox so neither can get clipped for a unit near
@@ -443,14 +437,49 @@ export function HexBoard(props: {
   for (const { x, y } of historyLabelPositions.values()) {
     boundsPoints.push({ x: x + size * HISTORY_LABEL_WIDTH_FACTOR, y: y + size * HISTORY_LABEL_HEIGHT_FACTOR })
   }
+
+  const actionMenuCenter = props.actionMenu ? axialToPixel(props.actionMenu.coord, size) : null
+  // The action menu's own reach used to be excluded from the bounding-box
+  // calculation on the theory that folding it in would resize/recenter the
+  // viewBox — and visibly shift the whole board — the instant the menu
+  // opens or closes. In practice that let an option land outside the `<svg>`'s
+  // own rendered box (kept visible only via `overflow: visible` below),
+  // which for a unit near the board's edge could push the option off the
+  // page entirely, beyond where the player could scroll to click it. Bug
+  // report: "radial menu option is unreachable" (the topmost option, for a
+  // unit near the top edge). A one-time resize while the menu is open is a
+  // smaller cost than an unclickable option, so its reach is now included
+  // here too, the same way a history label's is just above.
+  let actionMenuLayout: {
+    showGroupLabels: boolean
+    angleByOptionId: Map<string, number>
+    radius: number
+    boxWidth: number
+    boxHeight: number
+  } | null = null
+  if (props.actionMenu && actionMenuCenter) {
+    const groups = groupActionMenuOptions(props.actionMenu.options)
+    const showGroupLabels = groups.length > 1
+    const angleByOptionId = computeActionMenuAngles(groups)
+    const radius = actionMenuRadius(size, props.actionMenu.options.length)
+    const boxWidth = size * ACTION_MENU_BOX_WIDTH_FACTOR
+    const boxHeight = size * ACTION_MENU_BOX_HEIGHT_FACTOR * (showGroupLabels ? 1.5 : 1)
+    actionMenuLayout = { showGroupLabels, angleByOptionId, radius, boxWidth, boxHeight }
+    for (const option of props.actionMenu.options) {
+      const angle = angleByOptionId.get(option.id) ?? 0
+      const ox = actionMenuCenter.x + radius * Math.cos(angle)
+      const oy = actionMenuCenter.y + radius * Math.sin(angle)
+      boundsPoints.push({ x: ox - boxWidth / 2, y: oy - boxHeight / 2 })
+      boundsPoints.push({ x: ox + boxWidth / 2, y: oy + boxHeight / 2 })
+    }
+  }
+
   const minX = Math.min(...boundsPoints.map((p) => p.x)) - pad
   const maxX = Math.max(...boundsPoints.map((p) => p.x)) + pad
   const minY = Math.min(...boundsPoints.map((p) => p.y)) - pad
   const maxY = Math.max(...boundsPoints.map((p) => p.y)) + pad
 
   const ghostByKey = new Map((props.ghostCells ?? []).map((g) => [coordKey(g.coord), g]))
-
-  const actionMenuCenter = props.actionMenu ? axialToPixel(props.actionMenu.coord, size) : null
 
   const cliffEdges: { x1: number; y1: number; x2: number; y2: number }[] = []
   for (const { coord, x, y } of pixels) {
@@ -617,16 +646,11 @@ export function HexBoard(props: {
           </g>
         )
       })}
-      {props.actionMenu && actionMenuCenter && (
+      {props.actionMenu && actionMenuCenter && actionMenuLayout && (
         <g>
           {(() => {
             const { options } = props.actionMenu!
-            const groups = groupActionMenuOptions(options)
-            const showGroupLabels = groups.length > 1
-            const angleByOptionId = computeActionMenuAngles(groups)
-            const radius = actionMenuRadius(size, options.length)
-            const boxWidth = size * ACTION_MENU_BOX_WIDTH_FACTOR
-            const boxHeight = size * ACTION_MENU_BOX_HEIGHT_FACTOR * (showGroupLabels ? 1.5 : 1)
+            const { showGroupLabels, angleByOptionId, radius, boxWidth, boxHeight } = actionMenuLayout
             return options.map((option) => {
               const angle = angleByOptionId.get(option.id) ?? 0
               const ox = actionMenuCenter.x + radius * Math.cos(angle)
