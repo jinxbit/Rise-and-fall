@@ -2,6 +2,7 @@ import { isCliffEdge } from '../engine/cliffs'
 import type { Board, Coordinate, Resources, Terrain } from '../engine/types'
 import { coordKey } from '../engine/types'
 import { ResourceIcon } from './ResourceIcon'
+import { RESOURCE_COLOR_CLASS } from './resourceIcons'
 import type { IconShape } from './unitIcons'
 import { STATIC_UNIT_KINDS, UNIT_ICONS } from './unitIcons'
 
@@ -486,7 +487,7 @@ export function HexBoard(props: {
     const angleByOptionId = computeActionMenuAngles(groups)
     const radius = actionMenuRadius(size, props.actionMenu.options.length)
     const boxWidth = size * ACTION_MENU_BOX_WIDTH_FACTOR
-    const boxHeight = size * ACTION_MENU_BOX_HEIGHT_FACTOR * (showGroupLabels ? 1.5 : 1) * (hasOutcomes ? 1.35 : 1)
+    const boxHeight = size * ACTION_MENU_BOX_HEIGHT_FACTOR * (showGroupLabels ? 1.5 : 1) * (hasOutcomes ? 1.5 : 1)
     actionMenuLayout = { showGroupLabels, angleByOptionId, radius, boxWidth, boxHeight }
     for (const option of props.actionMenu.options) {
       const angle = angleByOptionId.get(option.id) ?? 0
@@ -709,12 +710,12 @@ export function HexBoard(props: {
                       )}
                       <span className="font-bold uppercase tracking-wide">{option.label}</span>
                       {option.outcome && Object.values(option.outcome).some(Boolean) && (
-                        <span className="mt-0.5 flex items-center gap-1">
+                        <span className="mt-0.5 flex items-center gap-1.5 text-[0.95em]">
                           {RESOURCE_ORDER.filter((key) => option.outcome?.[key]).map((key) => {
                             const amount = option.outcome![key]!
                             return (
-                              <span key={key} className="flex items-center gap-0.5 text-[0.75em] font-normal">
-                                <ResourceIcon resource={key} className={`h-[1em] w-[1em] ${amount > 0 ? 'text-emerald-400' : 'text-red-400'}`} />
+                              <span key={key} className={`flex items-center gap-0.5 font-bold ${RESOURCE_COLOR_CLASS[key]}`}>
+                                <ResourceIcon resource={key} className="h-[1.15em] w-[1.15em]" />
                                 {amount > 0 ? '+' : ''}
                                 {amount}
                               </span>
