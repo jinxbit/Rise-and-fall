@@ -395,7 +395,7 @@ describe('seedStartingWaterTiles', () => {
     expect(firstTile[0]?.placementId).not.toBe(secondTile[0]?.placementId)
   })
 
-  it('chains 3 shapes for 3 players via the same (2,1) offset applied cumulatively', () => {
+  it('chains 3 shapes for 3 players into a "V": descend by (2,1), then ascend by (3,-1)', () => {
     const board = seedStartingWaterTiles(3, domino)
     const coords = Object.values(board.tiles).map((t) => t.coord)
     expect(coords).toHaveLength(6)
@@ -403,17 +403,25 @@ describe('seedStartingWaterTiles', () => {
       keySet([
         { q: 0, r: 0 }, { q: 1, r: 0 },
         { q: 2, r: 1 }, { q: 3, r: 1 },
-        { q: 4, r: 2 }, { q: 5, r: 2 },
+        { q: 5, r: 0 }, { q: 6, r: 0 },
       ]),
     )
   })
 
-  it('places 2 separate pairs (not one chain of 4) for 4 players', () => {
+  it('places 4 shapes for 4 players in a 2x2 block: right by (3,0), below by (0,3), and both combined', () => {
     const board = seedStartingWaterTiles(4, domino)
     const coords = Object.values(board.tiles).map((t) => t.coord)
     expect(coords).toHaveLength(8)
     // No overlaps between any of the 4 placed shapes.
     expect(keySet(coords).size).toBe(8)
+    expect(keySet(coords)).toEqual(
+      keySet([
+        { q: 0, r: 0 }, { q: 1, r: 0 },
+        { q: 3, r: 0 }, { q: 4, r: 0 },
+        { q: 0, r: 3 }, { q: 1, r: 3 },
+        { q: 3, r: 3 }, { q: 4, r: 3 },
+      ]),
+    )
   })
 
   it("against the real content/terrain.json hourglass shape: 8 hexes per player, no overlaps", () => {
@@ -426,6 +434,57 @@ describe('seedStartingWaterTiles', () => {
       expect(coords).toHaveLength(playerCount * 8)
       expect(keySet(coords).size).toBe(playerCount * 8)
       expect(Object.values(board.tiles).every((t) => t.terrain === 'water')).toBe(true)
+    }
+  })
+
+  it('for 3 and 4 players with the real hourglass shape, every tile touches at least one other — one connected region, not disconnected pieces', () => {
+    const hourglass = terrainJson.terrainTypes.find((t) => t.id === 'water')!.shapeGroups.find((g) => g.id === 'initial')!
+      .shapes[0].cells
+
+    for (const playerCount of [3, 4]) {
+      const board = seedStartingWaterTiles(playerCount, hourglass)
+      const placementIds = new Set(Object.values(board.tiles).map((t) => t.placementId))
+      expect(placementIds.size).toBe(playerCount)
+
+      // BFS over the water hexes: every tile must be reachable from the first.
+      const coords = Object.values(board.tiles).map((t) => t.coord)
+      const remaining = new Set(coords.map((c) => `${c.q},${c.r}`))
+      const start = coords[0]
+      const stack = [start]
+      remaining.delete(`${start.q},${start.r}`)
+      const dirs = [{ q: 1, r: 0 }, { q: 1, r: -1 }, { q: 0, r: -1 }, { q: -1, r: 0 }, { q: -1, r: 1 }, { q: 0, r: 1 }]
+      while (stack.length > 0) {
+        const cur = stack.pop()!
+        for (const d of dirs) {
+          const key = `${cur.q + d.q},${cur.r + d.r}`
+          if (remaining.has(key)) {
+            remaining.delete(key)
+            stack.push({ q: cur.q + d.q, r: cur.r + d.r })
+          }
+        }
+      }
+      expect(remaining.size).toBe(0)
+    }
+  })
+
+  it('for 4 players with the real hourglass shape, every tile touches at least 2 of the other 3 — a solid 2x2 block', () => {
+    const hourglass = terrainJson.terrainTypes.find((t) => t.id === 'water')!.shapeGroups.find((g) => g.id === 'initial')!
+      .shapes[0].cells
+    const board = seedStartingWaterTiles(4, hourglass)
+
+    const placementIds = [...new Set(Object.values(board.tiles).map((t) => t.placementId))]
+    expect(placementIds).toHaveLength(4)
+
+    const cellsByTile = placementIds.map((id) => Object.values(board.tiles).filter((t) => t.placementId === id).map((t) => t.coord))
+    const dirs = [{ q: 1, r: 0 }, { q: 1, r: -1 }, { q: 0, r: -1 }, { q: -1, r: 0 }, { q: -1, r: 1 }, { q: 0, r: 1 }]
+    const touches = (a: Coordinate[], b: Coordinate[]) => {
+      const bKeys = new Set(b.map((c) => `${c.q},${c.r}`))
+      return a.some((c) => dirs.some((d) => bKeys.has(`${c.q + d.q},${c.r + d.r}`)))
+    }
+
+    for (let i = 0; i < cellsByTile.length; i++) {
+      const touchCount = cellsByTile.filter((_, j) => j !== i && touches(cellsByTile[i], cellsByTile[j])).length
+      expect(touchCount).toBeGreaterThanOrEqual(2)
     }
   })
 })

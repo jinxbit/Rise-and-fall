@@ -359,25 +359,42 @@ export function findForcedPlacement(
  * Per ruling: the second of a pair of starting water "hourglass" tiles
  * interlocks with the first along the first tile's own
  * {q:2,r:0}/{q:1,r:1}/{q:1,r:2} edge, offset by (dq:2, dr:1) from the
- * first tile's anchor — i.e. one row lower, not the same height.
+ * first tile's anchor — i.e. one row lower, not the same height ("descend").
+ * Used for the 2-player pair and as one leg of the 3-player "V".
  */
-const STARTING_WATER_PAIR_OFFSET: Coordinate = { q: 2, r: 1 }
+const STARTING_WATER_DESCEND_OFFSET: Coordinate = { q: 2, r: 1 }
 
 /**
- * ASSUMPTION, not specified by the rules given so far: for a 4-player game
- * ("two times the two players" — two independent pairs, not one chain of
- * 4), how far apart the two pairs should be placed is undecided. Chosen
- * here to be comfortably non-overlapping/non-adjacent; revisit once real
- * board-generation playtesting says otherwise.
+ * The hourglass shape has 180°-rotational symmetry about its own center, so
+ * besides the descend offset above, its mirror ("ascend") interlocks a
+ * second tile just as tightly — confirmed by brute-force search over every
+ * small offset, this and the descend offset (plus their negations) are the
+ * only translations that touch without overlapping at maximum tightness.
+ * Used as the second leg of the 3-player "V": descend then ascend, per
+ * https://github.com/jinxbit/Rise-and-fall/issues/86.
  */
-const STARTING_WATER_SECOND_PAIR_OFFSET: Coordinate = { q: 12, r: 0 }
+const STARTING_WATER_ASCEND_OFFSET: Coordinate = { q: 3, r: -1 }
+
+/**
+ * The 4-player layout is a 2x2 block of 4 tiles: one tile at the origin,
+ * one to its right (this offset), one below it (STARTING_WATER_ROW_OFFSET),
+ * and one at both offsets combined. Brute-force-verified against the real
+ * hourglass shape: no overlaps, and 5 of the 6 pairwise tile relationships
+ * actually touch (both rows, both columns, and one diagonal) — every tile
+ * touches at least 2 of the other 3, forming one solid connected mass
+ * rather than 2 disconnected pairs. Per
+ * https://github.com/jinxbit/Rise-and-fall/issues/86: "All the tiles
+ * should be adjacent to each other (touching each other)."
+ */
+const STARTING_WATER_COL_OFFSET: Coordinate = { q: 3, r: 0 }
+const STARTING_WATER_ROW_OFFSET: Coordinate = { q: 0, r: 3 }
 
 /**
  * Seeds an empty hex board with the starting water "hourglass" tiles: one
- * per player, per ruling. 2 players -> one interlocked pair. 3 players ->
- * a chain of 3, each consecutive pair interlocked the same way as the
- * 2-player case (the same offset applied cumulatively). 4 players -> two
- * separate interlocked pairs (not one chain of 4).
+ * per player, per ruling. 2 players -> one interlocked pair (descend). 3
+ * players -> a "V": descend then ascend, so the outer two tiles both touch
+ * the middle tile but not each other. 4 players -> a 2x2 block of 4 tiles,
+ * all touching (see STARTING_WATER_COL_OFFSET/STARTING_WATER_ROW_OFFSET).
  *
  * `hourglassCells` is content/terrain.json's water/`initial` shapeGroup's
  * one shape's `cells` (the engine stays content-agnostic — see UNIT_KINDS
@@ -388,19 +405,28 @@ export function seedStartingWaterTiles(playerCount: number, hourglassCells: Coor
   let board = createEmptyBoard('hex')
 
   const anchors: Coordinate[] = []
-  if (playerCount === 4) {
+  if (playerCount === 3) {
     anchors.push(
       { q: 0, r: 0 },
-      { q: STARTING_WATER_PAIR_OFFSET.q, r: STARTING_WATER_PAIR_OFFSET.r },
-      { q: STARTING_WATER_SECOND_PAIR_OFFSET.q, r: STARTING_WATER_SECOND_PAIR_OFFSET.r },
+      { q: STARTING_WATER_DESCEND_OFFSET.q, r: STARTING_WATER_DESCEND_OFFSET.r },
       {
-        q: STARTING_WATER_SECOND_PAIR_OFFSET.q + STARTING_WATER_PAIR_OFFSET.q,
-        r: STARTING_WATER_SECOND_PAIR_OFFSET.r + STARTING_WATER_PAIR_OFFSET.r,
+        q: STARTING_WATER_DESCEND_OFFSET.q + STARTING_WATER_ASCEND_OFFSET.q,
+        r: STARTING_WATER_DESCEND_OFFSET.r + STARTING_WATER_ASCEND_OFFSET.r,
+      },
+    )
+  } else if (playerCount === 4) {
+    anchors.push(
+      { q: 0, r: 0 },
+      { q: STARTING_WATER_COL_OFFSET.q, r: STARTING_WATER_COL_OFFSET.r },
+      { q: STARTING_WATER_ROW_OFFSET.q, r: STARTING_WATER_ROW_OFFSET.r },
+      {
+        q: STARTING_WATER_COL_OFFSET.q + STARTING_WATER_ROW_OFFSET.q,
+        r: STARTING_WATER_COL_OFFSET.r + STARTING_WATER_ROW_OFFSET.r,
       },
     )
   } else {
     for (let i = 0; i < playerCount; i++) {
-      anchors.push({ q: STARTING_WATER_PAIR_OFFSET.q * i, r: STARTING_WATER_PAIR_OFFSET.r * i })
+      anchors.push({ q: STARTING_WATER_DESCEND_OFFSET.q * i, r: STARTING_WATER_DESCEND_OFFSET.r * i })
     }
   }
 
