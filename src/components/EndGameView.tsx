@@ -5,6 +5,9 @@ import { calculateVPDetail } from '../engine/victoryPoints'
 import type { VPDetail } from '../engine/victoryPoints'
 import type { GameState } from '../engine/types'
 import type { PlayerRow } from '../lib/dbTypes'
+import type { UnitMarker } from './HexBoard'
+import { HexBoard } from './HexBoard'
+import { UnitIcon } from './UnitIcon'
 
 const ACHIEVEMENTS = listAchievements()
 const TERRAIN_TYPES = listTerrainTypes()
@@ -55,6 +58,50 @@ function scoreLinesFor(detail: VPDetail): ScoreLine[] {
   return lines
 }
 
+/** "1st"/"2nd"/"3rd"/"4th"... — 11th/12th/13th stay "-th" (the usual English exception to the mod-10 rule). */
+function ordinal(n: number): string {
+  const mod100 = n % 100
+  if (mod100 >= 11 && mod100 <= 13) return `${n}th`
+  switch (n % 10) {
+    case 1:
+      return `${n}st`
+    case 2:
+      return `${n}nd`
+    case 3:
+      return `${n}rd`
+    default:
+      return `${n}th`
+  }
+}
+
+/**
+ * Standard competition ranking ("1224" ranking): players tied on total VP
+ * share the same place, and whoever's next skips ahead by however many are
+ * tied above them (e.g. two players tied for 1st -> the next player is 3rd,
+ * not 2nd) — consistent with this game's "no tiebreaker" win rule, where
+ * tied totals really do share a result rather than one arbitrarily coming
+ * out ahead. `ranked` must already be sorted by descending total.
+ */
+function ranksFor(ranked: { id: string }[], totalOf: (id: string) => number): Map<string, number> {
+  const ranks = new Map<string, number>()
+  let place = 1
+  for (let i = 0; i < ranked.length; i++) {
+    if (i > 0 && totalOf(ranked[i].id) !== totalOf(ranked[i - 1].id)) place = i + 1
+    ranks.set(ranked[i].id, place)
+  }
+  return ranks
+}
+
+/** Every unit `playerId` has on the board, grouped by kind — the "what did they build" half of their end-game player details, alongside resources. */
+function unitCountsFor(state: GameState, playerId: string): { kind: string; count: number }[] {
+  const counts = new Map<string, number>()
+  for (const unit of state.units) {
+    if (unit.ownerId !== playerId) continue
+    counts.set(unit.kind, (counts.get(unit.kind) ?? 0) + 1)
+  }
+  return [...counts.entries()].map(([kind, count]) => ({ kind, count }))
+}
+
 /**
  * The end-of-game screen: every player, ranked by final total VP, with a
  * full breakdown of what that total is made of — not just the bottom line,
@@ -78,6 +125,13 @@ export function EndGameView({
   const winnerIds = new Set(state.winnerPlayerIds)
 
   const ranked = [...state.players].sort((a, b) => (detailByPlayerId[b.id]?.total ?? 0) - (detailByPlayerId[a.id]?.total ?? 0))
+  const ranks = ranksFor(ranked, (id) => detailByPlayerId[id]?.total ?? 0)
+
+  const boardUnits: UnitMarker[] = state.units.map((unit) => ({
+    coord: unit.coord,
+    color: players.find((p) => p.id === unit.ownerId)?.color ?? '#a3a3a3',
+    kind: unit.kind,
+  }))
 
   return (
     <div className="flex flex-col gap-4 rounded-md border border-amber-700/50 bg-amber-500/10 p-4">
@@ -89,12 +143,18 @@ export function EndGameView({
         </p>
       </div>
 
+      <div>
+        <p className="mb-2 text-sm font-medium text-neutral-200">Final board</p>
+        <HexBoard board={state.board} units={boardUnits} />
+      </div>
+
       <div className="flex flex-col gap-3">
         {ranked.map((player) => {
           const row = players.find((p) => p.id === player.id)
           const detail = detailByPlayerId[player.id]
           const isWinner = winnerIds.has(player.id)
           const lines = detail ? scoreLinesFor(detail) : []
+          const unitCounts = unitCountsFor(state, player.id)
 
           return (
             <div key={player.id} className={`rounded-md border p-3 ${isWinner ? 'border-amber-500/60 bg-amber-500/5' : 'border-neutral-800'}`}>
@@ -109,6 +169,7 @@ export function EndGameView({
                   {detail?.total ?? 0} point{detail?.total === 1 ? '' : 's'}
                 </span>
               </div>
+              <p className="text-xs text-neutral-500">{ordinal(ranks.get(player.id) ?? ranked.length)} place</p>
 
               {lines.length > 0 ? (
                 <ul className="mt-2 flex flex-col gap-0.5 pl-4 text-xs text-neutral-400">
@@ -120,6 +181,21 @@ export function EndGameView({
                 </ul>
               ) : (
                 <p className="mt-2 pl-4 text-xs text-neutral-500">No points scored</p>
+              )}
+
+              <p className="mt-2 pl-4 text-xs text-neutral-400">
+                Resources: {player.resources.gold} Gold, {player.resources.wood} Wood, {player.resources.stone} Stone
+              </p>
+              {unitCounts.length > 0 && (
+                <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 pl-4 text-xs text-neutral-400">
+                  Units:
+                  {unitCounts.map(({ kind, count }) => (
+                    <span key={kind} className="inline-flex items-center gap-1" title={capitalize(kind)}>
+                      <UnitIcon kind={kind} className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
+                      <span>{count}</span>
+                    </span>
+                  ))}
+                </p>
               )}
             </div>
           )
