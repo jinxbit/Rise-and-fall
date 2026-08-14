@@ -359,25 +359,29 @@ export function findForcedPlacement(
  * Per ruling: the second of a pair of starting water "hourglass" tiles
  * interlocks with the first along the first tile's own
  * {q:2,r:0}/{q:1,r:1}/{q:1,r:2} edge, offset by (dq:2, dr:1) from the
- * first tile's anchor — i.e. one row lower, not the same height.
+ * first tile's anchor — i.e. one row lower, not the same height ("descend").
  */
-const STARTING_WATER_PAIR_OFFSET: Coordinate = { q: 2, r: 1 }
+const STARTING_WATER_DESCEND_OFFSET: Coordinate = { q: 2, r: 1 }
 
 /**
- * ASSUMPTION, not specified by the rules given so far: for a 4-player game
- * ("two times the two players" — two independent pairs, not one chain of
- * 4), how far apart the two pairs should be placed is undecided. Chosen
- * here to be comfortably non-overlapping/non-adjacent; revisit once real
- * board-generation playtesting says otherwise.
+ * The hourglass shape is point-symmetric (180-degree rotation about its own
+ * center maps it onto itself), so besides the descend offset above, its
+ * mirror direction interlocks a next tile exactly as tightly — one row
+ * higher instead of lower ("ascend"). Brute-forcing every small offset
+ * confirms these are the two tightest-interlocking, non-overlapping
+ * directions (both touch along 5 hex-edge pairs, the max found).
  */
-const STARTING_WATER_SECOND_PAIR_OFFSET: Coordinate = { q: 12, r: 0 }
+const STARTING_WATER_ASCEND_OFFSET: Coordinate = { q: 3, r: -1 }
 
 /**
  * Seeds an empty hex board with the starting water "hourglass" tiles: one
- * per player, per ruling. 2 players -> one interlocked pair. 3 players ->
- * a chain of 3, each consecutive pair interlocked the same way as the
- * 2-player case (the same offset applied cumulatively). 4 players -> two
- * separate interlocked pairs (not one chain of 4).
+ * per player, per ruling, chained by alternating the descend/ascend offsets
+ * above (each new tile interlocks with the previous one, never with a
+ * shared anchor — two tiles branching off the same anchor in the descend
+ * and ascend directions always overlap each other). 2 players -> one
+ * descending pair. 3 players -> descend then ascend, a "V". 4 players ->
+ * descend, ascend, descend, a "W" — one connected zigzag chain, not two
+ * disconnected pairs.
  *
  * `hourglassCells` is content/terrain.json's water/`initial` shapeGroup's
  * one shape's `cells` (the engine stays content-agnostic — see UNIT_KINDS
@@ -387,21 +391,11 @@ const STARTING_WATER_SECOND_PAIR_OFFSET: Coordinate = { q: 12, r: 0 }
 export function seedStartingWaterTiles(playerCount: number, hourglassCells: Coordinate[]): Board {
   let board = createEmptyBoard('hex')
 
-  const anchors: Coordinate[] = []
-  if (playerCount === 4) {
-    anchors.push(
-      { q: 0, r: 0 },
-      { q: STARTING_WATER_PAIR_OFFSET.q, r: STARTING_WATER_PAIR_OFFSET.r },
-      { q: STARTING_WATER_SECOND_PAIR_OFFSET.q, r: STARTING_WATER_SECOND_PAIR_OFFSET.r },
-      {
-        q: STARTING_WATER_SECOND_PAIR_OFFSET.q + STARTING_WATER_PAIR_OFFSET.q,
-        r: STARTING_WATER_SECOND_PAIR_OFFSET.r + STARTING_WATER_PAIR_OFFSET.r,
-      },
-    )
-  } else {
-    for (let i = 0; i < playerCount; i++) {
-      anchors.push({ q: STARTING_WATER_PAIR_OFFSET.q * i, r: STARTING_WATER_PAIR_OFFSET.r * i })
-    }
+  const anchors: Coordinate[] = [{ q: 0, r: 0 }]
+  for (let i = 1; i < playerCount; i++) {
+    const offset = i % 2 === 1 ? STARTING_WATER_DESCEND_OFFSET : STARTING_WATER_ASCEND_OFFSET
+    const previous = anchors[i - 1]
+    anchors.push({ q: previous.q + offset.q, r: previous.r + offset.r })
   }
 
   // Each anchor is its own physical hourglass tile (see Tile.placementId) —

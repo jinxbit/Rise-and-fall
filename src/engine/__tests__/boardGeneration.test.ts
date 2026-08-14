@@ -395,7 +395,7 @@ describe('seedStartingWaterTiles', () => {
     expect(firstTile[0]?.placementId).not.toBe(secondTile[0]?.placementId)
   })
 
-  it('chains 3 shapes for 3 players via the same (2,1) offset applied cumulatively', () => {
+  it('chains 3 shapes for 3 players via alternating (2,1) descend / (3,-1) ascend offsets — a "V"', () => {
     const board = seedStartingWaterTiles(3, domino)
     const coords = Object.values(board.tiles).map((t) => t.coord)
     expect(coords).toHaveLength(6)
@@ -403,17 +403,23 @@ describe('seedStartingWaterTiles', () => {
       keySet([
         { q: 0, r: 0 }, { q: 1, r: 0 },
         { q: 2, r: 1 }, { q: 3, r: 1 },
-        { q: 4, r: 2 }, { q: 5, r: 2 },
+        { q: 5, r: 0 }, { q: 6, r: 0 },
       ]),
     )
   })
 
-  it('places 2 separate pairs (not one chain of 4) for 4 players', () => {
+  it('chains 4 shapes for 4 players via alternating descend/ascend offsets — a "W", one connected chain', () => {
     const board = seedStartingWaterTiles(4, domino)
     const coords = Object.values(board.tiles).map((t) => t.coord)
     expect(coords).toHaveLength(8)
-    // No overlaps between any of the 4 placed shapes.
-    expect(keySet(coords).size).toBe(8)
+    expect(keySet(coords)).toEqual(
+      keySet([
+        { q: 0, r: 0 }, { q: 1, r: 0 },
+        { q: 2, r: 1 }, { q: 3, r: 1 },
+        { q: 5, r: 0 }, { q: 6, r: 0 },
+        { q: 7, r: 1 }, { q: 8, r: 1 },
+      ]),
+    )
   })
 
   it("against the real content/terrain.json hourglass shape: 8 hexes per player, no overlaps", () => {

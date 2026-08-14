@@ -236,12 +236,12 @@ against the real `content/terrain.json` hourglass shape):
   no mixing) and `applyTilePlacement()` to actually cover them.
 - `seedStartingWaterTiles()` — rule 1's automatic setup step (no player
   choice involved, so it's a plain pure function): places the starting
-  hourglass tiles per player count, pairwise-interlocked via the
-  `(dq:2, dr:1)` offset (2p: one pair; 3p: a chain of 3, the same offset
-  applied cumulatively; 4p: two separate pairs). ASSUMPTION flagged in
-  code (`STARTING_WATER_SECOND_PAIR_OFFSET`): how far apart the two pairs
-  sit in the 4-player case isn't specified by the rules — chosen to be
-  comfortably non-overlapping, not derived from anything.
+  hourglass tiles per player count, chained via alternating
+  `(dq:2, dr:1)` "descend" / `(dq:3, dr:-1)` "ascend" offsets — the
+  hourglass shape's only two tightest-interlocking, non-overlapping
+  directions (2p: one descending pair; 3p: descend then ascend, a "V";
+  4p: descend, ascend, descend, a "W" — one connected zigzag chain, not
+  two disconnected pairs).
 
 **The interactive placement phase is now implemented too** (rules 2 and
 5 — a player actually choosing where to place each tile/unit, turn by
