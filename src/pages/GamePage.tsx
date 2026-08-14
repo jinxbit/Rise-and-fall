@@ -105,6 +105,15 @@ export function GamePage() {
   const [observers, setObservers] = useState<ObserverRow[]>([])
   const [observerBusy, setObserverBusy] = useState(false)
   const [observerError, setObserverError] = useState<string | null>(null)
+  /**
+   * Guards against re-running the auto-join-as-observer / auto-enter-review
+   * effects below more than once per room load (issue #105) — without these,
+   * every `canObserve`/`amObserving` recompute (e.g. after the user
+   * deliberately clicks "Stop observing") would re-trigger the very
+   * automation that's meant to only fire once, on arrival.
+   */
+  const autoObserveAttemptedRef = useRef(false)
+  const autoReviewAppliedRef = useRef(false)
 
   useEffect(() => {
     if (!menuOpen) return
@@ -126,6 +135,8 @@ export function GamePage() {
     if (!roomCode) return
     setHotseatActivePlayerId(null)
     setReviewIndex(null)
+    autoObserveAttemptedRef.current = false
+    autoReviewAppliedRef.current = false
     void (async () => {
       const foundGame = await getGameByRoomCode(roomCode)
       setGame(foundGame)
@@ -208,6 +219,40 @@ export function GamePage() {
   const isSeatedPlayer = players.some((p) => p.user_id === session?.user.id)
   const amObserving = observers.some((o) => o.user_id === session?.user.id)
   const canObserve = !isSeatedPlayer && game?.status === 'active' && !amObserving
+
+  /**
+   * Auto-join as an observer (issue #105) — landing on a room you're not
+   * seated in (e.g. via Public Rooms' "Observe" action) used to dead-end on
+   * a "You're not seated in this game" screen with an "Observe this game"
+   * button to click before anything was visible. Since `canObserve` already
+   * means "not seated, room is active, not already observing," there's
+   * nothing left for a human to decide there — so just do it, once per
+   * room load (autoObserveAttemptedRef), the same as clicking the button
+   * would have.
+   */
+  useEffect(() => {
+    if (autoObserveAttemptedRef.current || observerBusy || !canObserve) return
+    autoObserveAttemptedRef.current = true
+    void handleObserve()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canObserve, observerBusy])
+
+  /**
+   * Open observing in history review mode (issue #105), not live — an
+   * observer has no `me` and can't act regardless, but landing straight on
+   * the live board skips past the one review affordance actually meant for
+   * a spectator: scrubbing back through what already happened. Applies
+   * whenever this session is observing (freshly auto-joined above, or
+   * already an observer on a page refresh), once per room load
+   * (autoReviewAppliedRef) so it doesn't fight a deliberate "Exit review"
+   * click later in the session.
+   */
+  useEffect(() => {
+    if (autoReviewAppliedRef.current || !amObserving || !gameState) return
+    autoReviewAppliedRef.current = true
+    setReviewIndex(gameState.actionHistory.length)
+  }, [amObserving, gameState])
+
   // Creation-time opt-out (CreateGamePage.tsx's checkbox, checked by default) for groups that don't
   // want the extra tap every turn — when set, `me` just always follows
   // whoever must act next, and the gate never has anything to catch it on.
@@ -977,15 +1022,16 @@ export function GamePage() {
 
       {!gameState && canObserve && (
         <div className="flex flex-col items-center gap-4 rounded-md border border-neutral-800 p-12 text-center">
-          <p className="text-neutral-400">You&apos;re not seated in this game.</p>
-          <button
-            type="button"
-            disabled={observerBusy}
-            onClick={() => void handleObserve()}
-            className="rounded-md bg-indigo-600 px-6 py-2 font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
-          >
-            Observe this game
-          </button>
+          <p className="text-neutral-400">{observerBusy ? 'Joining as an observer…' : "You're not seated in this game."}</p>
+          {!observerBusy && (
+            <button
+              type="button"
+              onClick={() => void handleObserve()}
+              className="rounded-md bg-indigo-600 px-6 py-2 font-medium text-white hover:bg-indigo-500"
+            >
+              Observe this game
+            </button>
+          )}
         </div>
       )}
 
