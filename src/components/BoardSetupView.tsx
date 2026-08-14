@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { getTile } from '../engine/board'
 import { placedShapeCells, rotateShape, shapeCenterCell } from '../engine/boardGeneration'
 import type { BoardGenerationContent } from '../engine/boardGenerationContent'
@@ -68,15 +68,36 @@ function TilePlacementPanel(props: {
     setRotation(0)
   }, [boardSetup.tilePlacerIndex, boardSetup.tileTierQueue.length])
 
+  // Computed even when `tierContent` is missing (the early return just
+  // below handles that) so every hook here — including the useMemo below —
+  // still runs unconditionally, in the same order, on every render (rules
+  // of hooks).
+  const rotatedCenterOffset = tierContent ? rotateShape([shapeCenterCell(tierContent.shapeCells)], rotation)[0] : null
+  const anchor = center && rotatedCenterOffset ? { q: center.q - rotatedCenterOffset.q, r: center.r - rotatedCenterOffset.r } : null
+
+  // checkTilePlacementLegality is the expensive part of this render (it can
+  // run a bounded combinatorial backtracking search — see
+  // canPlaceRemainingTiles/findDisjointCombos in ../engine/boardGeneration.ts
+  // — over every legal placement of the board's current size), so it's
+  // memoized on its actual inputs rather than recomputed on every render:
+  // this component re-renders on every gameState update from Supabase
+  // realtime (e.g. another player's placement, or even an unrelated parent
+  // re-render like the top menu opening), not just when the player changes
+  // their own pending anchor/rotation. Keyed on `state`/`boardGenerationContent`
+  // by reference (both are only ever replaced, never mutated in place — see
+  // GameState's own event-sourcing model) plus the anchor/rotation's actual
+  // (primitive) values, since `anchor` itself is a fresh object every render.
+  const legalityError = useMemo(
+    () => (anchor ? checkTilePlacementLegality(state, anchor, rotation, boardGenerationContent) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [state, boardGenerationContent, anchor?.q, anchor?.r, rotation],
+  )
+
   if (!tierContent) {
     return <p className="text-red-400">No board-generation content for tier &apos;{tier}&apos;.</p>
   }
 
-  const rotatedCenterOffset = rotateShape([shapeCenterCell(tierContent.shapeCells)], rotation)[0]
-  const anchor = center ? { q: center.q - rotatedCenterOffset.q, r: center.r - rotatedCenterOffset.r } : null
-
   const placedCells = anchor ? placedShapeCells(tierContent.shapeCells, anchor, rotation) : []
-  const legalityError = anchor ? checkTilePlacementLegality(state, anchor, rotation, boardGenerationContent) : null
   const legal = anchor !== null && legalityError === null
   const ghostCells: GhostCell[] = placedCells.map((coord) => ({ coord, legal }))
   const extraCoords = paddedEmptyCoords(state.board, 4)
