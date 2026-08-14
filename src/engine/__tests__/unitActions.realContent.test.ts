@@ -356,6 +356,52 @@ describe('real content/units.json + terrain.json + resources.json', () => {
     expect(next.units[0]).toMatchObject({ kind: 'nomad', coord: { q: 1, r: 0 } })
   })
 
+  // Plain (level 1), not Forest (level 2): Water-Forest is always a cliff
+  // edge (elevation diff of 2, see cliffs.ts), and adjacent-transform can
+  // never cross a cliff — so despite Forest being a listed terrainType for
+  // this action (matching the card text), a Ship sitting on Water (level 0,
+  // always) can in practice never reach an adjacent Forest hex this way.
+  // Plain (diff of 1) isolates the stacking/cost behavior this test targets.
+  it("Ship's Transform to Merchant (real 2 GP cost) resolves onto an adjacent hex occupied only by a City (any owner, the Merchant stacking exception)", () => {
+    const board = setTile(setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'water'), { q: 1, r: 0 }, 'plain')
+    const ship: Unit = { id: 'u1', ownerId: 'p1', kind: 'ship', coord: { q: 0, r: 0 }, movement: content.movementByKind.ship, traits: [] }
+    const enemyCity: Unit = { id: 'u2', ownerId: 'p2', kind: 'city', coord: { q: 1, r: 0 }, movement: content.movementByKind.city, traits: [] }
+    const state: GameState = {
+      gameId: 'g',
+      playMode: 'hotseat',
+      status: 'active',
+      turn: 1,
+      activePlayerId: null,
+      roundPhase: 'actions',
+      chosenCardIdByPlayerId: {},
+      pendingPlayerIds: [],
+      resolvedUnitIdsThisTurn: [],
+      unitsCreatedThisTurn: [],
+      turnOrder: ['p1'],
+      board,
+      players: [makePlayer('p1', { gold: 2, wood: 0, stone: 0 }), makePlayer('p2')],
+      units: [ship, enemyCity],
+      cards: {},
+      resourceBank: { gold: 1000, wood: 1000, stone: 1000 },
+      activeTaleIds: [],
+      gameLength: Infinity,
+      winnerPlayerIds: [],
+      claimedByAchievementId: {},
+      achievementsClaimedThisRound: 0,
+      boardSetup: null,
+      idSequence: 0,
+      actionHistory: [],
+    }
+
+    const action = findAction('ship', 'transform-to-merchant', content)
+    const next = applyUnitActionEffect(state, 'p1', 'ship', action, { [ship.id]: { q: 1, r: 0 } }, content)
+
+    expect(next.units).toHaveLength(2)
+    expect(next.units.some((u) => u.kind === 'merchant' && u.ownerId === 'p1' && u.coord.q === 1 && u.coord.r === 0)).toBe(true)
+    expect(next.units.some((u) => u.id === enemyCity.id)).toBe(true)
+    expect(next.players.find((p) => p.id === 'p1')!.resources.gold).toBe(0)
+  })
+
   it("Ship's Move (real moveDistance: 'unlimited', blockedByUnits: 'none') can reach across its water region but not onto a non-water hex", () => {
     let board = createEmptyBoard('hex')
     for (const [q, r] of [

@@ -403,7 +403,8 @@ function applyTransform(state: GameState, playerId: string, unit: Unit, effect: 
 
   if (effect.targetHex.location === 'adj') {
     if (!isAdjacent(state, unit.coord, resolvedTargetCoord)) return state
-    if (unitsAt(state, resolvedTargetCoord).length > 0) return state
+    const allowedOccupants = new Set(effect.allowedOccupantKinds ?? [])
+    if (!unitsAt(state, resolvedTargetCoord).every((u) => allowedOccupants.has(u.kind))) return state
     if (crossesCliff(state, unit.coord, resolvedTargetCoord, content.terrainLevels)) return state
   }
 

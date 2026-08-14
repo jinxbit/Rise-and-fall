@@ -712,6 +712,69 @@ describe('applyUnitActionEffect — transform', () => {
     expect(next.units[0].kind).toBe('nomad')
   })
 
+  it('adjacent-location: skips an occupied target hex when the occupant kind is not in allowedOccupantKinds', () => {
+    const action: UnitAction = {
+      id: 'transform-to-merchant',
+      name: 'Transform to Merchant',
+      description: '',
+      effect: {
+        actionType: 'transform',
+        targetUnit: 'merchant',
+        targetHex: { terrainType: ['plain'], location: 'adj' },
+        destroySelf: true,
+        cost: {},
+        allowedOccupantKinds: ['city'],
+      },
+    }
+    const board = boardOf([
+      [0, 0, 'water'],
+      [1, 0, 'plain'],
+    ])
+    const state = makeState({
+      board,
+      units: [makeUnit('p1', 'ship', { q: 0, r: 0 }), makeUnit('p2', 'nomad', { q: 1, r: 0 })],
+    })
+    const ship = state.units[0]
+
+    const next = applyUnitActionEffect(state, 'p1', 'ship', action, { [ship.id]: { q: 1, r: 0 } }, content)
+
+    expect(next.units).toHaveLength(2)
+    expect(next.units.find((u) => u.id === ship.id)?.kind).toBe('ship')
+  })
+
+  it('adjacent-location: transforms onto a target hex occupied only by a kind in allowedOccupantKinds (any owner)', () => {
+    const action: UnitAction = {
+      id: 'transform-to-merchant',
+      name: 'Transform to Merchant',
+      description: '',
+      effect: {
+        actionType: 'transform',
+        targetUnit: 'merchant',
+        targetHex: { terrainType: ['plain'], location: 'adj' },
+        destroySelf: true,
+        cost: {},
+        allowedOccupantKinds: ['city'],
+      },
+    }
+    const board = boardOf([
+      [0, 0, 'water'],
+      [1, 0, 'plain'],
+    ])
+    const state = makeState({
+      board,
+      units: [makeUnit('p1', 'ship', { q: 0, r: 0 }), makeUnit('p2', 'city', { q: 1, r: 0 })],
+    })
+    const ship = state.units[0]
+
+    const next = applyUnitActionEffect(state, 'p1', 'ship', action, { [ship.id]: { q: 1, r: 0 } }, content)
+
+    // destroySelf removes the Ship, so the count is unchanged overall (City stays, Ship -> Merchant).
+    expect(next.units).toHaveLength(2)
+    expect(next.units.some((u) => u.kind === 'merchant' && u.ownerId === 'p1' && u.coord.q === 1 && u.coord.r === 0)).toBe(true)
+    expect(next.units.some((u) => u.kind === 'city' && u.ownerId === 'p2')).toBe(true)
+    expect(next.units.some((u) => u.id === ship.id)).toBe(false)
+  })
+
   it('adjacent-location: always blocked by a cliff, even for an acting unit that can normally cross cliffs', () => {
     const action: UnitAction = {
       id: 'transform-to-ship',

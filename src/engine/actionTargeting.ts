@@ -63,11 +63,12 @@ export function legalTransformTargets(state: GameState, playerId: string, unit: 
     return isCreationAllowedOnTerrain(effect.targetUnit, tile.terrain) ? [unit.coord] : []
   }
 
+  const allowedOccupants = new Set(effect.allowedOccupantKinds ?? [])
   return neighborCoords(state.board, unit.coord).filter((coord) => {
     const tile = getTile(state.board, coord)
     if (!tile || !effect.targetHex.terrainType.includes(tile.terrain)) return false
     if (!isCreationAllowedOnTerrain(effect.targetUnit, tile.terrain)) return false
-    if (unitsAt(state, coord).length > 0) return false
+    if (!unitsAt(state, coord).every((u) => allowedOccupants.has(u.kind))) return false
     if (crossesCliff(state, unit.coord, coord, content.terrainLevels)) return false
     return true
   })

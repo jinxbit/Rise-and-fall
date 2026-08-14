@@ -97,9 +97,9 @@ a straightforward 1-for-5 conversion each way.
 
 | # | Action | Status | Notes |
 |---|--------|--------|-------|
-| 19 | Transform to Nomad | ✅ | |
+| 19 | Transform to Nomad | ✅ | targets an empty adjacent Plains or Forest space, free — but see the Forest/cliff caveat below |
 | 20 | Transform to City | ✅ | |
-| 21 | Transform to Merchant | ✅ | |
+| 21 | Transform to Merchant | ✅ | targets an adjacent Plains or Forest space that's empty or occupied only by a City (any owner — `allowedOccupantKinds`, the same stacking exception as Merchant's own `canEndMoveOnUnitTypes`), 2 GP — see the Forest/cliff caveat below |
 | 22 | Trade | ✅ | flat rate per City adjacent to the Ship's whole contiguous sea area, any owner (no own/enemy split), cliffs don't block it |
 | 26 | Move | ✅ | water-only, `moveDistance: "unlimited"` bounded by its connected water region |
 
@@ -107,6 +107,22 @@ a straightforward 1-for-5 conversion each way.
 (synthetic fixtures), `unitActions.realContent.test.ts` (against the real
 `units.json`/`terrain.json`/`resources.json`), and `movement.test.ts` (the
 `legalMoveDestinations` BFS in isolation).
+
+**Open caveat: Ship's Forest target is currently unreachable in practice.**
+Transform to Nomad/Transform to Merchant both list `["plain", "forest"]` as
+legal terrain (matching the card text), but a Ship always sits on Water
+(`level: 0`) and Forest is `level: 2` — an elevation diff of 2, which
+`cliffs.ts`'s `isCliffEdge` always treats as a cliff (diff > 1), and an
+`'adj'`-location transform can never cross a cliff (see the Cliff rule
+above, and Resolved question #3) — regardless of the Ship's own movement
+capability. So while Plain (diff 1, not a cliff) is reachable, a direct
+Water→Forest edge is *always* a cliff, meaning Forest can never actually be
+targeted this way despite being a listed terrainType. Worth a ruling: either
+this action should be exempt from the cliff rule (no such exemption
+mechanism exists yet for transform), or the card text's "Forest" option is
+only ever reachable indirectly (Ship converts onto an adjacent Plain, which
+can then separately reach Forest) and the terrainType entry is harmless-but-
+inert. Left as-is (Forest listed, per the card text) pending that ruling.
 
 ## Resolved questions
 

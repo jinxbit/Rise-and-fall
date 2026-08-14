@@ -234,6 +234,28 @@ describe('legalTransformTargets', () => {
 
     expect(legalTransformTargets(state, 'p1', unit, effect, emptyContent)).toEqual([])
   })
+
+  it('allowedOccupantKinds: includes a hex occupied only by an allowed kind (any owner), excludes one occupied by any other kind', () => {
+    const effect: TransformEffect = {
+      actionType: 'transform',
+      targetUnit: 'merchant',
+      targetHex: { terrainType: ['plain'], location: 'adj' },
+      destroySelf: true,
+      cost: {},
+      allowedOccupantKinds: ['city'],
+    }
+    const board = boardOf([
+      [0, 0, 'water'],
+      [1, 0, 'plain'],
+      [1, -1, 'plain'],
+    ])
+    const ship = makeUnit('p1', 'ship', { q: 0, r: 0 })
+    const enemyCity = makeUnit('p2', 'city', { q: 1, r: 0 })
+    const enemyNomad = makeUnit('p2', 'nomad', { q: 1, r: -1 })
+    const state = makeState({ board, units: [ship, enemyCity, enemyNomad], players: [makePlayer('p1'), makePlayer('p2')] })
+
+    expect(legalTransformTargets(state, 'p1', ship, effect, emptyContent)).toEqual([{ q: 1, r: 0 }])
+  })
 })
 
 describe('legalConvertTargets', () => {

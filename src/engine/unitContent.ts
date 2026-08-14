@@ -81,6 +81,19 @@ export interface TransformEffect {
    * boardHasUnitOfKind in ./unitActions.ts.
    */
   forbiddenIfBoardHasKind?: string
+  /**
+   * Optional extra condition, only meaningful for `targetHex.location:
+   * 'adj'`: normally an 'adj' transform's target hex must be completely
+   * empty, but if every current occupant's kind is in this list (any
+   * owner — allied or opposing), the hex is still a legal target. E.g.
+   * Ship's Transform to Merchant may land on a Plains/Forest hex that's
+   * empty *or* occupied only by a City, matching Merchant's own
+   * movement.canEndMoveOnUnitTypes stacking exception (see
+   * src/content/README.md's Merchant stacking notes). Undefined (the
+   * default) means the target hex must be empty, matching every transform
+   * action before this field existed.
+   */
+  allowedOccupantKinds?: string[]
 }
 
 /**

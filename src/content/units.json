@@ -334,11 +334,11 @@
         {
           "id": "transform-to-nomad",
           "name": "Transform to Nomad",
-          "description": "",
+          "description": "Transform into a Nomad on an empty adjacent Plains or Forest space. Free.",
           "effect": {
             "actionType": "transform",
             "targetUnit": "nomad",
-            "targetHex": { "terrainType": ["plain"], "location": "adj" },
+            "targetHex": { "terrainType": ["plain", "forest"], "location": "adj" },
             "destroySelf": true,
             "cost": { "gold": 0, "wood": 0, "stone": 0 }
           }
@@ -358,13 +358,14 @@
         {
           "id": "transform-to-merchant",
           "name": "Transform to Merchant",
-          "description": "",
+          "description": "Transform into a Merchant on an adjacent Plains or Forest space that is empty or occupied only by a City (allied or opposing). Costs 2 gold.",
           "effect": {
             "actionType": "transform",
             "targetUnit": "merchant",
-            "targetHex": { "terrainType": ["plain"], "location": "adj" },
+            "targetHex": { "terrainType": ["plain", "forest"], "location": "adj" },
             "destroySelf": true,
-            "cost": { "gold": 5, "wood": 0, "stone": 0 }
+            "allowedOccupantKinds": ["city"],
+            "cost": { "gold": 2, "wood": 0, "stone": 0 }
           }
         },
         {
