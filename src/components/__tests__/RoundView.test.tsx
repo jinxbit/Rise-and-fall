@@ -839,7 +839,11 @@ describe('RoundView — player detail panel (click a player chip for more info)'
     expect(screen.getByText(/^Supply:/)).toBeInTheDocument()
     // "Units on board" renders as an icon+count badge (title = kind name).
     expect(container.querySelector('span[title="Nomad"]')?.textContent).toBe('2')
-    expect(screen.getByText('Gold 5, Wood 2, Stone 1')).toBeInTheDocument()
+    // Resources render as icon+amount chips (title = resource name), like the "Units on board" badges above.
+    const resourcesRow = screen.getByText('Resources').nextElementSibling as HTMLElement
+    expect(resourcesRow.querySelector('span[title="Gold"]')?.textContent).toBe('5')
+    expect(resourcesRow.querySelector('span[title="Wood"]')?.textContent).toBe('2')
+    expect(resourcesRow.querySelector('span[title="Stone"]')?.textContent).toBe('1')
     // Hand cards render as icons (title = kind name) — one Nomad and one
     // Ship icon in the strip's chip, and again in the detail panel's own
     // "Hand: ..." line — two places.
