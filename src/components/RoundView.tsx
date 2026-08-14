@@ -848,16 +848,19 @@ export function RoundView(props: {
           </button>
         </div>
       </div>
-      {state.roundPhase === 'selectCards' && (
+      {/* Turn status panels ("Waiting for X…") re-render as other players act in real time; their
+          height changes shift everything below them. Hidden while reviewing history so that view
+          stays still instead of jumping around underneath the player. */}
+      {!showHistory && state.roundPhase === 'selectCards' && (
         <SelectCardsPanel state={state} players={players} myPlayerId={myPlayerId} onChooseCard={props.onChooseCard} />
       )}
-      {state.roundPhase === 'actions' && (
+      {!showHistory && state.roundPhase === 'actions' && (
         <ActionsPanel state={state} players={players} myPlayerId={myPlayerId} unitContent={unitContent} onPassActions={props.onPassActions} />
       )}
-      {state.roundPhase === 'decline' && (
+      {!showHistory && state.roundPhase === 'decline' && (
         <DeclinePanel state={state} players={players} myPlayerId={myPlayerId} onMoveToDecline={props.onMoveToDecline} />
       )}
-      {state.roundPhase === 'purchase' && (
+      {!showHistory && state.roundPhase === 'purchase' && (
         <PurchasePanel
           state={state}
           players={players}
