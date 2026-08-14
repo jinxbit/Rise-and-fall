@@ -16,8 +16,22 @@ export function isDiscordWebhookUrl(url: string): boolean {
   return WEBHOOK_URL_PATTERN.test(url.trim())
 }
 
-export function turnNotificationMessage(params: { roomCode: string; displayName: string }): string {
-  return `**${params.displayName}**, it's your turn in Rise & Fall! Room \`${params.roomCode}\`.`
+/**
+ * `phase` is a short human label for what the player needs to do (e.g.
+ * "select a card", "place a tile") — see phaseLabel() in the Edge Function,
+ * which is the only place GameState is available to derive it from.
+ * `gameUrl` is omitted (not just blank) when unknown, so the message stays
+ * concise instead of printing a placeholder link.
+ */
+export function turnNotificationMessage(params: {
+  roomCode: string
+  roomName: string
+  displayName: string
+  phase: string
+  gameUrl?: string
+}): string {
+  const link = params.gameUrl ? `\n${params.gameUrl}` : ` (\`${params.roomCode}\`)`
+  return `**${params.displayName}**, it's your turn to **${params.phase}** in **${params.roomName}**.${link}`
 }
 
 /**

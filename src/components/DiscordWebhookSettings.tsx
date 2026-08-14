@@ -53,7 +53,10 @@ export function DiscordWebhookSettings({ userId }: { userId: string }) {
     setBusy(true)
     setTestSent(false)
     try {
-      await sendDiscordNotification(saved, turnNotificationMessage({ roomCode: 'TEST', displayName: 'Rise & Fall' }))
+      await sendDiscordNotification(
+        saved,
+        turnNotificationMessage({ roomCode: 'TEST', roomName: 'Test Room', displayName: 'Rise & Fall', phase: 'take a test turn' }),
+      )
       setTestSent(true)
       setTimeout(() => setTestSent(false), 2000)
     } finally {

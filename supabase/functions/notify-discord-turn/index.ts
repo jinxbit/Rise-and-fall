@@ -33,12 +33,15 @@ interface BoardSetupState {
   unitPlacerIndex: number
 }
 
+type RoundPhase = 'selectCards' | 'actions' | 'decline' | 'purchase'
+
 interface GameState {
   status: 'lobby' | 'boardSetup' | 'active' | 'completed'
   turnOrder: string[]
   boardSetup: BoardSetupState | null
   activePlayerId: string | null
   pendingPlayerIds: string[]
+  roundPhase: RoundPhase
 }
 
 function currentTilePlacerId(state: GameState): string | null {
@@ -68,11 +71,33 @@ function pendingActorIds(state: GameState): string[] {
   return []
 }
 
+const ROUND_PHASE_LABELS: Record<RoundPhase, string> = {
+  selectCards: 'select a card',
+  actions: 'take your action',
+  decline: 'decline a card',
+  purchase: 'make a purchase',
+}
+
+/** Short label for what the newly-pending player needs to do — see turnNotificationMessage's `phase` param. */
+function phaseLabel(state: GameState): string {
+  if (state.status === 'boardSetup') {
+    return currentTilePlacerId(state) ? 'place a tile' : 'place a unit'
+  }
+  return ROUND_PHASE_LABELS[state.roundPhase]
+}
+
 // --- Discord ---
 const WEBHOOK_URL_PATTERN = /^https:\/\/(?:discord\.com|discordapp\.com)\/api\/webhooks\/\d+\/[\w-]+$/
 
-function turnNotificationMessage(params: { roomCode: string; displayName: string }): string {
-  return `**${params.displayName}**, it's your turn in Rise & Fall! Room \`${params.roomCode}\`.`
+function turnNotificationMessage(params: {
+  roomCode: string
+  roomName: string
+  displayName: string
+  phase: string
+  gameUrl?: string
+}): string {
+  const link = params.gameUrl ? `\n${params.gameUrl}` : ` (\`${params.roomCode}\`)`
+  return `**${params.displayName}**, it's your turn to **${params.phase}** in **${params.roomName}**.${link}`
 }
 
 async function sendDiscordNotification(webhookUrl: string, content: string): Promise<void> {
@@ -116,13 +141,19 @@ Deno.serve(async (req) => {
 
   const { data: game, error: gameError } = await supabase
     .from('games')
-    .select('room_code, play_mode')
+    .select('room_code, name, play_mode')
     .eq('id', gameId)
     .maybeSingle()
   if (gameError) return new Response(`game lookup failed: ${gameError.message}`, { status: 500 })
   // Live players already get pushed the update via Realtime; hotseat is one
   // shared device with nobody to page. Only async games need a ping.
   if (!game || game.play_mode !== 'async') return new Response('not an async game', { status: 200 })
+
+  const phase = phaseLabel(payload.record.state)
+  // Optional — set via `supabase secrets set SITE_URL=...` (see README). Without
+  // it the message falls back to just naming the room code instead of a link.
+  const siteUrl = Deno.env.get('SITE_URL')
+  const gameUrl = siteUrl ? `${siteUrl.replace(/\/$/, '')}/game/${game.room_code}` : undefined
 
   const { data: players, error: playersError } = await supabase
     .from('players')
@@ -146,7 +177,10 @@ Deno.serve(async (req) => {
     players.map((player) => {
       const webhookUrl = webhookByUserId.get(player.user_id)
       if (!webhookUrl || !WEBHOOK_URL_PATTERN.test(webhookUrl)) return Promise.resolve()
-      return sendDiscordNotification(webhookUrl, turnNotificationMessage({ roomCode: game.room_code, displayName: player.display_name }))
+      return sendDiscordNotification(
+        webhookUrl,
+        turnNotificationMessage({ roomCode: game.room_code, roomName: game.name, displayName: player.display_name, phase, gameUrl }),
+      )
     }),
   )
 

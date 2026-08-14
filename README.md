@@ -158,10 +158,14 @@ readable by anyone but the backend.
    ```bash
    supabase functions deploy notify-discord-turn
    supabase secrets set DISCORD_NOTIFY_WEBHOOK_SECRET=$(openssl rand -hex 32)
+   supabase secrets set SITE_URL=https://your-deployed-site.example
    ```
    `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` are provided automatically at
    runtime; `DISCORD_NOTIFY_WEBHOOK_SECRET` is a value you choose, used to
    confirm requests actually came from your project's Database Webhook.
+   `SITE_URL` is optional — when set, the ping links straight to the game
+   (`SITE_URL/game/<room_code>`); without it, the message just names the
+   room code instead of a link.
 3. In the Supabase dashboard: **Database → Webhooks → Create a new hook**.
    - Table: `game_state`. Events: `Update`.
    - Type: **Supabase Edge Functions**, targeting `notify-discord-turn`.
