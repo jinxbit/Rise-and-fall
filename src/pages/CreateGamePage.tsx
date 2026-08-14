@@ -5,7 +5,7 @@ import { MapTemplateSelector } from '../components/MapTemplateSelector'
 import { PlayModeSelector } from '../components/PlayModeSelector'
 import { TaleSelector } from '../components/TaleSelector'
 import { useAuth } from '../hooks/useAuth'
-import { createGame } from '../lib/gameApi'
+import { createGame, MAX_PLAYERS } from '../lib/gameApi'
 import type { PlayMode } from '../engine/types'
 
 export function CreateGamePage() {
@@ -18,9 +18,13 @@ export function CreateGamePage() {
   const [skipHotseatPassGate, setSkipHotseatPassGate] = useState(true)
   const [activeTaleIds, setActiveTaleIds] = useState<string[]>([])
   const [gameLength, setGameLength] = useState(4)
+  const [minPlayers, setMinPlayers] = useState(2)
+  const [maxPlayers, setMaxPlayers] = useState(4)
   const [visibility, setVisibility] = useState<'public' | 'private'>('public')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+
+  const playerCountValid = minPlayers >= 1 && maxPlayers >= minPlayers && maxPlayers <= MAX_PLAYERS
 
   if (loading) {
     return <div className="p-8 text-neutral-400">Loading…</div>
@@ -59,6 +63,8 @@ export function CreateGamePage() {
         skipHotseatPassGate,
         activeTaleIds,
         gameLength,
+        minPlayers,
+        maxPlayers,
         visibility,
       })
       navigate(`/lobby/${game.room_code}`)
@@ -106,6 +112,36 @@ export function CreateGamePage() {
         )}
         <h3 className="text-sm font-medium text-neutral-400">Game length</h3>
         <GameLengthSelector value={gameLength} onChange={setGameLength} />
+        <h3 className="text-sm font-medium text-neutral-400">Players</h3>
+        <div className="flex gap-4">
+          <label className="flex flex-1 flex-col gap-1 text-sm text-neutral-400">
+            Min players
+            <input
+              type="number"
+              min={1}
+              max={MAX_PLAYERS}
+              value={minPlayers}
+              onChange={(e) => setMinPlayers(Number(e.target.value))}
+              className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100"
+            />
+          </label>
+          <label className="flex flex-1 flex-col gap-1 text-sm text-neutral-400">
+            Max players
+            <input
+              type="number"
+              min={1}
+              max={MAX_PLAYERS}
+              value={maxPlayers}
+              onChange={(e) => setMaxPlayers(Number(e.target.value))}
+              className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-neutral-100"
+            />
+          </label>
+        </div>
+        {!playerCountValid && (
+          <p className="text-sm text-red-400">
+            Min players must be at least 1, and max players must be between min players and {MAX_PLAYERS}.
+          </p>
+        )}
         <h3 className="text-sm font-medium text-neutral-400">Map</h3>
         <MapTemplateSelector value={mapTemplateId} onChange={setMapTemplateId} />
         <details className="rounded-md border border-neutral-800 p-3">
@@ -124,7 +160,7 @@ export function CreateGamePage() {
           List this room on the Public rooms screen
         </label>
         <button
-          disabled={busy || name.trim().length === 0}
+          disabled={busy || name.trim().length === 0 || !playerCountValid}
           onClick={() => void handleCreate()}
           className="rounded-md bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
         >
