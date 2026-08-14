@@ -1081,7 +1081,7 @@ export function GamePage() {
           achievementContent={achievementContent}
           taleContent={taleContent}
           turnReview={isReviewingHistory ? null : turnReview}
-          showHistory={isReviewingHistory ? false : showHistory}
+          showHistory={isReviewingHistory || showHistory}
           onToggleHistory={() => setShowHistory((v) => !v)}
           gameLog={isReviewingHistory ? reviewGameLog : gameLog}
           onChooseCard={(cardId) => {
