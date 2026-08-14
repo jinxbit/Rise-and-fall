@@ -57,6 +57,14 @@ export function crossesCliff(state: GameState, from: Coordinate, to: Coordinate,
   return isCliffBetweenTerrains(fromTile.terrain, toTile.terrain, terrainLevels)
 }
 
+/** Whether an 'adj'-location transform's target hex is available to place on: empty, or occupied only by units whose kind is in allowedOccupantKinds (any owner) — see TransformEffect.allowedOccupantKinds in ./unitContent.ts. */
+export function isTransformTargetAvailable(state: GameState, coord: Coordinate, allowedOccupantKinds: string[] | undefined): boolean {
+  const occupants = unitsAt(state, coord)
+  if (occupants.length === 0) return true
+  const allowed = new Set(allowedOccupantKinds ?? [])
+  return occupants.every((u) => allowed.has(u.kind))
+}
+
 // --- resource helpers --------------------------------------------------------
 
 function updatePlayerResources(state: GameState, playerId: string, resources: Resources, bank: Resources): GameState {
@@ -388,7 +396,7 @@ function applyCreate(state: GameState, playerId: string, unit: Unit, effect: Cre
   return { ...afterCost, idSequence, units: [...afterCost.units, newUnit] }
 }
 
-/** Per ruling: like create, an 'adj'-location transform can never cross a cliff, regardless of the acting unit's own movement capability. */
+/** Per ruling: like create, an 'adj'-location transform can never cross a cliff, regardless of the acting unit's own movement capability — unless the effect explicitly opts out via TransformEffect.ignoresCliff (see ./unitContent.ts). */
 function applyTransform(state: GameState, playerId: string, unit: Unit, effect: TransformEffect, targetCoord: Coordinate | undefined, content: UnitContent): GameState {
   const resolvedTargetCoord = effect.targetHex.location === 'self' ? unit.coord : targetCoord
   if (!resolvedTargetCoord) return state
@@ -403,8 +411,8 @@ function applyTransform(state: GameState, playerId: string, unit: Unit, effect: 
 
   if (effect.targetHex.location === 'adj') {
     if (!isAdjacent(state, unit.coord, resolvedTargetCoord)) return state
-    if (unitsAt(state, resolvedTargetCoord).length > 0) return state
-    if (crossesCliff(state, unit.coord, resolvedTargetCoord, content.terrainLevels)) return state
+    if (!isTransformTargetAvailable(state, resolvedTargetCoord, effect.allowedOccupantKinds)) return state
+    if (!effect.ignoresCliff && crossesCliff(state, unit.coord, resolvedTargetCoord, content.terrainLevels)) return state
   }
 
   if (hasReachedSupplyCap(state, playerId, effect.targetUnit, content.unitSupplyCaps)) return state

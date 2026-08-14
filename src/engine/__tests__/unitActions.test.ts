@@ -731,6 +731,74 @@ describe('applyUnitActionEffect — transform', () => {
     expect(next.units[0].kind).toBe('nomad')
   })
 
+  it('adjacent-location: ignoresCliff lets the transform cross an edge that would otherwise block it', () => {
+    const action: UnitAction = {
+      id: 'transform-to-nomad',
+      name: 'Transform to Nomad',
+      description: '',
+      effect: { actionType: 'transform', targetUnit: 'nomad', targetHex: { terrainType: ['forest'], location: 'adj' }, destroySelf: true, ignoresCliff: true, cost: {} },
+    }
+    const board = boardOf([
+      [0, 0, 'water'], // level 0
+      [1, 0, 'forest'], // level 2 — diff 2, a cliff, but ignoresCliff is set
+    ])
+    const state = makeState({ board, units: [makeUnit('p1', 'ship', { q: 0, r: 0 })] })
+    const ship = state.units[0]
+
+    const next = applyUnitActionEffect(state, 'p1', 'ship', action, { [ship.id]: { q: 1, r: 0 } }, content)
+
+    expect(next.units).toHaveLength(1)
+    expect(next.units[0]).toMatchObject({ kind: 'nomad', coord: { q: 1, r: 0 } })
+  })
+
+  it('adjacent-location: allowedOccupantKinds lets the transform land on a hex occupied only by an allowed kind, of any owner', () => {
+    const action: UnitAction = {
+      id: 'transform-to-merchant',
+      name: 'Transform to Merchant',
+      description: '',
+      effect: { actionType: 'transform', targetUnit: 'merchant', targetHex: { terrainType: ['plain'], location: 'adj' }, destroySelf: true, allowedOccupantKinds: ['city'], cost: {} },
+    }
+    const board = boardOf([
+      [0, 0, 'water'],
+      [1, 0, 'plain'],
+    ])
+    const state = makeState({
+      players: [makePlayer('p1'), makePlayer('p2')],
+      board,
+      units: [makeUnit('p1', 'ship', { q: 0, r: 0 }), makeUnit('p2', 'city', { q: 1, r: 0 })],
+    })
+    const ship = state.units.find((u) => u.kind === 'ship')!
+
+    const next = applyUnitActionEffect(state, 'p1', 'ship', action, { [ship.id]: { q: 1, r: 0 } }, content)
+
+    expect(next.units.find((u) => u.coord.q === 1 && u.coord.r === 0 && u.kind === 'merchant')).toBeDefined()
+    expect(next.units.find((u) => u.kind === 'city')).toBeDefined()
+  })
+
+  it('adjacent-location: allowedOccupantKinds still blocks a hex occupied by a disallowed kind', () => {
+    const action: UnitAction = {
+      id: 'transform-to-merchant',
+      name: 'Transform to Merchant',
+      description: '',
+      effect: { actionType: 'transform', targetUnit: 'merchant', targetHex: { terrainType: ['plain'], location: 'adj' }, destroySelf: true, allowedOccupantKinds: ['city'], cost: {} },
+    }
+    const board = boardOf([
+      [0, 0, 'water'],
+      [1, 0, 'plain'],
+    ])
+    const state = makeState({
+      players: [makePlayer('p1'), makePlayer('p2')],
+      board,
+      units: [makeUnit('p1', 'ship', { q: 0, r: 0 }), makeUnit('p2', 'nomad', { q: 1, r: 0 })],
+    })
+    const ship = state.units.find((u) => u.kind === 'ship')!
+
+    const next = applyUnitActionEffect(state, 'p1', 'ship', action, { [ship.id]: { q: 1, r: 0 } }, content)
+
+    expect(next.units.find((u) => u.kind === 'merchant')).toBeUndefined()
+    expect(next.units.find((u) => u.kind === 'ship')).toBeDefined()
+  })
+
   it("a destroySelf transform (net-zero units.length change) never reuses the removed unit's id for the next created unit", () => {
     const action: UnitAction = {
       id: 'transform-to-ship',

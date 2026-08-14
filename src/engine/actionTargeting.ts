@@ -15,6 +15,7 @@ import {
   hasOwnKindCountAtLeast,
   hasReachedSupplyCap,
   isCreationAllowedOnTerrain,
+  isTransformTargetAvailable,
   unitsAt,
 } from './unitActions'
 import type { ActionCost, ConvertEffect, CreateEffect, SiteCreateEffect, TransformEffect, UnitAction, UnitContent } from './unitContent'
@@ -67,8 +68,8 @@ export function legalTransformTargets(state: GameState, playerId: string, unit: 
     const tile = getTile(state.board, coord)
     if (!tile || !effect.targetHex.terrainType.includes(tile.terrain)) return false
     if (!isCreationAllowedOnTerrain(effect.targetUnit, tile.terrain)) return false
-    if (unitsAt(state, coord).length > 0) return false
-    if (crossesCliff(state, unit.coord, coord, content.terrainLevels)) return false
+    if (!isTransformTargetAvailable(state, coord, effect.allowedOccupantKinds)) return false
+    if (!effect.ignoresCliff && crossesCliff(state, unit.coord, coord, content.terrainLevels)) return false
     return true
   })
 }

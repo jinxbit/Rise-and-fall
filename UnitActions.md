@@ -35,8 +35,13 @@ real JSON content (`unitActions.realContent.test.ts`).
 
 **Cliff rule (applies to all targeted actions):** create, an
 `'adj'`-location transform, and convert can never cross a cliff edge —
-absolute, regardless of the acting unit's own `canCrossCliffs` capability
-(that capability is for movement, not these actions).
+regardless of the acting unit's own `canCrossCliffs` capability (that
+capability is for movement, not these actions) — unless the specific
+transform action opts out via `TransformEffect.ignoresCliff` (e.g. Ship's
+Transform to Nomad/Merchant, see the Ship table below and issue #84: a
+Ship always sits on Water (level 0) and Forest is level 2, an elevation
+diff of 2 that the absolute rule would otherwise always block, despite
+Forest being explicitly legal terrain per the card text).
 
 Status legend: ✅ implemented & tested
 
@@ -97,9 +102,9 @@ a straightforward 1-for-5 conversion each way.
 
 | # | Action | Status | Notes |
 |---|--------|--------|-------|
-| 19 | Transform to Nomad | ✅ | |
+| 19 | Transform to Nomad | ✅ | targets an adjacent empty Plains or Forest space; `ignoresCliff` lets it reach Forest despite the Water→Forest cliff |
 | 20 | Transform to City | ✅ | |
-| 21 | Transform to Merchant | ✅ | |
+| 21 | Transform to Merchant | ✅ | targets an adjacent Plains or Forest space, empty or occupied only by a City (`allowedOccupantKinds: ["city"]`, any owner); `ignoresCliff` as above; 2 GP |
 | 22 | Trade | ✅ | flat rate per City adjacent to the Ship's whole contiguous sea area, any owner (no own/enemy split), cliffs don't block it |
 | 26 | Move | ✅ | water-only, `moveDistance: "unlimited"` bounded by its connected water region |
 
@@ -119,13 +124,16 @@ All four open questions from the first implementation pass are resolved:
    choice — but the choice is made by picking *which action* to play
    (Buy Wood / Sell Wood / Buy Stone / Sell Stone are 4 separate actions,
    see above), not a per-unit input at resolve time.
-3. **Cliff-crossing on transform/convert** — same absolute rule as create:
-   never allowed, regardless of the acting unit's movement capability.
-   `create`'s now-redundant `targetHex.crossCliff` field was removed from
-   `units.json`/`unitContent.ts` — cliff-blocking is unconditional for
-   every targeted action (create, `'adj'`-transform, convert). (A game
-   report that first looked like a cliff-crossing bug turned out to be an
-   unrelated Merchant "Transform to Ship" cost mismatch — see units.json.)
+3. **Cliff-crossing on transform/convert** — same rule as create: never
+   allowed, regardless of the acting unit's movement capability, *unless*
+   the transform action explicitly opts out via `TransformEffect.ignoresCliff`
+   (added for Ship's Transform to Nomad/Merchant reaching Forest — see
+   issue #84). `create`'s now-redundant `targetHex.crossCliff` field was
+   removed from `units.json`/`unitContent.ts` — cliff-blocking is otherwise
+   unconditional for every targeted action (create, `'adj'`-transform,
+   convert). (A game report that first looked like a cliff-crossing bug
+   turned out to be an unrelated Merchant "Transform to Ship" cost
+   mismatch — see units.json.)
 4. **Create + supply cap** — confirmed: create always respects the target
    kind's supply cap (`units.json`'s `supply.byPlayerCount`); a City can't
    create a Nomad if the player already holds their full Nomad supply.

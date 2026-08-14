@@ -81,6 +81,31 @@ export interface TransformEffect {
    * boardHasUnitOfKind in ./unitActions.ts.
    */
   forbiddenIfBoardHasKind?: string
+  /**
+   * Optional stacking exception for an 'adj'-location transform's target
+   * hex: normally the hex must be completely empty, but if every current
+   * occupant's kind is in this list (any owner), the hex still counts as
+   * available — e.g. Ship's Transform to Merchant may target a Plains or
+   * Forest hex that's empty OR occupied only by a City (allied or
+   * opposing), per the Merchant stacking rule. Undefined (the default)
+   * means the hex must be empty, matching every transform action before
+   * this field existed. Mirrors UnitMovement.canEndMoveOnUnitTypes in
+   * ./types.ts (see canLandOn in ./movement.ts) — same any-owner allow-list
+   * idea, applied to transform instead of move.
+   */
+  allowedOccupantKinds?: string[]
+  /**
+   * Optional override of the cliff rule for this transform's 'adj'-location
+   * target: when true, an elevation-diff>1 hexside (see crossesCliff in
+   * ./unitActions.ts) no longer blocks the target hex. Undefined (the
+   * default, false) preserves the usual absolute rule shared with
+   * create/convert. E.g. Ship's Transform to Nomad/Merchant: the Ship
+   * always sits on Water (level 0) and Forest is level 2 — an elevation
+   * diff of 2 that would otherwise make an adjacent Forest hex permanently
+   * unreachable by this action despite the card text listing Forest as
+   * legal terrain.
+   */
+  ignoresCliff?: boolean
 }
 
 /**
