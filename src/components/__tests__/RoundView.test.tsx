@@ -1127,7 +1127,10 @@ describe('RoundView — stacked units on one hex (Ship + Port, The Ports Tale)',
   it('clicking the shared hex opens one grouped menu offering both units\' actions, each labeled by kind', () => {
     const { container } = renderStacked()
 
-    const basePolygon = container.querySelector('svg > polygon')
+    // Scoped to the board's own <svg> (identified by its background class)
+    // since the player status sidebar also renders unit-icon <svg>s with
+    // their own direct <polygon> children.
+    const basePolygon = container.querySelector('svg.bg-neutral-950 > polygon')
     fireEvent.click(basePolygon!)
 
     const optionTexts = [...container.querySelectorAll('foreignObject div')].map((d) => d.textContent ?? '')
@@ -1138,7 +1141,7 @@ describe('RoundView — stacked units on one hex (Ship + Port, The Ports Tale)',
   it("resolves the Port's own action against the Port, not the Ship, when picked from the grouped menu", () => {
     const { container, onResolveUnit } = renderStacked()
 
-    fireEvent.click(container.querySelector('svg > polygon')!)
+    fireEvent.click(container.querySelector('svg.bg-neutral-950 > polygon')!)
     const portOption = [...container.querySelectorAll('foreignObject div')].find((d) => d.textContent?.includes('Port Income'))
     expect(portOption).toBeTruthy()
     fireEvent.click(portOption!)
@@ -1149,7 +1152,7 @@ describe('RoundView — stacked units on one hex (Ship + Port, The Ports Tale)',
   it("resolves the Ship's own action against the Ship, not the Port, when picked from the same grouped menu", () => {
     const { container, onResolveUnit } = renderStacked()
 
-    fireEvent.click(container.querySelector('svg > polygon')!)
+    fireEvent.click(container.querySelector('svg.bg-neutral-950 > polygon')!)
     const shipOption = [...container.querySelectorAll('foreignObject div')].find((d) => d.textContent?.includes('Ship Income'))
     expect(shipOption).toBeTruthy()
     fireEvent.click(shipOption!)
