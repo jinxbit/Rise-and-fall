@@ -56,18 +56,34 @@ export function LobbyPage() {
     void load()
   }, [load])
 
+  const gameId = game?.id ?? null
+
   useEffect(() => {
-    if (!game) return
-    const unsubPlayers = subscribeToPlayers(game.id, () => void load())
-    const unsubGame = subscribeToGame(game.id, (updated) => {
+    if (!gameId) return
+    const unsubPlayers = subscribeToPlayers(gameId, () => void load())
+    const unsubGame = subscribeToGame(gameId, (updated) => {
       setGame(updated)
       if (updated.status === 'active') navigate(`/game/${updated.room_code}`)
     })
+    // Re-fetch once the subscriptions are live in case the game already
+    // transitioned to 'active' in the gap between the initial load() and
+    // subscribe() taking effect (e.g. the host started the game right as
+    // this client was loading the room) — otherwise that update would never
+    // be observed since these are the only two ways `game` gets set.
+    void load()
     return () => {
       unsubPlayers()
       unsubGame()
     }
-  }, [game, load, navigate])
+    // Deliberately keyed on gameId (not the whole `game` object): `game` is
+    // replaced by both subscribeToPlayers' onChange (via load()) and this
+    // effect's own subscribeToGame callback, so depending on it would tear
+    // down and recreate these realtime channels on almost every update —
+    // and Supabase Realtime doesn't replay events published in the gap
+    // between unsubscribing and the new channel's SUBSCRIBED ack, so the
+    // 'active' transition could be silently dropped for a non-host client.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gameId, load, navigate])
 
   if (authLoading) return <div className="p-8 text-neutral-400">Loading…</div>
   if (!session) return <div className="p-8 text-neutral-400">Sign in from the home page first.</div>
