@@ -239,6 +239,39 @@ describe('HexBoard — grouped action menu (more than one unit acting from the s
     expect(uniqueGapSizes.size).toBeLessThanOrEqual(2)
     for (const gap of gaps) expect(gap).toBeGreaterThan(0)
   })
+
+  it("keeps every option box within the svg's own viewBox for a unit at the board's edge — bug report: \"radial menu option is unreachable\" (the topmost option rendered above the visible board, past where the page could be scrolled to reach it)", () => {
+    const onSelect = vi.fn()
+    // Ship (6 actions) + Port (2 actions) sharing a hex at (0, 0), the same
+    // board-edge tile the acting unit sits on in the bug report — the
+    // action menu's own reach used to be excluded from the viewBox's
+    // bounding-box calculation, so its topmost option (rendered straight
+    // above the unit) could land above `minY`, outside the `<svg>`'s
+    // rendered box and thus off the page.
+    const options = [
+      ...optionsFor('ship1', 'Ship', ['a', 'b', 'c', 'd', 'e', 'f']),
+      ...optionsFor('port1', 'Port', ['g', 'h']),
+    ]
+    const { container } = render(<HexBoard board={makeBoard()} actionMenu={{ coord: { q: 0, r: 0 }, options, onSelect }} />)
+
+    const svg = container.querySelector('svg')!
+    const [minX, minY, width, height] = svg.getAttribute('viewBox')!.split(' ').map(Number)
+    const maxX = minX + width
+    const maxY = minY + height
+
+    const boxes = [...container.querySelectorAll('foreignObject')]
+    expect(boxes).toHaveLength(8)
+    for (const box of boxes) {
+      const x = Number(box.getAttribute('x'))
+      const y = Number(box.getAttribute('y'))
+      const boxWidth = Number(box.getAttribute('width'))
+      const boxHeight = Number(box.getAttribute('height'))
+      expect(x).toBeGreaterThanOrEqual(minX)
+      expect(y).toBeGreaterThanOrEqual(minY)
+      expect(x + boxWidth).toBeLessThanOrEqual(maxX)
+      expect(y + boxHeight).toBeLessThanOrEqual(maxY)
+    }
+  })
 })
 
 describe('HexBoard — history-review labels', () => {
