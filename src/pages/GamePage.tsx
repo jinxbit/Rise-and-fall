@@ -139,11 +139,23 @@ export function GamePage() {
     autoReviewAppliedRef.current = false
     void (async () => {
       const foundGame = await getGameByRoomCode(roomCode)
-      setGame(foundGame)
-      if (foundGame) {
-        setPlayers(await listPlayers(foundGame.id))
-        setObservers(await listObservers(foundGame.id))
+      if (!foundGame) {
+        setGame(null)
+        return
       }
+      // Fetch players/observers BEFORE setting any state, and set game
+      // together with them in one batch below. Setting `game` first and
+      // `players` afterward (each its own `await`, hence its own render)
+      // used to open a window where `game.status === 'active'` was visible
+      // while `players` was still last render's value — on a fresh page
+      // load that's `[]`, so a seated player briefly read as `isSeatedPlayer
+      // === false`, `canObserve` briefly went true, and the auto-join
+      // effect below fired `handleObserve()` for a player who was never
+      // actually eligible to observe (issue #109 follow-up).
+      const [foundPlayers, foundObservers] = await Promise.all([listPlayers(foundGame.id), listObservers(foundGame.id)])
+      setGame(foundGame)
+      setPlayers(foundPlayers)
+      setObservers(foundObservers)
     })()
   }, [roomCode])
 
