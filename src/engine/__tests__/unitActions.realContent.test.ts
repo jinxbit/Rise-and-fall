@@ -356,6 +356,85 @@ describe('real content/units.json + terrain.json + resources.json', () => {
     expect(next.units[0]).toMatchObject({ kind: 'nomad', coord: { q: 1, r: 0 } })
   })
 
+  it("Ship's Transform to Nomad (real content) reaches an adjacent Forest hex despite the Water-to-Forest elevation diff of 2, via ignoresCliff", () => {
+    const board = setTile(setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'water'), { q: 1, r: 0 }, 'forest')
+    const ship: Unit = { id: 'u1', ownerId: 'p1', kind: 'ship', coord: { q: 0, r: 0 }, movement: content.movementByKind.ship, traits: [] }
+    const state: GameState = {
+      gameId: 'g',
+      playMode: 'hotseat',
+      status: 'active',
+      turn: 1,
+      activePlayerId: null,
+      roundPhase: 'actions',
+      chosenCardIdByPlayerId: {},
+      pendingPlayerIds: [],
+      resolvedUnitIdsThisTurn: [],
+      unitsCreatedThisTurn: [],
+      turnOrder: ['p1'],
+      board,
+      players: [makePlayer('p1')],
+      units: [ship],
+      cards: {},
+      resourceBank: { gold: 1000, wood: 1000, stone: 1000 },
+      activeTaleIds: [],
+      gameLength: Infinity,
+      winnerPlayerIds: [],
+      claimedByAchievementId: {},
+      achievementsClaimedThisRound: 0,
+      boardSetup: null,
+      idSequence: 0,
+      actionHistory: [],
+    }
+
+    const action = findAction('ship', 'transform-to-nomad', content)
+    const next = applyUnitActionEffect(state, 'p1', 'ship', action, { [ship.id]: { q: 1, r: 0 } }, content)
+
+    expect(next.units).toHaveLength(1)
+    expect(next.units[0]).toMatchObject({ kind: 'nomad', coord: { q: 1, r: 0 } })
+  })
+
+  it("Ship's Transform to Merchant (real content, 2 GP) can target a Plains hex occupied only by an enemy City", () => {
+    const board = setTile(setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'water'), { q: 1, r: 0 }, 'plain')
+    const ship: Unit = { id: 'u1', ownerId: 'p1', kind: 'ship', coord: { q: 0, r: 0 }, movement: content.movementByKind.ship, traits: [] }
+    const enemyCity: Unit = { id: 'u2', ownerId: 'p2', kind: 'city', coord: { q: 1, r: 0 }, movement: content.movementByKind.city, traits: [] }
+    const state: GameState = {
+      gameId: 'g',
+      playMode: 'hotseat',
+      status: 'active',
+      turn: 1,
+      activePlayerId: null,
+      roundPhase: 'actions',
+      chosenCardIdByPlayerId: {},
+      pendingPlayerIds: [],
+      resolvedUnitIdsThisTurn: [],
+      unitsCreatedThisTurn: [],
+      turnOrder: ['p1', 'p2'],
+      board,
+      players: [makePlayer('p1', { gold: 2, wood: 0, stone: 0 }), makePlayer('p2')],
+      units: [ship, enemyCity],
+      cards: {},
+      resourceBank: { gold: 1000, wood: 1000, stone: 1000 },
+      activeTaleIds: [],
+      gameLength: Infinity,
+      winnerPlayerIds: [],
+      claimedByAchievementId: {},
+      achievementsClaimedThisRound: 0,
+      boardSetup: null,
+      idSequence: 0,
+      actionHistory: [],
+    }
+
+    const action = findAction('ship', 'transform-to-merchant', content)
+    expect(action.effect).toMatchObject({ cost: { gold: 2, wood: 0, stone: 0 } })
+
+    const next = applyUnitActionEffect(state, 'p1', 'ship', action, { [ship.id]: { q: 1, r: 0 } }, content)
+
+    expect(next.units).toHaveLength(2)
+    expect(next.units.find((u) => u.id === enemyCity.id)?.kind).toBe('city')
+    expect(next.units.find((u) => u.kind === 'merchant')).toMatchObject({ coord: { q: 1, r: 0 }, ownerId: 'p1' })
+    expect(next.players.find((p) => p.id === 'p1')!.resources.gold).toBe(0)
+  })
+
   it("Ship's Move (real moveDistance: 'unlimited', blockedByUnits: 'none') can reach across its water region but not onto a non-water hex", () => {
     let board = createEmptyBoard('hex')
     for (const [q, r] of [

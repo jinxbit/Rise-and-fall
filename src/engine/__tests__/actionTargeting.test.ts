@@ -202,6 +202,77 @@ describe('legalTransformTargets', () => {
     expect(legalTransformTargets(state, 'p1', unit, effect, emptyContent)).toEqual([{ q: 1, r: 0 }])
   })
 
+  it('ignoresCliff includes a hex that would otherwise be excluded by the cliff rule', () => {
+    const effect: TransformEffect = {
+      actionType: 'transform',
+      targetUnit: 'nomad',
+      targetHex: { terrainType: ['forest'], location: 'adj' },
+      destroySelf: true,
+      ignoresCliff: true,
+      cost: {},
+    }
+    const board = boardOf([
+      [0, 0, 'water'], // level 0
+      [1, 0, 'forest'], // level 2 — diff 2, a cliff, but ignoresCliff is set
+    ])
+    const unit = makeUnit('p1', 'ship', { q: 0, r: 0 })
+    const state = makeState({ board, units: [unit], players: [makePlayer('p1')] })
+
+    expect(legalTransformTargets(state, 'p1', unit, effect, emptyContent)).toEqual([{ q: 1, r: 0 }])
+  })
+
+  it('without ignoresCliff, the same forest hex is excluded', () => {
+    const effect: TransformEffect = {
+      actionType: 'transform',
+      targetUnit: 'nomad',
+      targetHex: { terrainType: ['forest'], location: 'adj' },
+      destroySelf: true,
+      cost: {},
+    }
+    const board = boardOf([
+      [0, 0, 'water'],
+      [1, 0, 'forest'],
+    ])
+    const unit = makeUnit('p1', 'ship', { q: 0, r: 0 })
+    const state = makeState({ board, units: [unit], players: [makePlayer('p1')] })
+
+    expect(legalTransformTargets(state, 'p1', unit, effect, emptyContent)).toEqual([])
+  })
+
+  it('allowedOccupantKinds includes a hex occupied only by an allowed kind, of any owner', () => {
+    const effect: TransformEffect = {
+      actionType: 'transform',
+      targetUnit: 'merchant',
+      targetHex: { terrainType: ['plain'], location: 'adj' },
+      destroySelf: true,
+      allowedOccupantKinds: ['city'],
+      cost: {},
+    }
+    const board = boardOf([[0, 0, 'water'], [1, 0, 'plain']])
+    const unit = makeUnit('p1', 'ship', { q: 0, r: 0 })
+    const occupant = makeUnit('p2', 'city', { q: 1, r: 0 })
+    const state = makeState({ board, units: [unit, occupant], players: [makePlayer('p1'), makePlayer('p2')] })
+
+    expect(legalTransformTargets(state, 'p1', unit, effect, emptyContent)).toEqual([{ q: 1, r: 0 }])
+  })
+
+  it('allowedOccupantKinds still excludes a hex occupied by a disallowed kind', () => {
+    const effect: TransformEffect = {
+      actionType: 'transform',
+      targetUnit: 'merchant',
+      targetHex: { terrainType: ['plain'], location: 'adj' },
+      destroySelf: true,
+      allowedOccupantKinds: ['city'],
+      cost: {},
+    }
+    const board = boardOf([[0, 0, 'water'], [1, 0, 'plain']])
+    const unit = makeUnit('p1', 'ship', { q: 0, r: 0 })
+    const occupant = makeUnit('p2', 'nomad', { q: 1, r: 0 })
+    const state = makeState({ board, units: [unit, occupant], players: [makePlayer('p1'), makePlayer('p2')] })
+
+    expect(legalTransformTargets(state, 'p1', unit, effect, emptyContent)).toEqual([])
+  })
+
   it('excludes Water for a non-Ship target unit even if the content terrainType mistakenly allows it', () => {
     const effect: TransformEffect = {
       actionType: 'transform',
