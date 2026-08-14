@@ -5,10 +5,9 @@ import { isDiscordWebhookUrl, sendDiscordNotification, turnNotificationMessage }
 /**
  * Account-level (not per-game) settings for async "your turn" Discord
  * notifications — each player creates their own webhook on a Discord
- * channel they control and pastes the URL in here. See
- * supabase/migrations/0005_discord_webhooks.sql for why co-players' clients
- * can read this (they're the ones posting the notification, since this app
- * has no backend to do it for them).
+ * channel they control and pastes the URL in here. The actual ping is sent
+ * server-side by the notify-discord-turn Edge Function (see
+ * supabase/functions/notify-discord-turn), not by any player's browser.
  */
 export function DiscordWebhookSettings({ userId }: { userId: string }) {
   const [webhookUrl, setWebhookUrl] = useState('')
@@ -80,8 +79,8 @@ export function DiscordWebhookSettings({ userId }: { userId: string }) {
           >
             webhook URL
           </a>{' '}
-          from a channel you control to get pinged there when it's your turn in an async game. Visible to players
-          you're seated with (their browser is what sends the ping), never shown publicly.
+          from a channel you control to get pinged there when it's your turn in an async game. Never shown to other
+          players — only readable server-side.
         </p>
         {error && <p className="text-red-400">{error}</p>}
         <input

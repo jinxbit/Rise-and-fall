@@ -37,7 +37,8 @@ learns about updates:
 - **Async ("play by turn"):** no realtime requirement — a player's client
   just loads the current `game_state` row and checks whose turn it is.
   Optional "your turn" pings go out over Discord webhooks (see below) —
-  each player supplies their own, no bot or server required.
+  each player supplies their own; a Supabase Edge Function sends the ping
+  server-side.
 - **Hotseat:** one device, players take turns in person. See the tradeoff
   note below — the switching mechanism itself isn't built yet.
 
@@ -129,14 +130,15 @@ to end.
 ## Discord turn notifications (optional, per player)
 
 This is separate from Discord OAuth above — sign-in identifies who you are,
-this is just an optional ping for async games. No bot, no extra Discord app
-setup, and no server: each player creates their own [Discord
+this is just an optional ping for async games. No bot or extra Discord app
+setup: each player creates their own [Discord
 webhook](https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks)
 on a channel they control and pastes the URL into the "Discord
 notifications" panel on the home page. When it becomes their turn in an
-async game, whichever player just finished their turn has their own browser
-POST straight to that webhook (Discord's webhook endpoint allows
-cross-origin requests, so no backend hop is needed).
+async game, a Supabase Edge Function (`supabase/functions/notify-discord-turn`)
+sends the ping — not a co-player's browser, so it still fires even if
+everyone else has closed the tab, and no player's webhook URL needs to be
+readable by anyone but the backend.
 
 1. In Discord, go to the channel you want pings in → **Edit Channel →
    Integrations → Webhooks → New Webhook**.
@@ -144,10 +146,30 @@ cross-origin requests, so no backend hop is needed).
 3. On the Rise & Fall home page, open **Discord notifications**, paste the
    URL in, and hit **Save**. **Send test** confirms it's wired up correctly.
 
-Run `supabase/migrations/0005_discord_webhooks.sql` (after `0001`) to add
-the `profiles` table this stores webhook URLs in — see that migration's
-comments for the RLS tradeoff (a co-player's browser has to be able to read
-your webhook URL to notify you, since there's no server to do it instead).
+**Backend setup** (do this once per Supabase project):
+
+1. Run `supabase/migrations/0005_discord_webhooks.sql` (after `0001`) to add
+   the `profiles` table webhook URLs are stored in, then
+   `supabase/migrations/0013_discord_notify_backend.sql` to lock reads of
+   that table down to each player's own row (the old design let co-players
+   read each other's webhook URL — see that migration's comment).
+2. Deploy the Edge Function with the [Supabase
+   CLI](https://supabase.com/docs/guides/functions/deploy):
+   ```bash
+   supabase functions deploy notify-discord-turn
+   supabase secrets set DISCORD_NOTIFY_WEBHOOK_SECRET=$(openssl rand -hex 32)
+   ```
+   `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` are provided automatically at
+   runtime; `DISCORD_NOTIFY_WEBHOOK_SECRET` is a value you choose, used to
+   confirm requests actually came from your project's Database Webhook.
+3. In the Supabase dashboard: **Database → Webhooks → Create a new hook**.
+   - Table: `game_state`. Events: `Update`.
+   - Type: **Supabase Edge Functions**, targeting `notify-discord-turn`.
+   - Add an HTTP header `x-webhook-secret` set to the same value as
+     `DISCORD_NOTIFY_WEBHOOK_SECRET` above.
+
+See `supabase/functions/notify-discord-turn/index.ts`'s doc comment for how
+the function decides who to ping.
 
 ## Testing without Discord OAuth set up
 
