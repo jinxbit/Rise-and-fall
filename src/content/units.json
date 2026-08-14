@@ -84,6 +84,7 @@
             "targetHex": { "location": "adj" },
             "targetOwner": "enemy",
             "targetMobileOnly": true,
+            "ignoresCliff": true,
             "cost": { "gold": 0, "wood": 0, "stone": 0 },
             "costByTargetKind": {
               "nomad": { "gold": 2 },

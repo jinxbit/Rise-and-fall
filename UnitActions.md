@@ -37,11 +37,14 @@ real JSON content (`unitActions.realContent.test.ts`).
 `'adj'`-location transform, and convert can never cross a cliff edge —
 regardless of the acting unit's own `canCrossCliffs` capability (that
 capability is for movement, not these actions) — unless the specific
-transform action opts out via `TransformEffect.ignoresCliff` (e.g. Ship's
-Transform to Nomad/Merchant, see the Ship table below and issue #84: a
-Ship always sits on Water (level 0) and Forest is level 2, an elevation
-diff of 2 that the absolute rule would otherwise always block, despite
-Forest being explicitly legal terrain per the card text).
+transform/convert action opts out via `TransformEffect.ignoresCliff` or
+`ConvertEffect.ignoresCliff` (e.g. Ship's Transform to Nomad/Merchant, see
+the Ship table below and issue #84: a Ship always sits on Water (level 0)
+and Forest is level 2, an elevation diff of 2 that the absolute rule would
+otherwise always block, despite Forest being explicitly legal terrain per
+the card text; and Temple's Convert Enemy Unit, see issue #101: per
+ruling, a Temple converts a devoted follower by faith rather than physical
+access, so an adjacent cliff edge shouldn't block it).
 
 Status legend: ✅ implemented & tested
 
@@ -126,14 +129,18 @@ All four open questions from the first implementation pass are resolved:
    see above), not a per-unit input at resolve time.
 3. **Cliff-crossing on transform/convert** — same rule as create: never
    allowed, regardless of the acting unit's movement capability, *unless*
-   the transform action explicitly opts out via `TransformEffect.ignoresCliff`
-   (added for Ship's Transform to Nomad/Merchant reaching Forest — see
-   issue #84). `create`'s now-redundant `targetHex.crossCliff` field was
-   removed from `units.json`/`unitContent.ts` — cliff-blocking is otherwise
-   unconditional for every targeted action (create, `'adj'`-transform,
-   convert). (A game report that first looked like a cliff-crossing bug
-   turned out to be an unrelated Merchant "Transform to Ship" cost
-   mismatch — see units.json.)
+   the transform/convert action explicitly opts out via
+   `TransformEffect.ignoresCliff` (added for Ship's Transform to
+   Nomad/Merchant reaching Forest — see issue #84) or
+   `ConvertEffect.ignoresCliff` (added for Temple's Convert Enemy Unit —
+   per ruling a Temple converts by faith, not physical access, so a cliff
+   edge shouldn't block it — see issue #101). `create`'s now-redundant
+   `targetHex.crossCliff` field was removed from
+   `units.json`/`unitContent.ts` — cliff-blocking is otherwise
+   unconditional for every targeted action that doesn't opt out (create,
+   `'adj'`-transform, convert). (A game report that first looked like a
+   cliff-crossing bug turned out to be an unrelated Merchant "Transform to
+   Ship" cost mismatch — see units.json.)
 4. **Create + supply cap** — confirmed: create always respects the target
    kind's supply cap (`units.json`'s `supply.byPlayerCount`); a City can't
    create a Nomad if the player already holds their full Nomad supply.

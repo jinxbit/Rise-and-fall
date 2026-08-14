@@ -95,8 +95,9 @@ export function legalConvertTargets(state: GameState, playerId: string, unit: Un
   return candidates.filter((coord) => {
     // See applyConvert's matching comment (./unitActions.ts): a cliff edge
     // only exists between adjacent hexes, so this only ever applies at the
-    // default range.
-    if (maxDistance <= 1 && crossesCliff(state, unit.coord, coord, content.terrainLevels)) return false
+    // default range, and effect.ignoresCliff opts a convert action out of
+    // the rule entirely (e.g. Temple's Convert Enemy Unit).
+    if (!effect.ignoresCliff && maxDistance <= 1 && crossesCliff(state, unit.coord, coord, content.terrainLevels)) return false
     const target = unitsAt(state, coord).find((u) =>
       effect.targetOwner === 'own'
         ? u.ownerId === playerId && (!effect.requiredTargetKind || u.kind === effect.requiredTargetKind)

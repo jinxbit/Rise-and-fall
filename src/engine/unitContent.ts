@@ -177,6 +177,17 @@ export interface ConvertEffect {
    * uses, since only 'enemy' conversions vary by target today).
    */
   costByTargetKind?: Record<string, ActionCost>
+  /**
+   * Optional override of the cliff rule for this convert action's 'adj'
+   * target (see crossesCliff in ./unitActions.ts): when true, an
+   * elevation-diff>1 hexside no longer blocks the target hex. Undefined
+   * (the default, false) preserves the usual absolute rule shared with
+   * create/transform. Mirrors TransformEffect.ignoresCliff above. E.g.
+   * Temple's Convert Enemy Unit: per ruling, a Temple converts a devoted
+   * follower by faith rather than physical access, so it can convert an
+   * adjacent enemy unit even across a cliff edge.
+   */
+  ignoresCliff?: boolean
 }
 
 export interface IncomeEffect {

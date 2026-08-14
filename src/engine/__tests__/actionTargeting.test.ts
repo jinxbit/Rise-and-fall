@@ -354,6 +354,33 @@ describe('legalConvertTargets', () => {
     expect(legalConvertTargets(state, 'p1', unit, effect, emptyContent)).toEqual([])
   })
 
+  it('excludes an adjacent enemy unit across a cliff edge when ignoresCliff is not set', () => {
+    const board = boardOf([
+      [0, 0, 'plain'], // level 1
+      [1, 0, 'mountain'], // level 3 — diff 2, a cliff
+    ])
+    const unit = makeUnit('p1', 'temple', { q: 0, r: 0 })
+    const enemy = makeUnit('p2', 'nomad', { q: 1, r: 0 }, { isMobile: true })
+    const state = makeState({ board, units: [unit, enemy], players: [makePlayer('p1'), makePlayer('p2')] })
+    const content: UnitContent = { ...emptyContent, movementByKind: { nomad: { isMobile: true, terrains: [], canCrossCliffs: false } } }
+
+    expect(legalConvertTargets(state, 'p1', unit, effect, content)).toEqual([])
+  })
+
+  it('ignoresCliff includes an adjacent enemy unit across a cliff edge that would otherwise exclude it (issue #101)', () => {
+    const effectIgnoringCliff: ConvertEffect = { ...effect, ignoresCliff: true }
+    const board = boardOf([
+      [0, 0, 'plain'], // level 1
+      [1, 0, 'mountain'], // level 3 — diff 2, a cliff, but ignoresCliff is set
+    ])
+    const unit = makeUnit('p1', 'temple', { q: 0, r: 0 })
+    const enemy = makeUnit('p2', 'nomad', { q: 1, r: 0 }, { isMobile: true })
+    const state = makeState({ board, units: [unit, enemy], players: [makePlayer('p1'), makePlayer('p2')] })
+    const content: UnitContent = { ...emptyContent, movementByKind: { nomad: { isMobile: true, terrains: [], canCrossCliffs: false } } }
+
+    expect(legalConvertTargets(state, 'p1', unit, effectIgnoringCliff, content)).toEqual([{ q: 1, r: 0 }])
+  })
+
   it("costByTargetKind: filters per-target affordability instead of one flat cost for the whole action (Temple's Convert Enemy Unit costs more for pricier targets)", () => {
     const effectWithVaryingCost: ConvertEffect = {
       ...effect,
