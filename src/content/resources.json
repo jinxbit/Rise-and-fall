@@ -6,7 +6,7 @@
       "name": "Gold",
       "playerCap": null,
       "globalSupply": {
-        "byPlayerCount": { "2": 522, "3": 722, "4": 922 }
+        "byPlayerCount": { "2": 522, "3": 722, "4": 922, "5": 1122, "6": 1322, "7": 1522, "8": 1722 }
       }
     },
     {
@@ -14,7 +14,7 @@
       "name": "Wood",
       "playerCap": 5,
       "globalSupply": {
-        "byPlayerCount": { "2": 10, "3": 15, "4": 20 }
+        "byPlayerCount": { "2": 10, "3": 15, "4": 20, "5": 25, "6": 30, "7": 35, "8": 40 }
       }
     },
     {
@@ -22,7 +22,7 @@
       "name": "Stone",
       "playerCap": 5,
       "globalSupply": {
-        "byPlayerCount": { "2": 10, "3": 15, "4": 20 }
+        "byPlayerCount": { "2": 10, "3": 15, "4": 20, "5": 25, "6": 30, "7": 35, "8": 40 }
       }
     }
   ]

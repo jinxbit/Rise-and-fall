@@ -6,7 +6,7 @@
       "name": "City",
       "description": "",
       "victoryPoints": { "byBoardCount": [1, 3, 5, 7, 9, 11, 13, 15] },
-      "supply": { "byPlayerCount": { "2": 8, "3": 8, "4": 8 } },
+      "supply": { "byPlayerCount": { "2": 8, "3": 8, "4": 8, "5": 8, "6": 8, "7": 8, "8": 8 } },
       "movement": {
         "isMobile": false,
         "terrains": [],
@@ -68,7 +68,7 @@
       "name": "Temple",
       "description": "",
       "victoryPoints": { "byBoardCount": [5, 10, 15] },
-      "supply": { "byPlayerCount": { "2": 3, "3": 3, "4": 3 } },
+      "supply": { "byPlayerCount": { "2": 3, "3": 3, "4": 3, "5": 3, "6": 3, "7": 3, "8": 3 } },
       "movement": {
         "isMobile": false,
         "terrains": [],
@@ -110,7 +110,7 @@
       "name": "Nomad",
       "description": "",
       "victoryPoints": { "byBoardCount": [1,2,3,4,5,6,7,8] },
-      "supply": { "byPlayerCount": { "2": 8, "3": 8, "4": 8 } },
+      "supply": { "byPlayerCount": { "2": 8, "3": 8, "4": 8, "5": 8, "6": 8, "7": 8, "8": 8 } },
       "movement": {
         "isMobile": true,
         "terrains": ["plain", "forest", "mountain"],
@@ -180,7 +180,7 @@
       "name": "Merchant",
       "description": "",
       "victoryPoints": { "byBoardCount": [1, 4, 9, 16, 25, 36] },
-      "supply": { "byPlayerCount": { "2": 6, "3": 6, "4": 6 } },
+      "supply": { "byPlayerCount": { "2": 6, "3": 6, "4": 6, "5": 6, "6": 6, "7": 6, "8": 6 } },
       "movement": {
         "isMobile": true,
         "terrains": ["plain", "forest", "mountain"],
@@ -275,7 +275,7 @@
       "name": "Mountaineer",
       "description": "",
       "victoryPoints": { "byBoardCount": [2,5,10] },
-      "supply": { "byPlayerCount": { "2": 3, "3": 3, "4": 3 } },
+      "supply": { "byPlayerCount": { "2": 3, "3": 3, "4": 3, "5": 3, "6": 3, "7": 3, "8": 3 } },
       "movement": {
         "isMobile": true,
         "terrains": ["plain", "forest", "mountain", "glacier"],
@@ -322,7 +322,7 @@
       "name": "Ship",
       "description": "",
       "victoryPoints": { "byBoardCount": [5, 10, 15, 20, 25] },
-      "supply": { "byPlayerCount": { "2": 5, "3": 5, "4": 5 } },
+      "supply": { "byPlayerCount": { "2": 5, "3": 5, "4": 5, "5": 5, "6": 5, "7": 5, "8": 5 } },
       "movement": {
         "isMobile": true,
         "terrains": ["water"],

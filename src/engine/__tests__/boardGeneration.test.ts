@@ -470,4 +470,50 @@ describe('seedStartingWaterTiles', () => {
       expect(touchingOthers).toBeGreaterThanOrEqual(2)
     }
   })
+
+  describe('5-8 players (two rows, per the 5-8 player rules)', () => {
+    const hourglass = terrainJson.terrainTypes.find((t) => t.id === 'water')!.shapeGroups.find((g) => g.id === 'initial')!
+      .shapes[0].cells
+    const water = terrainJson.terrainTypes.find((t) => t.id === 'water')!
+    const initialLimits = water.shapeGroups.find((g) => g.id === 'initial')!.limits.byPlayerCount as Record<string, number>
+
+    it.each([5, 6, 7, 8])(
+      'places exactly the tile pool size from terrain.json for %i players, with no overlaps',
+      (playerCount) => {
+        const expectedTiles = initialLimits[String(playerCount)]
+        const board = seedStartingWaterTiles(playerCount, hourglass)
+        const coords = Object.values(board.tiles).map((t) => t.coord)
+        expect(coords).toHaveLength(expectedTiles * 8)
+        expect(keySet(coords).size).toBe(expectedTiles * 8)
+        expect(Object.values(board.tiles).every((t) => t.terrain === 'water')).toBe(true)
+      },
+    )
+
+    it.each([5, 6, 7, 8])('forms a single connected region for %i players', (playerCount) => {
+      const board = seedStartingWaterTiles(playerCount, hourglass)
+      const allCoords = Object.values(board.tiles).map((t) => t.coord)
+      const region = connectedTerrainRegion(board, allCoords[0])
+      expect(keySet(region)).toEqual(keySet(allCoords))
+    })
+
+    it.each([5, 6, 7, 8])('arranges tiles in exactly two rows of floor(playerCount / 2) for %i players', (playerCount) => {
+      const board = seedStartingWaterTiles(playerCount, hourglass)
+      const byPlacementId = new Map<string, Coordinate[]>()
+      for (const tile of Object.values(board.tiles)) {
+        const id = tile.placementId!
+        byPlacementId.set(id, [...(byPlacementId.get(id) ?? []), tile.coord])
+      }
+      const tileGroups = [...byPlacementId.values()]
+      const cols = Math.floor(playerCount / 2)
+      expect(tileGroups).toHaveLength(2 * cols)
+
+      // Every tile touches at least one other tile — no isolated pieces.
+      const adjacentGroupCount = (a: Coordinate[], b: Coordinate[]) =>
+        a.some((ca) => neighborCoords(board, ca).some((n) => b.some((cb) => cb.q === n.q && cb.r === n.r)))
+      for (let i = 0; i < tileGroups.length; i++) {
+        const touchingOthers = tileGroups.filter((_, j) => j !== i && adjacentGroupCount(tileGroups[i], tileGroups[j])).length
+        expect(touchingOthers).toBeGreaterThanOrEqual(1)
+      }
+    })
+  })
 })

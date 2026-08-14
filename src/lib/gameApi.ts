@@ -23,7 +23,7 @@ export async function saveDiscordWebhookUrl(userId: string, webhookUrl: string |
   if (error) throw error
 }
 
-const PLAYER_COLORS = ['#ef4444', '#3b82f6', '#22c55e', '#eab308']
+const PLAYER_COLORS = ['#ef4444', '#3b82f6', '#22c55e', '#eab308', '#a855f7', '#f97316', '#06b6d4', '#ec4899']
 /** One color per seat (PLAYER_COLORS above), so this is also the hard ceiling on max_players — used by LobbyPage.tsx's config editor to bound the input. */
 export const MAX_PLAYERS = PLAYER_COLORS.length
 const ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789' // no 0/O/1/I

@@ -102,7 +102,11 @@
           "properties": {
             "2": { "type": "integer", "minimum": 0 },
             "3": { "type": "integer", "minimum": 0 },
-            "4": { "type": "integer", "minimum": 0 }
+            "4": { "type": "integer", "minimum": 0 },
+            "5": { "type": "integer", "minimum": 0 },
+            "6": { "type": "integer", "minimum": 0 },
+            "7": { "type": "integer", "minimum": 0 },
+            "8": { "type": "integer", "minimum": 0 }
           }
         },
         "modules": {
@@ -119,7 +123,11 @@
                 "properties": {
                   "2": { "type": "integer", "minimum": 0 },
                   "3": { "type": "integer", "minimum": 0 },
-                  "4": { "type": "integer", "minimum": 0 }
+                  "4": { "type": "integer", "minimum": 0 },
+                  "5": { "type": "integer", "minimum": 0 },
+                  "6": { "type": "integer", "minimum": 0 },
+                  "7": { "type": "integer", "minimum": 0 },
+                  "8": { "type": "integer", "minimum": 0 }
                 }
               }
             }
