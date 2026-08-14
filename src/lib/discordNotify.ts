@@ -16,8 +16,22 @@ export function isDiscordWebhookUrl(url: string): boolean {
   return WEBHOOK_URL_PATTERN.test(url.trim())
 }
 
-export function turnNotificationMessage(params: { roomCode: string; displayName: string }): string {
-  return `**${params.displayName}**, it's your turn in Rise & Fall! Room \`${params.roomCode}\`.`
+// Mirrored in supabase/functions/notify-discord-turn/index.ts, which sends
+// the real pings — that Edge Function can't import from src/, so keep the
+// two in sync if this ever changes.
+export function turnNotificationMessage(params: {
+  displayName: string
+  roomName: string
+  roomCode: string
+  phase: string
+  /** Round number, or null while still in board setup (pre-round 1, no round number to show). */
+  round: number | null
+  /** Deep link to the game, or null if the SITE_URL Edge Function secret isn't set — falls back to the room code. */
+  gameUrl: string | null
+}): string {
+  const roundText = params.round === null ? '' : ` (Round ${params.round})`
+  const location = params.gameUrl ?? `Room \`${params.roomCode}\``
+  return `**Rise & Fall** — **${params.displayName}**, it's your turn to **${params.phase}** in **${params.roomName}**${roundText}.\n${location}`
 }
 
 /**
