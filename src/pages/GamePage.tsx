@@ -4,12 +4,12 @@ import { BoardSetupView } from '../components/BoardSetupView'
 import { EndGameView } from '../components/EndGameView'
 import { RoundView } from '../components/RoundView'
 import { resolveAchievementContent, resolveBoardGenerationContent, resolveTaleContent, resolveUnitContent } from '../content/resolveContent'
-import type { Action } from '../engine/actions'
+import type { Action, LoggedAction } from '../engine/actions'
 import { applyActionAndFastForwardTiles } from '../engine/applyAction'
-import { buildGameLog } from '../engine/gameLog'
+import { buildGameLogFrom, extendGameLog } from '../engine/gameLog'
 import { replayActions } from '../engine/replay'
 import { applyTaleModifiers } from '../engine/tales'
-import type { ActionResult, GameState as EngineGameState, Coordinate } from '../engine/types'
+import type { ActionResult, GameEvent, GameState as EngineGameState, Coordinate } from '../engine/types'
 import { buildTurnReview, findReviewWindowStart } from '../engine/turnReview'
 import { currentActorId } from '../engine/turnOrder'
 import { useAuth } from '../hooks/useAuth'
@@ -226,23 +226,53 @@ export function GamePage() {
     : players.find((p) => p.user_id === session?.user.id)
 
   /**
+   * Deterministically rebuilt from the game's row + seated players — see
+   * buildGenesisState's own doc comment (genesis itself isn't stored, same
+   * as GameState.actionHistory's). Hoisted out of turnReview/gameLog below
+   * so both share one build instead of two, and memoized on the actual
+   * player fields genesis reads (id/displayName/color — see makePlayer-style
+   * mapping in gameGenesis.ts), not just `players`' array identity, which
+   * changes on every listPlayers() refetch even when nothing genesis cares
+   * about actually changed.
+   */
+  const playersSignature = useMemo(() => JSON.stringify(players.map((p) => ({ id: p.id, name: p.display_name, color: p.color }))), [players])
+  const genesis = useMemo(() => {
+    if (!game || players.length === 0) return null
+    try {
+      return buildGenesisState(game, players)
+    } catch {
+      // Same "shouldn't be possible for a game this session is actually
+      // playing, but fail quiet rather than crash the page" stance
+      // turnReview/gameLog already took before this was hoisted out of them.
+      return null
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [game, players.length, playersSignature])
+
+  /**
    * "What happened since I last acted" (see engine/turnReview.ts) — reviewed
    * on demand via RoundView's history toggle, not stored. Rebuilding it
-   * needs genesis (same buildGenesisState() Undo already uses) plus a
-   * replay up to the start of the review window before buildTurnReview can
-   * even begin, so it's only worth doing here, once, off the full
-   * actionHistory — not duplicated per component that wants a piece of it.
-   * Recomputes whenever the action history actually grows (or the viewer
-   * changes) — game/players staying referentially stable between fetches
-   * would make this needlessly expensive otherwise.
+   * needs a replay from genesis up to the start of the review window before
+   * buildTurnReview can even begin — but that window start (see
+   * findReviewWindowStart) only moves forward when `me` themselves takes an
+   * action, not on every other player's action in between, so it's split
+   * into its own memo keyed on `windowStart` (not on the ever-growing
+   * actionHistory) to skip that replay entirely on the far more common case
+   * of "someone else acted since I last looked." `null` (rather than 0)
+   * when there's no `me` to review for (e.g. an observer) — 0 would be a
+   * real window start (review the whole game), which is exactly what this
+   * must NOT silently become for a viewer turnReview was never meant to
+   * cover.
    */
-  const turnReview = useMemo(() => {
-    if (!game || !gameState || !me || players.length === 0) return null
+  const windowStart = useMemo(
+    () => (gameState && me ? findReviewWindowStart(gameState.actionHistory, me.id) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [gameState?.actionHistory, me?.id],
+  )
+  const stateAtWindowStart = useMemo(() => {
+    if (!genesis || !gameState || windowStart === null) return null
     try {
-      const genesis = buildGenesisState(game, players)
-      const windowStart = findReviewWindowStart(gameState.actionHistory, me.id)
-      const stateAtWindowStart = replayActions(genesis, gameState.actionHistory.slice(0, windowStart), unitContent, achievementContent, boardGenerationContent, taleContent)
-      return buildTurnReview(stateAtWindowStart, gameState.actionHistory.slice(windowStart), unitContent, achievementContent, boardGenerationContent, taleContent)
+      return replayActions(genesis, gameState.actionHistory.slice(0, windowStart), unitContent, achievementContent, boardGenerationContent, taleContent)
     } catch {
       // A genesis/content mismatch shouldn't be possible for a game this
       // session is actually playing, but the review is a nice-to-have, not
@@ -250,24 +280,92 @@ export function GamePage() {
       return null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [game, gameState?.actionHistory.length, me?.id, players, unitContent, achievementContent, boardGenerationContent, taleContent])
+  }, [genesis, windowStart, unitContent, achievementContent, boardGenerationContent, taleContent])
+  const turnReview = useMemo(() => {
+    if (!stateAtWindowStart || !gameState || windowStart === null) return null
+    return buildTurnReview(stateAtWindowStart, gameState.actionHistory.slice(windowStart), unitContent, achievementContent, boardGenerationContent, taleContent)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stateAtWindowStart, gameState?.actionHistory, windowStart, unitContent, achievementContent, boardGenerationContent, taleContent])
 
   /**
    * The running narration log (see engine/gameLog.ts) — nothing about it is
    * stored on GameState, so it's rebuilt from the full actionHistory the
    * same way turnReview rebuilds its own windowed slice above, just without
-   * a window: every logged action, from genesis, gets its line(s).
+   * a window: every logged action, from genesis, gets its line(s). Unlike
+   * turnReview's window, there's no cheaper starting point available here —
+   * every action, from every player, always belongs in the full log. What
+   * IS avoidable is re-replaying the *entire* history from genesis on every
+   * single new action (which is what made this scale worse the longer a
+   * game went on): gameLogCacheRef keeps the last-computed {actionHistory,
+   * state, events} around, and on the very common case of the new
+   * actionHistory being exactly that same prefix plus newly-appended
+   * actions (checked cheaply via a boundary-entry comparison, not a full
+   * deep-equal — event-sourcing here only ever appends or, via Undo,
+   * truncates from the end, never rewrites an already-logged entry in
+   * place), only extendGameLog()s the new suffix on top of the cached
+   * state instead of replaying from genesis again. Falls back to a full
+   * buildGameLogFrom() whenever that invariant doesn't hold (a different
+   * game/players/content, or a history that no longer starts with the
+   * cached prefix — e.g. Undo followed by a different action).
    */
+  const gameLogCacheRef = useRef<{
+    gameId: string
+    playersSignature: string
+    unitContent: typeof unitContent
+    achievementContent: typeof achievementContent
+    boardGenerationContent: typeof boardGenerationContent
+    taleContent: typeof taleContent
+    actionHistory: LoggedAction[]
+    state: EngineGameState
+    events: GameEvent[]
+  } | null>(null)
+
   const gameLog = useMemo(() => {
-    if (!game || players.length === 0) return []
+    if (!game || !genesis) return []
+    const actionHistory = gameState?.actionHistory ?? []
+    const cache = gameLogCacheRef.current
+
+    const cacheCoversPrefix =
+      !!cache &&
+      cache.gameId === game.id &&
+      cache.playersSignature === playersSignature &&
+      cache.unitContent === unitContent &&
+      cache.achievementContent === achievementContent &&
+      cache.boardGenerationContent === boardGenerationContent &&
+      cache.taleContent === taleContent &&
+      cache.actionHistory.length <= actionHistory.length &&
+      (cache.actionHistory.length === 0 ||
+        JSON.stringify(cache.actionHistory[cache.actionHistory.length - 1]) === JSON.stringify(actionHistory[cache.actionHistory.length - 1]))
+
     try {
-      const genesis = buildGenesisState(game, players)
-      return buildGameLog(genesis, gameState?.actionHistory ?? [], unitContent, achievementContent, boardGenerationContent, taleContent)
+      if (cacheCoversPrefix && cache) {
+        const newActions = actionHistory.slice(cache.actionHistory.length)
+        if (newActions.length === 0) return cache.events
+        const extended = extendGameLog(cache.state, newActions, cache.events.length + 1, unitContent, achievementContent, boardGenerationContent, taleContent)
+        const events = [...cache.events, ...extended.events]
+        gameLogCacheRef.current = { ...cache, actionHistory, state: extended.state, events }
+        return events
+      }
+
+      const built = buildGameLogFrom(genesis, actionHistory, unitContent, achievementContent, boardGenerationContent, taleContent)
+      gameLogCacheRef.current = {
+        gameId: game.id,
+        playersSignature,
+        unitContent,
+        achievementContent,
+        boardGenerationContent,
+        taleContent,
+        actionHistory,
+        state: built.state,
+        events: built.events,
+      }
+      return built.events
     } catch {
+      gameLogCacheRef.current = null
       return []
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [game, gameState?.actionHistory.length, players, unitContent, achievementContent, boardGenerationContent, taleContent])
+  }, [game, genesis, playersSignature, gameState?.actionHistory, unitContent, achievementContent, boardGenerationContent, taleContent])
 
   const reviewMaxIndex = gameState?.actionHistory.length ?? 0
   const isReviewingHistory = reviewIndex !== null

@@ -161,32 +161,31 @@ function describeCascade(before: GameState, after: GameState, achievementContent
 }
 
 /**
- * Rebuilds the game's narration log purely from `actionHistory` — nothing
- * about it is stored on GameState (see GameEvent's doc comment in
- * ./types.ts). Replays each logged action from `genesis` exactly like
- * ./replay.ts's replayActions, deriving one or more display lines per step
- * from the before/after state pair rather than threading a log array
- * through every mutator. `id`/`turn` are assigned fresh on every call (they
- * only need to be unique within this one derived list, e.g. for a React
- * key); `timestamp` comes from the LoggedAction itself, the real moment
- * that action was dispatched.
+ * Continues narrating on top of a `state` already derived from some prefix
+ * of a game's actionHistory (e.g. a previous buildGameLog/buildGameLogFrom/
+ * extendGameLog call's own result) — the same per-action replay+diff
+ * buildGameLog does, just factored out so a caller that's already holding
+ * that intermediate state doesn't have to replay all the way from genesis
+ * again merely to narrate a handful of new actions appended on top (see
+ * GamePage.tsx's incrementally-extended gameLog cache, which is what makes
+ * the log affordable to keep live-updating across a long game instead of
+ * re-deriving the entire history on every single action). `nextEventId`
+ * seeds the running `evt_N` counter so ids stay unique/increasing across a
+ * caller's earlier and newly-appended halves.
  */
-export function buildGameLog(
-  genesis: GameState,
-  actionHistory: LoggedAction[],
+export function extendGameLog(
+  state: GameState,
+  actions: LoggedAction[],
+  nextEventId: number,
   unitContent: UnitContent = EMPTY_UNIT_CONTENT,
   achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT,
   boardGenerationContent: BoardGenerationContent = EMPTY_BOARD_GENERATION_CONTENT,
   taleContent: TaleContent = EMPTY_TALE_CONTENT,
-): GameEvent[] {
+): { state: GameState; events: GameEvent[] } {
   const events: GameEvent[] = []
-  let state = genesis
+  let id = nextEventId
 
-  if (state.status === 'boardSetup') {
-    events.push({ id: `evt_${events.length + 1}`, turn: state.turn, playerId: null, message: 'Board setup begins', timestamp: '' })
-  }
-
-  for (const logged of actionHistory) {
+  for (const logged of actions) {
     const before = state
     const result = applyAction(before, logged.action, unitContent, achievementContent, boardGenerationContent, taleContent)
     if (!result.ok) break // a validly-logged action should never fail to reapply; bail defensively rather than throw mid-log
@@ -197,11 +196,61 @@ export function buildGameLog(
       ...describeCascade(before, after, achievementContent),
     ]
     for (const draft of drafts) {
-      events.push({ id: `evt_${events.length + 1}`, turn: after.turn, playerId: draft.playerId, message: draft.message, timestamp: logged.timestamp })
+      events.push({ id: `evt_${id++}`, turn: after.turn, playerId: draft.playerId, message: draft.message, timestamp: logged.timestamp })
     }
 
     state = after
   }
 
-  return events
+  return { state, events }
+}
+
+/**
+ * Rebuilds the game's narration log purely from `actionHistory` — nothing
+ * about it is stored on GameState (see GameEvent's doc comment in
+ * ./types.ts). Replays each logged action from `genesis` exactly like
+ * ./replay.ts's replayActions (via extendGameLog above), deriving one or
+ * more display lines per step from the before/after state pair rather than
+ * threading a log array through every mutator. `id`/`turn` are assigned
+ * fresh on every call (they only need to be unique within this one derived
+ * list, e.g. for a React key); `timestamp` comes from the LoggedAction
+ * itself, the real moment that action was dispatched. Also returns the
+ * final replayed `state`, for a caller that wants to keep extending this
+ * same log later (see extendGameLog) without redoing this full replay.
+ */
+export function buildGameLogFrom(
+  genesis: GameState,
+  actionHistory: LoggedAction[],
+  unitContent: UnitContent = EMPTY_UNIT_CONTENT,
+  achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT,
+  boardGenerationContent: BoardGenerationContent = EMPTY_BOARD_GENERATION_CONTENT,
+  taleContent: TaleContent = EMPTY_TALE_CONTENT,
+): { state: GameState; events: GameEvent[] } {
+  const initial: GameEvent[] = []
+  if (genesis.status === 'boardSetup') {
+    initial.push({ id: 'evt_1', turn: genesis.turn, playerId: null, message: 'Board setup begins', timestamp: '' })
+  }
+
+  const { state, events } = extendGameLog(
+    genesis,
+    actionHistory,
+    initial.length + 1,
+    unitContent,
+    achievementContent,
+    boardGenerationContent,
+    taleContent,
+  )
+  return { state, events: [...initial, ...events] }
+}
+
+/** Same as buildGameLogFrom, but for a caller that only wants the log itself (e.g. every existing caller before GamePage.tsx started caching its own copy of `state` too — see buildGameLogFrom's doc comment). */
+export function buildGameLog(
+  genesis: GameState,
+  actionHistory: LoggedAction[],
+  unitContent: UnitContent = EMPTY_UNIT_CONTENT,
+  achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT,
+  boardGenerationContent: BoardGenerationContent = EMPTY_BOARD_GENERATION_CONTENT,
+  taleContent: TaleContent = EMPTY_TALE_CONTENT,
+): GameEvent[] {
+  return buildGameLogFrom(genesis, actionHistory, unitContent, achievementContent, boardGenerationContent, taleContent).events
 }

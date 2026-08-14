@@ -6,7 +6,7 @@ import { createEmptyBoard, setTile } from '../board'
 import type { BoardGenerationContent } from '../boardGenerationContent'
 import { cardIdFor, createPlayerCards, syncCardZonesWithBoard } from '../cards'
 import { createNewGame, startGame } from '../createGame'
-import { buildGameLog } from '../gameLog'
+import { buildGameLog, buildGameLogFrom, extendGameLog } from '../gameLog'
 import { beginSelectCardsPhase } from '../round'
 import type { Card, GameState, Player, Terrain, Unit } from '../types'
 import type { UnitAction, UnitContent } from '../unitContent'
@@ -283,5 +283,41 @@ describe('buildGameLog', () => {
 
     const log = buildGameLog(genesis, step.state.actionHistory, content, achievementContent, boardGenerationContent)
     expect(messages(log)).toContainEqual('Player p1 placed a plain tile')
+  })
+})
+
+describe('extendGameLog / buildGameLogFrom', () => {
+  // GamePage.tsx caches a previous buildGameLogFrom/extendGameLog result and
+  // extends it with only the newly-appended actions each time actionHistory
+  // grows, instead of replaying the entire history from genesis again (see
+  // GamePage.tsx's gameLog memo) — that's only correct if picking up
+  // mid-stream via extendGameLog produces *exactly* the same events (same
+  // ids included, so React keys stay stable) as computing the whole thing
+  // in one buildGameLog/buildGameLogFrom call. This exercises that
+  // equivalence directly across a several-actions-long game, split at every
+  // possible point.
+  it('produces identical events (including ids) whether built in one call or resumed partway through via extendGameLog', () => {
+    const board = boardOf([
+      [0, 0, 'plain'],
+      [1, 0, 'forest'],
+    ])
+    const city: Unit = { id: 'city_a', ownerId: 'p1', kind: 'city', coord: { q: 0, r: 0 }, movement: content.movementByKind.city, traits: [] }
+    const otherNomad: Unit = { id: 'nomad_p2', ownerId: 'p2', kind: 'nomad', coord: { q: 1, r: 0 }, movement: content.movementByKind.nomad, traits: [] }
+    const genesis = makeGenesis([city, otherNomad], board)
+    const state = drive(genesis, [
+      { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') },
+      { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'nomad') },
+      { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [{ unitId: 'city_a', actionId: 'generate-income' }] },
+      { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2', unitActions: [{ unitId: 'nomad_p2', actionId: 'produce-resource' }] },
+    ])
+
+    const fullLog = buildGameLog(genesis, state.actionHistory, content, achievementContent)
+
+    for (let splitAt = 0; splitAt <= state.actionHistory.length; splitAt++) {
+      const firstHalf = buildGameLogFrom(genesis, state.actionHistory.slice(0, splitAt), content, achievementContent)
+      const extended = extendGameLog(firstHalf.state, state.actionHistory.slice(splitAt), firstHalf.events.length + 1, content, achievementContent)
+      const resumedLog = [...firstHalf.events, ...extended.events]
+      expect(resumedLog).toEqual(fullLog)
+    }
   })
 })
