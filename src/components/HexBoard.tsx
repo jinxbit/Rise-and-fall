@@ -416,12 +416,12 @@ export function HexBoard(props: {
   const pixels = coords.map((coord) => ({ coord, ...axialToPixel(coord, size) }))
   const pad = size * 1.5
   const boundsPoints = [...pixels.map((p) => ({ x: p.x, y: p.y }))]
-  if (props.actionMenu) {
-    const { x, y } = axialToPixel(props.actionMenu.coord, size)
-    const menuPad =
-      actionMenuRadius(size, props.actionMenu.options.length) + size * Math.max(ACTION_MENU_BOX_WIDTH_FACTOR, ACTION_MENU_BOX_HEIGHT_FACTOR)
-    boundsPoints.push({ x: x - menuPad, y: y - menuPad }, { x: x + menuPad, y: y + menuPad })
-  }
+  // The action menu is intentionally excluded from this bounding-box
+  // calculation: folding its reach into `minX/minY/maxX/maxY` would resize
+  // and recenter the viewBox the instant the menu opens/closes, making the
+  // whole board visibly jump. The <svg> below renders with
+  // `overflow: visible` instead, so the menu can extend past the fitted
+  // board bounds without perturbing them.
   // A history-review label (see UnitMarker.historyLabel) sits well outside
   // its own hex, and can get stacked further down still to dodge a nearby
   // label — extend the viewBox so neither can get clipped for a unit near
@@ -457,6 +457,7 @@ export function HexBoard(props: {
   return (
     <svg
       viewBox={`${minX} ${minY} ${maxX - minX} ${maxY - minY}`}
+      style={{ overflow: 'visible' }}
       className={`w-full rounded-md border border-neutral-800 bg-neutral-950 ${props.expanded ? 'max-h-[92vh]' : 'max-h-[70vh]'}`}
     >
       {pixels.map(({ coord, x, y }) => {
