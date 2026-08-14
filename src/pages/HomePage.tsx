@@ -217,7 +217,7 @@ export function HomePage() {
                 <PublicGameRow
                   key={entry.game.id}
                   entry={entry}
-                  action="Observe"
+                  action={entry.players.some((p) => p.user_id === session.user.id) ? 'Continue' : 'Observe'}
                   onOpen={() => navigate(`/game/${entry.game.room_code}`)}
                 />
               ))}

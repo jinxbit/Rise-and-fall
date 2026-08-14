@@ -80,7 +80,9 @@ export function PublicRoomsPage() {
           title="In progress"
           entries={inProgress}
           onOpen={(entry) => navigate(`/game/${entry.game.room_code}`)}
-          renderAction={() => 'Observe'}
+          renderAction={(entry) =>
+            entry.players.some((p) => p.user_id === session.user.id) ? 'Continue' : 'Observe'
+          }
         />
       )}
 

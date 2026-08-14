@@ -731,6 +731,10 @@ export function GamePage() {
 
   async function handleObserve() {
     if (!game || !session) return
+    if (isSeatedPlayer) {
+      setObserverError('You are already a player in this game.')
+      return
+    }
     setObserverBusy(true)
     setObserverError(null)
     try {
