@@ -957,6 +957,36 @@ describe('applyUnitActionEffect — convert (Temple)', () => {
     expect(next.units.find((u) => u.id === enemyTemple.id)!.ownerId).toBe('p2')
   })
 
+  it('does not convert across a cliff edge when ignoresCliff is not set', () => {
+    const board = boardOf([
+      [0, 0, 'plain'], // level 1
+      [1, 0, 'mountain'], // level 3 — diff 2, a cliff
+    ])
+    const state = makeState({ board, units: [makeUnit('p1', 'temple', { q: 0, r: 0 }), makeUnit('p2', 'nomad', { q: 1, r: 0 })] })
+    const [temple, enemyUnit] = state.units
+
+    const next = applyUnitActionEffect(state, 'p1', 'temple', action, { [temple.id]: enemyUnit.coord }, content)
+
+    expect(next.units.find((u) => u.id === enemyUnit.id)!.ownerId).toBe('p2')
+  })
+
+  it('ignoresCliff lets Temple convert an adjacent enemy unit across a cliff edge (issue #101)', () => {
+    const actionIgnoringCliff: UnitAction = {
+      ...action,
+      effect: { ...action.effect, ignoresCliff: true },
+    }
+    const board = boardOf([
+      [0, 0, 'plain'], // level 1
+      [1, 0, 'mountain'], // level 3 — diff 2, a cliff, but ignoresCliff is set
+    ])
+    const state = makeState({ board, units: [makeUnit('p1', 'temple', { q: 0, r: 0 }), makeUnit('p2', 'nomad', { q: 1, r: 0 })] })
+    const [temple, enemyUnit] = state.units
+
+    const next = applyUnitActionEffect(state, 'p1', 'temple', actionIgnoringCliff, { [temple.id]: enemyUnit.coord }, content)
+
+    expect(next.units.find((u) => u.id === enemyUnit.id)!.ownerId).toBe('p1')
+  })
+
   describe('costByTargetKind — cost varies by the target unit\'s own kind', () => {
     const actionWithVaryingCost: UnitAction = {
       id: 'convert-enemy-unit',

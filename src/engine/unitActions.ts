@@ -436,11 +436,13 @@ function applyTransform(state: GameState, playerId: string, unit: Unit, effect: 
 
 /**
  * Per ruling: convert can never cross a cliff either (same rule as
- * create/transform) — but only meaningful at the default adjacent range,
- * since a cliff is a single hexside between two adjacent hexes; a longer
- * ConvertEffect.maxDistance (e.g. The Cathedral Tale, range 2) has no
- * single edge to check, so the cliff rule is skipped there entirely.
- * Covers two shapes: 'enemy' steals an enemy unit outright (kind
+ * create/transform), unless the effect opts out via
+ * ConvertEffect.ignoresCliff (e.g. Temple's Convert Enemy Unit converts by
+ * faith rather than physical access) — but only meaningful at the default
+ * adjacent range, since a cliff is a single hexside between two adjacent
+ * hexes; a longer ConvertEffect.maxDistance (e.g. The Cathedral Tale, range
+ * 2) has no single edge to check, so the cliff rule is skipped there
+ * entirely. Covers two shapes: 'enemy' steals an enemy unit outright (kind
  * unchanged — e.g. Temple's Convert Enemy Unit); 'own' upgrades one of
  * the acting player's own units into a different kind in place (e.g. a
  * City converting an adjacent Nomad into a Merchant/Mountaineer) — see
@@ -450,7 +452,7 @@ function applyConvert(state: GameState, playerId: string, unit: Unit, effect: Co
   if (!targetCoord) return state
   const maxDistance = effect.maxDistance ?? 1
   if (!isWithinDistance(state, unit.coord, targetCoord, maxDistance)) return state
-  if (maxDistance <= 1 && crossesCliff(state, unit.coord, targetCoord, content.terrainLevels)) return state
+  if (!effect.ignoresCliff && maxDistance <= 1 && crossesCliff(state, unit.coord, targetCoord, content.terrainLevels)) return state
 
   const targetUnit = unitsAt(state, targetCoord).find((u) =>
     effect.targetOwner === 'own'

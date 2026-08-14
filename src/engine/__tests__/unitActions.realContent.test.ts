@@ -602,4 +602,41 @@ describe('real content/units.json + terrain.json + resources.json', () => {
     expect(afterShip.units.find((u) => u.id === 'enemy_ship')!.ownerId).toBe('p1')
     expect(afterShip.players.find((p) => p.id === 'p1')!.resources.gold).toBe(0)
   })
+
+  it("Temple's Convert Enemy Unit (real content) crosses a cliff edge, via ignoresCliff (issue #101)", () => {
+    const board = setTile(setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'plain'), { q: 1, r: 0 }, 'mountain') // level 1 vs level 3 — a cliff
+    const temple: Unit = { id: 'temple', ownerId: 'p1', kind: 'temple', coord: { q: 0, r: 0 }, movement: content.movementByKind.temple, traits: [] }
+    const enemyNomad: Unit = { id: 'enemy_nomad', ownerId: 'p2', kind: 'nomad', coord: { q: 1, r: 0 }, movement: content.movementByKind.nomad, traits: [] }
+    const state: GameState = {
+      gameId: 'g',
+      playMode: 'hotseat',
+      status: 'active',
+      turn: 1,
+      activePlayerId: null,
+      roundPhase: 'actions',
+      chosenCardIdByPlayerId: {},
+      pendingPlayerIds: [],
+      resolvedUnitIdsThisTurn: [],
+      unitsCreatedThisTurn: [],
+      turnOrder: ['p1', 'p2'],
+      board,
+      players: [makePlayer('p1', { gold: 2, wood: 0, stone: 0 }), makePlayer('p2')],
+      units: [temple, enemyNomad],
+      cards: {},
+      resourceBank: { gold: 1000, wood: 1000, stone: 1000 },
+      activeTaleIds: [],
+      gameLength: Infinity,
+      winnerPlayerIds: [],
+      claimedByAchievementId: {},
+      achievementsClaimedThisRound: 0,
+      boardSetup: null,
+      idSequence: 0,
+      actionHistory: [],
+    }
+
+    const action = findAction('temple', 'convert-enemy-unit', content)
+    const next = applyUnitActionEffect(state, 'p1', 'temple', action, { [temple.id]: { q: 1, r: 0 } }, content)
+
+    expect(next.units.find((u) => u.id === 'enemy_nomad')!.ownerId).toBe('p1')
+  })
 })
