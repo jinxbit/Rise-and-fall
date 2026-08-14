@@ -8,6 +8,27 @@ import type { Card, CardZone, GameState, Player } from './types'
 export const UNIT_KINDS = ['city', 'temple', 'nomad', 'merchant', 'mountaineer', 'ship'] as const
 export type UnitKind = (typeof UNIT_KINDS)[number]
 
+/**
+ * Canonical order for *presenting* cards to a player — hand, decline, and
+ * buy-back selection panels. Card ids accumulate in a zone in whatever
+ * order units happened to appear on the board (see syncCardZonesWithBoard),
+ * so listing them by raw insertion order shows the same six kinds in a
+ * different position every time. Sorting by this fixed list instead keeps
+ * each kind in the same place across plays. Deliberately separate from
+ * UNIT_KINDS, which mirrors content/units.json's order and drives internal
+ * zone bookkeeping rather than display.
+ */
+export const CARD_DISPLAY_ORDER: readonly string[] = ['city', 'nomad', 'ship', 'mountaineer', 'merchant', 'temple']
+
+/** Sorts card ids by CARD_DISPLAY_ORDER so selection UI stays stable regardless of the order cards entered the zone. Unrecognized kinds sort last. */
+export function sortCardIdsForDisplay(cardIds: string[], cards: Record<string, Card>): string[] {
+  const rank = (id: string) => {
+    const index = CARD_DISPLAY_ORDER.indexOf(cards[id]?.kind ?? '')
+    return index === -1 ? CARD_DISPLAY_ORDER.length : index
+  }
+  return [...cardIds].sort((a, b) => rank(a) - rank(b))
+}
+
 export function cardIdFor(playerId: string, kind: string): string {
   return `card_${playerId}_${kind}`
 }
