@@ -162,6 +162,10 @@ readable by anyone but the backend.
    `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` are provided automatically at
    runtime; `DISCORD_NOTIFY_WEBHOOK_SECRET` is a value you choose, used to
    confirm requests actually came from your project's Database Webhook.
+   Optionally also set `SITE_URL` (e.g. `supabase secrets set
+   SITE_URL=https://your-deployed-site.example`) so the ping includes a
+   direct link to the game — without it, the ping falls back to showing the
+   room code instead of a link.
 3. In the Supabase dashboard: **Database → Webhooks → Create a new hook**.
    - Table: `game_state`. Events: `Update`.
    - Type: **Supabase Edge Functions**, targeting `notify-discord-turn`.

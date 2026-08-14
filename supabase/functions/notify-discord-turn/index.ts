@@ -33,12 +33,17 @@ interface BoardSetupState {
   unitPlacerIndex: number
 }
 
+type RoundPhase = 'selectCards' | 'actions' | 'decline' | 'purchase'
+
 interface GameState {
   status: 'lobby' | 'boardSetup' | 'active' | 'completed'
   turnOrder: string[]
   boardSetup: BoardSetupState | null
   activePlayerId: string | null
   pendingPlayerIds: string[]
+  /** Round number — increments each time a round finishes (see src/engine/round.ts). */
+  turn: number
+  roundPhase: RoundPhase
 }
 
 function currentTilePlacerId(state: GameState): string | null {
@@ -68,11 +73,35 @@ function pendingActorIds(state: GameState): string[] {
   return []
 }
 
+// --- Human-readable phase label, mirrors src/lib/discordNotify.ts's ---
+const ROUND_PHASE_LABEL: Record<RoundPhase, string> = {
+  selectCards: 'select a card',
+  actions: 'take your action',
+  decline: 'decline a card',
+  purchase: 'make a purchase',
+}
+
+function phaseLabel(state: GameState): string {
+  if (state.status === 'boardSetup') return currentTilePlacerId(state) ? 'place a tile' : 'place a unit'
+  return ROUND_PHASE_LABEL[state.roundPhase]
+}
+
 // --- Discord ---
 const WEBHOOK_URL_PATTERN = /^https:\/\/(?:discord\.com|discordapp\.com)\/api\/webhooks\/\d+\/[\w-]+$/
 
-function turnNotificationMessage(params: { roomCode: string; displayName: string }): string {
-  return `**${params.displayName}**, it's your turn in Rise & Fall! Room \`${params.roomCode}\`.`
+// Kept in sync with src/lib/discordNotify.ts's turnNotificationMessage — see
+// that file's doc comment for why this Edge Function can't just import it.
+function turnNotificationMessage(params: {
+  displayName: string
+  roomName: string
+  roomCode: string
+  phase: string
+  round: number | null
+  gameUrl: string | null
+}): string {
+  const roundText = params.round === null ? '' : ` (Round ${params.round})`
+  const location = params.gameUrl ?? `Room \`${params.roomCode}\``
+  return `**Rise & Fall** — **${params.displayName}**, it's your turn to **${params.phase}** in **${params.roomName}**${roundText}.\n${location}`
 }
 
 async function sendDiscordNotification(webhookUrl: string, content: string): Promise<void> {
@@ -116,13 +145,20 @@ Deno.serve(async (req) => {
 
   const { data: game, error: gameError } = await supabase
     .from('games')
-    .select('room_code, play_mode')
+    .select('room_code, name, play_mode')
     .eq('id', gameId)
     .maybeSingle()
   if (gameError) return new Response(`game lookup failed: ${gameError.message}`, { status: 500 })
   // Live players already get pushed the update via Realtime; hotseat is one
   // shared device with nobody to page. Only async games need a ping.
   if (!game || game.play_mode !== 'async') return new Response('not an async game', { status: 200 })
+
+  // SITE_URL is an optional secret (supabase secrets set SITE_URL=...) — without
+  // it the message falls back to showing the room code instead of a clickable link.
+  const siteUrl = Deno.env.get('SITE_URL')
+  const gameUrl = siteUrl ? `${siteUrl.replace(/\/+$/, '')}/game/${game.room_code}` : null
+  const phase = phaseLabel(payload.record.state)
+  const round = payload.record.state.status === 'active' ? payload.record.state.turn : null
 
   const { data: players, error: playersError } = await supabase
     .from('players')
@@ -146,7 +182,17 @@ Deno.serve(async (req) => {
     players.map((player) => {
       const webhookUrl = webhookByUserId.get(player.user_id)
       if (!webhookUrl || !WEBHOOK_URL_PATTERN.test(webhookUrl)) return Promise.resolve()
-      return sendDiscordNotification(webhookUrl, turnNotificationMessage({ roomCode: game.room_code, displayName: player.display_name }))
+      return sendDiscordNotification(
+        webhookUrl,
+        turnNotificationMessage({
+          displayName: player.display_name,
+          roomName: game.name,
+          roomCode: game.room_code,
+          phase,
+          round,
+          gameUrl,
+        }),
+      )
     }),
   )
 
