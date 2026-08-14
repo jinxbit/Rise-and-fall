@@ -177,7 +177,7 @@ describe('HexBoard — grouped action menu (more than one unit acting from the s
     return actionIds.map((id) => ({ unitId, unitKind, id, label: `${unitKind} ${id}` }))
   }
 
-  it("shows no per-option kind label when every option belongs to one unit (the ordinary, non-stacked case)", () => {
+  it("shows no per-option kind label when every option belongs to one unit (the ordinary, non-stacked case) — only each option's own bold title span", () => {
     const onSelect = vi.fn()
     const { container } = render(
       <HexBoard
@@ -187,7 +187,8 @@ describe('HexBoard — grouped action menu (more than one unit acting from the s
     )
 
     expect(container.querySelectorAll('foreignObject')).toHaveLength(2)
-    expect(container.querySelectorAll('foreignObject span')).toHaveLength(0)
+    const spans = [...container.querySelectorAll('foreignObject span')]
+    expect(spans.map((s) => s.textContent)).toEqual(['Ship move', 'Ship trade'])
   })
 
   it('labels each option by its owning unit once more than one unit is offering options, and routes clicks back with the right unit id', () => {

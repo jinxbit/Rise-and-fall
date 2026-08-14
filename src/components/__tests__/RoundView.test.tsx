@@ -1025,7 +1025,10 @@ describe("RoundView — City's Convert to Merchant/Mountaineer (bug report: \"no
     const basePolygons = boardSvg.querySelectorAll(':scope > polygon')
     fireEvent.click(basePolygons[0])
 
-    const convertOption = [...container.querySelectorAll('foreignObject div')].find((d) => d.textContent === 'Convert to Merchant')
+    // The option box's textContent now also carries its outcome-preview
+    // suffix (e.g. a cost's "-2") right after the bold title span, with no
+    // separating text node — startsWith instead of an exact match.
+    const convertOption = [...container.querySelectorAll('foreignObject div')].find((d) => d.textContent?.startsWith('Convert to Merchant'))
     expect(convertOption).toBeTruthy()
     fireEvent.click(convertOption!)
 

@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
-import { isActionAvailableForUnit, legalConvertTargets, legalCreateTargets, legalTransformTargets } from '../engine/actionTargeting'
+import { computeActionOutcomePreview, isActionAvailableForUnit, legalConvertTargets, legalCreateTargets, legalTransformTargets } from '../engine/actionTargeting'
 import { sortCardIdsForDisplay, UNIT_KINDS } from '../engine/cards'
 import { legalMoveDestinations } from '../engine/movement'
 import { calculatePurchaseCost } from '../engine/purchaseCost'
@@ -810,6 +810,8 @@ export function RoundView(props: {
               unitKind: capitalize(unit.kind),
               id: a.id,
               label: a.name,
+              description: a.description,
+              outcome: computeActionOutcomePreview(state, myPlayerId, unit, a),
               disabled: !isActionAvailableForUnit(state, myPlayerId, unit, a, unitContent),
             })),
           ),

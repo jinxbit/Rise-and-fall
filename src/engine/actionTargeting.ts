@@ -17,8 +17,8 @@ import {
   isCreationAllowedOnTerrain,
   unitsAt,
 } from './unitActions'
-import type { ConvertEffect, CreateEffect, SiteCreateEffect, TransformEffect, UnitAction, UnitContent } from './unitContent'
-import type { Coordinate, GameState, Unit } from './types'
+import type { ActionCost, ConvertEffect, CreateEffect, SiteCreateEffect, TransformEffect, UnitAction, UnitContent } from './unitContent'
+import type { Coordinate, GameState, Resources, Unit } from './types'
 
 /**
  * Read-only "which hexes could this unit legally target right now" queries,
@@ -177,5 +177,68 @@ export function isActionAvailableForUnit(state: GameState, playerId: string, uni
       return isSiteCreateAvailable(state, playerId, unit, effect, content)
     case 'region-unit-count-income':
       return wouldGainResource(player.resources, state.resourceBank, 'gold', computeRegionUnitCountGold(state, unit, effect), content.resourceCaps.gold ?? null)
+  }
+}
+
+/** `cost`'s nonzero entries, negated — undefined if `cost` has nothing to spend, so a 0-cost action's preview omits an empty "-0" chip entirely. */
+function negatedCost(cost: ActionCost): Partial<Resources> | undefined {
+  const entries = (Object.entries(cost) as [keyof Resources, number | undefined][]).filter(([, amount]) => amount)
+  if (entries.length === 0) return undefined
+  return Object.fromEntries(entries.map(([key, amount]) => [key, -(amount as number)])) as Partial<Resources>
+}
+
+/**
+ * A best-effort preview of what resolving `action` right now would gain or
+ * cost the acting player — drives the radial action menu's outcome icons
+ * (see ActionMenuOption.outcome in ../components/HexBoard.tsx), reusing the
+ * exact same compute functions the real resolution (./unitActions.ts) pays
+ * out from, so the preview can't drift from what actually happens. Positive
+ * amounts are a gain, negative a cost. Only ever covers what's knowable
+ * without a target the player hasn't picked yet: income/produce/trade/
+ * region-unit-count-income have no target at all, so their full gain shows;
+ * trade-resource's buy/sell amounts are fixed regardless of target; create/
+ * transform/site-create's `cost` is fixed before targeting (transform's can
+ * still scale with board state — computeEffectiveTransformCost); convert's
+ * `cost` can vary by the (not-yet-chosen) target's kind
+ * (ConvertEffect.costByTargetKind), so only its listed base `cost` is shown
+ * as an approximation. move has no resource outcome, so it returns
+ * undefined, same as any effect with nothing to preview.
+ */
+export function computeActionOutcomePreview(state: GameState, playerId: string, unit: Unit, action: UnitAction): Partial<Resources> | undefined {
+  const effect = action.effect
+  switch (effect.actionType) {
+    case 'income': {
+      const gold = computeIncomeGold(state, playerId, unit, effect)
+      return gold ? { gold } : undefined
+    }
+    case 'produce': {
+      const amounts = computeProduceAmounts(state, unit, effect)
+      if (!amounts) return undefined
+      const entries = (Object.entries(amounts) as [keyof Resources, number | undefined][]).filter(([, amount]) => amount)
+      return entries.length > 0 ? (Object.fromEntries(entries) as Partial<Resources>) : undefined
+    }
+    case 'trade': {
+      const gold = computeTradeGold(state, unit, effect)
+      return gold ? { gold } : undefined
+    }
+    case 'region-unit-count-income': {
+      const gold = computeRegionUnitCountGold(state, unit, effect)
+      return gold ? { gold } : undefined
+    }
+    case 'trade-resource': {
+      const goldAmount = effect.goldPerResource * effect.resourceAmount
+      return effect.mode === 'sell'
+        ? { [effect.resource]: -effect.resourceAmount, gold: goldAmount }
+        : { gold: -goldAmount, [effect.resource]: effect.resourceAmount }
+    }
+    case 'create':
+    case 'site-create':
+      return negatedCost(effect.cost)
+    case 'transform':
+      return negatedCost(computeEffectiveTransformCost(state, effect))
+    case 'convert':
+      return negatedCost(effect.cost)
+    case 'move':
+      return undefined
   }
 }
