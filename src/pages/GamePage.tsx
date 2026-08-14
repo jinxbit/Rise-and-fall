@@ -82,6 +82,17 @@ export function GamePage() {
   const [redoStack, setRedoStack] = useState<Action[]>([])
   const [showHistory, setShowHistory] = useState(false)
   /**
+   * History review (issue #63): lets anyone step through past points in the
+   * game — genesis plus every action since — without touching the live,
+   * shared `game_state` row the way Undo does. `null` means "showing the
+   * live game" (the normal case); otherwise it's an index into
+   * `gameState.actionHistory` (0 = genesis, N = the state right after the
+   * Nth logged action), and `reviewState` below replays purely client-side
+   * up to that point. Reset whenever a fresh room loads, same as
+   * `hotseatActivePlayerId`.
+   */
+  const [reviewIndex, setReviewIndex] = useState<number | null>(null)
+  /**
    * Hotseat pass-and-play: which seated player the shared device is
    * currently "handed to" — distinct from auth identity, since every
    * hotseat seat shares one signed-in host's user_id (see gameApi.ts's
@@ -114,6 +125,7 @@ export function GamePage() {
   useEffect(() => {
     if (!roomCode) return
     setHotseatActivePlayerId(null)
+    setReviewIndex(null)
     void (async () => {
       const foundGame = await getGameByRoomCode(roomCode)
       setGame(foundGame)
@@ -257,6 +269,50 @@ export function GamePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [game, gameState?.actionHistory.length, players, unitContent, achievementContent, boardGenerationContent, taleContent])
 
+  const reviewMaxIndex = gameState?.actionHistory.length ?? 0
+  const isReviewingHistory = reviewIndex !== null
+
+  /**
+   * The state at `reviewIndex` (see its doc comment above) — a plain
+   * client-side replay of a prefix of `actionHistory` on top of genesis,
+   * the same primitive Undo uses, just never written back anywhere. Only
+   * computed while actually reviewing, so a normal game in progress pays
+   * nothing extra for this feature existing.
+   */
+  const reviewState = useMemo(() => {
+    if (reviewIndex === null || !game || !gameState || players.length === 0) return null
+    try {
+      const genesis = buildGenesisState(game, players)
+      return replayActions(genesis, gameState.actionHistory.slice(0, reviewIndex), unitContent, achievementContent, boardGenerationContent, taleContent)
+    } catch {
+      return null
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reviewIndex, game, gameState?.actionHistory.length, players, unitContent, achievementContent, boardGenerationContent, taleContent])
+
+  /**
+   * The narration log truncated to what had actually happened by
+   * `reviewIndex` — reusing `gameLog` above as-is would leak entries from
+   * after the reviewed point (and everyone else's future moves, in an
+   * async game), defeating the point of a spoiler-free "what did the board
+   * look like back then" view.
+   */
+  const reviewGameLog = useMemo(() => {
+    if (reviewIndex === null || !game || players.length === 0) return []
+    try {
+      const genesis = buildGenesisState(game, players)
+      return buildGameLog(genesis, gameState?.actionHistory.slice(0, reviewIndex) ?? [], unitContent, achievementContent, boardGenerationContent, taleContent)
+    } catch {
+      return []
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reviewIndex, game, gameState?.actionHistory.length, players, unitContent, achievementContent, boardGenerationContent, taleContent])
+
+  /** The action most recently applied as of `reviewIndex`, for the review banner's label — null at genesis (reviewIndex 0). */
+  const reviewActionMeta = reviewIndex !== null && reviewIndex > 0 ? (gameState?.actionHistory[reviewIndex - 1] ?? null) : null
+
+  const displayState = isReviewingHistory ? reviewState : gameState
+
   /**
    * Writes whatever `computeNext` derives from the current state, retrying
    * against freshly refetched state (up to MAX_WRITE_RETRIES times) if the
@@ -269,6 +325,12 @@ export function GamePage() {
   async function writeWithRetry(computeNext: (state: EngineGameState) => ActionResult): Promise<ActionResult> {
     if (!game || !gameState || version === null) {
       return { ok: false, error: 'Game not loaded yet' }
+    }
+    if (isReviewingHistory) {
+      // Belt-and-suspenders alongside passing myPlayerId={null} to every
+      // view below while reviewing, which already keeps their UI from
+      // calling any of these in the first place.
+      return { ok: false, error: 'Exit history review before making changes.' }
     }
     if (game.status === 'canceled') {
       // Belt-and-suspenders alongside 0008_room_lifecycle.sql's RLS policy,
@@ -630,7 +692,7 @@ export function GamePage() {
           )}
           <button
             type="button"
-            disabled={undoing || !gameState || gameState.actionHistory.length === 0}
+            disabled={undoing || isReviewingHistory || !gameState || gameState.actionHistory.length === 0}
             onClick={() => void handleUndo()}
             title="Undo the last action — any player can do this, at any time, even after the game has ended."
             className="rounded-md border border-neutral-700 px-3 py-1 text-sm hover:border-neutral-500 disabled:opacity-50"
@@ -639,15 +701,70 @@ export function GamePage() {
           </button>
           <button
             type="button"
-            disabled={redoing || redoStack.length === 0}
+            disabled={redoing || isReviewingHistory || redoStack.length === 0}
             onClick={() => void handleRedo()}
             title="Redo the last undone action."
             className="rounded-md border border-neutral-700 px-3 py-1 text-sm hover:border-neutral-500 disabled:opacity-50"
           >
             {redoing ? 'Redoing…' : 'Redo'}
           </button>
+          <button
+            type="button"
+            disabled={!gameState || reviewMaxIndex === 0}
+            onClick={() => setReviewIndex(isReviewingHistory ? null : reviewMaxIndex)}
+            title="Step through past points in the game — genesis plus every action since — without changing anything. Unlike Undo, this never touches the live game."
+            className={`rounded-md border px-3 py-1 text-sm hover:border-neutral-500 disabled:opacity-50 ${
+              isReviewingHistory ? 'border-amber-500 text-amber-400' : 'border-neutral-700'
+            }`}
+          >
+            {isReviewingHistory ? 'Exit review' : 'Review history'}
+          </button>
         </div>
       </header>
+
+      {isReviewingHistory && (
+        <div className="flex flex-wrap items-center gap-3 rounded-md border border-amber-700/40 bg-amber-500/10 p-3 text-sm text-amber-200">
+          <span className="font-medium">Reviewing history — read-only, nothing here can be changed.</span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={reviewIndex === 0}
+              onClick={() => setReviewIndex((i) => Math.max(0, (i ?? 0) - 1))}
+              title="Step back one action."
+              className="rounded-md border border-amber-700/60 px-2 py-0.5 hover:border-amber-400 disabled:opacity-40"
+            >
+              ← Prev
+            </button>
+            <input
+              type="range"
+              min={0}
+              max={reviewMaxIndex}
+              value={reviewIndex ?? 0}
+              onChange={(e) => setReviewIndex(Number(e.target.value))}
+              className="w-40"
+            />
+            <button
+              type="button"
+              disabled={reviewIndex === reviewMaxIndex}
+              onClick={() => setReviewIndex((i) => Math.min(reviewMaxIndex, (i ?? 0) + 1))}
+              title="Step forward one action."
+              className="rounded-md border border-amber-700/60 px-2 py-0.5 hover:border-amber-400 disabled:opacity-40"
+            >
+              Next →
+            </button>
+          </div>
+          <span>
+            {reviewActionMeta ? `Turn ${reviewActionMeta.turn} — action ${reviewIndex} of ${reviewMaxIndex}` : 'Start of game (before any actions)'}
+          </span>
+          <button
+            type="button"
+            onClick={() => setReviewIndex(null)}
+            className="ml-auto rounded-md border border-amber-700/60 px-3 py-1 font-medium hover:border-amber-400"
+          >
+            Back to live
+          </button>
+        </div>
+      )}
 
       {stateExportError && <div className="rounded-md bg-red-500/10 p-3 text-sm text-red-400">{stateExportError}</div>}
 
@@ -705,7 +822,7 @@ export function GamePage() {
 
       {!gameState && !canObserve && <p className="text-neutral-400">Setting up the game…</p>}
 
-      {needsHotseatGate && pendingActorId && (
+      {needsHotseatGate && pendingActorId && !isReviewingHistory && (
         <div className="flex flex-col items-center gap-4 rounded-md border border-neutral-800 p-12 text-center">
           <p className="text-sm text-neutral-400">Pass the device to</p>
           <p className="text-3xl font-semibold">{players.find((p) => p.id === pendingActorId)?.display_name ?? 'the next player'}</p>
@@ -719,11 +836,11 @@ export function GamePage() {
         </div>
       )}
 
-      {!needsHotseatGate && gameState?.status === 'boardSetup' && (
+      {(!needsHotseatGate || isReviewingHistory) && displayState?.status === 'boardSetup' && (
         <BoardSetupView
-          state={gameState}
+          state={displayState}
           players={players}
-          myPlayerId={me?.id ?? null}
+          myPlayerId={isReviewingHistory ? null : (me?.id ?? null)}
           boardGenerationContent={boardGenerationContent}
           onPlaceTile={(anchor: Coordinate, rotationSteps: number) => {
             if (!me) return
@@ -736,22 +853,22 @@ export function GamePage() {
         />
       )}
 
-      {gameState?.status === 'completed' && (
-        <EndGameView state={gameState} players={players} achievementContent={achievementContent} taleContent={taleContent} />
+      {displayState?.status === 'completed' && (
+        <EndGameView state={displayState} players={players} achievementContent={achievementContent} taleContent={taleContent} />
       )}
 
-      {!needsHotseatGate && gameState?.status === 'active' && (
+      {(!needsHotseatGate || isReviewingHistory) && displayState?.status === 'active' && (
         <RoundView
-          state={gameState}
+          state={displayState}
           players={players}
-          myPlayerId={me?.id ?? null}
+          myPlayerId={isReviewingHistory ? null : (me?.id ?? null)}
           unitContent={unitContent}
           achievementContent={achievementContent}
           taleContent={taleContent}
-          turnReview={turnReview}
-          showHistory={showHistory}
+          turnReview={isReviewingHistory ? null : turnReview}
+          showHistory={isReviewingHistory ? false : showHistory}
           onToggleHistory={() => setShowHistory((v) => !v)}
-          gameLog={gameLog}
+          gameLog={isReviewingHistory ? reviewGameLog : gameLog}
           onChooseCard={(cardId) => {
             if (!me) return
             void submitAction({ type: 'CHOOSE_CARD', playerId: me.id, cardId })
