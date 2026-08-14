@@ -138,4 +138,48 @@ describe('EndGameView', () => {
     const bobHeader = screen.getByText('Bob').closest('div')
     expect(bobHeader).toHaveTextContent('15 points')
   })
+
+  it('shows each player their final position, ranked by total VP', () => {
+    const state = makeState()
+    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
+
+    render(<EndGameView state={state} players={players} achievementContent={content} taleContent={EMPTY_TALE_CONTENT} />)
+
+    const aliceCard = screen.getByText('Alice').closest('.rounded-md.border.p-3')
+    expect(aliceCard).toHaveTextContent('1st place')
+    const bobCard = screen.getByText('Bob').closest('.rounded-md.border.p-3')
+    expect(bobCard).toHaveTextContent('2nd place')
+  })
+
+  it('gives tied players the same place, and skips ahead by the number tied above for whoever is next', () => {
+    const state = makeState()
+    // 12 gold at goldPerVictoryPoint: 2 -> 6 VP, matching Alice's City (3) + 1 City board-count (1) + 4 Gold (2) = 6 total.
+    const p3 = makeEnginePlayer('p3', 12)
+    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff'), makePlayerRow('p3', 'Carol', '#00ff00')]
+    const tiedState: GameState = { ...state, players: [...state.players, p3], turnOrder: ['p1', 'p2', 'p3'] }
+
+    render(<EndGameView state={tiedState} players={players} achievementContent={content} taleContent={EMPTY_TALE_CONTENT} />)
+
+    // Alice and Carol both scored 6 (Alice via achievement+board+gold, Carol via gold alone) -> tied for 1st; Bob (0) is 3rd, not 2nd.
+    expect(screen.getByText('Alice').closest('.rounded-md.border.p-3')).toHaveTextContent('1st place')
+    expect(screen.getByText('Carol').closest('.rounded-md.border.p-3')).toHaveTextContent('1st place')
+    expect(screen.getByText('Bob').closest('.rounded-md.border.p-3')).toHaveTextContent('3rd place')
+  })
+
+  it("shows each player's resources and on-board unit counts, and the final board", () => {
+    const state = makeState()
+    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
+
+    render(<EndGameView state={state} players={players} achievementContent={content} taleContent={EMPTY_TALE_CONTENT} />)
+
+    expect(screen.getByText('Final board')).toBeInTheDocument()
+
+    const aliceCard = screen.getByText('Alice').closest('.rounded-md.border.p-3')
+    expect(aliceCard).toHaveTextContent('Resources: 4 Gold, 0 Wood, 0 Stone')
+    expect(aliceCard).toHaveTextContent('Units:')
+
+    const bobCard = screen.getByText('Bob').closest('.rounded-md.border.p-3')
+    expect(bobCard).toHaveTextContent('Resources: 0 Gold, 0 Wood, 0 Stone')
+    expect(bobCard).not.toHaveTextContent('Units:')
+  })
 })
