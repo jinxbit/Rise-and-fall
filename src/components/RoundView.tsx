@@ -14,7 +14,11 @@ import type { UnitAction, UnitContent } from '../engine/unitContent'
 import type { PlayerRow } from '../lib/dbTypes'
 import type { GhostCell, HistoryArrow, HistoryHaloType, UnitMarker } from './HexBoard'
 import { HexBoard } from './HexBoard'
+import { ResourceIcon } from './ResourceIcon'
+import { RESOURCE_COLOR_CLASS } from './resourceIcons'
 import { UnitIcon } from './UnitIcon'
+
+const RESOURCE_ORDER: (keyof Resources)[] = ['gold', 'wood', 'stone']
 
 const ACHIEVEMENTS = listAchievements()
 
@@ -83,11 +87,14 @@ function PhaseBanner({ state }: { state: GameState }) {
 /** How much of each resource is left in the shared bank for players to draw from — see GameState.resourceBank. */
 function BankResources({ state }: { state: GameState }) {
   return (
-    <p className="text-sm text-neutral-400" title="Resources remaining in the shared bank">
-      Bank:{' '}
-      <span className="font-medium text-neutral-200">
-        {state.resourceBank.gold} gold, {state.resourceBank.wood} wood, {state.resourceBank.stone} stone
-      </span>
+    <p className="flex items-center gap-2 text-sm text-neutral-400" title="Resources remaining in the shared bank">
+      Bank:
+      {RESOURCE_ORDER.map((key) => (
+        <span key={key} className={`flex items-center gap-1 font-medium ${RESOURCE_COLOR_CLASS[key]}`} title={capitalize(key)}>
+          <ResourceIcon resource={key} className="h-4 w-4 shrink-0" />
+          {state.resourceBank[key]}
+        </span>
+      ))}
     </p>
   )
 }
@@ -241,8 +248,13 @@ function PlayerDetailPanel({ state, player, breakdown }: { state: GameState; pla
       </div>
       <div>
         <p className="mb-1 font-medium text-neutral-200">Resources</p>
-        <p>
-          Gold {player.resources.gold}, Wood {player.resources.wood}, Stone {player.resources.stone}
+        <p className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          {RESOURCE_ORDER.map((key) => (
+            <span key={key} className={`flex items-center gap-1 font-medium ${RESOURCE_COLOR_CLASS[key]}`} title={capitalize(key)}>
+              <ResourceIcon resource={key} className="h-3.5 w-3.5 shrink-0" />
+              {player.resources[key]}
+            </span>
+          ))}
         </p>
       </div>
     </div>
@@ -318,18 +330,13 @@ function PlayersStrip({
                   <span className="ml-auto font-medium text-neutral-200">Score {breakdownByPlayerId[player.id]?.total ?? 0}</span>
                 </span>
                 <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                  <span>
-                    Gold {player.resources.gold}
-                    {delta && <span className="text-emerald-400">{deltaSuffix(delta.gold)}</span>}
-                  </span>
-                  <span>
-                    Wood {player.resources.wood}
-                    {delta && <span className="text-emerald-400">{deltaSuffix(delta.wood)}</span>}
-                  </span>
-                  <span>
-                    Stone {player.resources.stone}
-                    {delta && <span className="text-emerald-400">{deltaSuffix(delta.stone)}</span>}
-                  </span>
+                  {RESOURCE_ORDER.map((key) => (
+                    <span key={key} className={`flex items-center gap-1 font-medium ${RESOURCE_COLOR_CLASS[key]}`} title={capitalize(key)}>
+                      <ResourceIcon resource={key} className="h-3.5 w-3.5 shrink-0" />
+                      {player.resources[key]}
+                      {delta && <span className="text-emerald-400">{deltaSuffix(delta[key])}</span>}
+                    </span>
+                  ))}
                 </span>
                 {state.roundPhase === 'actions' && chosenKind && (
                   <span className="flex items-center gap-1.5 text-indigo-400" title={`Playing ${capitalize(chosenKind)} this turn`}>
