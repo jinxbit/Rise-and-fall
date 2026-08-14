@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isActionAvailableForUnit, legalConvertTargets, legalCreateTargets, legalTransformTargets } from '../actionTargeting'
+import { computeActionOutcomePreview, isActionAvailableForUnit, legalConvertTargets, legalCreateTargets, legalTransformTargets } from '../actionTargeting'
 import { createEmptyBoard, setTile } from '../board'
 import type { ConvertEffect, CreateEffect, TransformEffect, UnitAction, UnitContent } from '../unitContent'
 import type { Coordinate, GameState, Player, Terrain, Unit } from '../types'
@@ -505,5 +505,106 @@ describe('isActionAvailableForUnit', () => {
 
     const withNeighbor = { ...isolated, board: boardOf([[0, 0, 'plain'], [1, 0, 'plain']]) }
     expect(isActionAvailableForUnit(withNeighbor, 'p1', unit, moveAction, emptyContent)).toBe(true)
+  })
+})
+
+describe('computeActionOutcomePreview', () => {
+  it("reuses the real trade math: a Ship's Trade next to 3 Cities in its sea region previews the full gold gain (bug report's own example — +15 for 3 Cities at goldPerCity 5)", () => {
+    const tradeAction: UnitAction = { id: 'c', name: 'Trade', description: '', effect: { actionType: 'trade', goldPerCity: 5 } }
+    const ship = makeUnit('p1', 'ship', { q: 0, r: 0 })
+    const cities = [makeUnit('p2', 'city', { q: 1, r: 0 }), makeUnit('p2', 'city', { q: -1, r: 0 }), makeUnit('p2', 'city', { q: 0, r: 1 })]
+    const state = makeState({
+      board: boardOf([[0, 0, 'water'], [1, 0, 'plain'], [-1, 0, 'plain'], [0, 1, 'plain']]),
+      units: [ship, ...cities],
+      players: [makePlayer('p1')],
+    })
+    expect(computeActionOutcomePreview(state, 'p1', ship, tradeAction)).toEqual({ gold: 15 })
+  })
+
+  it('income previews the real computed gold, and is undefined (no chip) when it would pay out nothing', () => {
+    const incomeAction: UnitAction = { id: 'a', name: 'Income', description: '', effect: { actionType: 'income', goldByTerrain: { forest: 3 } } }
+    const unit = makeUnit('p1', 'city', { q: 0, r: 0 })
+    const onForest = makeState({ board: boardOf([[0, 0, 'forest']]), units: [unit], players: [makePlayer('p1')] })
+    expect(computeActionOutcomePreview(onForest, 'p1', unit, incomeAction)).toEqual({ gold: 3 })
+
+    const onPlain = { ...onForest, board: boardOf([[0, 0, 'plain']]) }
+    expect(computeActionOutcomePreview(onPlain, 'p1', unit, incomeAction)).toBeUndefined()
+  })
+
+  it('produce previews every nonzero resource the current terrain pays out, undefined off that terrain', () => {
+    const produceAction: UnitAction = {
+      id: 'b',
+      name: 'Produce',
+      description: '',
+      effect: { actionType: 'produce', resourceByTerrain: { mountain: { stone: 2, gold: 1 } } },
+    }
+    const unit = makeUnit('p1', 'nomad', { q: 0, r: 0 })
+    const onMountain = makeState({ board: boardOf([[0, 0, 'mountain']]), units: [unit], players: [makePlayer('p1')] })
+    expect(computeActionOutcomePreview(onMountain, 'p1', unit, produceAction)).toEqual({ stone: 2, gold: 1 })
+
+    const onPlain = { ...onMountain, board: boardOf([[0, 0, 'plain']]) }
+    expect(computeActionOutcomePreview(onPlain, 'p1', unit, produceAction)).toBeUndefined()
+  })
+
+  it('trade-resource previews a buy as -gold/+resource and a sell as -resource/+gold, from the fixed rate alone', () => {
+    const buyAction: UnitAction = {
+      id: 'buy',
+      name: 'Buy Wood',
+      description: '',
+      effect: { actionType: 'trade-resource', resource: 'wood', mode: 'buy', resourceAmount: 3, goldPerResource: 2 },
+    }
+    const sellAction: UnitAction = {
+      id: 'sell',
+      name: 'Sell Stone',
+      description: '',
+      effect: { actionType: 'trade-resource', resource: 'stone', mode: 'sell', resourceAmount: 2, goldPerResource: 4 },
+    }
+    const unit = makeUnit('p1', 'merchant', { q: 0, r: 0 })
+    const state = makeState({ board: boardOf([[0, 0, 'plain']]), units: [unit], players: [makePlayer('p1')] })
+    expect(computeActionOutcomePreview(state, 'p1', unit, buyAction)).toEqual({ gold: -6, wood: 3 })
+    expect(computeActionOutcomePreview(state, 'p1', unit, sellAction)).toEqual({ stone: -2, gold: 8 })
+  })
+
+  it("create/site-create preview the fixed cost, negated; transform previews its effective (possibly board-scaled) cost, negated; convert previews its listed base cost, negated (an approximation when costByTargetKind varies, since there's no target yet)", () => {
+    const createAction: UnitAction = {
+      id: 'create',
+      name: 'Create Nomad',
+      description: '',
+      effect: { actionType: 'create', targetUnit: 'nomad', targetHex: { location: 'adj' }, cost: { gold: 2, wood: 1 } },
+    }
+    const transformAction: UnitAction = {
+      id: 'transform',
+      name: 'Construct a Bank',
+      description: '',
+      effect: {
+        actionType: 'transform',
+        targetUnit: 'bank',
+        targetHex: { terrainType: ['plain'], location: 'self' },
+        destroySelf: false,
+        cost: { gold: 5 },
+        extraCostPerBoardUnitCount: { countKind: 'bank', costPerUnit: { gold: 5 } },
+      },
+    }
+    const convertAction: UnitAction = {
+      id: 'convert',
+      name: 'Convert Enemy Unit',
+      description: '',
+      effect: { actionType: 'convert', targetHex: { location: 'adj' }, targetOwner: 'enemy', targetMobileOnly: true, cost: { gold: 2 }, costByTargetKind: { ship: { gold: 5 } } },
+    }
+    const unit = makeUnit('p1', 'nomad', { q: 0, r: 0 })
+    const existingBank = makeUnit('p2', 'bank', { q: 5, r: 5 })
+    const state = makeState({ board: boardOf([[0, 0, 'plain']]), units: [unit, existingBank], players: [makePlayer('p1')] })
+
+    expect(computeActionOutcomePreview(state, 'p1', unit, createAction)).toEqual({ gold: -2, wood: -1 })
+    // Effective transform cost: base 5 + 5 per existing Bank (1 already on the board) = 10.
+    expect(computeActionOutcomePreview(state, 'p1', unit, transformAction)).toEqual({ gold: -10 })
+    expect(computeActionOutcomePreview(state, 'p1', unit, convertAction)).toEqual({ gold: -2 })
+  })
+
+  it('move previews nothing (no resource outcome)', () => {
+    const moveAction: UnitAction = { id: 'm', name: 'Move', description: '', effect: { actionType: 'move' } }
+    const unit = makeUnit('p1', 'nomad', { q: 0, r: 0 })
+    const state = makeState({ board: boardOf([[0, 0, 'plain']]), units: [unit], players: [makePlayer('p1')] })
+    expect(computeActionOutcomePreview(state, 'p1', unit, moveAction)).toBeUndefined()
   })
 })

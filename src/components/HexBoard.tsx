@@ -1,8 +1,11 @@
 import { isCliffEdge } from '../engine/cliffs'
-import type { Board, Coordinate, Terrain } from '../engine/types'
+import type { Board, Coordinate, Resources, Terrain } from '../engine/types'
 import { coordKey } from '../engine/types'
+import { ResourceIcon } from './ResourceIcon'
 import type { IconShape } from './unitIcons'
 import { STATIC_UNIT_KINDS, UNIT_ICONS } from './unitIcons'
+
+const RESOURCE_ORDER: (keyof Resources)[] = ['gold', 'wood', 'stone']
 
 // Pointy-top axial hex rendering. Matches the axial convention used
 // throughout src/engine (HEX_DIRECTIONS in ../engine/board.ts, the shape
@@ -162,8 +165,27 @@ export interface ActionMenuOption {
   /** That unit's kind, e.g. 'ship'/'port' — shown as a small group label whenever the menu covers more than one unit, so a stacked hex's options read as "Ship: Trade" / "Port: Construct a Ship" rather than one ambiguous flat list. */
   unitKind: string
   id: string
-  /** Full action name, shown in full in the option's box — no abbreviation, since a 1-2 letter label made the menu unusable (had to hover to find out what each option was). */
+  /** Full action name, shown in full in the option's box, bold and uppercased (e.g. "TRADE") — no abbreviation, since a 1-2 letter label made the menu unusable (had to hover to find out what each option was). */
   label: string
+  /**
+   * The action's full, static rulebook description (content/units.json's
+   * `description` — constraints, inputs, possible outcomes) — shown as a
+   * native tooltip on the option box regardless of `disabled`, since the
+   * box is a plain `<div>` either way (not a real disabled `<button>`,
+   * which browsers suppress hover/title on) — the one place a disabled
+   * action's full rules stay readable instead of just "you can't do this
+   * right now."
+   */
+  description?: string
+  /**
+   * A best-effort preview of what picking this action would gain/cost right
+   * now (see computeActionOutcomePreview, ../engine/actionTargeting.ts) —
+   * rendered as one resource-icon chip per nonzero entry, e.g. a Ship's
+   * Trade next to 3 Cities showing a gold-coin icon + "+15". Undefined for
+   * actions with nothing previewable yet (e.g. Move, or a target-dependent
+   * action with no fixed cost).
+   */
+  outcome?: Partial<Resources>
   /**
    * True when the unit can't actually perform this action right now (e.g.
    * unaffordable, no legal target) — rendered with a distinct dim-red/
@@ -460,10 +482,11 @@ export function HexBoard(props: {
   if (props.actionMenu && actionMenuCenter) {
     const groups = groupActionMenuOptions(props.actionMenu.options)
     const showGroupLabels = groups.length > 1
+    const hasOutcomes = props.actionMenu.options.some((o) => o.outcome && Object.values(o.outcome).some(Boolean))
     const angleByOptionId = computeActionMenuAngles(groups)
     const radius = actionMenuRadius(size, props.actionMenu.options.length)
     const boxWidth = size * ACTION_MENU_BOX_WIDTH_FACTOR
-    const boxHeight = size * ACTION_MENU_BOX_HEIGHT_FACTOR * (showGroupLabels ? 1.5 : 1)
+    const boxHeight = size * ACTION_MENU_BOX_HEIGHT_FACTOR * (showGroupLabels ? 1.5 : 1) * (hasOutcomes ? 1.35 : 1)
     actionMenuLayout = { showGroupLabels, angleByOptionId, radius, boxWidth, boxHeight }
     for (const option of props.actionMenu.options) {
       const angle = angleByOptionId.get(option.id) ?? 0
@@ -674,6 +697,7 @@ export function HexBoard(props: {
                   <foreignObject x={ox - boxWidth / 2} y={oy - boxHeight / 2} width={boxWidth} height={boxHeight}>
                     <div
                       style={{ fontSize: size * 0.3, lineHeight: 1.15 }}
+                      title={option.description}
                       className={
                         disabled
                           ? 'flex h-full w-full flex-col items-center justify-center rounded-md border-2 border-dashed border-red-900 bg-neutral-900 px-1 text-center font-medium text-neutral-500'
@@ -683,7 +707,21 @@ export function HexBoard(props: {
                       {showGroupLabels && (
                         <span className="text-[0.75em] font-normal uppercase tracking-wide opacity-70">{option.unitKind}</span>
                       )}
-                      {option.label}
+                      <span className="font-bold uppercase tracking-wide">{option.label}</span>
+                      {option.outcome && Object.values(option.outcome).some(Boolean) && (
+                        <span className="mt-0.5 flex items-center gap-1">
+                          {RESOURCE_ORDER.filter((key) => option.outcome?.[key]).map((key) => {
+                            const amount = option.outcome![key]!
+                            return (
+                              <span key={key} className="flex items-center gap-0.5 text-[0.75em] font-normal">
+                                <ResourceIcon resource={key} className={`h-[1em] w-[1em] ${amount > 0 ? 'text-emerald-400' : 'text-red-400'}`} />
+                                {amount > 0 ? '+' : ''}
+                                {amount}
+                              </span>
+                            )
+                          })}
+                        </span>
+                      )}
                     </div>
                   </foreignObject>
                 </g>
