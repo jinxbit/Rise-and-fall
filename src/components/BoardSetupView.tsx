@@ -105,14 +105,15 @@ function TilePlacementPanel(props: {
   // Rendered right on the board, next to the hex the player clicked, rather
   // than in a static row above it — on a large or scrolled board a static
   // row can end up far from the tile actually being placed (issue #120).
+  // Only supplied once the pending placement is legal, so Confirm is never
+  // shown (not even disabled) for an illegal placement (issue #121) —
+  // rotating still works by clicking the anchor hex again (see
+  // rotateHintCoord below), so there's no dedicated Rotate control either.
   const placementControls: PlacementControls | null =
-    isMyTurn && anchor && center
+    isMyTurn && anchor && center && legal
       ? {
           coord: center,
-          onRotate: () => setRotation((r) => (r + 1) % 6),
           onConfirm: () => onPlaceTile(anchor, rotation),
-          onCancel: () => setCenter(null),
-          confirmDisabled: !legal,
         }
       : null
 
@@ -145,11 +146,11 @@ function TilePlacementPanel(props: {
               clicked, and several of checkTilePlacementLegality's messages are
               long enough to wrap onto a second line. A min-height alone still
               let those cases grow this block taller and shove the board
-              (rendered right after) down. The Rotate/Confirm/Cancel controls
-              themselves render on the board next to the anchor hex — see
-              placementControls below — not in this block. */}
+              (rendered right after) down. The Confirm control itself renders
+              on the board next to the anchor hex — see placementControls
+              below — not in this block. */}
           <p className="line-clamp-2 h-10 text-sm text-neutral-400">
-            {anchor ? 'Click the same hex again (or Rotate) to turn it, click elsewhere to move it.' : 'Click a hex to choose where to place the tile.'}
+            {anchor ? 'Click the same hex again to turn it, click elsewhere to move it.' : 'Click a hex to choose where to place the tile.'}
           </p>
           <p className="line-clamp-2 h-10 text-sm text-red-400" title={anchor && legalityError ? legalityError : undefined}>
             {anchor ? legalityError : null}

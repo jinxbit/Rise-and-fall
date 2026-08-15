@@ -331,27 +331,30 @@ const ACTION_MENU_BOX_HEIGHT_FACTOR = 1.7
 const HISTORY_LABEL_WIDTH_FACTOR = 3.4
 const HISTORY_LABEL_HEIGHT_FACTOR = 0.62
 
-/** Wide enough for the "Rotate" / "Confirm" / "Cancel" row at PLACEMENT_CONTROLS's own font size, tall enough for one line of button text. */
-const PLACEMENT_CONTROLS_WIDTH_FACTOR = 9.5
+/** Wide enough for the "Confirm" button at PLACEMENT_CONTROLS's own font size, tall enough for one line of button text. */
+const PLACEMENT_CONTROLS_WIDTH_FACTOR = 3.6
 const PLACEMENT_CONTROLS_HEIGHT_FACTOR = 1.8
 /** Vertical gap between the hex's bottom vertex and the placement controls box, so it doesn't sit flush against the tile it's positioned next to. */
 const PLACEMENT_CONTROLS_Y_OFFSET_FACTOR = 1.3
 
 /**
- * The Rotate/Confirm/Cancel controls for the tile currently being placed
- * (see TilePlacementPanel in BoardSetupView.tsx), anchored to the hex the
- * player clicked rather than living in a static row above the board — on a
- * large or scrolled board that static row could end up far from the tile
- * being placed. Positioned the same way ActionMenu is: a `foreignObject`
- * placed via axialToPixel, with its reach folded into the viewBox bounds
- * calculation so it can't render off-screen near the board's edge.
+ * The Confirm control for the tile currently being placed (see
+ * TilePlacementPanel in BoardSetupView.tsx), anchored to the hex the player
+ * clicked rather than living in a static row above the board — on a large or
+ * scrolled board that static row could end up far from the tile being
+ * placed. Rotating happens by clicking the anchor hex again (see
+ * rotateHintCoord) rather than a dedicated button here. The caller only
+ * supplies this — and Confirm only ever renders — once the pending
+ * placement is legal (issue #121: Confirm must never be shown for an
+ * illegal placement, not even disabled); an illegal pending placement shows
+ * no controls at all. Positioned the same way ActionMenu is: a
+ * `foreignObject` placed via axialToPixel, with its reach folded into the
+ * viewBox bounds calculation so it can't render off-screen near the board's
+ * edge.
  */
 export interface PlacementControls {
   coord: Coordinate
-  onRotate: () => void
   onConfirm: () => void
-  onCancel: () => void
-  confirmDisabled: boolean
 }
 
 /**
@@ -821,23 +824,10 @@ export function HexBoard(props: {
         <foreignObject x={placementControlsBox.x} y={placementControlsBox.y} width={placementControlsBox.width} height={placementControlsBox.height}>
           <div style={{ fontSize: size * 0.32 }} className="flex h-full w-full items-center justify-center gap-1.5 whitespace-nowrap">
             <button
-              onClick={props.placementControls.onRotate}
-              className="rounded-md border border-neutral-700 bg-neutral-900/95 px-2 py-1 font-medium text-neutral-100 hover:border-neutral-500"
-            >
-              Rotate
-            </button>
-            <button
-              disabled={props.placementControls.confirmDisabled}
               onClick={props.placementControls.onConfirm}
-              className="rounded-md bg-indigo-600 px-2 py-1 font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
+              className="rounded-md bg-indigo-600 px-2 py-1 font-medium text-white hover:bg-indigo-500"
             >
               Confirm
-            </button>
-            <button
-              onClick={props.placementControls.onCancel}
-              className="rounded-md border border-neutral-700 bg-neutral-900/95 px-2 py-1 font-medium text-neutral-400 underline hover:text-neutral-200"
-            >
-              Cancel
             </button>
           </div>
         </foreignObject>

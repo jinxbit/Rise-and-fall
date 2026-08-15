@@ -63,7 +63,7 @@ const boardGenerationContent: BoardGenerationContent = {
 }
 
 describe('BoardSetupView — tile placement ghost legality', () => {
-  it('shows the ghost as illegal (red) and disables Confirm when the placement fails an extra rule (touching < 2 Sea tiles) — regression for the reported "shows green when it cannot be placed" bug', () => {
+  it('shows the ghost as illegal (red) and hides Confirm entirely when the placement fails an extra rule (touching < 2 Sea tiles) — regression for the reported "shows green when it cannot be placed" bug', () => {
     const board = setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'water')
     const state = makeWaterPlacementState(board)
 
@@ -97,7 +97,7 @@ describe('BoardSetupView — tile placement ghost legality', () => {
     expect(ghostExtra?.getAttribute('stroke')).toBe('#ef4444')
 
     expect(screen.getByText(/at least 2 Sea tiles/)).toBeInTheDocument()
-    expect(screen.getByText('Confirm')).toBeDisabled()
+    expect(screen.queryByText('Confirm')).toBeNull()
   })
 
   it('shows the ghost as legal (green) and enables Confirm once the placement satisfies every rule', () => {
@@ -149,8 +149,11 @@ describe('BoardSetupView — tile placement ghost legality', () => {
     expect(container.querySelector('[data-rotate-hint-coord="2,0"]')).not.toBeNull()
   })
 
-  it('renders Rotate/Confirm/Cancel inside the board SVG, next to the selected hex, instead of a static row above it — issue #120', () => {
-    const board = setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'water')
+  it('renders Confirm inside the board SVG, next to the selected hex, instead of a static row above it — issue #120', () => {
+    // Two Sea tiles, as in the "legal placement" test above — Confirm only
+    // ever renders for a legal pending placement (issue #121).
+    let board = setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'water')
+    board = setTile(board, { q: 1, r: -1 }, 'water')
     const state = makeWaterPlacementState(board)
 
     const { container } = render(
