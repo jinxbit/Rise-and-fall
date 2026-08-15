@@ -125,14 +125,19 @@ function TilePlacementPanel(props: {
 
       {isMyTurn && (
         <>
-          {/* Buttons stay mounted (just hidden via `invisible` pre-anchor) and the
-              legality message gets a fixed-height slot below — selecting a hex or
-              flipping legal/illegal must not change this block's height, or it
-              shoves the board (rendered right after) up/down on every change. */}
+          {/* The instruction line and the legality message below each get a
+              *fixed* height (h-10 + line-clamp-2, not just a minimum) — the
+              instruction text changes (and can wrap differently) the instant a
+              hex is first clicked, and several of checkTilePlacementLegality's
+              messages are long enough to wrap onto a second line. A min-height
+              alone still let those cases grow this block taller and shove the
+              board (rendered right after) down. The buttons stay mounted
+              (just hidden via `invisible` pre-anchor) so their row's height
+              never changes either. */}
+          <p className="line-clamp-2 h-10 text-sm text-neutral-400">
+            {anchor ? 'Click the same hex again (or Rotate) to turn it, click elsewhere to move it.' : 'Click a hex to choose where to place the tile.'}
+          </p>
           <div className="flex flex-wrap items-center gap-2 text-sm">
-            <span className="text-neutral-400">
-              {anchor ? 'Click the same hex again (or Rotate) to turn it, click elsewhere to move it.' : 'Click a hex to choose where to place the tile.'}
-            </span>
             <button
               disabled={!anchor}
               onClick={() => setRotation((r) => (r + 1) % 6)}
@@ -155,7 +160,9 @@ function TilePlacementPanel(props: {
               Cancel
             </button>
           </div>
-          <p className="min-h-[1.25rem] text-sm text-red-400">{anchor ? legalityError : null}</p>
+          <p className="line-clamp-2 h-10 text-sm text-red-400" title={anchor && legalityError ? legalityError : undefined}>
+            {anchor ? legalityError : null}
+          </p>
         </>
       )}
 
