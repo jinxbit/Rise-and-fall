@@ -93,14 +93,25 @@ describe('EndGameView', () => {
     // p2 (Bob): nothing claimed, no units, no gold — scored nothing at all.
     expect(screen.getByText('No points scored')).toBeInTheDocument()
 
-    // Ranked highest total first: Alice's card comes before Bob's.
-    const cards = [...container.querySelectorAll('.rounded-md.border.p-3')]
-    const aliceIndex = cards.findIndex((c) => c.textContent?.includes('Alice'))
-    const bobIndex = cards.findIndex((c) => c.textContent?.includes('Bob'))
+    // Ranked highest total first: Alice's column comes before Bob's.
+    const headers = [...container.querySelectorAll('[data-testid="score-breakdown"] th')]
+    const aliceIndex = headers.findIndex((h) => h.textContent?.includes('Alice'))
+    const bobIndex = headers.findIndex((h) => h.textContent?.includes('Bob'))
     expect(aliceIndex).toBeGreaterThanOrEqual(0)
     expect(aliceIndex).toBeLessThan(bobIndex)
 
     expect(screen.getByText('Winner:', { exact: false })).toBeInTheDocument()
+  })
+
+  it('pluralizes a board-count line correctly ("2 Cities", not "2 Citys")', () => {
+    const state = { ...makeState(), units: [...makeState().units, unitAt('p1', 'city')] }
+    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
+    const twoCityContent: AchievementContent = { ...content, unitBoardCountVP: { city: [1, 2] } }
+
+    render(<EndGameView state={state} players={players} achievementContent={twoCityContent} taleContent={EMPTY_TALE_CONTENT} />)
+
+    expect(screen.getByText('2 Cities:', { exact: false })).toBeInTheDocument()
+    expect(screen.queryByText(/Citys/)).not.toBeInTheDocument()
   })
 
   it("highlights the winner(s) with a trophy, even ranked below someone eliminated", () => {
@@ -110,10 +121,10 @@ describe('EndGameView', () => {
     render(<EndGameView state={state} players={players} achievementContent={content} taleContent={EMPTY_TALE_CONTENT} />)
 
     const breakdown = within(screen.getByTestId('score-breakdown'))
-    const winnerHeader = breakdown.getByText('Alice').closest('div')
+    const winnerHeader = breakdown.getByText('Alice').closest('th')
     expect(winnerHeader).toHaveTextContent('🏆')
 
-    const loserHeader = breakdown.getByText('Bob').closest('div')
+    const loserHeader = breakdown.getByText('Bob').closest('th')
     expect(loserHeader).not.toHaveTextContent('🏆')
   })
 
@@ -136,8 +147,7 @@ describe('EndGameView', () => {
 
     // p2 (Bob) had "No points scored" without the Cathedral; now scores exactly its 15 VP.
     expect(screen.getByText('The Cathedral:', { exact: false })).toBeInTheDocument()
-    const bobHeader = within(screen.getByTestId('score-breakdown')).getByText('Bob').closest('div')
-    expect(bobHeader).toHaveTextContent('15 points')
+    expect(screen.getByTestId('breakdown-points-p2')).toHaveTextContent('15 points')
   })
 
   it('shows each player their final position, ranked by total VP', () => {
@@ -146,11 +156,8 @@ describe('EndGameView', () => {
 
     render(<EndGameView state={state} players={players} achievementContent={content} taleContent={EMPTY_TALE_CONTENT} />)
 
-    const breakdown = within(screen.getByTestId('score-breakdown'))
-    const aliceCard = breakdown.getByText('Alice').closest('.rounded-md.border.p-3')
-    expect(aliceCard).toHaveTextContent('1st place')
-    const bobCard = breakdown.getByText('Bob').closest('.rounded-md.border.p-3')
-    expect(bobCard).toHaveTextContent('2nd place')
+    expect(screen.getByTestId('breakdown-place-p1')).toHaveTextContent('1st')
+    expect(screen.getByTestId('breakdown-place-p2')).toHaveTextContent('2nd')
   })
 
   it('gives tied players the same place, and skips ahead by the number tied above for whoever is next', () => {
@@ -163,10 +170,9 @@ describe('EndGameView', () => {
     render(<EndGameView state={tiedState} players={players} achievementContent={content} taleContent={EMPTY_TALE_CONTENT} />)
 
     // Alice and Carol both scored 6 (Alice via achievement+board+gold, Carol via gold alone) -> tied for 1st; Bob (0) is 3rd, not 2nd.
-    const breakdown = within(screen.getByTestId('score-breakdown'))
-    expect(breakdown.getByText('Alice').closest('.rounded-md.border.p-3')).toHaveTextContent('1st place')
-    expect(breakdown.getByText('Carol').closest('.rounded-md.border.p-3')).toHaveTextContent('1st place')
-    expect(breakdown.getByText('Bob').closest('.rounded-md.border.p-3')).toHaveTextContent('3rd place')
+    expect(screen.getByTestId('breakdown-place-p1')).toHaveTextContent('1st')
+    expect(screen.getByTestId('breakdown-place-p3')).toHaveTextContent('1st')
+    expect(screen.getByTestId('breakdown-place-p2')).toHaveTextContent('3rd')
   })
 
   it("shows each player's resources and on-board unit counts, and the final board", () => {
@@ -177,14 +183,11 @@ describe('EndGameView', () => {
 
     expect(screen.getByText('Final board')).toBeInTheDocument()
 
-    const breakdown = within(screen.getByTestId('score-breakdown'))
-    const aliceCard = breakdown.getByText('Alice').closest('.rounded-md.border.p-3')
-    expect(aliceCard).toHaveTextContent('Resources: 4 Gold, 0 Wood, 0 Stone')
-    expect(aliceCard).toHaveTextContent('Units:')
+    expect(screen.getByTestId('breakdown-resources-p1')).toHaveTextContent('4 Gold, 0 Wood, 0 Stone')
+    expect(screen.getByTestId('breakdown-units-p1')).not.toHaveTextContent('—')
 
-    const bobCard = breakdown.getByText('Bob').closest('.rounded-md.border.p-3')
-    expect(bobCard).toHaveTextContent('Resources: 0 Gold, 0 Wood, 0 Stone')
-    expect(bobCard).not.toHaveTextContent('Units:')
+    expect(screen.getByTestId('breakdown-resources-p2')).toHaveTextContent('0 Gold, 0 Wood, 0 Stone')
+    expect(screen.getByTestId('breakdown-units-p2')).toHaveTextContent('—')
   })
 
   it('shows a "Final score" ranked summary and a "Score categories" comparison table, dropping any category nobody scored', () => {
