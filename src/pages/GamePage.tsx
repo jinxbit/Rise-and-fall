@@ -8,6 +8,7 @@ import type { Action, LoggedAction } from '../engine/actions'
 import { applyActionAndFastForwardTiles } from '../engine/applyAction'
 import { buildGameLogFrom, extendGameLog } from '../engine/gameLog'
 import { replayActions } from '../engine/replay'
+import { calculateScoreHistory } from '../engine/scoreHistory'
 import { applyTaleAchievementModifiers, applyTaleModifiers } from '../engine/tales'
 import type { ActionResult, GameEvent, GameState as EngineGameState, Coordinate } from '../engine/types'
 import { buildTurnReview, findReviewWindowStart } from '../engine/turnReview'
@@ -548,6 +549,21 @@ export function GamePage() {
   const reviewActionMeta = reviewIndex !== null && reviewIndex > 0 ? (gameState?.actionHistory[reviewIndex - 1] ?? null) : null
 
   const displayState = isReviewingHistory ? reviewState : gameState
+
+  /**
+   * The "total score over time" series behind EndGameView's line chart —
+   * only worth deriving once the game is actually over, and only from the
+   * real (not history-review) state, so reviewing an earlier round never
+   * flickers the end-of-game chart's data. Keyed on actionHistory's length
+   * rather than `gameState` itself so an identical completed state refetched
+   * by a live subscription doesn't retrigger a full game replay for no
+   * reason (same rationale as playersSignature above).
+   */
+  const scoreHistory = useMemo(() => {
+    if (!genesis || !gameState || gameState.status !== 'completed') return null
+    return calculateScoreHistory(genesis, gameState.actionHistory, unitContent, achievementContent, boardGenerationContent, taleContent)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [genesis, gameState?.status, gameState?.actionHistory.length, unitContent, achievementContent, boardGenerationContent, taleContent])
 
   /**
    * Writes whatever `computeNext` derives from the current state, retrying
@@ -1093,7 +1109,7 @@ export function GamePage() {
       )}
 
       {displayState?.status === 'completed' && (
-        <EndGameView state={displayState} players={players} achievementContent={achievementContent} taleContent={taleContent} />
+        <EndGameView state={displayState} players={players} achievementContent={achievementContent} taleContent={taleContent} scoreHistory={scoreHistory} />
       )}
 
       {(!needsHotseatGate || isReviewingHistory) && displayState?.status === 'active' && (
