@@ -124,32 +124,39 @@ function TilePlacementPanel(props: {
       </p>
 
       {isMyTurn && (
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          <span className="text-neutral-400">
-            {anchor ? 'Click the same hex again (or Rotate) to turn it, click elsewhere to move it.' : 'Click a hex to choose where to place the tile.'}
-          </span>
-          {anchor && (
-            <>
-              <button
-                onClick={() => setRotation((r) => (r + 1) % 6)}
-                className="rounded-md border border-neutral-700 px-3 py-1 hover:border-neutral-500"
-              >
-                Rotate
-              </button>
-              <button
-                disabled={!legal}
-                onClick={() => onPlaceTile(anchor, rotation)}
-                className="rounded-md bg-indigo-600 px-3 py-1 font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
-              >
-                Confirm placement
-              </button>
-              <button onClick={() => setCenter(null)} className="text-neutral-500 underline hover:text-neutral-300">
-                Cancel
-              </button>
-              {legalityError && <span className="text-red-400">{legalityError}</span>}
-            </>
-          )}
-        </div>
+        <>
+          {/* Buttons stay mounted (just hidden via `invisible` pre-anchor) and the
+              legality message gets a fixed-height slot below — selecting a hex or
+              flipping legal/illegal must not change this block's height, or it
+              shoves the board (rendered right after) up/down on every change. */}
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="text-neutral-400">
+              {anchor ? 'Click the same hex again (or Rotate) to turn it, click elsewhere to move it.' : 'Click a hex to choose where to place the tile.'}
+            </span>
+            <button
+              disabled={!anchor}
+              onClick={() => setRotation((r) => (r + 1) % 6)}
+              className={`rounded-md border border-neutral-700 px-3 py-1 hover:border-neutral-500 ${anchor ? '' : 'invisible'}`}
+            >
+              Rotate
+            </button>
+            <button
+              disabled={!legal}
+              onClick={() => anchor && onPlaceTile(anchor, rotation)}
+              className={`rounded-md bg-indigo-600 px-3 py-1 font-medium text-white hover:bg-indigo-500 disabled:opacity-50 ${anchor ? '' : 'invisible'}`}
+            >
+              Confirm placement
+            </button>
+            <button
+              disabled={!anchor}
+              onClick={() => setCenter(null)}
+              className={`text-neutral-500 underline hover:text-neutral-300 ${anchor ? '' : 'invisible'}`}
+            >
+              Cancel
+            </button>
+          </div>
+          <p className="min-h-[1.25rem] text-sm text-red-400">{anchor ? legalityError : null}</p>
+        </>
       )}
 
       <HexBoard
