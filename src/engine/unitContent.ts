@@ -116,7 +116,9 @@ export interface TransformEffect {
    * regardless of `destroySelf`) and the new unit is placed on the acting
    * unit's own hex — so `targetHex` should be `{ location: 'self' }` for
    * an effect that sets this. E.g. The Capital Tale's Constructing the
-   * Capital: "control 4 adjacent Cities."
+   * Capital: "control 4 adjacent Cities." A candidate unit that already
+   * resolved an action this turn doesn't count towards the cluster — see
+   * findAdjacentRhombusCluster in ./unitActions.ts.
    */
   requiredAdjacentRhombusOfKind?: string
 }

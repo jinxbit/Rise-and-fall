@@ -191,9 +191,17 @@ function commonNeighbors(state: GameState, a: Coordinate, b: Coordinate): Coordi
  * itself is already one of the two). Returns the 3 other hexes (not
  * including `coord`) on the first valid rhombus found, or null if `coord`
  * isn't part of any.
+ *
+ * A candidate hex's unit doesn't count if it already resolved an action
+ * this turn (`state.resolvedUnitIdsThisTurn`) — a City that already acted
+ * can't also be folded into the Capital for free; the whole cluster must
+ * still be un-acted. (Presence in that list is enough, not a cap check
+ * against `UnitContent.activationsPerTurnByKind`, since every kind this
+ * effect has ever targeted — City — activates at most once per turn.)
  */
 export function findAdjacentRhombusCluster(state: GameState, playerId: string, coord: Coordinate, kind: string): Coordinate[] | null {
-  const isOwnKind = (c: Coordinate) => unitsAt(state, c).some((u) => u.ownerId === playerId && u.kind === kind)
+  const isOwnKind = (c: Coordinate) =>
+    unitsAt(state, c).some((u) => u.ownerId === playerId && u.kind === kind && !state.resolvedUnitIdsThisTurn.includes(u.id))
   const neighbors = neighborCoords(state.board, coord)
   const ownNeighbors = neighbors.filter(isOwnKind)
 
