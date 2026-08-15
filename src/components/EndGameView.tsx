@@ -142,8 +142,9 @@ export function EndGameView({
   const ranked = [...state.players].sort((a, b) => (detailByPlayerId[b.id]?.total ?? 0) - (detailByPlayerId[a.id]?.total ?? 0))
   const rankedIds = ranked.map((p) => p.id)
   const ranks = ranksFor(ranked, (id) => detailByPlayerId[id]?.total ?? 0)
-  const categories = scoredCategories(breakdownByPlayerId, rankedIds)
   const eliminatedIds = new Set(state.players.filter((p) => p.eliminated).map((p) => p.id))
+  const activeIds = rankedIds.filter((id) => !eliminatedIds.has(id))
+  const categories = scoredCategories(breakdownByPlayerId, activeIds)
 
   const boardUnits: UnitMarker[] = state.units.map((unit) => ({
     coord: unit.coord,
@@ -176,7 +177,9 @@ export function EndGameView({
                   {isWinner && <span title="Winner"> 🏆</span>}
                   {player.eliminated && <span className="text-neutral-500"> (eliminated)</span>}
                 </span>
-                <span className={`font-medium ${isWinner ? 'text-amber-200' : 'text-neutral-200'}`}>{detailByPlayerId[player.id]?.total ?? 0} pts</span>
+                <span className={`font-medium ${isWinner ? 'text-amber-200' : 'text-neutral-200'}`}>
+                  {player.eliminated ? '—' : `${detailByPlayerId[player.id]?.total ?? 0} pts`}
+                </span>
               </li>
             )
           })}
@@ -227,16 +230,22 @@ export function EndGameView({
                 })}
                 <tr className="text-neutral-200">
                   <td className="py-1 pr-3 font-medium">Total</td>
-                  {rankedIds.map((id) => (
-                    <td key={id} className="px-3 py-1 font-medium">
-                      {breakdownByPlayerId[id]?.total ?? 0}
-                    </td>
-                  ))}
+                  {rankedIds.map((id) =>
+                    eliminatedIds.has(id) ? (
+                      <td key={id} className="px-3 py-1 text-neutral-500">
+                        —
+                      </td>
+                    ) : (
+                      <td key={id} className="px-3 py-1 font-medium">
+                        {breakdownByPlayerId[id]?.total ?? 0}
+                      </td>
+                    ),
+                  )}
                 </tr>
               </tbody>
             </table>
           </div>
-          <ScoreCategoryChart breakdownByPlayerId={breakdownByPlayerId} players={players} playerIds={rankedIds} />
+          <ScoreCategoryChart breakdownByPlayerId={breakdownByPlayerId} players={players} playerIds={activeIds} />
         </div>
       )}
 
@@ -277,6 +286,13 @@ export function EndGameView({
               <tr className="border-b border-neutral-800/60">
                 <td className="py-1 pr-3 text-neutral-500">Points</td>
                 {ranked.map((player) => {
+                  if (player.eliminated) {
+                    return (
+                      <td key={player.id} data-testid={`breakdown-points-${player.id}`} className="px-3 py-1 text-xs text-neutral-500">
+                        Eliminated
+                      </td>
+                    )
+                  }
                   const isWinner = winnerIds.has(player.id)
                   const total = detailByPlayerId[player.id]?.total ?? 0
                   return (

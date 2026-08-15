@@ -221,29 +221,47 @@ describe('EndGameView', () => {
     expect(screen.queryByText('Score categories')).not.toBeInTheDocument()
   })
 
-  it('shows "Eliminated" instead of a score breakdown for an eliminated player, in every place a breakdown appears, while still ranking and totaling their score', () => {
+  it('shows "Eliminated" instead of a score breakdown for an eliminated player, in every place a breakdown appears, and hides their score entirely rather than a stale pre-elimination number', () => {
     const state = makeState()
-    const eliminatedState: GameState = { ...state, players: state.players.map((p) => (p.id === 'p2' ? { ...p, eliminated: true } : p)) }
+    // p2 kept the "temple-mastery" achievement they claimed before being eliminated — achievements
+    // aren't revoked on elimination (see elimination.ts) — so their raw VP total is still 20, not 0.
+    const eliminatedContent: AchievementContent = { ...content, achievementVictoryPoints: { ...content.achievementVictoryPoints, 'temple-mastery': 20 } }
+    const eliminatedState: GameState = {
+      ...state,
+      claimedByAchievementId: { ...state.claimedByAchievementId, 'temple-mastery': 'p2' },
+      players: state.players.map((p) => (p.id === 'p2' ? { ...p, eliminated: true } : p)),
+    }
     const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
 
-    const { container } = render(<EndGameView state={eliminatedState} players={players} achievementContent={content} taleContent={EMPTY_TALE_CONTENT} />)
+    const { container } = render(<EndGameView state={eliminatedState} players={players} achievementContent={eliminatedContent} taleContent={EMPTY_TALE_CONTENT} />)
 
-    // Final score summary still ranks and totals Bob, but flags him eliminated.
+    // Final score summary flags Bob eliminated and shows "—" instead of his leftover 20-point total.
     const finalScore = screen.getByText('Final score').closest('div') as HTMLElement
-    expect(within(finalScore).getByText('Bob').closest('li')).toHaveTextContent('(eliminated)')
-    expect(screen.getByText('0 pts')).toBeInTheDocument()
+    const bobRow = within(finalScore).getByText('Bob').closest('li') as HTMLElement
+    expect(bobRow).toHaveTextContent('(eliminated)')
+    expect(bobRow).toHaveTextContent('—')
+    expect(within(finalScore).queryByText(/20 pts/)).not.toBeInTheDocument()
 
-    // Score categories: Bob's per-category cells are hidden, not real (zeroed-by-elimination) numbers.
+    // Score categories: Bob's per-category cells and the Total row are hidden, not real (leftover) numbers.
     const categoriesTable = container.querySelector('[data-testid="score-categories"] table:not(.sr-only)') as HTMLElement
     expect(categoriesTable).toHaveTextContent('Bob')
     expect(categoriesTable).toHaveTextContent('(eliminated)')
+    const totalRow = within(categoriesTable).getByText('Total').closest('tr') as HTMLElement
+    expect(totalRow).toHaveTextContent('—')
+    expect(totalRow).not.toHaveTextContent('20')
 
-    // Score breakdown: Bob's Breakdown/Resources/Units cells say "Eliminated" instead of the misleading zeroed-out detail.
+    // The bar chart (rendered in the same "Score categories" section) drops Bob's bar/legend entry entirely.
+    const chartSvg = container.querySelector('[data-testid="score-categories"] svg')
+    expect(chartSvg?.textContent).not.toContain('Bob')
+
+    // Score breakdown: Bob's Points/Breakdown/Resources/Units cells say "Eliminated" instead of the misleading leftover detail.
+    expect(screen.getByTestId('breakdown-points-p2')).toHaveTextContent('Eliminated')
     expect(screen.getByTestId('breakdown-lines-p2')).toHaveTextContent('Eliminated')
     expect(screen.getByTestId('breakdown-resources-p2')).toHaveTextContent('Eliminated')
     expect(screen.getByTestId('breakdown-units-p2')).toHaveTextContent('Eliminated')
 
     // Alice (not eliminated) is unaffected.
+    expect(screen.getByTestId('breakdown-points-p1')).toHaveTextContent('6 points')
     expect(screen.getByTestId('breakdown-lines-p1')).not.toHaveTextContent('Eliminated')
     expect(screen.getByTestId('breakdown-resources-p1')).toHaveTextContent('4 Gold, 0 Wood, 0 Stone')
   })
