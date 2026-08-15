@@ -31,7 +31,7 @@ import type { GameRow, GameSettings, PlayerRow } from '../lib/dbTypes'
 export function LobbyPage() {
   const { roomCode } = useParams<{ roomCode: string }>()
   const { session, loading: authLoading } = useAuth()
-  const { displayName } = useDisplayName(session?.user ?? null)
+  const { displayName, loading: displayNameLoading } = useDisplayName(session?.user ?? null)
   const navigate = useNavigate()
 
   const [game, setGame] = useState<GameRow | null>(null)
@@ -500,11 +500,11 @@ export function LobbyPage() {
 
       {!isHotseat && !isSeated && game.status === 'lobby' && (
         <button
-          disabled={busy}
+          disabled={busy || displayNameLoading}
           onClick={() => void handleJoin()}
           className="rounded-md bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
         >
-          Join this game
+          {displayNameLoading ? 'Loading…' : 'Join this game'}
         </button>
       )}
 

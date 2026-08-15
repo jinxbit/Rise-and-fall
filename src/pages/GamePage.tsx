@@ -52,7 +52,7 @@ const MAX_WRITE_RETRIES = 3
 export function GamePage() {
   const { roomCode } = useParams<{ roomCode: string }>()
   const { session, loading: authLoading } = useAuth()
-  const { displayName: observerDisplayName } = useDisplayName(session?.user ?? null)
+  const { displayName: observerDisplayName, loading: observerDisplayNameLoading } = useDisplayName(session?.user ?? null)
   const navigate = useNavigate()
 
   const [game, setGame] = useState<GameRow | null>(null)
@@ -245,11 +245,11 @@ export function GamePage() {
    * would have.
    */
   useEffect(() => {
-    if (autoObserveAttemptedRef.current || observerBusy || !canObserve) return
+    if (autoObserveAttemptedRef.current || observerBusy || !canObserve || observerDisplayNameLoading) return
     autoObserveAttemptedRef.current = true
     void handleObserve()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canObserve, observerBusy])
+  }, [canObserve, observerBusy, observerDisplayNameLoading])
 
   /**
    * Open observing in history review mode (issue #105), not live — an
@@ -1036,8 +1036,10 @@ export function GamePage() {
 
       {!gameState && canObserve && (
         <div className="flex flex-col items-center gap-4 rounded-md border border-neutral-800 p-12 text-center">
-          <p className="text-neutral-400">{observerBusy ? 'Joining as an observer…' : "You're not seated in this game."}</p>
-          {!observerBusy && (
+          <p className="text-neutral-400">
+            {observerBusy ? 'Joining as an observer…' : observerDisplayNameLoading ? 'Loading…' : "You're not seated in this game."}
+          </p>
+          {!observerBusy && !observerDisplayNameLoading && (
             <button
               type="button"
               onClick={() => void handleObserve()}
