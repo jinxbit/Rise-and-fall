@@ -41,7 +41,6 @@ export function ScoreCategoryChart({ breakdownByPlayerId, players, playerIds }: 
 
   return (
     <div className="flex flex-col gap-2">
-      <p className="text-sm font-medium text-neutral-200">Score by category</p>
       <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} className="w-full text-neutral-500" role="img" aria-label="Bar chart comparing each player's score by category">
         {gridSteps.map((step) => {
           const y = MARGIN.top + PLOT_HEIGHT - step * PLOT_HEIGHT
