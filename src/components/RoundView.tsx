@@ -288,13 +288,18 @@ function PlayersStrip({
         {state.players.map((player) => {
           const row = players.find((p) => p.id === player.id)
           const chosenCardId = state.chosenCardIdByPlayerId[player.id]
-          const chosenKind = chosenCardId ? state.cards[chosenCardId]?.kind : undefined
+          // The chosen card's kind (and its "Playing" indicator) is only
+          // revealed once the actions phase begins for that player's turn.
+          // During selectCards it's still a secret simultaneous pick, so
+          // don't show it as "Playing" or drop it from the hand display.
+          const chosenKind = state.roundPhase === 'actions' && chosenCardId ? state.cards[chosenCardId]?.kind : undefined
           // Chosen-but-not-yet-resolved card stays in handCardIds until the
           // player's turn finishes (finishActionsTurn moves it hand ->
-          // currentlyPlayed -> discard), so hide it from the hand display
-          // here to avoid showing it as both "Playing" and still in hand.
+          // currentlyPlayed -> discard). Once the actions phase reveals it
+          // as "Playing", hide it from the hand display to avoid showing it
+          // as both "Playing" and still in hand.
           const handKinds = kindsInZone(
-            player.handCardIds.filter((id) => id !== chosenCardId),
+            state.roundPhase === 'actions' ? player.handCardIds.filter((id) => id !== chosenCardId) : player.handCardIds,
             state.cards,
           )
           const discardKinds = kindsInZone(player.discardCardIds, state.cards)
