@@ -164,6 +164,7 @@ function TilePlacementPanel(props: {
         extraCoords={extraCoords}
         ghostCells={ghostCells}
         selectedCoord={center}
+        rotateHintCoord={isMyTurn ? center : null}
         interactive={isMyTurn}
         onHexClick={handleHexClick}
       />

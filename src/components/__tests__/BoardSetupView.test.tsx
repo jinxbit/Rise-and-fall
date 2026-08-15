@@ -125,4 +125,27 @@ describe('BoardSetupView — tile placement ghost legality', () => {
     expect(ghostCovered?.getAttribute('stroke')).toBe('#22c55e')
     expect(screen.getByText('Confirm placement')).toBeEnabled()
   })
+
+  it('marks the clicked (anchor) hex with a rotate hint once a placement is pending — issue #115', () => {
+    const board = setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'water')
+    const state = makeWaterPlacementState(board)
+
+    const { container } = render(
+      <BoardSetupView
+        state={state}
+        players={[makePlayerRow('p1', 'Alice'), makePlayerRow('p2', 'Bob')]}
+        myPlayerId="p1"
+        boardGenerationContent={boardGenerationContent}
+        onPlaceTile={vi.fn()}
+        onPlaceUnit={vi.fn()}
+      />,
+    )
+
+    expect(container.querySelector('[data-rotate-hint-coord]')).toBeNull()
+
+    const hex = container.querySelector('polygon[data-coord="2,0"]')
+    fireEvent.click(hex!)
+
+    expect(container.querySelector('[data-rotate-hint-coord="2,0"]')).not.toBeNull()
+  })
 })
