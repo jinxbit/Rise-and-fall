@@ -221,6 +221,33 @@ describe('EndGameView', () => {
     expect(screen.queryByText('Score categories')).not.toBeInTheDocument()
   })
 
+  it('shows "Eliminated" instead of a score breakdown for an eliminated player, in every place a breakdown appears, while still ranking and totaling their score', () => {
+    const state = makeState()
+    const eliminatedState: GameState = { ...state, players: state.players.map((p) => (p.id === 'p2' ? { ...p, eliminated: true } : p)) }
+    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
+
+    const { container } = render(<EndGameView state={eliminatedState} players={players} achievementContent={content} taleContent={EMPTY_TALE_CONTENT} />)
+
+    // Final score summary still ranks and totals Bob, but flags him eliminated.
+    const finalScore = screen.getByText('Final score').closest('div') as HTMLElement
+    expect(within(finalScore).getByText('Bob').closest('li')).toHaveTextContent('(eliminated)')
+    expect(screen.getByText('0 pts')).toBeInTheDocument()
+
+    // Score categories: Bob's per-category cells are hidden, not real (zeroed-by-elimination) numbers.
+    const categoriesTable = container.querySelector('[data-testid="score-categories"] table:not(.sr-only)') as HTMLElement
+    expect(categoriesTable).toHaveTextContent('Bob')
+    expect(categoriesTable).toHaveTextContent('(eliminated)')
+
+    // Score breakdown: Bob's Breakdown/Resources/Units cells say "Eliminated" instead of the misleading zeroed-out detail.
+    expect(screen.getByTestId('breakdown-lines-p2')).toHaveTextContent('Eliminated')
+    expect(screen.getByTestId('breakdown-resources-p2')).toHaveTextContent('Eliminated')
+    expect(screen.getByTestId('breakdown-units-p2')).toHaveTextContent('Eliminated')
+
+    // Alice (not eliminated) is unaffected.
+    expect(screen.getByTestId('breakdown-lines-p1')).not.toHaveTextContent('Eliminated')
+    expect(screen.getByTestId('breakdown-resources-p1')).toHaveTextContent('4 Gold, 0 Wood, 0 Stone')
+  })
+
   it('renders the "Total score over time" chart once scoreHistory has at least two points, and omits it otherwise', () => {
     const state = makeState()
     const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]

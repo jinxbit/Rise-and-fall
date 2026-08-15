@@ -143,6 +143,7 @@ export function EndGameView({
   const rankedIds = ranked.map((p) => p.id)
   const ranks = ranksFor(ranked, (id) => detailByPlayerId[id]?.total ?? 0)
   const categories = scoredCategories(breakdownByPlayerId, rankedIds)
+  const eliminatedIds = new Set(state.players.filter((p) => p.eliminated).map((p) => p.id))
 
   const boardUnits: UnitMarker[] = state.units.map((unit) => ({
     coord: unit.coord,
@@ -173,6 +174,7 @@ export function EndGameView({
                 <span className={`flex-1 ${isWinner ? 'font-semibold text-amber-200' : 'text-neutral-200'}`}>
                   {row?.display_name ?? player.id}
                   {isWinner && <span title="Winner"> 🏆</span>}
+                  {player.eliminated && <span className="text-neutral-500"> (eliminated)</span>}
                 </span>
                 <span className={`font-medium ${isWinner ? 'text-amber-200' : 'text-neutral-200'}`}>{detailByPlayerId[player.id]?.total ?? 0} pts</span>
               </li>
@@ -192,18 +194,26 @@ export function EndGameView({
                   {ranked.map((player) => (
                     <th key={player.id} className="px-3 py-1 font-normal text-neutral-400">
                       {players.find((p) => p.id === player.id)?.display_name ?? player.id}
+                      {player.eliminated && <span className="text-neutral-500"> (eliminated)</span>}
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {categories.map((category) => {
-                  const values = rankedIds.map((id) => breakdownByPlayerId[id]?.[category.key] ?? 0)
-                  const leaderValue = Math.max(...values)
+                  const activeValues = rankedIds.filter((id) => !eliminatedIds.has(id)).map((id) => breakdownByPlayerId[id]?.[category.key] ?? 0)
+                  const leaderValue = activeValues.length > 0 ? Math.max(...activeValues) : 0
                   return (
                     <tr key={category.key} className="border-b border-neutral-800/60 last:border-0">
                       <td className="py-1 pr-3 text-neutral-400">{category.label}</td>
                       {rankedIds.map((id) => {
+                        if (eliminatedIds.has(id)) {
+                          return (
+                            <td key={id} className="px-3 py-1 text-neutral-500">
+                              —
+                            </td>
+                          )
+                        }
                         const value = breakdownByPlayerId[id]?.[category.key] ?? 0
                         const isLeader = value > 0 && value === leaderValue
                         return (
@@ -279,6 +289,13 @@ export function EndGameView({
               <tr className="border-b border-neutral-800/60">
                 <td className="py-1 pr-3 align-top text-neutral-500">Breakdown</td>
                 {ranked.map((player) => {
+                  if (player.eliminated) {
+                    return (
+                      <td key={player.id} data-testid={`breakdown-lines-${player.id}`} className="px-3 py-1 align-top text-xs text-neutral-500">
+                        Eliminated
+                      </td>
+                    )
+                  }
                   const detail = detailByPlayerId[player.id]
                   const lines = detail ? scoreLinesFor(detail) : []
                   return (
@@ -300,15 +317,28 @@ export function EndGameView({
               </tr>
               <tr className="border-b border-neutral-800/60">
                 <td className="py-1 pr-3 text-neutral-500">Resources</td>
-                {ranked.map((player) => (
-                  <td key={player.id} data-testid={`breakdown-resources-${player.id}`} className="px-3 py-1 text-xs text-neutral-400">
-                    {player.resources.gold} Gold, {player.resources.wood} Wood, {player.resources.stone} Stone
-                  </td>
-                ))}
+                {ranked.map((player) =>
+                  player.eliminated ? (
+                    <td key={player.id} data-testid={`breakdown-resources-${player.id}`} className="px-3 py-1 text-xs text-neutral-500">
+                      Eliminated
+                    </td>
+                  ) : (
+                    <td key={player.id} data-testid={`breakdown-resources-${player.id}`} className="px-3 py-1 text-xs text-neutral-400">
+                      {player.resources.gold} Gold, {player.resources.wood} Wood, {player.resources.stone} Stone
+                    </td>
+                  ),
+                )}
               </tr>
               <tr>
                 <td className="py-1 pr-3 align-top text-neutral-500">Units</td>
                 {ranked.map((player) => {
+                  if (player.eliminated) {
+                    return (
+                      <td key={player.id} data-testid={`breakdown-units-${player.id}`} className="px-3 py-1 align-top text-xs text-neutral-500">
+                        Eliminated
+                      </td>
+                    )
+                  }
                   const unitCounts = unitCountsFor(state, player.id)
                   return (
                     <td key={player.id} data-testid={`breakdown-units-${player.id}`} className="px-3 py-1 align-top">
