@@ -568,14 +568,46 @@ function SelectCardsPanel(props: { state: GameState; players: PlayerRow[]; myPla
   )
 }
 
+interface BulkActionGroup {
+  kind: string
+  actionId: string
+  label: string
+  unitIds: string[]
+}
+
+/**
+ * Every no-target action (see actionNeedsTargeting) at least one of
+ * `remaining`'s units can currently take, grouped by unit kind + action id
+ * — e.g. every idle Nomad/Mountaineer's Produce Resource, or every idle
+ * Ship/Merchant/City/Temple's trade/income action (issue #61). Drives the
+ * "act on everyone at once" buttons in ActionsPanel below, so a player
+ * doesn't have to click through each unit individually on the board for an
+ * action that never needed a target hex in the first place.
+ */
+function computeBulkActionGroups(state: GameState, unitContent: UnitContent, playerId: string, remaining: Unit[]): BulkActionGroup[] {
+  const groups = new Map<string, BulkActionGroup>()
+  for (const unit of remaining) {
+    for (const action of unitContent.actionsByKind[unit.kind] ?? []) {
+      if (actionNeedsTargeting(action.effect)) continue
+      if (!isActionAvailableForUnit(state, playerId, unit, action, unitContent)) continue
+      const key = `${unit.kind}:${action.id}`
+      const group = groups.get(key)
+      if (group) group.unitIds.push(unit.id)
+      else groups.set(key, { kind: unit.kind, actionId: action.id, label: action.name, unitIds: [unit.id] })
+    }
+  }
+  return [...groups.values()]
+}
+
 function ActionsPanel(props: {
   state: GameState
   players: PlayerRow[]
   myPlayerId: string | null
   unitContent: UnitContent
   onPassActions: () => void
+  onResolveBulkAction: (unitIds: string[], actionId: string) => void
 }) {
-  const { state, players, myPlayerId, unitContent, onPassActions } = props
+  const { state, players, myPlayerId, unitContent, onPassActions, onResolveBulkAction } = props
   const activePlayerId = state.pendingPlayerIds[0] ?? null
   const isMyTurn = activePlayerId !== null && activePlayerId === myPlayerId
 
@@ -589,6 +621,7 @@ function ActionsPanel(props: {
 
   const actingUnits = eligibleActingUnits(state, unitContent, myPlayerId, card)
   const remaining = actingUnits.filter((u) => !state.resolvedUnitIdsThisTurn.includes(u.id))
+  const bulkGroups = computeBulkActionGroups(state, unitContent, myPlayerId, remaining)
 
   return (
     <div className="flex flex-col gap-3 text-sm">
@@ -599,6 +632,21 @@ function ActionsPanel(props: {
       </p>
 
       {actingUnits.length === 0 && <p className="text-neutral-500">No units of this kind to act.</p>}
+
+      {bulkGroups.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {bulkGroups.map((group) => (
+            <button
+              key={`${group.kind}:${group.actionId}`}
+              onClick={() => onResolveBulkAction(group.unitIds, group.actionId)}
+              title={`Apply "${group.label}" to every remaining ${capitalize(group.kind)} that can currently take it, without picking each one individually on the board.`}
+              className="rounded-md border border-neutral-700 px-3 py-1 hover:border-neutral-500"
+            >
+              {group.label} — all ({group.unitIds.length})
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="flex gap-2">
         <button onClick={onPassActions} className="rounded-md bg-indigo-600 px-3 py-1 font-medium text-white hover:bg-indigo-500">
@@ -720,6 +768,8 @@ export function RoundView(props: {
   gameLog: GameEvent[]
   onChooseCard: (cardId: string) => void
   onResolveUnit: (unitId: string, actionId: string, target?: Coordinate) => void
+  /** Resolves the same no-target action (see actionNeedsTargeting) for every listed unit id in one submission — see ActionsPanel's bulk-action buttons (issue #61). */
+  onResolveBulkAction: (unitIds: string[], actionId: string) => void
   onPassActions: () => void
   onMoveToDecline: (cardId: string) => void
   onPurchaseCard: (cardId: string) => void
@@ -860,7 +910,14 @@ export function RoundView(props: {
         <SelectCardsPanel state={state} players={players} myPlayerId={myPlayerId} onChooseCard={props.onChooseCard} />
       )}
       {!showHistory && state.roundPhase === 'actions' && (
-        <ActionsPanel state={state} players={players} myPlayerId={myPlayerId} unitContent={unitContent} onPassActions={props.onPassActions} />
+        <ActionsPanel
+          state={state}
+          players={players}
+          myPlayerId={myPlayerId}
+          unitContent={unitContent}
+          onPassActions={props.onPassActions}
+          onResolveBulkAction={props.onResolveBulkAction}
+        />
       )}
       {!showHistory && state.roundPhase === 'decline' && (
         <DeclinePanel state={state} players={players} myPlayerId={myPlayerId} onMoveToDecline={props.onMoveToDecline} />
