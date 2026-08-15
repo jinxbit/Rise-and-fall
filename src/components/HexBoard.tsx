@@ -105,6 +105,37 @@ export interface GhostCell {
   legal: boolean
 }
 
+/** A point at `angleDeg` (0 = +x axis, clockwise) around (cx, cy) at radius `r`, in SVG's y-down coordinate space. */
+function polarPoint(cx: number, cy: number, r: number, angleDeg: number): { x: number; y: number } {
+  const angle = (Math.PI / 180) * angleDeg
+  return { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) }
+}
+
+/**
+ * Rotate-hint glyph: a ~250° circular arrow centered at (cx, cy), open on
+ * one side so it doesn't read as a plain "loading" ring — drawn on the
+ * anchor hex during tile placement (see BoardSetupView's TilePlacementPanel)
+ * to show both where clicking rotates the pending tile *and* which hex is
+ * its anchor (the ruling this glyph exists for, see issue #115: the anchor
+ * wasn't visually distinguishable from the rest of the tile's ghost cells
+ * before this, just documented in help text below the board).
+ */
+function RotateHintIcon({ cx, cy, r }: { cx: number; cy: number; r: number }) {
+  const arcStartDeg = -200
+  const arcEndDeg = 40
+  const start = polarPoint(cx, cy, r, arcStartDeg)
+  const end = polarPoint(cx, cy, r, arcEndDeg)
+  const beforeEnd = polarPoint(cx, cy, r, arcEndDeg - 18)
+  const headLength = r * 0.65
+  const headWidth = r * 0.5
+  return (
+    <g pointerEvents="none">
+      <path d={`M ${start.x} ${start.y} A ${r} ${r} 0 1 1 ${end.x} ${end.y}`} fill="none" stroke="#eab308" strokeWidth={r * 0.28} strokeLinecap="round" />
+      <polygon points={arrowHeadPoints(beforeEnd.x, beforeEnd.y, end.x, end.y, headLength, headWidth)} fill="#eab308" />
+    </g>
+  )
+}
+
 /** One event type worth ringing a unit for in history-review mode (see RoundView.tsx's history toggle) — 'moved' is drawn as an arrow instead (see HistoryArrow), not a halo. */
 export type HistoryHaloType = 'created' | 'produced' | 'income' | 'converted'
 
@@ -403,6 +434,13 @@ export function HexBoard(props: {
   arrows?: HistoryArrow[]
   actionMenu?: ActionMenu
   selectedCoord?: Coordinate | null
+  /**
+   * Draws a rotate-arrow glyph on this hex — the pending tile placement's
+   * anchor, clicking which rotates it (see TilePlacementPanel in
+   * BoardSetupView.tsx). Purely a visual hint; the click itself is still
+   * handled by the underlying hex polygon's own `onHexClick`.
+   */
+  rotateHintCoord?: Coordinate | null
   interactive?: boolean
   /**
    * Restricts which hexes actually respond to hover/click while
@@ -576,6 +614,15 @@ export function HexBoard(props: {
           />
         )
       })}
+      {props.rotateHintCoord &&
+        (() => {
+          const { x, y } = axialToPixel(props.rotateHintCoord, size)
+          return (
+            <g data-rotate-hint-coord={coordKey(props.rotateHintCoord)}>
+              <RotateHintIcon cx={x} cy={y} r={size * 0.55} />
+            </g>
+          )
+        })()}
       {(props.arrows ?? []).map((arrow, i) => {
         const from = axialToPixel(arrow.from, size)
         const to = axialToPixel(arrow.to, size)
