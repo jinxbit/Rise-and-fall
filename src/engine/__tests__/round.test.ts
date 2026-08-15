@@ -623,4 +623,34 @@ describe('finishRound re-syncs recycled cards against the board (rule 5/6 + rule
     expect(p1After.handCardIds).toContain(cardIdFor('p1', 'merchant'))
     expect(p1After.handCardIds).toContain(cardIdFor('p1', 'mountaineer'))
   })
+
+  // Reported bug: a player who merges their only 4 Cities into The Capital
+  // Tale piece (a `capital`-kind companion unit that "counts as a normal
+  // City" per its own rule text) got their recycled City card swept to
+  // supply anyway, since the old resync only checked for a literal 'city'
+  // unit — leaving their hand empty and getting them wrongly eliminated at
+  // the next select-cards phase. finishRound must consult
+  // unitContent.companionKindsByCardKind, same as every other companion
+  // check in the engine, so a card recycles into hand whenever its owner
+  // controls either the card's own kind or one of its companions.
+  it("recycles a card into hand when the player's only backing unit is a Tale companion (e.g. the Capital) of that kind", () => {
+    let state = makeActiveGameWithFullHands()
+    const p1Index = state.players.findIndex((p) => p.id === 'p1')
+    let p1 = state.players[p1Index]
+    for (const cardId of [...p1.handCardIds]) {
+      p1 = moveCard(p1, cardId, 'discard')
+    }
+    const players = [...state.players]
+    players[p1Index] = p1
+    // p1 has no literal 'city' unit, only a 'capital' companion piece.
+    const units = [...state.units, { id: 'p1_capital', ownerId: 'p1', kind: 'capital', coord: { q: 50, r: 50 }, movement: { isMobile: false, terrains: [], canCrossCliffs: false }, traits: [] }]
+    state = { ...state, players, units }
+
+    const companionUnitContent: UnitContent = { ...testUnitContent, companionKindsByCardKind: { city: ['capital'] } }
+    const result = finishRound(state, EMPTY_ACHIEVEMENT_CONTENT, undefined, companionUnitContent)
+
+    const p1After = result.players.find((p) => p.id === 'p1')!
+    expect(p1After.handCardIds).toContain(cardIdFor('p1', 'city'))
+    expect(p1After.supplyCardIds).not.toContain(cardIdFor('p1', 'city'))
+  })
 })

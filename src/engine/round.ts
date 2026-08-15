@@ -7,6 +7,8 @@ import { calculatePurchaseCost } from './purchaseCost'
 import type { FantasticEvent, TaleContent } from './taleContent'
 import { EMPTY_TALE_CONTENT } from './taleContent'
 import type { GameState } from './types'
+import { EMPTY_UNIT_CONTENT } from './unitContent'
+import type { UnitContent } from './unitContent'
 import { calculateVPBreakdown, determineWinners } from './victoryPoints'
 
 /**
@@ -68,6 +70,7 @@ export function beginDeclinePhase(
   state: GameState,
   achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT,
   taleContent: TaleContent = EMPTY_TALE_CONTENT,
+  unitContent: UnitContent = EMPTY_UNIT_CONTENT,
 ): GameState {
   const cardsPerPlayer = Math.max(1, state.achievementsClaimedThisRound)
   const started: GameState = {
@@ -80,7 +83,7 @@ export function beginDeclinePhase(
   // See beginSelectCardsPhase's matching comment: a just-completed game
   // (last-player-standing) must not chain into the purchase phase.
   return afterEliminations.status !== 'completed' && afterEliminations.pendingPlayerIds.length === 0
-    ? beginPurchasePhase(afterEliminations, achievementContent, taleContent)
+    ? beginPurchasePhase(afterEliminations, achievementContent, taleContent, unitContent)
     : afterEliminations
 }
 
@@ -120,6 +123,7 @@ export function beginPurchasePhase(
   state: GameState,
   achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT,
   taleContent: TaleContent = EMPTY_TALE_CONTENT,
+  unitContent: UnitContent = EMPTY_UNIT_CONTENT,
 ): GameState {
   const started: GameState = {
     ...state,
@@ -128,7 +132,7 @@ export function beginPurchasePhase(
     activePlayerId: state.turnOrder[0] ?? null,
   }
   const afterSkips = skipEmptyDeclinePurchasers(started, achievementContent)
-  return afterSkips.pendingPlayerIds.length === 0 ? finishRound(afterSkips, achievementContent, taleContent) : afterSkips
+  return afterSkips.pendingPlayerIds.length === 0 ? finishRound(afterSkips, achievementContent, taleContent, unitContent) : afterSkips
 }
 
 /** Once the actions phase finishes: rule 3 inserts the decline phase only if it was triggered this round. */
@@ -136,10 +140,11 @@ export function beginPostActionsPhase(
   state: GameState,
   achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT,
   taleContent: TaleContent = EMPTY_TALE_CONTENT,
+  unitContent: UnitContent = EMPTY_UNIT_CONTENT,
 ): GameState {
   return isDeclineTriggered(state)
-    ? beginDeclinePhase(state, achievementContent, taleContent)
-    : beginPurchasePhase(state, achievementContent, taleContent)
+    ? beginDeclinePhase(state, achievementContent, taleContent, unitContent)
+    : beginPurchasePhase(state, achievementContent, taleContent, unitContent)
 }
 
 /**
@@ -171,15 +176,16 @@ function applyFantasticEvents(state: GameState, events: FantasticEvent[]): GameS
  * player if that happened, resolve any Fantastic Events (if two or more
  * players just recycled), then either end the game (step 6, once
  * `achievementContent.gameLength` total achievements have been claimed) or
- * start the next round. `achievementContent`/`taleContent` default to
- * their empty forms (gameLength: Infinity, no Fantastic Events), so a
- * caller that doesn't supply them gets the old always-continue, no-Tales
- * behavior.
+ * start the next round. `achievementContent`/`taleContent`/`unitContent`
+ * default to their empty forms (gameLength: Infinity, no Fantastic Events,
+ * no Tale companions), so a caller that doesn't supply them gets the old
+ * always-continue, no-Tales behavior.
  */
 export function finishRound(
   state: GameState,
   achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT,
   taleContent: TaleContent = EMPTY_TALE_CONTENT,
+  unitContent: UnitContent = EMPTY_UNIT_CONTENT,
 ): GameState {
   let recycledCount = 0
   const players = state.players.map((player) => {
@@ -200,8 +206,10 @@ export function finishRound(
     // which only ever moves hand<->supply, never touches discard).
     // Re-syncing here catches exactly that: any recycled card for a
     // now-absent kind moves straight back to supply instead of sitting in
-    // hand as a false choice.
-    nextState = syncCardZonesWithBoard(nextState)
+    // hand as a false choice — unless a Tale companion (e.g. the Capital)
+    // stands in for it, which unitContent.companionKindsByCardKind accounts
+    // for (see syncCardZonesWithBoard's own doc comment).
+    nextState = syncCardZonesWithBoard(nextState, unitContent.companionKindsByCardKind)
 
     const turnOrder =
       nextState.turnOrder.length > 1 ? [...nextState.turnOrder.slice(1), nextState.turnOrder[0]] : nextState.turnOrder

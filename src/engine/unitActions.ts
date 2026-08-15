@@ -681,5 +681,5 @@ export function applyUnitActionEffect(
   // applyResolveUnitAction in ./applyAction.ts, which rejects a
   // RESOLVE_UNIT_ACTION outright rather than silently accepting a no-op as
   // the unit's turn.
-  return nextState === state ? nextState : syncCardZonesWithBoard(nextState)
+  return nextState === state ? nextState : syncCardZonesWithBoard(nextState, content.companionKindsByCardKind)
 }

@@ -3176,3 +3176,49 @@ from their *only* 4 Cities would see their City card cycle to supply
 until they build a new City elsewhere, same pre-existing characteristic
 every companion piece (Port/Bank/Cathedral) already has relative to its
 own parent kind, not something newly introduced here.
+
+## 65. Player wrongly eliminated after merging their only Cities into the Capital — fixed
+
+Reported: a player was eliminated at the start of a round despite having a
+City card sitting in discard, which should have been recycled into their
+hand instead.
+
+Root cause: exactly #64's own noted "not done" scope gap. The player had
+built the Capital from their only 4 City units, so their board had a
+`capital` unit but no literal `city` one. At round end, `finishRound`
+recycled their empty hand from discard (their City card, played earlier
+that round) — but then re-synced it straight back to supply, since
+`syncCardZonesWithBoard` (`cards.ts`) only ever checked for a unit whose
+`kind` literally equals the card's kind, with no idea that the Capital
+"counts as a normal City" per its own rule text. With every other card
+already in supply or decline, that left their hand genuinely empty, and
+`beginSelectCardsPhase`'s empty-hand elimination check (rule 1, correct in
+isolation) fired on a player who should still have had a playable card.
+
+Fix: `syncCardZonesWithBoard` now takes an optional
+`companionKindsByCardKind` (`UnitContent`'s own field, already populated by
+`applyTaleModifiers` for whichever Tales are active) and treats a card's
+kind as backed by a unit on the board if the player controls either that
+literal kind *or* one of its companions — the same rule
+`applyResolveUnitAction` already uses to let a companion piece act off its
+parent's card. Threaded through every caller that can trigger a resync
+(`finishRound`, `applyPurchaseCard`, `placeUnit`, `applyUnitActionEffect`),
+and through the round-phase chain that reaches `finishRound`
+(`beginPostActionsPhase`/`beginDeclinePhase`/`beginPurchasePhase`, each
+gaining a new optional `unitContent` param, appended last so no existing
+positional call site broke). The live UI needed no changes — `GamePage.tsx`
+already builds its `unitContent` via `applyTaleModifiers` and threads it
+through every `applyAction` call; the fix takes effect automatically.
+
+Diagnosed from a reporter-supplied `RAF-STATE-1` export (#60): decoded and
+replayed against real content/Tale data (`the-capital` was active) to
+confirm the exact sequence — City card played, Capital constructed
+consuming all 4 Cities, Capital Trophy claimed and triggering Decline,
+then the empty-hand elimination on the following round.
+
+New regression test in `round.test.ts`, alongside #21's original
+companion-less version: a player with only a `capital` unit (no literal
+`city`) has their discarded City card recycle into hand, not supply, when
+`finishRound` is given `companionKindsByCardKind: { city: ['capital'] }`.
+664 tests total (was 663); `tsc -b`/`oxlint`/`vitest run`/`npm run build`
+all clean.

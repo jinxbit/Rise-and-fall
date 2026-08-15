@@ -113,8 +113,17 @@ export function moveCard(player: Player, cardId: string, toZone: CardZone): Play
  * owner currently has a unit of that kind, and only the round-end recycle
  * (`finishRound` in ./round.ts) or the next play should move it. Call this
  * after anything that changes `state.units`.
+ *
+ * `companionKindsByCardKind` (UnitContent.companionKindsByCardKind — empty
+ * by default) lets a Tale companion piece (e.g. The Capital) stand in for
+ * its parent kind here too: a City card stays in hand as long as its owner
+ * controls a City *or* a Capital, matching every other place a companion
+ * "counts as" its parent kind (Ship's Trade action, applyResolveUnitAction's
+ * own companion activation check). Without this, a player whose only City
+ * units were just consumed building the Capital would see their City card
+ * swept to supply as if they'd lost it entirely.
  */
-export function syncCardZonesWithBoard(state: GameState): GameState {
+export function syncCardZonesWithBoard(state: GameState, companionKindsByCardKind: Record<string, string[]> = {}): GameState {
   const players = state.players.map((player) => {
     let nextPlayer = player
     for (const kind of UNIT_KINDS) {
@@ -124,7 +133,10 @@ export function syncCardZonesWithBoard(state: GameState): GameState {
       const zone = findCardZone(nextPlayer, id)
       if (zone === 'decline' || zone === 'discard' || zone === 'currentlyPlayed') continue
 
-      const hasUnitOnBoard = state.units.some((u) => u.ownerId === player.id && u.kind === kind)
+      const companionKinds = companionKindsByCardKind[kind] ?? []
+      const hasUnitOnBoard = state.units.some(
+        (u) => u.ownerId === player.id && (u.kind === kind || companionKinds.includes(u.kind)),
+      )
 
       if (!hasUnitOnBoard && zone !== 'supply') {
         nextPlayer = moveCard(nextPlayer, id, 'supply')

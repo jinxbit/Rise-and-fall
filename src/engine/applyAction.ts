@@ -204,13 +204,13 @@ function dispatchAction(
     case 'RESOLVE_UNIT_ACTION':
       return applyResolveUnitAction(state, action.playerId, action.unitActions, unitContent, achievementContent, taleContent)
     case 'PASS_ACTIONS':
-      return applyPassActions(state, action.playerId, achievementContent, taleContent)
+      return applyPassActions(state, action.playerId, achievementContent, taleContent, unitContent)
     case 'MOVE_TO_DECLINE':
-      return applyMoveToDecline(state, action.playerId, action.cardId, achievementContent, taleContent)
+      return applyMoveToDecline(state, action.playerId, action.cardId, achievementContent, taleContent, unitContent)
     case 'PURCHASE_CARD':
-      return applyPurchaseCard(state, action.playerId, action.cardId, achievementContent, taleContent)
+      return applyPurchaseCard(state, action.playerId, action.cardId, achievementContent, taleContent, unitContent)
     case 'PASS_PURCHASE':
-      return applyPassPurchase(state, action.playerId, achievementContent, taleContent)
+      return applyPassPurchase(state, action.playerId, achievementContent, taleContent, unitContent)
     default: {
       const exhaustive: never = action
       return { ok: false, error: `Unknown action: ${JSON.stringify(exhaustive)}` }
@@ -261,7 +261,13 @@ function applyChooseCard(state: GameState, playerId: string, cardId: string): Ac
  * advances `pendingPlayerIds` to the next player, and resets
  * `resolvedUnitIdsThisTurn` for their fresh turn.
  */
-function finishActionsTurn(state: GameState, playerId: string, achievementContent: AchievementContent, taleContent: TaleContent): ActionResult {
+function finishActionsTurn(
+  state: GameState,
+  playerId: string,
+  achievementContent: AchievementContent,
+  taleContent: TaleContent,
+  unitContent: UnitContent,
+): ActionResult {
   const cardId = state.chosenCardIdByPlayerId[playerId]
   if (!cardId) {
     return { ok: false, error: 'Player has no chosen card to resolve' }
@@ -285,7 +291,7 @@ function finishActionsTurn(state: GameState, playerId: string, achievementConten
   nextState = { ...nextState, activePlayerId: nextState.pendingPlayerIds[0] ?? null }
 
   if (nextState.pendingPlayerIds.length === 0) {
-    nextState = beginPostActionsPhase(nextState, achievementContent, taleContent)
+    nextState = beginPostActionsPhase(nextState, achievementContent, taleContent, unitContent)
   }
   return { ok: true, state: nextState }
 }
@@ -411,7 +417,7 @@ function applyResolveUnitAction(
     return resolvedUnitIdsThisTurn.filter((id) => id === u.id).length >= activationsCap
   })
   if (everyUnitActed) {
-    return finishActionsTurn(nextState, playerId, achievementContent, taleContent)
+    return finishActionsTurn(nextState, playerId, achievementContent, taleContent, unitContent)
   }
 
   return { ok: true, state: nextState }
@@ -424,7 +430,13 @@ function applyResolveUnitAction(
  * this round — already the default outcome for a unit never resolved, so
  * there's nothing to enumerate here.
  */
-function applyPassActions(state: GameState, playerId: string, achievementContent: AchievementContent, taleContent: TaleContent): ActionResult {
+function applyPassActions(
+  state: GameState,
+  playerId: string,
+  achievementContent: AchievementContent,
+  taleContent: TaleContent,
+  unitContent: UnitContent,
+): ActionResult {
   if (state.roundPhase !== 'actions') {
     return { ok: false, error: 'Not in the action-resolution phase' }
   }
@@ -432,7 +444,7 @@ function applyPassActions(state: GameState, playerId: string, achievementContent
     return { ok: false, error: "It is not this player's turn to pass" }
   }
 
-  return finishActionsTurn(state, playerId, achievementContent, taleContent)
+  return finishActionsTurn(state, playerId, achievementContent, taleContent, unitContent)
 }
 
 /** Removes a single occurrence of `id` from `ids` (not every occurrence — see removeOneOccurrence's caller). */
@@ -458,6 +470,7 @@ function applyMoveToDecline(
   cardId: string,
   achievementContent: AchievementContent,
   taleContent: TaleContent,
+  unitContent: UnitContent,
 ): ActionResult {
   if (state.roundPhase !== 'decline') {
     return { ok: false, error: 'Not in the decline phase' }
@@ -489,7 +502,7 @@ function applyMoveToDecline(
   // chaining into the purchase phase in that case, same as round.ts's own
   // post-elimination chain points.
   if (nextState.status !== 'completed' && nextState.pendingPlayerIds.length === 0) {
-    nextState = beginPurchasePhase(nextState, achievementContent, taleContent)
+    nextState = beginPurchasePhase(nextState, achievementContent, taleContent, unitContent)
   }
   return { ok: true, state: nextState }
 }
@@ -509,6 +522,7 @@ function applyPurchaseCard(
   cardId: string,
   achievementContent: AchievementContent,
   taleContent: TaleContent,
+  unitContent: UnitContent,
 ): ActionResult {
   if (state.roundPhase !== 'purchase') {
     return { ok: false, error: 'Not in the purchase phase' }
@@ -539,12 +553,12 @@ function applyPurchaseCard(
   const players = state.players.map((p) => (p.id === playerId ? nextPlayer : p))
 
   let nextState: GameState = { ...state, players, resourceBank: spent.bank, pendingPlayerIds: state.pendingPlayerIds.slice(1) }
-  nextState = syncCardZonesWithBoard(nextState)
+  nextState = syncCardZonesWithBoard(nextState, unitContent.companionKindsByCardKind)
   nextState = { ...nextState, activePlayerId: nextState.pendingPlayerIds[0] ?? null }
   nextState = skipEmptyDeclinePurchasers(nextState, achievementContent)
 
   if (nextState.pendingPlayerIds.length === 0) {
-    nextState = finishRound(nextState, achievementContent, taleContent)
+    nextState = finishRound(nextState, achievementContent, taleContent, unitContent)
   }
   return { ok: true, state: nextState }
 }
@@ -555,6 +569,7 @@ function applyPassPurchase(
   playerId: string,
   achievementContent: AchievementContent,
   taleContent: TaleContent,
+  unitContent: UnitContent,
 ): ActionResult {
   if (state.roundPhase !== 'purchase') {
     return { ok: false, error: 'Not in the purchase phase' }
@@ -568,7 +583,7 @@ function applyPassPurchase(
   nextState = skipEmptyDeclinePurchasers(nextState, achievementContent)
 
   if (nextState.pendingPlayerIds.length === 0) {
-    nextState = finishRound(nextState, achievementContent, taleContent)
+    nextState = finishRound(nextState, achievementContent, taleContent, unitContent)
   }
   return { ok: true, state: nextState }
 }
