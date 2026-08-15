@@ -331,6 +331,29 @@ const ACTION_MENU_BOX_HEIGHT_FACTOR = 1.7
 const HISTORY_LABEL_WIDTH_FACTOR = 3.4
 const HISTORY_LABEL_HEIGHT_FACTOR = 0.62
 
+/** Wide enough for the "Rotate" / "Confirm" / "Cancel" row at PLACEMENT_CONTROLS's own font size, tall enough for one line of button text. */
+const PLACEMENT_CONTROLS_WIDTH_FACTOR = 9.5
+const PLACEMENT_CONTROLS_HEIGHT_FACTOR = 1.8
+/** Vertical gap between the hex's bottom vertex and the placement controls box, so it doesn't sit flush against the tile it's positioned next to. */
+const PLACEMENT_CONTROLS_Y_OFFSET_FACTOR = 1.3
+
+/**
+ * The Rotate/Confirm/Cancel controls for the tile currently being placed
+ * (see TilePlacementPanel in BoardSetupView.tsx), anchored to the hex the
+ * player clicked rather than living in a static row above the board — on a
+ * large or scrolled board that static row could end up far from the tile
+ * being placed. Positioned the same way ActionMenu is: a `foreignObject`
+ * placed via axialToPixel, with its reach folded into the viewBox bounds
+ * calculation so it can't render off-screen near the board's edge.
+ */
+export interface PlacementControls {
+  coord: Coordinate
+  onRotate: () => void
+  onConfirm: () => void
+  onCancel: () => void
+  confirmDisabled: boolean
+}
+
 /**
  * Top-left corner for each unit's history label (see UnitMarker.historyLabel),
  * keyed by that unit's index in `units` — normally just above-right of the
@@ -441,6 +464,8 @@ export function HexBoard(props: {
    * handled by the underlying hex polygon's own `onHexClick`.
    */
   rotateHintCoord?: Coordinate | null
+  /** Rotate/Confirm/Cancel controls anchored next to the hex being placed (see PlacementControls). */
+  placementControls?: PlacementControls | null
   interactive?: boolean
   /**
    * Restricts which hexes actually respond to hover/click while
@@ -534,6 +559,20 @@ export function HexBoard(props: {
       boundsPoints.push({ x: ox - boxWidth / 2, y: oy - boxHeight / 2 })
       boundsPoints.push({ x: ox + boxWidth / 2, y: oy + boxHeight / 2 })
     }
+  }
+
+  const placementControlsCenter = props.placementControls ? axialToPixel(props.placementControls.coord, size) : null
+  const placementControlsBox = placementControlsCenter
+    ? {
+        x: placementControlsCenter.x - (size * PLACEMENT_CONTROLS_WIDTH_FACTOR) / 2,
+        y: placementControlsCenter.y + size * PLACEMENT_CONTROLS_Y_OFFSET_FACTOR,
+        width: size * PLACEMENT_CONTROLS_WIDTH_FACTOR,
+        height: size * PLACEMENT_CONTROLS_HEIGHT_FACTOR,
+      }
+    : null
+  if (placementControlsBox) {
+    boundsPoints.push({ x: placementControlsBox.x, y: placementControlsBox.y })
+    boundsPoints.push({ x: placementControlsBox.x + placementControlsBox.width, y: placementControlsBox.y + placementControlsBox.height })
   }
 
   const minX = Math.min(...boundsPoints.map((p) => p.x)) - pad
@@ -777,6 +816,31 @@ export function HexBoard(props: {
             })
           })()}
         </g>
+      )}
+      {props.placementControls && placementControlsBox && (
+        <foreignObject x={placementControlsBox.x} y={placementControlsBox.y} width={placementControlsBox.width} height={placementControlsBox.height}>
+          <div style={{ fontSize: size * 0.32 }} className="flex h-full w-full items-center justify-center gap-1.5 whitespace-nowrap">
+            <button
+              onClick={props.placementControls.onRotate}
+              className="rounded-md border border-neutral-700 bg-neutral-900/95 px-2 py-1 font-medium text-neutral-100 hover:border-neutral-500"
+            >
+              Rotate
+            </button>
+            <button
+              disabled={props.placementControls.confirmDisabled}
+              onClick={props.placementControls.onConfirm}
+              className="rounded-md bg-indigo-600 px-2 py-1 font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
+            >
+              Confirm
+            </button>
+            <button
+              onClick={props.placementControls.onCancel}
+              className="rounded-md border border-neutral-700 bg-neutral-900/95 px-2 py-1 font-medium text-neutral-400 underline hover:text-neutral-200"
+            >
+              Cancel
+            </button>
+          </div>
+        </foreignObject>
       )}
     </svg>
   )
