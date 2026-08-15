@@ -139,6 +139,16 @@ describe('findAdjacentRhombusCluster', () => {
 
     expect(findAdjacentRhombusCluster(state, 'p1', RHOMBUS[0], 'city')).toBeNull()
   })
+
+  it('ignores a cluster-mate City that already resolved an action this turn', () => {
+    const cities = RHOMBUS.map((coord) => makeUnit('p1', 'city', coord, cityMovement))
+    // RHOMBUS[1] is one of the 3 cluster mates for RHOMBUS[0] — already
+    // spent its action this turn, so it can no longer count towards the
+    // Capital merge, same as if it weren't there at all.
+    const state = makeState({ board: rhombusBoard(), units: cities, resolvedUnitIdsThisTurn: [cities[1].id] })
+
+    expect(findAdjacentRhombusCluster(state, 'p1', RHOMBUS[0], 'city')).toBeNull()
+  })
 })
 
 // --- Group 2: resolveTaleContent + applyTaleModifiers against real content/tales.json ---
@@ -225,6 +235,17 @@ describe("transform effect's requiredAdjacentRhombusOfKind (City: Construct the 
     const existingCapital = makeUnit('p2', 'capital', { q: 10, r: 10 }, cityMovement)
     const board = boardOf([...RHOMBUS.map(({ q, r }): [number, number, Terrain] => [q, r, 'plain']), [10, 10, 'plain']])
     const state = makeState({ board, units: [...cities, existingCapital] })
+
+    const next = applyUnitActionEffect(state, 'p1', 'city', action, {}, content, [cities[0].id])
+
+    expect(next).toBe(state)
+  })
+
+  it('is rejected when one of the 3 replaced cluster-mate Cities already resolved an action this turn', () => {
+    const cities = RHOMBUS.map((coord) => makeUnit('p1', 'city', coord, cityMovement))
+    // cities[1] is a cluster mate (not the acting City) that already took
+    // its own action earlier this turn — the merge can no longer consume it.
+    const state = makeState({ board: rhombusBoard(), units: cities, resolvedUnitIdsThisTurn: [cities[1].id] })
 
     const next = applyUnitActionEffect(state, 'p1', 'city', action, {}, content, [cities[0].id])
 
