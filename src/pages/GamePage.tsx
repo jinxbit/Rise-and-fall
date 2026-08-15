@@ -702,7 +702,20 @@ export function GamePage() {
       }
       setActionError(result.ok ? null : result.error)
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Failed to undo')
+      // replayActions (./gameGenesis.ts's buildGenesisState + ../engine/
+      // replay.ts) throws "Replay failed at action ...: <reason>" if some
+      // earlier action in this game's history no longer replays cleanly —
+      // e.g. a rules change landed on the live site while this particular
+      // game was in progress, so an action genuinely accepted back then no
+      // longer validates against today's rules. That JSON-dump message is
+      // meant for a developer, not a player, so show a plain explanation
+      // instead and keep the raw detail in the console for a bug report.
+      if (err instanceof Error && err.message.startsWith('Replay failed')) {
+        console.error('Undo: history no longer replays cleanly', err)
+        setActionError("Can't undo: this game's history no longer replays under the current rules, so Undo isn't available for this game.")
+      } else {
+        setActionError(err instanceof Error ? err.message : 'Failed to undo')
+      }
     } finally {
       setUndoing(false)
     }
