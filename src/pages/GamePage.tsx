@@ -619,6 +619,20 @@ export function GamePage() {
   }
 
   /**
+   * True when `action` was CHOOSE_CARD for a player who, in `stateBefore`
+   * (the state right before it was applied), had exactly one card in hand
+   * — i.e. it wasn't a real decision, SelectCardsPanel's auto-choose effect
+   * (RoundView.tsx) submitted it the instant the phase made that player
+   * pending, and would instantly do so again if Undo stopped here. Used by
+   * handleUndo to keep walking back past these instead of landing on one.
+   */
+  function wasForcedCardChoice(stateBefore: EngineGameState, action: Action): boolean {
+    if (action.type !== 'CHOOSE_CARD') return false
+    const player = stateBefore.players.find((p) => p.id === action.playerId)
+    return !!player && player.handCardIds.length === 1
+  }
+
+  /**
    * Undo: any player, at any time, can roll the game back one action —
    * deliberately not gated on `me`, unlike every other action here. `me` is
    * "which specific player is this submission on behalf of" (a hotseat seat
@@ -651,24 +665,40 @@ export function GamePage() {
    * writeWithRetry attempt (not just once up front), since a retry replays
    * against newer state than what `gameState` held when the button was
    * clicked.
+   *
+   * "One action" can mean more than one actionHistory entry: see
+   * wasForcedCardChoice below.
    */
   async function handleUndo() {
     if (!game) return
     setUndoing(true)
-    let undoneAction: Action | null = null
+    let undoneActions: Action[] = []
     try {
       const result = await writeWithRetry((state) => {
         if (state.actionHistory.length === 0) {
           return { ok: false, error: 'Nothing left to undo.' }
         }
         const genesis = buildGenesisState(game, players)
-        const previousHistory = state.actionHistory.slice(0, -1)
-        undoneAction = state.actionHistory[state.actionHistory.length - 1].action
-        const undoneState = replayActions(genesis, previousHistory, unitContent, achievementContent, boardGenerationContent, taleContent)
+        undoneActions = []
+        let history = state.actionHistory
+        let undoneState: EngineGameState
+        // A CHOOSE_CARD submitted for a one-card hand (SelectCardsPanel's
+        // auto-choose, RoundView.tsx) wasn't a real decision — stepping back
+        // past just that one action would land right back on the same
+        // forced choice, which the UI would instantly auto-resubmit, making
+        // Undo look like a no-op (issue #131). Keep walking back past any
+        // number of these until an action the player actually chose is
+        // reached, or history runs out.
+        do {
+          const lastAction = history[history.length - 1].action
+          undoneActions.push(lastAction)
+          history = history.slice(0, -1)
+          undoneState = replayActions(genesis, history, unitContent, achievementContent, boardGenerationContent, taleContent)
+        } while (history.length > 0 && wasForcedCardChoice(undoneState, undoneActions[undoneActions.length - 1]))
         return { ok: true, state: undoneState }
       })
-      if (result.ok && undoneAction) {
-        setRedoStack((stack) => [...stack, undoneAction as Action])
+      if (result.ok && undoneActions.length > 0) {
+        setRedoStack((stack) => [...stack, ...undoneActions])
       }
       setActionError(result.ok ? null : result.error)
     } catch (err) {
