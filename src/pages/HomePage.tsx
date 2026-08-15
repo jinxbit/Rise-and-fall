@@ -1,8 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { DiscordSignIn } from '../components/DiscordSignIn'
-import { DiscordWebhookSettings } from '../components/DiscordWebhookSettings'
-import { DisplayNameSettings } from '../components/DisplayNameSettings'
 import { GuestSignIn } from '../components/GuestSignIn'
 import { Pagination } from '../components/Pagination'
 import { useAuth } from '../hooks/useAuth'
@@ -10,7 +8,6 @@ import { useDisplayName } from '../hooks/useDisplayName'
 import { getGameByRoomCode, listMyGames, listPublicRooms } from '../lib/gameApi'
 import { signOut } from '../lib/auth'
 import { paginate } from '../lib/pagination'
-import { resolveDisplayName } from '../lib/displayName'
 import { groupMyGames, isMyTurn, myGameStatus, type MyGameEntry, type MyGameStatus } from '../lib/myGamesView'
 import { groupPublicRooms, isJoinable, type PublicRoomEntry } from '../lib/publicRoomsView'
 
@@ -31,9 +28,7 @@ function gamePath(entry: MyGameEntry): string {
 
 export function HomePage() {
   const { session, loading } = useAuth()
-  const { displayName, profileDisplayName, loading: displayNameLoading, setProfileDisplayName } = useDisplayName(
-    session?.user ?? null,
-  )
+  const { displayName } = useDisplayName(session?.user ?? null)
   const navigate = useNavigate()
 
   const [roomCodeInput, setRoomCodeInput] = useState('')
@@ -87,7 +82,6 @@ export function HomePage() {
   }
 
   const user = session.user
-  const discordName = resolveDisplayName(user, null)
   const avatarUrl = (user.user_metadata?.avatar_url as string | undefined) ?? null
 
   async function handleJoin() {
@@ -127,6 +121,9 @@ export function HomePage() {
         <div className="flex items-center gap-3 text-sm text-neutral-400">
           {avatarUrl && <img src={avatarUrl} alt="" className="h-8 w-8 rounded-full" />}
           <span>{displayName}</span>
+          <Link to="/profile" className="underline hover:text-neutral-200">
+            Profile
+          </Link>
           <Link to="/games" className="underline hover:text-neutral-200">
             My games
           </Link>
@@ -141,16 +138,6 @@ export function HomePage() {
 
       {error && <div className="rounded-md bg-red-500/10 p-3 text-sm text-red-400">{error}</div>}
       {loadError && <div className="rounded-md bg-red-500/10 p-3 text-sm text-red-400">{loadError}</div>}
-
-      <DisplayNameSettings
-        userId={user.id}
-        value={profileDisplayName}
-        fallback={discordName}
-        loading={displayNameLoading}
-        onSaved={setProfileDisplayName}
-      />
-
-      <DiscordWebhookSettings userId={user.id} />
 
       <section className="flex flex-col gap-3">
         <Link
