@@ -222,6 +222,46 @@ describe('RoundView — player status summary and achievements panel', () => {
     expect(screen.getByTitle('Ship')).toBeInTheDocument()
   })
 
+  it("keeps a chosen-but-unrevealed card in the Hand display during the selectCards phase", () => {
+    // https://github.com/jinxbit/Rise-and-fall/issues/122 — during the
+    // simultaneous select-cards phase, choosing a card shouldn't make it
+    // vanish from the Hand summary (it's not revealed as "Playing" yet).
+    const base = makeState() // roundPhase: 'selectCards'
+    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
+    const state = {
+      ...base,
+      chosenCardIdByPlayerId: { p1: cardIdFor('p1', 'nomad'), p2: null },
+      pendingPlayerIds: ['p2'],
+    }
+
+    render(
+      <RoundView
+        state={state}
+        players={players}
+        myPlayerId="p1"
+        unitContent={EMPTY_UNIT_CONTENT}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
+        turnReview={null}
+        showHistory={false}
+        onToggleHistory={() => {}}
+        gameLog={[]}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+
+    // Alice already chose Nomad, but it's still selectCards — no reveal yet.
+    expect(screen.queryByText('Playing')).not.toBeInTheDocument()
+    // Both her hand cards, including the chosen Nomad, still show in Hand.
+    expect(screen.getByTitle('Nomad')).toBeInTheDocument()
+    expect(screen.getByTitle('Ship')).toBeInTheDocument()
+  })
+
   it('marks the start player (turnOrder[0]) and moves the mark when turnOrder rotates', () => {
     const state = makeState() // turnOrder: ['p1', 'p2']
     const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
