@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
+import { useDisplayName } from '../hooks/useDisplayName'
 import { GameLengthSelector } from '../components/GameLengthSelector'
 import { MapTemplateSelector } from '../components/MapTemplateSelector'
 import { TaleSelector } from '../components/TaleSelector'
@@ -30,6 +31,7 @@ import type { GameRow, GameSettings, PlayerRow } from '../lib/dbTypes'
 export function LobbyPage() {
   const { roomCode } = useParams<{ roomCode: string }>()
   const { session, loading: authLoading } = useAuth()
+  const { displayName } = useDisplayName(session?.user ?? null)
   const navigate = useNavigate()
 
   const [game, setGame] = useState<GameRow | null>(null)
@@ -135,11 +137,7 @@ export function LobbyPage() {
       await joinGame({
         game,
         userId: user.id,
-        displayName:
-          (user.user_metadata?.full_name as string | undefined) ??
-          (user.user_metadata?.name as string | undefined) ??
-          user.email ??
-          'Player',
+        displayName,
         avatarUrl: (user.user_metadata?.avatar_url as string | undefined) ?? null,
       })
       await load()

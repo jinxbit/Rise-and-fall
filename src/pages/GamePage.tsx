@@ -13,6 +13,7 @@ import type { ActionResult, GameEvent, GameState as EngineGameState, Coordinate 
 import { buildTurnReview, findReviewWindowStart } from '../engine/turnReview'
 import { currentActorId } from '../engine/turnOrder'
 import { useAuth } from '../hooks/useAuth'
+import { useDisplayName } from '../hooks/useDisplayName'
 import type { GameRow, ObserverRow, PlayerRow } from '../lib/dbTypes'
 import { buildGenesisState } from '../lib/gameGenesis'
 import {
@@ -51,6 +52,7 @@ const MAX_WRITE_RETRIES = 3
 export function GamePage() {
   const { roomCode } = useParams<{ roomCode: string }>()
   const { session, loading: authLoading } = useAuth()
+  const { displayName: observerDisplayName } = useDisplayName(session?.user ?? null)
   const navigate = useNavigate()
 
   const [game, setGame] = useState<GameRow | null>(null)
@@ -753,11 +755,7 @@ export function GamePage() {
       await joinAsObserver({
         gameId: game.id,
         userId: session.user.id,
-        displayName:
-          (session.user.user_metadata?.full_name as string | undefined) ??
-          (session.user.user_metadata?.name as string | undefined) ??
-          session.user.email ??
-          'Observer',
+        displayName: observerDisplayName,
         avatarUrl: (session.user.user_metadata?.avatar_url as string | undefined) ?? null,
       })
       setObservers(await listObservers(game.id))

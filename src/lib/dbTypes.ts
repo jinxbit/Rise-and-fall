@@ -100,5 +100,7 @@ export interface GameStateRow {
 export interface ProfileRow {
   user_id: string
   discord_webhook_url: string | null
+  /** Custom display name, overriding the Discord-derived one — see 0015_profile_display_name.sql. Null means "use the Discord name" (src/lib/displayName.ts). */
+  display_name: string | null
   updated_at: string
 }

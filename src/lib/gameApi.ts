@@ -23,6 +23,23 @@ export async function saveDiscordWebhookUrl(userId: string, webhookUrl: string |
   if (error) throw error
 }
 
+/**
+ * Reads a user's custom display name (0015_profile_display_name.sql), if
+ * they've set one — `null` covers both "no profile row yet" and "profile
+ * row with no custom name set", both of which mean "fall back to the
+ * Discord name" (see resolveDisplayName in lib/displayName.ts).
+ */
+export async function getProfileDisplayName(userId: string): Promise<string | null> {
+  const { data, error } = await supabase.from('profiles').select('display_name').eq('user_id', userId).maybeSingle()
+  if (error) throw error
+  return data?.display_name ?? null
+}
+
+export async function saveProfileDisplayName(userId: string, displayName: string | null): Promise<void> {
+  const { error } = await supabase.from('profiles').upsert({ user_id: userId, display_name: displayName })
+  if (error) throw error
+}
+
 const PLAYER_COLORS = ['#ef4444', '#3b82f6', '#22c55e', '#eab308', '#a855f7', '#f97316', '#06b6d4', '#ec4899']
 /** One color per seat (PLAYER_COLORS above), so this is also the hard ceiling on max_players — used by LobbyPage.tsx's config editor to bound the input. */
 export const MAX_PLAYERS = PLAYER_COLORS.length
