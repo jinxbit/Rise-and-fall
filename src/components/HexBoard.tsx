@@ -331,6 +331,32 @@ const ACTION_MENU_BOX_HEIGHT_FACTOR = 1.7
 const HISTORY_LABEL_WIDTH_FACTOR = 3.4
 const HISTORY_LABEL_HEIGHT_FACTOR = 0.62
 
+/** Wide enough for the "Confirm" button at PLACEMENT_CONTROLS's own font size, tall enough for one line of button text. */
+const PLACEMENT_CONTROLS_WIDTH_FACTOR = 3.6
+const PLACEMENT_CONTROLS_HEIGHT_FACTOR = 1.8
+/** Vertical gap between the hex's bottom vertex and the placement controls box, so it doesn't sit flush against the tile it's positioned next to. */
+const PLACEMENT_CONTROLS_Y_OFFSET_FACTOR = 1.3
+
+/**
+ * The Confirm control for the tile currently being placed (see
+ * TilePlacementPanel in BoardSetupView.tsx), anchored to the hex the player
+ * clicked rather than living in a static row above the board — on a large or
+ * scrolled board that static row could end up far from the tile being
+ * placed. Rotating happens by clicking the anchor hex again (see
+ * rotateHintCoord) rather than a dedicated button here. The caller only
+ * supplies this — and Confirm only ever renders — once the pending
+ * placement is legal (issue #121: Confirm must never be shown for an
+ * illegal placement, not even disabled); an illegal pending placement shows
+ * no controls at all. Positioned the same way ActionMenu is: a
+ * `foreignObject` placed via axialToPixel, with its reach folded into the
+ * viewBox bounds calculation so it can't render off-screen near the board's
+ * edge.
+ */
+export interface PlacementControls {
+  coord: Coordinate
+  onConfirm: () => void
+}
+
 /**
  * Top-left corner for each unit's history label (see UnitMarker.historyLabel),
  * keyed by that unit's index in `units` — normally just above-right of the
@@ -441,6 +467,8 @@ export function HexBoard(props: {
    * handled by the underlying hex polygon's own `onHexClick`.
    */
   rotateHintCoord?: Coordinate | null
+  /** Rotate/Confirm/Cancel controls anchored next to the hex being placed (see PlacementControls). */
+  placementControls?: PlacementControls | null
   interactive?: boolean
   /**
    * Restricts which hexes actually respond to hover/click while
@@ -534,6 +562,20 @@ export function HexBoard(props: {
       boundsPoints.push({ x: ox - boxWidth / 2, y: oy - boxHeight / 2 })
       boundsPoints.push({ x: ox + boxWidth / 2, y: oy + boxHeight / 2 })
     }
+  }
+
+  const placementControlsCenter = props.placementControls ? axialToPixel(props.placementControls.coord, size) : null
+  const placementControlsBox = placementControlsCenter
+    ? {
+        x: placementControlsCenter.x - (size * PLACEMENT_CONTROLS_WIDTH_FACTOR) / 2,
+        y: placementControlsCenter.y + size * PLACEMENT_CONTROLS_Y_OFFSET_FACTOR,
+        width: size * PLACEMENT_CONTROLS_WIDTH_FACTOR,
+        height: size * PLACEMENT_CONTROLS_HEIGHT_FACTOR,
+      }
+    : null
+  if (placementControlsBox) {
+    boundsPoints.push({ x: placementControlsBox.x, y: placementControlsBox.y })
+    boundsPoints.push({ x: placementControlsBox.x + placementControlsBox.width, y: placementControlsBox.y + placementControlsBox.height })
   }
 
   const minX = Math.min(...boundsPoints.map((p) => p.x)) - pad
@@ -777,6 +819,18 @@ export function HexBoard(props: {
             })
           })()}
         </g>
+      )}
+      {props.placementControls && placementControlsBox && (
+        <foreignObject x={placementControlsBox.x} y={placementControlsBox.y} width={placementControlsBox.width} height={placementControlsBox.height}>
+          <div style={{ fontSize: size * 0.32 }} className="flex h-full w-full items-center justify-center gap-1.5 whitespace-nowrap">
+            <button
+              onClick={props.placementControls.onConfirm}
+              className="rounded-md bg-indigo-600 px-2 py-1 font-medium text-white hover:bg-indigo-500"
+            >
+              Confirm
+            </button>
+          </div>
+        </foreignObject>
       )}
     </svg>
   )

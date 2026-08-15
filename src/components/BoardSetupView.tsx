@@ -5,7 +5,7 @@ import type { BoardGenerationContent } from '../engine/boardGenerationContent'
 import { checkTilePlacementLegality, currentTilePlacerId, currentUnitPlacerId, isLegalStartingUnitPlacement } from '../engine/boardSetup'
 import type { Board, Coordinate, GameState } from '../engine/types'
 import type { PlayerRow } from '../lib/dbTypes'
-import type { GhostCell } from './HexBoard'
+import type { GhostCell, PlacementControls } from './HexBoard'
 import { HexBoard } from './HexBoard'
 
 const STARTING_UNIT_LABELS: Record<string, string> = { city: 'City', nomad: 'Nomad', ship: 'Ship' }
@@ -102,6 +102,21 @@ function TilePlacementPanel(props: {
   const ghostCells: GhostCell[] = placedCells.map((coord) => ({ coord, legal }))
   const extraCoords = paddedEmptyCoords(state.board, 4)
 
+  // Rendered right on the board, next to the hex the player clicked, rather
+  // than in a static row above it — on a large or scrolled board a static
+  // row can end up far from the tile actually being placed (issue #120).
+  // Only supplied once the pending placement is legal, so Confirm is never
+  // shown (not even disabled) for an illegal placement (issue #121) —
+  // rotating still works by clicking the anchor hex again (see
+  // rotateHintCoord below), so there's no dedicated Rotate control either.
+  const placementControls: PlacementControls | null =
+    isMyTurn && anchor && center && legal
+      ? {
+          coord: center,
+          onConfirm: () => onPlaceTile(anchor, rotation),
+        }
+      : null
+
   function handleHexClick(coord: Coordinate) {
     if (!isMyTurn) return
     if (coordEquals(center, coord)) {
@@ -125,41 +140,18 @@ function TilePlacementPanel(props: {
 
       {isMyTurn && (
         <>
-          {/* The instruction line and the legality message below each get a
-              *fixed* height (h-10 + line-clamp-2, not just a minimum) — the
-              instruction text changes (and can wrap differently) the instant a
-              hex is first clicked, and several of checkTilePlacementLegality's
-              messages are long enough to wrap onto a second line. A min-height
-              alone still let those cases grow this block taller and shove the
-              board (rendered right after) down. The buttons stay mounted
-              (just hidden via `invisible` pre-anchor) so their row's height
-              never changes either. */}
+          {/* This and the legality message below each get a *fixed* height
+              (h-10 + line-clamp-2, not just a minimum) — the instruction text
+              changes (and can wrap differently) the instant a hex is first
+              clicked, and several of checkTilePlacementLegality's messages are
+              long enough to wrap onto a second line. A min-height alone still
+              let those cases grow this block taller and shove the board
+              (rendered right after) down. The Confirm control itself renders
+              on the board next to the anchor hex — see placementControls
+              below — not in this block. */}
           <p className="line-clamp-2 h-10 text-sm text-neutral-400">
-            {anchor ? 'Click the same hex again (or Rotate) to turn it, click elsewhere to move it.' : 'Click a hex to choose where to place the tile.'}
+            {anchor ? 'Click the same hex again to turn it, click elsewhere to move it.' : 'Click a hex to choose where to place the tile.'}
           </p>
-          <div className="flex flex-wrap items-center gap-2 text-sm">
-            <button
-              disabled={!anchor}
-              onClick={() => setRotation((r) => (r + 1) % 6)}
-              className={`rounded-md border border-neutral-700 px-3 py-1 hover:border-neutral-500 ${anchor ? '' : 'invisible'}`}
-            >
-              Rotate
-            </button>
-            <button
-              disabled={!legal}
-              onClick={() => anchor && onPlaceTile(anchor, rotation)}
-              className={`rounded-md bg-indigo-600 px-3 py-1 font-medium text-white hover:bg-indigo-500 disabled:opacity-50 ${anchor ? '' : 'invisible'}`}
-            >
-              Confirm placement
-            </button>
-            <button
-              disabled={!anchor}
-              onClick={() => setCenter(null)}
-              className={`text-neutral-500 underline hover:text-neutral-300 ${anchor ? '' : 'invisible'}`}
-            >
-              Cancel
-            </button>
-          </div>
           <p className="line-clamp-2 h-10 text-sm text-red-400" title={anchor && legalityError ? legalityError : undefined}>
             {anchor ? legalityError : null}
           </p>
@@ -172,6 +164,7 @@ function TilePlacementPanel(props: {
         ghostCells={ghostCells}
         selectedCoord={center}
         rotateHintCoord={isMyTurn ? center : null}
+        placementControls={placementControls}
         interactive={isMyTurn}
         onHexClick={handleHexClick}
       />
