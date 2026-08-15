@@ -338,6 +338,7 @@ describe('companion piece dispatch — Port activates alongside the Ship card', 
     resourceCaps: { gold: null, wood: 5, stone: 5 },
     unitSupplyCaps: { ship: 10, port: 10 },
     companionKindsByCardKind: { ship: ['port'] },
+    activationsPerTurnByKind: {},
   }
 
   // Two players, not one: with a single player, finishing p1's one and only
@@ -957,6 +958,7 @@ describe('companion piece dispatch — Cathedral activates alongside the Temple 
     resourceCaps: { gold: null, wood: 5, stone: 5 },
     unitSupplyCaps: { temple: 10, cathedral: 1 },
     companionKindsByCardKind: { temple: ['cathedral'] },
+    activationsPerTurnByKind: {},
   }
 
   // Two players (see the matching Ports test's comment above for why):

@@ -97,6 +97,7 @@ const emptyUnitContent: UnitContent = {
   resourceCaps: { gold: null, wood: 5, stone: 5 },
   unitSupplyCaps: {},
   companionKindsByCardKind: {},
+  activationsPerTurnByKind: {},
 }
 
 describe('beginBoardSetup', () => {

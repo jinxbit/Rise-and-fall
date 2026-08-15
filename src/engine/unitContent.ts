@@ -106,6 +106,19 @@ export interface TransformEffect {
    * legal terrain.
    */
   ignoresCliff?: boolean
+  /**
+   * Optional replacement for the ordinary "only the acting unit is
+   * consumed" rule: requires the acting unit's own hex to be one corner of
+   * a 4-hex rhombus entirely occupied by the acting player's own units of
+   * `kind` (the acting unit itself counts as one corner) — see
+   * findAdjacentRhombusCluster in ./unitActions.ts for the exact geometry.
+   * When satisfied, all 4 units are removed (not just the acting one,
+   * regardless of `destroySelf`) and the new unit is placed on the acting
+   * unit's own hex — so `targetHex` should be `{ location: 'self' }` for
+   * an effect that sets this. E.g. The Capital Tale's Constructing the
+   * Capital: "control 4 adjacent Cities."
+   */
+  requiredAdjacentRhombusOfKind?: string
 }
 
 /**
@@ -301,6 +314,18 @@ export interface UnitContent {
    * built" rule every companion piece shares.
    */
   companionKindsByCardKind: Record<string, string[]>
+  /**
+   * How many separate actions a unit of this kind may resolve in the same
+   * turn — keyed by kind id, missing entries default to 1 (every base-game
+   * unit and most companions). Populated by applyTaleModifiers (./tales.ts)
+   * from a Tale extra unit's `activationsPerTurn` — e.g. The Capital Tale:
+   * `{ capital: 2 }`, since the Capital performs 2 actions from the City
+   * card each time its owner plays it. See GameState.resolvedUnitIdsThisTurn
+   * (./types.ts) and applyResolveUnitAction (./applyAction.ts), which count
+   * a unit's occurrences there against this cap instead of a flat "already
+   * acted" boolean.
+   */
+  activationsPerTurnByKind: Record<string, number>
 }
 
 export const EMPTY_UNIT_CONTENT: UnitContent = {
@@ -310,4 +335,5 @@ export const EMPTY_UNIT_CONTENT: UnitContent = {
   resourceCaps: {},
   unitSupplyCaps: {},
   companionKindsByCardKind: {},
+  activationsPerTurnByKind: {},
 }

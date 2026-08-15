@@ -12,6 +12,24 @@ export interface TaleExtraUnitContent {
   actions: UnitAction[]
   supplyCap: number
   companionOfKind: string
+  /**
+   * When true, this companion has no action list of its own at all — it
+   * performs actions from `companionOfKind`'s own (possibly Tale-extended)
+   * action list instead, and `actions` above is ignored. E.g. The Capital
+   * Tale: the Capital "performs 2 actions from the City card" rather than
+   * having its own Civilization-card-like actions, unlike The Ports/The
+   * Banks/The Cathedral's companions, each of which has its own distinct
+   * action list. See applyTaleModifiers (./tales.ts).
+   */
+  reusesCompanionActions?: boolean
+  /**
+   * How many separate actions a unit of this kind may resolve per turn —
+   * see UnitContent.activationsPerTurnByKind (./unitContent.ts). Undefined
+   * (the default) means 1, same as every companion before this field
+   * existed (The Ports/The Banks/The Cathedral all activate once). E.g.
+   * The Capital Tale: 2.
+   */
+  activationsPerTurn?: number
 }
 
 /**
@@ -51,6 +69,28 @@ export interface TaleControllableStructure {
 }
 
 /**
+ * A Tale-contributed real Trophy — unlike TaleControllableStructure (a
+ * dynamic "who controls it right now" end-of-game bonus), this is a
+ * permanent claim, resolved by the exact same generic machinery as a base
+ * achievement (updateAchievementClaims, ./achievements.ts): the first
+ * player to simultaneously control their full per-player supply of
+ * `unitKind` claims it, once, forever — see applyTaleAchievementModifiers
+ * (./tales.ts), which merges this straight into AchievementContent's own
+ * unitKindByAchievementId/achievementVictoryPoints. That reuse is exactly
+ * right for a one-off unique piece like The Capital Tale's Capital (supply
+ * cap 1): "constructing the Capital" and "reaching full Capital supply"
+ * are the same event, so claiming its Trophy already triggers a real
+ * Decline phase for every player and counts toward the game-length target,
+ * matching the rulebook's "Extra Trophies" rule with no bespoke claim
+ * logic needed.
+ */
+export interface TaleExtraAchievement {
+  id: string
+  unitKind: string
+  victoryPoints: number
+}
+
+/**
  * Everything applyTaleModifiers (./tales.ts) needs to merge a game's
  * active Tales on top of the base game's UnitContent — resolved by the
  * caller from content/tales.json, filtered to only the Tales active for a
@@ -70,6 +110,8 @@ export interface TaleContent {
   fantasticEvents: FantasticEvent[]
   /** End-of-game "control a unique piece" VP bonuses contributed by active Tales — see calculateControllableStructureVP (./victoryPoints.ts). */
   controllableStructures: TaleControllableStructure[]
+  /** Real Trophies contributed by active Tales, merged into AchievementContent — see TaleExtraAchievement's doc comment and applyTaleAchievementModifiers (./tales.ts). */
+  extraAchievements: TaleExtraAchievement[]
 }
 
 export const EMPTY_TALE_CONTENT: TaleContent = {
@@ -78,4 +120,5 @@ export const EMPTY_TALE_CONTENT: TaleContent = {
   movementOverridesByKind: {},
   fantasticEvents: [],
   controllableStructures: [],
+  extraAchievements: [],
 }

@@ -15,7 +15,7 @@ import unitsJson from './units.json'
 import type { AchievementContent } from '../engine/achievementContent'
 import { createEmptyBoard, setTile } from '../engine/board'
 import type { BoardGenerationContent, TileTierContent } from '../engine/boardGenerationContent'
-import type { FantasticEvent, TaleContent, TaleControllableStructure, TaleExtraUnitContent } from '../engine/taleContent'
+import type { FantasticEvent, TaleContent, TaleControllableStructure, TaleExtraAchievement, TaleExtraUnitContent } from '../engine/taleContent'
 import type { UnitAction, UnitContent } from '../engine/unitContent'
 import type { Board, BoardShape, Resources, Terrain, UnitMovement } from '../engine/types'
 
@@ -66,7 +66,7 @@ export function resolveUnitContent(playerCount: number): UnitContent {
     resourceCaps[resource.id as keyof Resources] = resource.playerCap
   }
 
-  return { actionsByKind, movementByKind, terrainLevels, resourceCaps, unitSupplyCaps, companionKindsByCardKind: {} }
+  return { actionsByKind, movementByKind, terrainLevels, resourceCaps, unitSupplyCaps, companionKindsByCardKind: {}, activationsPerTurnByKind: {} }
 }
 
 export interface TaleSummary {
@@ -102,14 +102,18 @@ export function resolveTaleContent(activeTaleIds: string[], playerCount: number)
   const movementOverridesByKind: Record<string, Partial<UnitMovement>> = {}
   const fantasticEvents: FantasticEvent[] = []
   const controllableStructures: TaleControllableStructure[] = []
+  const extraAchievements: TaleExtraAchievement[] = []
 
   for (const tale of activeTales) {
     for (const unit of tale.extraUnits ?? []) {
+      const unitWithOptionalFields = unit as typeof unit & { reusesCompanionActions?: boolean; activationsPerTurn?: number }
       extraUnitKinds[unit.id] = {
         movement: unit.movement as UnitMovement,
         actions: unit.actions as UnitAction[],
         supplyCap: unit.supply.byPlayerCount[key as keyof typeof unit.supply.byPlayerCount] ?? 0,
         companionOfKind: unit.companionOfKind,
+        reusesCompanionActions: unitWithOptionalFields.reusesCompanionActions,
+        activationsPerTurn: unitWithOptionalFields.activationsPerTurn,
       }
     }
     for (const [kind, actions] of Object.entries(tale.extraActionsByKind ?? {})) {
@@ -120,9 +124,10 @@ export function resolveTaleContent(activeTaleIds: string[], playerCount: number)
     }
     fantasticEvents.push(...((tale as { fantasticEvents?: FantasticEvent[] }).fantasticEvents ?? []))
     controllableStructures.push(...((tale as { controllableStructures?: TaleControllableStructure[] }).controllableStructures ?? []))
+    extraAchievements.push(...((tale as { extraAchievements?: TaleExtraAchievement[] }).extraAchievements ?? []))
   }
 
-  return { extraUnitKinds, extraActionsByKind, movementOverridesByKind, fantasticEvents, controllableStructures }
+  return { extraUnitKinds, extraActionsByKind, movementOverridesByKind, fantasticEvents, controllableStructures, extraAchievements }
 }
 
 export function resolveResourceBank(playerCount: number): Resources {

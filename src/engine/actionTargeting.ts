@@ -10,6 +10,7 @@ import {
   computeRegionUnitCountGold,
   computeTradeGold,
   crossesCliff,
+  findAdjacentRhombusCluster,
   hasAdjacentOwnUnitKind,
   hasAdjacentTerrain,
   hasOwnKindCountAtLeast,
@@ -57,6 +58,7 @@ export function legalTransformTargets(state: GameState, playerId: string, unit: 
   if (effect.requiredAdjacentOwnUnitKind && !hasAdjacentOwnUnitKind(state, playerId, unit.coord, effect.requiredAdjacentOwnUnitKind)) return []
   if (effect.requiredOwnKindCount && !hasOwnKindCountAtLeast(state, playerId, effect.requiredOwnKindCount.kind, effect.requiredOwnKindCount.atLeast)) return []
   if (effect.forbiddenIfBoardHasKind && boardHasUnitOfKind(state, effect.forbiddenIfBoardHasKind)) return []
+  if (effect.requiredAdjacentRhombusOfKind && !findAdjacentRhombusCluster(state, playerId, unit.coord, effect.requiredAdjacentRhombusOfKind)) return []
 
   if (effect.targetHex.location === 'self') {
     const tile = getTile(state.board, unit.coord)

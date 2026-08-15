@@ -8,7 +8,7 @@ import type { Action, LoggedAction } from '../engine/actions'
 import { applyActionAndFastForwardTiles } from '../engine/applyAction'
 import { buildGameLogFrom, extendGameLog } from '../engine/gameLog'
 import { replayActions } from '../engine/replay'
-import { applyTaleModifiers } from '../engine/tales'
+import { applyTaleAchievementModifiers, applyTaleModifiers } from '../engine/tales'
 import type { ActionResult, GameEvent, GameState as EngineGameState, Coordinate } from '../engine/types'
 import { buildTurnReview, findReviewWindowStart } from '../engine/turnReview'
 import { currentActorId } from '../engine/turnOrder'
@@ -212,7 +212,15 @@ export function GamePage() {
     [players.length, gameState?.activeTaleIds],
   )
   const unitContent = useMemo(() => applyTaleModifiers(resolveUnitContent(players.length), taleContent), [players.length, taleContent])
-  const achievementContent = useMemo(() => resolveAchievementContent(gameState?.gameLength), [gameState?.gameLength])
+  // A Tale can grant a real Trophy of its own (e.g. The Capital Tale) —
+  // merged onto the base achievements the same way Tale unit content is,
+  // so claiming it goes through the exact same claim/decline/game-length
+  // pipeline as a base achievement. A no-op for a game with no such Tale
+  // active, same convention as applyTaleModifiers.
+  const achievementContent = useMemo(
+    () => applyTaleAchievementModifiers(resolveAchievementContent(gameState?.gameLength), taleContent),
+    [gameState?.gameLength, taleContent],
+  )
 
   const isCreator = game?.created_by === session?.user.id
   // Cancel is only offered while the room is genuinely Active (issue
