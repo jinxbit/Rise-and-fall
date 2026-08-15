@@ -20,6 +20,13 @@ function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1)
 }
 
+/** Naive English pluralization ("city" -> "cities", "temple" -> "temples") — good enough for this game's unit/structure kind names. */
+function pluralize(word: string, count: number): string {
+  if (count === 1) return word
+  if (/[^aeiou]y$/i.test(word)) return `${word.slice(0, -1)}ies`
+  return `${word}s`
+}
+
 function achievementName(achievementId: string): string {
   return ACHIEVEMENTS.find((a) => a.id === achievementId)?.name ?? achievementId
 }
@@ -48,7 +55,7 @@ function scoreLinesFor(detail: VPDetail): ScoreLine[] {
     lines.push({ label: achievementName(achievement.achievementId), vp: achievement.vp })
   }
   for (const boardCount of detail.boardCount) {
-    lines.push({ label: `${boardCount.count} ${capitalize(boardCount.kind)}${boardCount.count === 1 ? '' : 's'}`, vp: boardCount.vp })
+    lines.push({ label: `${boardCount.count} ${pluralize(capitalize(boardCount.kind), boardCount.count)}`, vp: boardCount.vp })
   }
   for (const terrainControl of detail.terrainControl) {
     lines.push({ label: `${terrainControl.hexCount} ${terrainName(terrainControl.terrain)}`, vp: terrainControl.vp })
@@ -227,58 +234,102 @@ export function EndGameView({
 
       <div data-testid="score-breakdown">
         <p className="mb-2 text-sm font-medium text-neutral-200">Score breakdown</p>
-        <div className="flex flex-col gap-3">
-          {ranked.map((player) => {
-            const row = players.find((p) => p.id === player.id)
-            const detail = detailByPlayerId[player.id]
-            const isWinner = winnerIds.has(player.id)
-            const lines = detail ? scoreLinesFor(detail) : []
-            const unitCounts = unitCountsFor(state, player.id)
-
-            return (
-              <div key={player.id} className={`rounded-md border p-3 ${isWinner ? 'border-amber-500/60 bg-amber-500/5' : 'border-neutral-800'}`}>
-                <div className="flex items-center justify-between gap-2">
-                  <span className="flex items-center gap-2">
-                    <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: row?.color ?? '#a3a3a3' }} />
-                    <span className={isWinner ? 'font-semibold text-amber-200' : 'font-medium text-neutral-200'}>{row?.display_name ?? player.id}</span>
-                    {isWinner && <span title="Winner">🏆</span>}
-                    {player.eliminated && <span className="text-xs text-neutral-500">(eliminated)</span>}
-                  </span>
-                  <span className={`text-sm ${isWinner ? 'font-semibold text-amber-200' : 'font-medium text-neutral-200'}`}>
-                    {detail?.total ?? 0} point{detail?.total === 1 ? '' : 's'}
-                  </span>
-                </div>
-                <p className="text-xs text-neutral-500">{ordinal(ranks.get(player.id) ?? ranked.length)} place</p>
-
-                {lines.length > 0 ? (
-                  <ul className="mt-2 flex flex-col gap-0.5 pl-4 text-xs text-neutral-400">
-                    {lines.map((line, i) => (
-                      <li key={i} className="list-disc">
-                        {line.label}: <span className="text-neutral-300">{line.vp} point{line.vp === 1 ? '' : 's'}</span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="mt-2 pl-4 text-xs text-neutral-500">No points scored</p>
-                )}
-
-                <p className="mt-2 pl-4 text-xs text-neutral-400">
-                  Resources: {player.resources.gold} Gold, {player.resources.wood} Wood, {player.resources.stone} Stone
-                </p>
-                {unitCounts.length > 0 && (
-                  <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 pl-4 text-xs text-neutral-400">
-                    Units:
-                    {unitCounts.map(({ kind, count }) => (
-                      <span key={kind} className="inline-flex items-center gap-1" title={capitalize(kind)}>
-                        <UnitIcon kind={kind} className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
-                        <span>{count}</span>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-max border-collapse text-left text-sm">
+            <thead>
+              <tr className="border-b border-neutral-800 text-xs text-neutral-500">
+                <th className="py-1 pr-3 font-normal">Player</th>
+                {ranked.map((player) => {
+                  const row = players.find((p) => p.id === player.id)
+                  const isWinner = winnerIds.has(player.id)
+                  return (
+                    <th key={player.id} data-testid={`breakdown-header-${player.id}`} className="px-3 py-1 align-top font-normal">
+                      <span className="flex items-center gap-2">
+                        <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: row?.color ?? '#a3a3a3' }} />
+                        <span className={isWinner ? 'font-semibold text-amber-200' : 'font-medium text-neutral-200'}>{row?.display_name ?? player.id}</span>
+                        {isWinner && <span title="Winner">🏆</span>}
+                        {player.eliminated && <span className="text-neutral-500">(eliminated)</span>}
                       </span>
-                    ))}
-                  </p>
-                )}
-              </div>
-            )
-          })}
+                    </th>
+                  )
+                })}
+              </tr>
+            </thead>
+            <tbody>
+              <tr className="border-b border-neutral-800/60">
+                <td className="py-1 pr-3 text-neutral-500">Place</td>
+                {ranked.map((player) => (
+                  <td key={player.id} data-testid={`breakdown-place-${player.id}`} className="px-3 py-1 text-xs text-neutral-500">
+                    {ordinal(ranks.get(player.id) ?? ranked.length)}
+                  </td>
+                ))}
+              </tr>
+              <tr className="border-b border-neutral-800/60">
+                <td className="py-1 pr-3 text-neutral-500">Points</td>
+                {ranked.map((player) => {
+                  const isWinner = winnerIds.has(player.id)
+                  const total = detailByPlayerId[player.id]?.total ?? 0
+                  return (
+                    <td key={player.id} data-testid={`breakdown-points-${player.id}`} className={`px-3 py-1 ${isWinner ? 'font-semibold text-amber-200' : 'font-medium text-neutral-200'}`}>
+                      {total} point{total === 1 ? '' : 's'}
+                    </td>
+                  )
+                })}
+              </tr>
+              <tr className="border-b border-neutral-800/60">
+                <td className="py-1 pr-3 align-top text-neutral-500">Breakdown</td>
+                {ranked.map((player) => {
+                  const detail = detailByPlayerId[player.id]
+                  const lines = detail ? scoreLinesFor(detail) : []
+                  return (
+                    <td key={player.id} data-testid={`breakdown-lines-${player.id}`} className="px-3 py-1 align-top">
+                      {lines.length > 0 ? (
+                        <ul className="flex flex-col gap-0.5 text-xs text-neutral-400">
+                          {lines.map((line, i) => (
+                            <li key={i}>
+                              {line.label}: <span className="text-neutral-300">{line.vp} point{line.vp === 1 ? '' : 's'}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <span className="text-xs text-neutral-500">No points scored</span>
+                      )}
+                    </td>
+                  )
+                })}
+              </tr>
+              <tr className="border-b border-neutral-800/60">
+                <td className="py-1 pr-3 text-neutral-500">Resources</td>
+                {ranked.map((player) => (
+                  <td key={player.id} data-testid={`breakdown-resources-${player.id}`} className="px-3 py-1 text-xs text-neutral-400">
+                    {player.resources.gold} Gold, {player.resources.wood} Wood, {player.resources.stone} Stone
+                  </td>
+                ))}
+              </tr>
+              <tr>
+                <td className="py-1 pr-3 align-top text-neutral-500">Units</td>
+                {ranked.map((player) => {
+                  const unitCounts = unitCountsFor(state, player.id)
+                  return (
+                    <td key={player.id} data-testid={`breakdown-units-${player.id}`} className="px-3 py-1 align-top">
+                      {unitCounts.length > 0 ? (
+                        <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-neutral-400">
+                          {unitCounts.map(({ kind, count }) => (
+                            <span key={kind} className="inline-flex items-center gap-1" title={capitalize(kind)}>
+                              <UnitIcon kind={kind} className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
+                              <span>{count}</span>
+                            </span>
+                          ))}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-neutral-500">—</span>
+                      )}
+                    </td>
+                  )
+                })}
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
 
