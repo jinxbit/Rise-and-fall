@@ -3176,3 +3176,41 @@ from their *only* 4 Cities would see their City card cycle to supply
 until they build a new City elsewhere, same pre-existing characteristic
 every companion piece (Port/Bank/Cathedral) already has relative to its
 own parent kind, not something newly introduced here.
+
+## 65. Export json improvements
+
+Requested (issue #141): make the game state export easier and more
+efficient for debugging real games — a direct "copy" action in the
+menu, a real JSON format instead of a custom-prefixed blob, and docs
+on how to open/use the exported file.
+
+`src/lib/gameStateExport.ts`'s wire format changed from a
+`RAF-STATE-1:<base64>` string (not valid JSON on its own — an envelope
+`{schema, version, exportedAt, gameState}` gzipped+base64'd behind a
+prefix) to a real JSON object: `{ schema, version, exportedAt,
+gameStateZipped }`, where only `gameStateZipped` (the size-dominating
+part) is gzip+base64-encoded; `schema`/`version`/`exportedAt` stay
+plain, readable fields. `encodeGameStateExport`/`decodeGameStateExport`
+keep their existing signatures, so `GamePage.tsx`'s callers didn't
+change. Added `src/lib/gameStateExport.schema.json` (JSON Schema,
+matching the `src/content/*.schema.json` convention) documenting the
+file's shape.
+
+`GamePage.tsx`'s hamburger menu gained a "Copy game export" item that
+calls `handleCopyStateExport` directly — previously the only way to
+copy an export was to open the "Show game state JSON" panel first and
+click a button there. That panel's button is still there (relabeled
+"Copy game export" to match) for anyone who already has the panel
+open. Since the menu closes immediately after the new item is
+clicked, added a transient "Game export copied to clipboard!" banner
+(mirrors the existing error banner styling) so there's still feedback
+when the panel isn't open.
+
+Updated `gameStateExport.test.ts` for the new format (JSON-parse
+assertions instead of prefix checks) and doc comments in
+`engine/types.ts`/`gameGenesis.test.ts`/`content/README.md` that
+referenced the old `RAF-STATE-1` marker by name. Documented the format
+and how to decode it (in-app, via `jq`+`gzip`, or generically) in a new
+"Debugging: game state export" section in the top-level `README.md`.
+665 tests total; `tsc -b`/`oxlint`/`vitest run`/`npm run build` all
+clean.

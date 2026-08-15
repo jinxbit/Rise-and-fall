@@ -73,7 +73,7 @@ describe('buildGenesisState', () => {
   // GameState.activeTaleIds/gameLength carry the games row's creation-time
   // choice into the running game (see GameState's own doc comments) — once
   // genesis is built, GamePage.tsx reads these off gameState, not `game`,
-  // so a game (and its RAF-STATE-1 export) is self-contained.
+  // so a game (and its game export) is self-contained.
   it("carries the game row's settings.activeTaleIds/gameLength into GameState", () => {
     const genesis = buildGenesisState(makeGame({}, { activeTaleIds: ['the-ports'], gameLength: 6 }), makePlayers())
     expect(genesis.activeTaleIds).toEqual(['the-ports'])

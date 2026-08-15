@@ -413,10 +413,10 @@ ids into `GameState.activeTaleIds` once the game starts, so from then on
 `GamePage.tsx` builds the game's effective `UnitContent` from
 `gameState.activeTaleIds` (memoized alongside the base
 `resolveUnitContent()` call), not the `games` row — a running game (and
-its RAF-STATE-1 export) is self-contained, and Undo/replay naturally stay
-consistent since `activeTaleIds` rides along on every replayed state.
-Empty (the default) behaves exactly like a game from before this variant
-existed.
+its game export, `src/lib/gameStateExport.ts`) is self-contained, and
+Undo/replay naturally stay consistent since `activeTaleIds` rides along
+on every replayed state. Empty (the default) behaves exactly like a game
+from before this variant existed.
 
 Two new `UnitActionEffect` variants exist only for Tale-contributed
 actions so far (`unitContent.ts`): `SiteCreateEffect` (create a unit on
