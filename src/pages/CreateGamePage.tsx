@@ -11,7 +11,7 @@ import type { PlayMode } from '../engine/types'
 
 export function CreateGamePage() {
   const { session, loading } = useAuth()
-  const { displayName } = useDisplayName(session?.user ?? null)
+  const { displayName, loading: displayNameLoading } = useDisplayName(session?.user ?? null)
   const navigate = useNavigate()
 
   const [name, setName] = useState('')
@@ -166,11 +166,11 @@ export function CreateGamePage() {
           List this room on the Public rooms screen
         </label>
         <button
-          disabled={busy || name.trim().length === 0 || !playerCountValid}
+          disabled={busy || displayNameLoading || name.trim().length === 0 || !playerCountValid}
           onClick={() => void handleCreate()}
           className="rounded-md bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
         >
-          Create game
+          {displayNameLoading ? 'Loading…' : 'Create game'}
         </button>
       </section>
     </div>

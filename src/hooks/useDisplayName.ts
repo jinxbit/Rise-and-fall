@@ -28,11 +28,16 @@ export function useDisplayName(user: User | null): DisplayNameState {
     if (!userId) return
     let cancelled = false
     setLoading(true)
-    void getProfileDisplayName(userId).then((name) => {
-      if (cancelled) return
-      setProfileDisplayName(name)
-      setLoading(false)
-    })
+    void getProfileDisplayName(userId)
+      .then((name) => {
+        if (cancelled) return
+        setProfileDisplayName(name)
+        setLoading(false)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setLoading(false)
+      })
     return () => {
       cancelled = true
     }
