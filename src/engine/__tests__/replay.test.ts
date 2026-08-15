@@ -40,6 +40,7 @@ const unitContent: UnitContent = {
   resourceCaps: { gold: null, wood: 5, stone: 5 },
   unitSupplyCaps: {},
   companionKindsByCardKind: {},
+  activationsPerTurnByKind: {},
 }
 
 function makeGenesis(): GameState {

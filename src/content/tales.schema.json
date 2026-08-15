@@ -61,6 +61,11 @@
           "type": "array",
           "description": "End-of-game 'control a unique piece' VP bonuses this Tale contributes (e.g. The Cathedral) — see engine/victoryPoints.ts's calculateControllableStructureVP.",
           "items": { "$ref": "#/definitions/controllableStructure" }
+        },
+        "extraAchievements": {
+          "type": "array",
+          "description": "Real Trophies this Tale contributes, merged into the base achievements (e.g. The Capital) — see engine/taleContent.ts's TaleExtraAchievement and engine/tales.ts's applyTaleAchievementModifiers.",
+          "items": { "$ref": "#/definitions/extraAchievement" }
         }
       }
     },
@@ -91,6 +96,15 @@
         "actions": {
           "type": "array",
           "items": { "$ref": "#/definitions/action" }
+        },
+        "reusesCompanionActions": {
+          "type": "boolean",
+          "description": "When true, this companion has no action list of its own — it performs actions from companionOfKind's own action list instead, and `actions` above must be empty. E.g. The Capital: 'performs 2 actions from the City card.'"
+        },
+        "activationsPerTurn": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "How many separate actions this companion may resolve per turn. Omitted means 1 (every companion before this field existed). E.g. The Capital: 2."
         }
       }
     },
@@ -132,6 +146,19 @@
           "description": "Same free-form convention as units.schema.json's action.effect — shape is given by src/engine/unitContent.ts's UnitActionEffect union.",
           "type": ["object", "string", "null"]
         }
+      }
+    },
+    "extraAchievement": {
+      "type": "object",
+      "required": ["id", "unitKind", "victoryPoints"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "unitKind": {
+          "type": "string",
+          "description": "Unit kind id — the first player to simultaneously control their full per-player supply of this kind claims the Trophy, exactly like a base achievement (content/achievements.json)."
+        },
+        "victoryPoints": { "type": "integer" }
       }
     }
   }

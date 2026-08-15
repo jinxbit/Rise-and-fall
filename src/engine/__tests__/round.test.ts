@@ -23,6 +23,7 @@ const testUnitContent: UnitContent = {
   resourceCaps: {},
   unitSupplyCaps: {},
   companionKindsByCardKind: {},
+  activationsPerTurnByKind: {},
 }
 
 /**

@@ -1,6 +1,60 @@
 {
   "tales": [
     {
+      "id": "the-capital",
+      "number": 4,
+      "name": "The Capital",
+      "description": "There's only one Capital in the World. A player controlling 4 Cities arranged in a diamond can merge them into it, replacing the whole cluster on one of its spaces. The Capital has no Civilization card of its own — instead, each time its owner plays their City card, it activates twice, performing 2 City actions (identical or different). Constructing it earns a Trophy worth 20 VP, and — like Trade and Taxes for Ships, Merchants, and Temples — it counts as a normal City.",
+      "category": "buildable",
+      "extraUnits": [
+        {
+          "id": "capital",
+          "name": "Capital",
+          "description": "The single Capital in the World. Has no Civilization card of its own — activates twice whenever its owner plays their City card (performing 2 City actions, identical or different), but never on the turn it's built. Counts as a City for Ships' Trade action.",
+          "companionOfKind": "city",
+          "reusesCompanionActions": true,
+          "activationsPerTurn": 2,
+          "movement": {
+            "isMobile": false,
+            "terrains": [],
+            "canCrossCliffs": false
+          },
+          "supply": {
+            "byPlayerCount": { "2": 1, "3": 1, "4": 1, "5": 1, "6": 1, "7": 1, "8": 1 }
+          },
+          "victoryPoints": {
+            "byBoardCount": []
+          },
+          "actions": []
+        }
+      ],
+      "extraActionsByKind": {
+        "city": [
+          {
+            "id": "construct-capital",
+            "name": "Construct the Capital",
+            "description": "Requires this City to be one corner of a diamond of 4 Cities you control (2 adjacent 'spine' Cities plus the 2 Cities adjacent to both of them). Removes all 4 and replaces this City's space with the Capital. Only ever built once in the World.",
+            "effect": {
+              "actionType": "transform",
+              "targetUnit": "capital",
+              "targetHex": { "terrainType": ["plain", "forest", "mountain"], "location": "self" },
+              "destroySelf": true,
+              "cost": { "gold": 0, "wood": 0, "stone": 0 },
+              "requiredAdjacentRhombusOfKind": "city",
+              "forbiddenIfBoardHasKind": "capital"
+            }
+          }
+        ]
+      },
+      "extraAchievements": [
+        {
+          "id": "capital",
+          "unitKind": "capital",
+          "victoryPoints": 20
+        }
+      ]
+    },
+    {
       "id": "the-ports",
       "number": 7,
       "name": "The Ports",

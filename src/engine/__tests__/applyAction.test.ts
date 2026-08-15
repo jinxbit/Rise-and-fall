@@ -272,6 +272,7 @@ describe('applyResolveUnitAction — different units of the same kind may choose
     resourceCaps: { gold: null, wood: 5, stone: 5 },
     unitSupplyCaps: {},
     companionKindsByCardKind: {},
+    activationsPerTurnByKind: {},
   }
 
   function makeTwoCitiesState(): GameState {
@@ -389,6 +390,7 @@ describe('applyResolveUnitAction — unit actions resolve in order, one at a tim
     resourceCaps: { gold: null, wood: 5, stone: 5 },
     unitSupplyCaps: {},
     companionKindsByCardKind: {},
+    activationsPerTurnByKind: {},
   }
 
   function makeTwoNomadsState(): GameState {
@@ -482,6 +484,7 @@ describe('RESOLVE_UNIT_ACTION resolves immediately; the turn ends via PASS_ACTIO
     resourceCaps: { gold: null, wood: 5, stone: 5 },
     unitSupplyCaps: {},
     companionKindsByCardKind: {},
+    activationsPerTurnByKind: {},
   }
 
   // Both players get a real City unit + card (not just p1, per
@@ -685,6 +688,7 @@ describe('RESOLVE_UNIT_ACTION rejects an action whose cost/target preconditions 
     resourceCaps: { gold: null, wood: 5, stone: 5 },
     unitSupplyCaps: {},
     companionKindsByCardKind: {},
+    activationsPerTurnByKind: {},
   }
 
   function makeSingleNomadState(): GameState {

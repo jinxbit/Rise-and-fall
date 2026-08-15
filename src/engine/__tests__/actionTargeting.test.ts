@@ -71,7 +71,7 @@ function makeState(overrides: Partial<GameState> = {}): GameState {
 }
 
 const terrainLevels: Record<string, number> = { water: 0, plain: 1, forest: 2, mountain: 3, glacier: 4 }
-const emptyContent: UnitContent = { actionsByKind: {}, movementByKind: {}, terrainLevels, resourceCaps: {}, unitSupplyCaps: {}, companionKindsByCardKind: {} }
+const emptyContent: UnitContent = { actionsByKind: {}, movementByKind: {}, terrainLevels, resourceCaps: {}, unitSupplyCaps: {}, companionKindsByCardKind: {}, activationsPerTurnByKind: {} }
 
 describe('legalCreateTargets', () => {
   const effect: CreateEffect = { actionType: 'create', targetUnit: 'nomad', targetHex: { location: 'adj' }, cost: { gold: 1 } }

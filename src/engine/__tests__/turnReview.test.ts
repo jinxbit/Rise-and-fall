@@ -72,6 +72,7 @@ const content: UnitContent = {
   resourceCaps: { gold: null, wood: null, stone: null },
   unitSupplyCaps: {},
   companionKindsByCardKind: {},
+  activationsPerTurnByKind: {},
 }
 
 function makeGenesis(units: Unit[], board: GameState['board'], extraDeclineForP1: string[] = []): GameState {

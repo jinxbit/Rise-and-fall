@@ -40,7 +40,7 @@ function buildUnitContent(): UnitContent {
     resourceCaps[resource.id as keyof Resources] = resource.playerCap
   }
 
-  return { actionsByKind, movementByKind, terrainLevels, resourceCaps, unitSupplyCaps, companionKindsByCardKind: {} }
+  return { actionsByKind, movementByKind, terrainLevels, resourceCaps, unitSupplyCaps, companionKindsByCardKind: {}, activationsPerTurnByKind: {} }
 }
 
 function makePlayer(id: string, resources: Resources = { gold: 0, wood: 0, stone: 0 }): Player {
