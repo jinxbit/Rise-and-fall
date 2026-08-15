@@ -5,11 +5,13 @@ import { MapTemplateSelector } from '../components/MapTemplateSelector'
 import { PlayModeSelector } from '../components/PlayModeSelector'
 import { TaleSelector } from '../components/TaleSelector'
 import { useAuth } from '../hooks/useAuth'
+import { useDisplayName } from '../hooks/useDisplayName'
 import { createGame, MAX_PLAYERS } from '../lib/gameApi'
 import type { PlayMode } from '../engine/types'
 
 export function CreateGamePage() {
   const { session, loading } = useAuth()
+  const { displayName } = useDisplayName(session?.user ?? null)
   const navigate = useNavigate()
 
   const [name, setName] = useState('')
@@ -53,11 +55,6 @@ export function CreateGamePage() {
   }
 
   const user = session.user
-  const displayName =
-    (user.user_metadata?.full_name as string | undefined) ??
-    (user.user_metadata?.name as string | undefined) ??
-    user.email ??
-    'Player'
   const avatarUrl = (user.user_metadata?.avatar_url as string | undefined) ?? null
 
   async function handleCreate() {

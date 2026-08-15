@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { DiscordSignIn } from '../components/DiscordSignIn'
-import { DiscordWebhookSettings } from '../components/DiscordWebhookSettings'
 import { GuestSignIn } from '../components/GuestSignIn'
 import { Pagination } from '../components/Pagination'
 import { useAuth } from '../hooks/useAuth'
+import { useDisplayName } from '../hooks/useDisplayName'
 import { getGameByRoomCode, listMyGames, listPublicRooms } from '../lib/gameApi'
 import { signOut } from '../lib/auth'
 import { paginate } from '../lib/pagination'
@@ -28,6 +28,7 @@ function gamePath(entry: MyGameEntry): string {
 
 export function HomePage() {
   const { session, loading } = useAuth()
+  const { displayName } = useDisplayName(session?.user ?? null)
   const navigate = useNavigate()
 
   const [roomCodeInput, setRoomCodeInput] = useState('')
@@ -81,11 +82,6 @@ export function HomePage() {
   }
 
   const user = session.user
-  const displayName =
-    (user.user_metadata?.full_name as string | undefined) ??
-    (user.user_metadata?.name as string | undefined) ??
-    user.email ??
-    'Player'
   const avatarUrl = (user.user_metadata?.avatar_url as string | undefined) ?? null
 
   async function handleJoin() {
@@ -125,6 +121,9 @@ export function HomePage() {
         <div className="flex items-center gap-3 text-sm text-neutral-400">
           {avatarUrl && <img src={avatarUrl} alt="" className="h-8 w-8 rounded-full" />}
           <span>{displayName}</span>
+          <Link to="/profile" className="underline hover:text-neutral-200">
+            Profile
+          </Link>
           <Link to="/games" className="underline hover:text-neutral-200">
             My games
           </Link>
@@ -139,8 +138,6 @@ export function HomePage() {
 
       {error && <div className="rounded-md bg-red-500/10 p-3 text-sm text-red-400">{error}</div>}
       {loadError && <div className="rounded-md bg-red-500/10 p-3 text-sm text-red-400">{loadError}</div>}
-
-      <DiscordWebhookSettings userId={user.id} />
 
       <section className="flex flex-col gap-3">
         <Link

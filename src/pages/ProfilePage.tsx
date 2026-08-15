@@ -1,0 +1,52 @@
+import { Link } from 'react-router-dom'
+import { DiscordWebhookSettings } from '../components/DiscordWebhookSettings'
+import { DisplayNameSettings } from '../components/DisplayNameSettings'
+import { useAuth } from '../hooks/useAuth'
+import { useDisplayName } from '../hooks/useDisplayName'
+import { resolveDisplayName } from '../lib/displayName'
+
+export function ProfilePage() {
+  const { session, loading } = useAuth()
+  const {
+    profileDisplayName,
+    loading: displayNameLoading,
+    setProfileDisplayName,
+  } = useDisplayName(session?.user ?? null)
+
+  if (loading) return <div className="p-8 text-neutral-400">Loading…</div>
+
+  if (!session) {
+    return (
+      <div className="p-8 text-neutral-400">
+        <Link to="/" className="underline hover:text-neutral-200">
+          Sign in
+        </Link>{' '}
+        to edit your profile.
+      </div>
+    )
+  }
+
+  const user = session.user
+  const discordName = resolveDisplayName(user, null)
+
+  return (
+    <div className="mx-auto flex max-w-lg flex-col gap-8 p-8">
+      <header className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold">Profile</h1>
+        <Link to="/" className="text-sm underline hover:text-neutral-200">
+          Home
+        </Link>
+      </header>
+
+      <DisplayNameSettings
+        userId={user.id}
+        value={profileDisplayName}
+        fallback={discordName}
+        loading={displayNameLoading}
+        onSaved={setProfileDisplayName}
+      />
+
+      <DiscordWebhookSettings userId={user.id} />
+    </div>
+  )
+}
