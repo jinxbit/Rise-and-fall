@@ -1084,7 +1084,7 @@ describe('RoundView — bulk actions on idle units (issue #61)', () => {
       />,
     )
 
-    const bulkButton = screen.getByRole('button', { name: 'Produce Resource — all (2)' })
+    const bulkButton = screen.getByRole('button', { name: 'Produce Resource — all (2) (+2 Wood)' })
     fireEvent.click(bulkButton)
 
     expect(onResolveBulkAction).toHaveBeenCalledWith(['nomadA', 'nomadB'], 'produce-resource')
@@ -1120,10 +1120,46 @@ describe('RoundView — bulk actions on idle units (issue #61)', () => {
       />,
     )
 
-    const bulkButton = screen.getByRole('button', { name: 'Produce Resource — all (1)' })
+    const bulkButton = screen.getByRole('button', { name: 'Produce Resource — all (1) (+1 Wood)' })
     fireEvent.click(bulkButton)
 
     expect(onResolveBulkAction).toHaveBeenCalledWith(['nomadForest'], 'produce-resource')
+  })
+
+  it('aggregates the outcome across units producing different resources, e.g. a Forest Nomad + a Mountain Nomad shows the combined total', () => {
+    const content = buildRealUnitContent()
+    const board = setTile(setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'forest'), { q: 1, r: 0 }, 'mountain')
+    const nomadForest: Unit = { id: 'nomadForest', ownerId: 'p1', kind: 'nomad', coord: { q: 0, r: 0 }, movement: content.movementByKind.nomad, traits: [] }
+    const nomadMountain: Unit = { id: 'nomadMountain', ownerId: 'p1', kind: 'nomad', coord: { q: 1, r: 0 }, movement: content.movementByKind.nomad, traits: [] }
+    const state = beginActionsForUnits(content, board, [nomadForest, nomadMountain], 'nomad')
+
+    const onResolveBulkAction = vi.fn()
+    render(
+      <RoundView
+        state={state}
+        players={BULK_TEST_PLAYERS}
+        myPlayerId="p1"
+        unitContent={content}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
+        turnReview={null}
+        showHistory={false}
+        onToggleHistory={() => {}}
+        gameLog={[]}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onResolveBulkAction={onResolveBulkAction}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+
+    const bulkButton = screen.getByRole('button', { name: 'Produce Resource — all (2) (+1 Wood, +1 Stone)' })
+    fireEvent.click(bulkButton)
+
+    expect(onResolveBulkAction).toHaveBeenCalledWith(['nomadForest', 'nomadMountain'], 'produce-resource')
   })
 
   it('shows no bulk-action button for an action that needs a target hex (e.g. Transform to Ship), even with multiple idle units sharing it', () => {

@@ -599,6 +599,8 @@ interface BulkActionGroup {
   actionId: string
   label: string
   unitIds: string[]
+  /** Sum of computeActionOutcomePreview across every unit in the group — e.g. two idle Forest Nomads' Produce Resource combine into `{ wood: 2 }`. */
+  outcome: Partial<Resources>
 }
 
 /**
@@ -608,7 +610,9 @@ interface BulkActionGroup {
  * Ship/Merchant/City/Temple's trade/income action (issue #61). Drives the
  * "act on everyone at once" buttons in ActionsPanel below, so a player
  * doesn't have to click through each unit individually on the board for an
- * action that never needed a target hex in the first place.
+ * action that never needed a target hex in the first place. Each group's
+ * `outcome` is the aggregated resource preview across its units (see
+ * computeActionOutcomePreview), shown on the button alongside the count.
  */
 function computeBulkActionGroups(state: GameState, unitContent: UnitContent, playerId: string, remaining: Unit[]): BulkActionGroup[] {
   const groups = new Map<string, BulkActionGroup>()
@@ -617,9 +621,19 @@ function computeBulkActionGroups(state: GameState, unitContent: UnitContent, pla
       if (actionNeedsTargeting(action.effect)) continue
       if (!isActionAvailableForUnit(state, playerId, unit, action, unitContent)) continue
       const key = `${unit.kind}:${action.id}`
-      const group = groups.get(key)
-      if (group) group.unitIds.push(unit.id)
-      else groups.set(key, { kind: unit.kind, actionId: action.id, label: action.name, unitIds: [unit.id] })
+      let group = groups.get(key)
+      if (!group) {
+        group = { kind: unit.kind, actionId: action.id, label: action.name, unitIds: [], outcome: {} }
+        groups.set(key, group)
+      }
+      group.unitIds.push(unit.id)
+      const unitOutcome = computeActionOutcomePreview(state, playerId, unit, action)
+      if (unitOutcome) {
+        for (const resourceKey of RESOURCE_ORDER) {
+          const amount = unitOutcome[resourceKey]
+          if (amount) group.outcome[resourceKey] = (group.outcome[resourceKey] ?? 0) + amount
+        }
+      }
     }
   }
   return [...groups.values()]
@@ -661,16 +675,19 @@ function ActionsPanel(props: {
 
       {bulkGroups.length > 0 && (
         <div className="flex flex-wrap gap-2">
-          {bulkGroups.map((group) => (
-            <button
-              key={`${group.kind}:${group.actionId}`}
-              onClick={() => onResolveBulkAction(group.unitIds, group.actionId)}
-              title={`Apply "${group.label}" to every remaining ${capitalize(group.kind)} that can currently take it, without picking each one individually on the board.`}
-              className="rounded-md border border-neutral-700 px-3 py-1 hover:border-neutral-500"
-            >
-              {group.label} — all ({group.unitIds.length})
-            </button>
-          ))}
+          {bulkGroups.map((group) => {
+            const outcomeText = formatResourceDelta(group.outcome)
+            return (
+              <button
+                key={`${group.kind}:${group.actionId}`}
+                onClick={() => onResolveBulkAction(group.unitIds, group.actionId)}
+                title={`Apply "${group.label}" to every remaining ${capitalize(group.kind)} that can currently take it, without picking each one individually on the board.`}
+                className="rounded-md border border-neutral-700 px-3 py-1 hover:border-neutral-500"
+              >
+                {group.label} — all ({group.unitIds.length}){outcomeText && ` (${outcomeText})`}
+              </button>
+            )
+          })}
         </div>
       )}
 
