@@ -7,6 +7,7 @@ import { TaleSelector } from '../components/TaleSelector'
 import { useAuth } from '../hooks/useAuth'
 import { useDisplayName } from '../hooks/useDisplayName'
 import { createGame, MAX_PLAYERS } from '../lib/gameApi'
+import { randomRoomName } from '../lib/randomRoomName'
 import type { PlayMode } from '../engine/types'
 
 export function CreateGamePage() {
@@ -14,8 +15,8 @@ export function CreateGamePage() {
   const { displayName, loading: displayNameLoading } = useDisplayName(session?.user ?? null)
   const navigate = useNavigate()
 
-  const [name, setName] = useState('')
-  const [playMode, setPlayMode] = useState<PlayMode>('live')
+  const [name, setName] = useState(() => randomRoomName())
+  const [playMode, setPlayMode] = useState<PlayMode>('async')
   const [mapTemplateId, setMapTemplateId] = useState<string | null>(null)
   const [skipHotseatPassGate, setSkipHotseatPassGate] = useState(true)
   const [activeTaleIds, setActiveTaleIds] = useState<string[]>([])
@@ -122,40 +123,42 @@ export function CreateGamePage() {
         <GameLengthSelector value={gameLength} onChange={setGameLength} />
         <h3 className="text-sm font-medium text-neutral-400">Players</h3>
         <div className="flex gap-4">
-          <label className="flex flex-1 flex-col gap-1 text-sm text-neutral-400">
+          <label className="flex flex-col gap-1 text-sm text-neutral-400">
             Min players
             <input
               type="number"
               inputMode="numeric"
               value={minPlayersInput}
               onChange={(e) => setMinPlayersInput(e.target.value)}
-              className={`rounded-md border bg-neutral-900 px-3 py-2 text-neutral-100 ${
+              className={`w-14 rounded-md border bg-neutral-900 px-3 py-2 text-center text-neutral-100 ${
                 minPlayersValid ? 'border-neutral-700' : 'border-red-500'
               }`}
             />
           </label>
-          <label className="flex flex-1 flex-col gap-1 text-sm text-neutral-400">
+          <label className="flex flex-col gap-1 text-sm text-neutral-400">
             Max players
             <input
               type="number"
               inputMode="numeric"
               value={maxPlayersInput}
               onChange={(e) => setMaxPlayersInput(e.target.value)}
-              className={`rounded-md border bg-neutral-900 px-3 py-2 text-neutral-100 ${
+              className={`w-14 rounded-md border bg-neutral-900 px-3 py-2 text-center text-neutral-100 ${
                 maxPlayersValid && maxPlayers >= minPlayers ? 'border-neutral-700' : 'border-red-500'
               }`}
             />
           </label>
         </div>
         {playerCountError && <p className="text-sm text-red-400">{playerCountError}</p>}
-        <h3 className="text-sm font-medium text-neutral-400">Map</h3>
-        <MapTemplateSelector value={mapTemplateId} onChange={setMapTemplateId} />
-        <details className="rounded-md border border-neutral-800 p-3">
-          <summary className="cursor-pointer text-sm font-medium text-neutral-400">Tales (variant)</summary>
-          <div className="mt-3">
-            <TaleSelector value={activeTaleIds} onChange={setActiveTaleIds} />
-          </div>
-        </details>
+        <h3 className="text-sm font-medium text-neutral-400">Variants</h3>
+        <div className="flex flex-col gap-3 rounded-md border border-neutral-800 p-3">
+          <MapTemplateSelector value={mapTemplateId} onChange={setMapTemplateId} />
+          <details>
+            <summary className="cursor-pointer text-sm font-medium text-neutral-400">Tales</summary>
+            <div className="mt-3">
+              <TaleSelector value={activeTaleIds} onChange={setActiveTaleIds} />
+            </div>
+          </details>
+        </div>
         <label className="flex items-center gap-2 text-sm text-neutral-400">
           <input
             type="checkbox"

@@ -1,14 +1,13 @@
 import type { PlayMode } from '../engine/types'
 
 const OPTIONS: { value: PlayMode; label: string; description: string }[] = [
-  { value: 'live', label: 'Live', description: 'Everyone online at once, moves sync in real time.' },
   { value: 'async', label: 'Play by turn', description: 'No need to be online together — play whenever it\'s your turn.' },
   { value: 'hotseat', label: 'Hotseat', description: 'Everyone in one room, sharing a single device.' },
 ]
 
 export function PlayModeSelector(props: { value: PlayMode; onChange: (mode: PlayMode) => void }) {
   return (
-    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
       {OPTIONS.map((option) => (
         <button
           key={option.value}
