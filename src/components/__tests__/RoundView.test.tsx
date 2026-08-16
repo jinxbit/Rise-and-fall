@@ -1551,6 +1551,25 @@ describe('RoundView — supporting actions (issue #147)', () => {
     expect(primary).toEqual({ unitId: 'builder', actionId: 'transform-to-city', target: undefined })
   })
 
+  it('drops the yellow "could act" ring from every unit once support-unit picking starts, leaving only the teal support-candidate ring (issue #150)', () => {
+    const { container } = renderSupportScenario()
+
+    const polygons = boardPolygons(container)
+    // Before picking an action, all three idle Nomads still show the yellow
+    // "could act this turn" ring.
+    expect(container.querySelectorAll('circle[stroke="#fbbf24"]')).toHaveLength(3)
+
+    fireEvent.click(polygons[0])
+    const transformOption = [...container.querySelectorAll('foreignObject div')].find((d) => d.textContent?.startsWith('Transform to City'))
+    fireEvent.click(transformOption!)
+
+    // Now in 'supporting' mode: the yellow ring should be gone from every
+    // unit — including the builder itself and the two support candidates —
+    // leaving only their teal supportCandidate ring as the pickable cue.
+    expect(container.querySelectorAll('circle[stroke="#fbbf24"]')).toHaveLength(0)
+    expect(container.querySelectorAll('circle[stroke="#2dd4bf"]')).toHaveLength(2)
+  })
+
   it('clicking elsewhere on the board cancels the whole in-progress support pick without submitting anything', () => {
     const { container, onResolveSupportedAction, onResolveUnit } = renderSupportScenario()
 

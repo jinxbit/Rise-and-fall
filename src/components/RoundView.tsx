@@ -1053,7 +1053,11 @@ export function RoundView(props: {
       coord: u.coord,
       color: players.find((p) => p.id === u.ownerId)?.color ?? '#a3a3a3',
       kind: u.kind,
-      highlighted: isMyActionTurn && availableUnitIds.has(u.id),
+      // In 'supporting' mode, the yellow "could act this turn" ring is
+      // unrelated to the current pick — only the teal supportCandidate ring
+      // below should show, so units outside the support pool don't look
+      // pickable too (see issue #150).
+      highlighted: isMyActionTurn && mode.kind !== 'supporting' && availableUnitIds.has(u.id),
       supportCandidate: mode.kind === 'supporting' && supportCandidateUnitIds.has(u.id),
       supportSelected: mode.kind === 'supporting' && supportingSelectedIds.includes(u.id),
       historyHalos: history?.halos,
