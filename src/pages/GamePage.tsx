@@ -1170,7 +1170,14 @@ export function GamePage() {
       )}
 
       {displayState?.status === 'completed' && (
-        <EndGameView state={displayState} players={players} achievementContent={achievementContent} taleContent={taleContent} scoreHistory={scoreHistory} />
+        <EndGameView
+          state={displayState}
+          players={players}
+          achievementContent={achievementContent}
+          taleContent={taleContent}
+          scoreHistory={scoreHistory?.snapshots}
+          achievementClaims={scoreHistory?.achievementClaims}
+        />
       )}
 
       {(!needsHotseatGate || isReviewingHistory) && displayState?.status === 'active' && (

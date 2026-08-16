@@ -1,6 +1,7 @@
+import { Fragment } from 'react'
 import { listAchievements, listTerrainTypes } from '../content/resolveContent'
 import type { AchievementContent } from '../engine/achievementContent'
-import type { ScoreSnapshot } from '../engine/scoreHistory'
+import type { AchievementClaimEvent, ScoreSnapshot } from '../engine/scoreHistory'
 import type { TaleContent } from '../engine/taleContent'
 import { calculateVPBreakdown, calculateVPDetail } from '../engine/victoryPoints'
 import type { VPDetail } from '../engine/victoryPoints'
@@ -35,39 +36,6 @@ function terrainName(terrainId: string): string {
   return TERRAIN_TYPES.find((t) => t.id === terrainId)?.name ?? capitalize(terrainId)
 }
 
-interface ScoreLine {
-  label: string
-  vp: number
-}
-
-/**
- * Flattens a player's VPDetail into "what they have: the points it's worth"
- * lines — e.g. "4 Forest: 12 points", "City Mastery: 5 points" — the format
- * requested for the end-of-game screen, rather than just a per-source
- * total. Zero-quantity sources (no achievements claimed, no board-count/
- * terrain-control presence, no gold) contribute no line at all; a source
- * the player *does* have something in still gets a line even if it happens
- * to be worth 0 points, since the point is showing what they have.
- */
-function scoreLinesFor(detail: VPDetail): ScoreLine[] {
-  const lines: ScoreLine[] = []
-  for (const achievement of detail.achievements) {
-    lines.push({ label: achievementName(achievement.achievementId), vp: achievement.vp })
-  }
-  for (const boardCount of detail.boardCount) {
-    lines.push({ label: `${boardCount.count} ${pluralize(capitalize(boardCount.kind), boardCount.count)}`, vp: boardCount.vp })
-  }
-  for (const terrainControl of detail.terrainControl) {
-    lines.push({ label: `${terrainControl.hexCount} ${terrainName(terrainControl.terrain)}`, vp: terrainControl.vp })
-  }
-  if (detail.gold.amount > 0) {
-    lines.push({ label: `${detail.gold.amount} Gold`, vp: detail.gold.vp })
-  }
-  for (const structure of detail.controllableStructures) {
-    lines.push({ label: structure.name, vp: structure.vp })
-  }
-  return lines
-}
 
 /** "1st"/"2nd"/"3rd"/"4th"... — 11th/12th/13th stay "-th" (the usual English exception to the mod-10 rule). */
 function ordinal(n: number): string {
@@ -113,6 +81,82 @@ function unitCountsFor(state: GameState, playerId: string): { kind: string; coun
   return [...counts.entries()].map(([kind, count]) => ({ kind, count }))
 }
 
+interface BreakdownCell {
+  vp: number
+  /** Extra context alongside the points — a quantity ("4 hexes"), not shown for sources without one (achievements, structures: either claimed for the row's full value or not present at all). */
+  sub?: string
+}
+
+interface BreakdownRow {
+  key: string
+  label: string
+  cellByPlayerId: Map<string, BreakdownCell>
+}
+
+interface BreakdownGroup {
+  categoryLabel: string
+  rows: BreakdownRow[]
+}
+
+/**
+ * Pivots every active player's VPDetail into rows-per-scoring-criterion,
+ * grouped by category (in SCORE_CATEGORIES' order) — the "score breakdown
+ * table pivoted by scoring criteria" requested for the end-of-game screen:
+ * every row is the same criterion for every player's column, rather than
+ * each player having their own free-form list of what they scored. A
+ * criterion only becomes a row if at least one active player actually has
+ * it (e.g. no "Forest" row if nobody controls any Forest) — same
+ * drop-all-zero-rows convention as scoredCategories() (./scoreCategories.ts).
+ */
+function breakdownGroupsFor(detailByPlayerId: Record<string, VPDetail>, activeIds: string[]): BreakdownGroup[] {
+  const achievementRows = new Map<string, BreakdownRow>()
+  const boardCountRows = new Map<string, BreakdownRow>()
+  const terrainRows = new Map<string, BreakdownRow>()
+  const goldRow: BreakdownRow = { key: 'gold', label: 'Gold', cellByPlayerId: new Map() }
+  const structureRows = new Map<string, BreakdownRow>()
+
+  for (const playerId of activeIds) {
+    const detail = detailByPlayerId[playerId]
+    if (!detail) continue
+
+    for (const achievement of detail.achievements) {
+      const row = achievementRows.get(achievement.achievementId) ?? { key: achievement.achievementId, label: achievementName(achievement.achievementId), cellByPlayerId: new Map() }
+      row.cellByPlayerId.set(playerId, { vp: achievement.vp })
+      achievementRows.set(achievement.achievementId, row)
+    }
+
+    for (const boardCount of detail.boardCount) {
+      const row = boardCountRows.get(boardCount.kind) ?? { key: boardCount.kind, label: capitalize(boardCount.kind), cellByPlayerId: new Map() }
+      row.cellByPlayerId.set(playerId, { vp: boardCount.vp, sub: `${boardCount.count} on board` })
+      boardCountRows.set(boardCount.kind, row)
+    }
+
+    for (const terrainControl of detail.terrainControl) {
+      const row = terrainRows.get(terrainControl.terrain) ?? { key: terrainControl.terrain, label: terrainName(terrainControl.terrain), cellByPlayerId: new Map() }
+      row.cellByPlayerId.set(playerId, { vp: terrainControl.vp, sub: `${terrainControl.hexCount} ${pluralize('hex', terrainControl.hexCount)}` })
+      terrainRows.set(terrainControl.terrain, row)
+    }
+
+    if (detail.gold.amount > 0) {
+      goldRow.cellByPlayerId.set(playerId, { vp: detail.gold.vp, sub: `${detail.gold.amount} gold` })
+    }
+
+    for (const structure of detail.controllableStructures) {
+      const row = structureRows.get(structure.kind) ?? { key: structure.kind, label: structure.name, cellByPlayerId: new Map() }
+      row.cellByPlayerId.set(playerId, { vp: structure.vp })
+      structureRows.set(structure.kind, row)
+    }
+  }
+
+  return [
+    { categoryLabel: 'Gold', rows: goldRow.cellByPlayerId.size > 0 ? [goldRow] : [] },
+    { categoryLabel: 'Terrain', rows: [...terrainRows.values()] },
+    { categoryLabel: 'Units', rows: [...boardCountRows.values()] },
+    { categoryLabel: 'Achievements', rows: [...achievementRows.values()] },
+    { categoryLabel: 'Structures', rows: [...structureRows.values()] },
+  ].filter((group) => group.rows.length > 0)
+}
+
 /**
  * The end-of-game screen: every player, ranked by final total VP, with a
  * full breakdown of what that total is made of — not just the bottom line,
@@ -127,6 +171,7 @@ export function EndGameView({
   achievementContent,
   taleContent,
   scoreHistory,
+  achievementClaims,
 }: {
   state: GameState
   players: PlayerRow[]
@@ -134,6 +179,8 @@ export function EndGameView({
   taleContent: TaleContent
   /** The "total score over time" series (./engine/scoreHistory.ts), for the line chart below. Undefined/null (a caller that hasn't derived it, e.g. this component's own tests) simply skips that chart. */
   scoreHistory?: ScoreSnapshot[] | null
+  /** Which round each achievement was claimed in (./engine/scoreHistory.ts), for the score chart's per-round claim markers. Undefined/empty simply omits the markers. */
+  achievementClaims?: AchievementClaimEvent[] | null
 }) {
   const detailByPlayerId = calculateVPDetail(state, achievementContent, taleContent)
   const breakdownByPlayerId = calculateVPBreakdown(state, achievementContent, taleContent)
@@ -145,6 +192,7 @@ export function EndGameView({
   const eliminatedIds = new Set(state.players.filter((p) => p.eliminated).map((p) => p.id))
   const activeIds = rankedIds.filter((id) => !eliminatedIds.has(id))
   const categories = scoredCategories(breakdownByPlayerId, activeIds)
+  const breakdownGroups = breakdownGroupsFor(detailByPlayerId, activeIds)
 
   const boardUnits: UnitMarker[] = state.units.map((unit) => ({
     coord: unit.coord,
@@ -250,7 +298,9 @@ export function EndGameView({
         </div>
       )}
 
-      {scoreHistory && scoreHistory.length > 1 && <ScoreOverTimeChart history={scoreHistory} players={players} playerIds={rankedIds} />}
+      {scoreHistory && scoreHistory.length > 1 && (
+        <ScoreOverTimeChart history={scoreHistory} players={players} playerIds={rankedIds} achievementClaims={achievementClaims ?? []} achievementName={achievementName} />
+      )}
 
       <div data-testid="score-breakdown">
         <p className="mb-2 text-sm font-medium text-neutral-200">Score breakdown</p>
@@ -303,35 +353,46 @@ export function EndGameView({
                   )
                 })}
               </tr>
-              <tr className="border-b border-neutral-800/60">
-                <td className="py-1 pr-3 align-top text-neutral-500">Breakdown</td>
-                {ranked.map((player) => {
-                  if (player.eliminated) {
-                    return (
-                      <td key={player.id} data-testid={`breakdown-lines-${player.id}`} className="px-3 py-1 align-top text-xs text-neutral-500">
-                        Eliminated
+              {breakdownGroups.length > 0 ? (
+                breakdownGroups.map((group) => (
+                  <Fragment key={group.categoryLabel}>
+                    <tr data-testid={`breakdown-group-${group.categoryLabel}`}>
+                      <td colSpan={ranked.length + 1} className="bg-neutral-900/50 py-1 pr-3 pl-1 text-[11px] font-semibold tracking-wide text-neutral-500 uppercase">
+                        {group.categoryLabel}
                       </td>
-                    )
-                  }
-                  const detail = detailByPlayerId[player.id]
-                  const lines = detail ? scoreLinesFor(detail) : []
-                  return (
-                    <td key={player.id} data-testid={`breakdown-lines-${player.id}`} className="px-3 py-1 align-top">
-                      {lines.length > 0 ? (
-                        <ul className="flex flex-col gap-0.5 text-xs text-neutral-400">
-                          {lines.map((line, i) => (
-                            <li key={i}>
-                              {line.label}: <span className="text-neutral-300">{line.vp} point{line.vp === 1 ? '' : 's'}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <span className="text-xs text-neutral-500">No points scored</span>
-                      )}
+                    </tr>
+                    {group.rows.map((row) => (
+                      <tr key={row.key} data-testid={`breakdown-row-${group.categoryLabel}-${row.key}`} className="border-b border-neutral-800/60">
+                        <td className="py-1 pr-3 pl-3 text-neutral-400">{row.label}</td>
+                        {ranked.map((player) => {
+                          const cell = eliminatedIds.has(player.id) ? undefined : row.cellByPlayerId.get(player.id)
+                          return (
+                            <td key={player.id} data-testid={`breakdown-cell-${group.categoryLabel}-${row.key}-${player.id}`} className="px-3 py-1 text-xs text-neutral-300">
+                              {cell ? (
+                                <>
+                                  {cell.vp} point{cell.vp === 1 ? '' : 's'}
+                                  {cell.sub && <span className="text-neutral-500"> ({cell.sub})</span>}
+                                </>
+                              ) : (
+                                <span className="text-neutral-600">—</span>
+                              )}
+                            </td>
+                          )
+                        })}
+                      </tr>
+                    ))}
+                  </Fragment>
+                ))
+              ) : (
+                <tr className="border-b border-neutral-800/60">
+                  <td className="py-1 pr-3 text-neutral-500">Breakdown</td>
+                  {ranked.map((player) => (
+                    <td key={player.id} className="px-3 py-1 text-xs text-neutral-500">
+                      {player.eliminated ? 'Eliminated' : 'No points scored'}
                     </td>
-                  )
-                })}
-              </tr>
+                  ))}
+                </tr>
+              )}
               <tr className="border-b border-neutral-800/60">
                 <td className="py-1 pr-3 text-neutral-500">Resources</td>
                 {ranked.map((player) =>
@@ -347,7 +408,7 @@ export function EndGameView({
                 )}
               </tr>
               <tr>
-                <td className="py-1 pr-3 align-top text-neutral-500">Units</td>
+                <td className="py-1 pr-3 align-top text-neutral-500">On board</td>
                 {ranked.map((player) => {
                   if (player.eliminated) {
                     return (

@@ -1,5 +1,6 @@
 import type { VPBreakdown } from '../engine/victoryPoints'
 import type { PlayerRow } from '../lib/dbTypes'
+import { niceMax } from './chartScale'
 import { scoredCategories } from './scoreCategories'
 
 const WIDTH = 560
@@ -7,16 +8,10 @@ const HEIGHT = 220
 const MARGIN = { top: 12, right: 12, bottom: 30, left: 28 }
 const PLOT_WIDTH = WIDTH - MARGIN.left - MARGIN.right
 const PLOT_HEIGHT = HEIGHT - MARGIN.top - MARGIN.bottom
+/** Gap between bars within the same category's cluster — kept tight so those bars visibly belong together. */
 const BAR_GAP = 2
-
-/** Rounds `value` up to a "nice" axis ceiling (1/2/5 × a power of ten) — never a jagged max like 137. */
-function niceMax(value: number): number {
-  if (value <= 0) return 5
-  const magnitude = 10 ** Math.floor(Math.log10(value))
-  const normalized = value / magnitude
-  const step = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10
-  return step * magnitude
-}
+/** Gap between one category's cluster and the next — much wider than BAR_GAP so clusters read as clearly separate groups rather than one continuous row of bars. */
+const CLUSTER_GAP = 14
 
 /**
  * Grouped bar chart comparing every player's VP across each scoring
@@ -25,7 +20,10 @@ function niceMax(value: number): number {
  * clusters: easiest way to compare players against each other within one
  * category at a glance. Categories no player scored anything in (e.g.
  * "Structures" outside a Tale that has any) are dropped entirely rather
- * than showing an all-zero cluster.
+ * than showing an all-zero cluster. Each cluster gets its own shaded
+ * background band plus a wide gap from its neighbors (CLUSTER_GAP, well
+ * beyond the tight BAR_GAP between bars of the same category) so the
+ * grouping is visually obvious, not just implied by proximity.
  */
 export function ScoreCategoryChart({ breakdownByPlayerId, players, playerIds }: { breakdownByPlayerId: Record<string, VPBreakdown>; players: PlayerRow[]; playerIds: string[] }) {
   const categories = scoredCategories(breakdownByPlayerId, playerIds)
@@ -34,7 +32,7 @@ export function ScoreCategoryChart({ breakdownByPlayerId, players, playerIds }: 
   const maxValue = niceMax(Math.max(1, ...categories.flatMap((c) => playerIds.map((id) => breakdownByPlayerId[id]?.[c.key] ?? 0))))
   const yFor = (value: number) => MARGIN.top + PLOT_HEIGHT - (value / maxValue) * PLOT_HEIGHT
 
-  const clusterWidth = PLOT_WIDTH / categories.length
+  const clusterWidth = (PLOT_WIDTH - CLUSTER_GAP * (categories.length - 1)) / categories.length
   const barWidth = Math.max(2, (clusterWidth - BAR_GAP * (playerIds.length + 1)) / playerIds.length)
 
   const gridSteps = [0, 0.25, 0.5, 0.75, 1]
@@ -55,12 +53,13 @@ export function ScoreCategoryChart({ breakdownByPlayerId, players, playerIds }: 
         })}
 
         {categories.map((category, categoryIndex) => {
-          const clusterX = MARGIN.left + categoryIndex * clusterWidth
+          const clusterX = MARGIN.left + categoryIndex * (clusterWidth + CLUSTER_GAP)
           const values = playerIds.map((id) => breakdownByPlayerId[id]?.[category.key] ?? 0)
           const leaderValue = Math.max(...values)
 
           return (
             <g key={category.key}>
+              <rect x={clusterX - BAR_GAP} y={MARGIN.top} width={clusterWidth + BAR_GAP * 2} height={PLOT_HEIGHT} rx={3} fill="currentColor" fillOpacity={categoryIndex % 2 === 0 ? 0.04 : 0.09} />
               <text x={clusterX + clusterWidth / 2} y={HEIGHT - 4} textAnchor="middle" fontSize={9} fill="currentColor">
                 {category.label}
               </text>

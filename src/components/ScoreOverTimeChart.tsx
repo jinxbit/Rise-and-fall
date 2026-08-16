@@ -1,20 +1,14 @@
-import type { ScoreSnapshot } from '../engine/scoreHistory'
+import type { AchievementClaimEvent, ScoreSnapshot } from '../engine/scoreHistory'
 import type { PlayerRow } from '../lib/dbTypes'
+import { niceMax } from './chartScale'
 
 const WIDTH = 560
 const HEIGHT = 220
 const MARGIN = { top: 12, right: 12, bottom: 24, left: 28 }
 const PLOT_WIDTH = WIDTH - MARGIN.left - MARGIN.right
 const PLOT_HEIGHT = HEIGHT - MARGIN.top - MARGIN.bottom
-
-/** Rounds `value` up to a "nice" axis ceiling (1/2/5 × a power of ten) — never a jagged max like 137. */
-function niceMax(value: number): number {
-  if (value <= 0) return 5
-  const magnitude = 10 ** Math.floor(Math.log10(value))
-  const normalized = value / magnitude
-  const step = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10
-  return step * magnitude
-}
+/** Horizontal spacing between two markers landing on the same round, so simultaneous claims don't draw as one indistinguishable line. */
+const MARKER_OFFSET = 4
 
 /**
  * Line chart of each player's total VP across every round of the game — the
@@ -24,18 +18,46 @@ function niceMax(value: number): number {
  * the same identity color already used everywhere else on this screen —
  * not a separately-invented chart palette), a legend since there's always
  * more than one series, and a `<title>` per point for a native hover
- * tooltip with the exact value.
+ * tooltip with the exact value. The Y axis ceiling is always derived from
+ * the highest total actually reached in the game (via niceMax), so it never
+ * wastes space scaling to some larger fixed maximum.
  */
-export function ScoreOverTimeChart({ history, players, playerIds }: { history: ScoreSnapshot[]; players: PlayerRow[]; playerIds: string[] }) {
+export function ScoreOverTimeChart({
+  history,
+  players,
+  playerIds,
+  achievementClaims = [],
+  achievementName,
+}: {
+  history: ScoreSnapshot[]
+  players: PlayerRow[]
+  playerIds: string[]
+  /** Rounds where an achievement was claimed (./engine/scoreHistory.ts) — rendered as a thin vertical line, colored as the claiming player, at that round's x-position. Omitted/empty simply skips this overlay. */
+  achievementClaims?: AchievementClaimEvent[]
+  /** Resolves an achievementId to its display name for the marker's hover tooltip — required whenever `achievementClaims` is non-empty. */
+  achievementName?: (achievementId: string) => string
+}) {
   if (history.length < 2) return null
 
   const maxTotal = niceMax(Math.max(1, ...history.flatMap((snapshot) => playerIds.map((id) => snapshot.totalByPlayerId[id] ?? 0))))
   const xFor = (index: number) => MARGIN.left + (history.length === 1 ? PLOT_WIDTH / 2 : (index / (history.length - 1)) * PLOT_WIDTH)
   const yFor = (value: number) => MARGIN.top + PLOT_HEIGHT - (value / maxTotal) * PLOT_HEIGHT
+  const xForTurn = (turn: number) => {
+    const index = history.findIndex((snapshot) => snapshot.turn === turn)
+    return index === -1 ? null : xFor(index)
+  }
 
   // Round labels are thinned out once there are too many to fit without overlapping.
   const labelStride = Math.max(1, Math.ceil(history.length / 8))
   const gridSteps = [0, 0.25, 0.5, 0.75, 1]
+
+  // Group claims by round so simultaneous claims can be spread out rather than drawn as one overlapping line.
+  const claimsByTurn = new Map<number, AchievementClaimEvent[]>()
+  for (const claim of achievementClaims) {
+    const list = claimsByTurn.get(claim.turn) ?? []
+    claimsByTurn.set(claim.turn, list)
+    list.push(claim)
+  }
 
   return (
     <div className="flex flex-col gap-2">
@@ -60,6 +82,22 @@ export function ScoreOverTimeChart({ history, players, playerIds }: { history: S
             </text>
           ) : null,
         )}
+
+        {[...claimsByTurn.entries()].map(([turn, claims]) => {
+          const baseX = xForTurn(turn)
+          if (baseX === null) return null
+          const spread = (claims.length - 1) * MARKER_OFFSET
+          return claims.map((claim, i) => {
+            const color = players.find((p) => p.id === claim.playerId)?.color ?? '#a3a3a3'
+            const x = baseX - spread / 2 + i * MARKER_OFFSET
+            const playerName = players.find((p) => p.id === claim.playerId)?.display_name ?? claim.playerId
+            return (
+              <line key={claim.achievementId} x1={x} x2={x} y1={MARGIN.top} y2={MARGIN.top + PLOT_HEIGHT} stroke={color} strokeWidth={1.5} strokeDasharray="3 2" strokeOpacity={0.85}>
+                <title>{`${achievementName?.(claim.achievementId) ?? claim.achievementId} — claimed by ${playerName} (round ${turn})`}</title>
+              </line>
+            )
+          })
+        })}
 
         {playerIds.map((playerId) => {
           const color = players.find((p) => p.id === playerId)?.color ?? '#a3a3a3'
