@@ -372,6 +372,18 @@
           }
         },
         {
+          "id": "transform-to-temple",
+          "name": "Transform to Temple",
+          "description": "Transform into a Temple on an adjacent empty Plains space.",
+          "effect": {
+            "actionType": "transform",
+            "targetUnit": "temple",
+            "targetHex": { "terrainType": ["plain"], "location": "adj" },
+            "destroySelf": true,
+            "cost": { "gold": 0, "wood": 0, "stone": 2 }
+          }
+        },
+        {
           "id": "trade",
           "name": "Trade",
           "description": "",

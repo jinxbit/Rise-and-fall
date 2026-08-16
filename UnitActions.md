@@ -109,9 +109,10 @@ a straightforward 1-for-5 conversion each way.
 | 20 | Transform to City | ✅ | |
 | 21 | Transform to Merchant | ✅ | targets an adjacent Plains or Forest space, empty or occupied only by a City (`allowedOccupantKinds: ["city"]`, any owner); `ignoresCliff` as above; 2 GP |
 | 22 | Trade | ✅ | flat rate per City adjacent to the Ship's whole contiguous sea area, any owner (no own/enemy split), cliffs don't block it |
+| 27 | Transform to Temple | ✅ | targets an adjacent empty Plains space only; Water(0)→Plain(1) is never a cliff edge (diff of 1), so no `ignoresCliff` needed, unlike Transform to Nomad/Merchant reaching Forest; 2 stone |
 | 26 | Move | ✅ | water-only, `moveDistance: "unlimited"` bounded by its connected water region |
 
-**26/26 implemented and tested** — 148 tests across `unitActions.test.ts`
+**27/27 implemented and tested** — tests across `unitActions.test.ts`
 (synthetic fixtures), `unitActions.realContent.test.ts` (against the real
 `units.json`/`terrain.json`/`resources.json`), and `movement.test.ts` (the
 `legalMoveDestinations` BFS in isolation).

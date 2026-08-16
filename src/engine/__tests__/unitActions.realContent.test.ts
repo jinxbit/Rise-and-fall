@@ -435,6 +435,82 @@ describe('real content/units.json + terrain.json + resources.json', () => {
     expect(next.players.find((p) => p.id === 'p1')!.resources.gold).toBe(0)
   })
 
+  it("Ship's Transform to Temple (real content, 2 stone) can only target an adjacent empty Plains hex", () => {
+    const board = setTile(setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'water'), { q: 1, r: 0 }, 'plain')
+    const ship: Unit = { id: 'u1', ownerId: 'p1', kind: 'ship', coord: { q: 0, r: 0 }, movement: content.movementByKind.ship, traits: [] }
+    const state: GameState = {
+      gameId: 'g',
+      playMode: 'hotseat',
+      status: 'active',
+      turn: 1,
+      activePlayerId: null,
+      roundPhase: 'actions',
+      chosenCardIdByPlayerId: {},
+      pendingPlayerIds: [],
+      resolvedUnitIdsThisTurn: [],
+      unitsCreatedThisTurn: [],
+      turnOrder: ['p1'],
+      board,
+      players: [makePlayer('p1', { gold: 0, wood: 0, stone: 2 })],
+      units: [ship],
+      cards: {},
+      resourceBank: { gold: 1000, wood: 1000, stone: 1000 },
+      activeTaleIds: [],
+      gameLength: Infinity,
+      winnerPlayerIds: [],
+      claimedByAchievementId: {},
+      achievementsClaimedThisRound: 0,
+      boardSetup: null,
+      idSequence: 0,
+      actionHistory: [],
+    }
+
+    const action = findAction('ship', 'transform-to-temple', content)
+    expect(action.effect).toMatchObject({ cost: { gold: 0, wood: 0, stone: 2 } })
+
+    const next = applyUnitActionEffect(state, 'p1', 'ship', action, { [ship.id]: { q: 1, r: 0 } }, content)
+
+    expect(next.units).toHaveLength(1)
+    expect(next.units[0]).toMatchObject({ kind: 'temple', coord: { q: 1, r: 0 }, ownerId: 'p1' })
+    expect(next.players.find((p) => p.id === 'p1')!.resources.stone).toBe(0)
+  })
+
+  it("Ship's Transform to Temple cannot target a Forest hex, unlike Transform to Nomad/Merchant", () => {
+    const board = setTile(setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'water'), { q: 1, r: 0 }, 'forest')
+    const ship: Unit = { id: 'u1', ownerId: 'p1', kind: 'ship', coord: { q: 0, r: 0 }, movement: content.movementByKind.ship, traits: [] }
+    const state: GameState = {
+      gameId: 'g',
+      playMode: 'hotseat',
+      status: 'active',
+      turn: 1,
+      activePlayerId: null,
+      roundPhase: 'actions',
+      chosenCardIdByPlayerId: {},
+      pendingPlayerIds: [],
+      resolvedUnitIdsThisTurn: [],
+      unitsCreatedThisTurn: [],
+      turnOrder: ['p1'],
+      board,
+      players: [makePlayer('p1', { gold: 0, wood: 0, stone: 2 })],
+      units: [ship],
+      cards: {},
+      resourceBank: { gold: 1000, wood: 1000, stone: 1000 },
+      activeTaleIds: [],
+      gameLength: Infinity,
+      winnerPlayerIds: [],
+      claimedByAchievementId: {},
+      achievementsClaimedThisRound: 0,
+      boardSetup: null,
+      idSequence: 0,
+      actionHistory: [],
+    }
+
+    const action = findAction('ship', 'transform-to-temple', content)
+    const next = applyUnitActionEffect(state, 'p1', 'ship', action, { [ship.id]: { q: 1, r: 0 } }, content)
+
+    expect(next.units[0].kind).toBe('ship') // Forest isn't a legal target — no-op
+  })
+
   it("Ship's Move (real moveDistance: 'unlimited', blockedByUnits: 'none') can reach across its water region but not onto a non-water hex", () => {
     let board = createEmptyBoard('hex')
     for (const [q, r] of [
