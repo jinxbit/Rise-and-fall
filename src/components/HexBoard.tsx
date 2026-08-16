@@ -352,9 +352,9 @@ const ACTION_MENU_BOX_HEIGHT_FACTOR = 1.7
 const HISTORY_LABEL_WIDTH_FACTOR = 3.4
 const HISTORY_LABEL_HEIGHT_FACTOR = 0.62
 
-/** Wide enough for the "Confirm" button at PLACEMENT_CONTROLS's own font size, tall enough for one line of button text. */
-const PLACEMENT_CONTROLS_WIDTH_FACTOR = 3.6
-const PLACEMENT_CONTROLS_HEIGHT_FACTOR = 1.8
+/** Wide enough for the "Confirm" button at PLACEMENT_CONTROLS's own font size, tall enough for one line of button text. Sized generously (issue #157) so the button is easy to hit, especially on touch. */
+const PLACEMENT_CONTROLS_WIDTH_FACTOR = 4.6
+const PLACEMENT_CONTROLS_HEIGHT_FACTOR = 2.4
 /** Vertical gap between the hex's bottom vertex and the placement controls box, so it doesn't sit flush against the tile it's positioned next to. */
 const PLACEMENT_CONTROLS_Y_OFFSET_FACTOR = 1.3
 
@@ -874,10 +874,10 @@ export function HexBoard(props: {
       )}
       {props.placementControls && placementControlsBox && (
         <foreignObject x={placementControlsBox.x} y={placementControlsBox.y} width={placementControlsBox.width} height={placementControlsBox.height}>
-          <div style={{ fontSize: size * 0.32 }} className="flex h-full w-full items-center justify-center gap-1.5 whitespace-nowrap">
+          <div style={{ fontSize: size * 0.4 }} className="flex h-full w-full items-center justify-center gap-1.5 whitespace-nowrap">
             <button
               onClick={props.placementControls.onConfirm}
-              className="rounded-md bg-indigo-600 px-2 py-1 font-medium text-white hover:bg-indigo-500"
+              className="rounded-md bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-500"
             >
               Confirm
             </button>
