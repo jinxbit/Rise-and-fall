@@ -13,6 +13,7 @@ import type { BoardGenerationContent } from './boardGenerationContent'
 import { currentTilePlacerId, placeTile, placeUnit } from './boardSetup'
 import { EMPTY_TALE_CONTENT } from './taleContent'
 import type { TaleContent } from './taleContent'
+import { companionKindsByCardKind } from './tales'
 import type { ActionResult, GameState } from './types'
 import { EMPTY_UNIT_CONTENT } from './unitContent'
 import type { UnitContent } from './unitContent'
@@ -539,7 +540,7 @@ function applyPurchaseCard(
   const players = state.players.map((p) => (p.id === playerId ? nextPlayer : p))
 
   let nextState: GameState = { ...state, players, resourceBank: spent.bank, pendingPlayerIds: state.pendingPlayerIds.slice(1) }
-  nextState = syncCardZonesWithBoard(nextState)
+  nextState = syncCardZonesWithBoard(nextState, companionKindsByCardKind(taleContent))
   nextState = { ...nextState, activePlayerId: nextState.pendingPlayerIds[0] ?? null }
   nextState = skipEmptyDeclinePurchasers(nextState, achievementContent)
 

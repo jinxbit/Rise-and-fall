@@ -6,6 +6,7 @@ import { eliminatePlayersWithNoCardToDecline, eliminatePlayersWithNoCardToPlay }
 import { calculatePurchaseCost } from './purchaseCost'
 import type { FantasticEvent, TaleContent } from './taleContent'
 import { EMPTY_TALE_CONTENT } from './taleContent'
+import { companionKindsByCardKind } from './tales'
 import type { GameState } from './types'
 import { calculateVPBreakdown, determineWinners } from './victoryPoints'
 
@@ -201,7 +202,7 @@ export function finishRound(
     // Re-syncing here catches exactly that: any recycled card for a
     // now-absent kind moves straight back to supply instead of sitting in
     // hand as a false choice.
-    nextState = syncCardZonesWithBoard(nextState)
+    nextState = syncCardZonesWithBoard(nextState, companionKindsByCardKind(taleContent))
 
     const turnOrder =
       nextState.turnOrder.length > 1 ? [...nextState.turnOrder.slice(1), nextState.turnOrder[0]] : nextState.turnOrder
