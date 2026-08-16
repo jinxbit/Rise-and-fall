@@ -929,6 +929,7 @@ export function RoundView(props: {
       highlighted: isMyActionTurn && availableUnitIds.has(u.id),
       historyHalos: history?.halos,
       historyLabel: history && Object.keys(history.resourceDelta).length > 0 ? formatResourceDelta(history.resourceDelta) : undefined,
+      connectedNeighborCoords: u.connectedNeighborCoords,
     }
   })
   const historyArrows: HistoryArrow[] = historyByUnit ? [...historyByUnit.values()].flatMap((h) => h.moves) : []

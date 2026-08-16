@@ -100,6 +100,19 @@ export interface UnitMovement {
    * both are checked together in legalMoveDestinations' canLandOn.
    */
   canEndMoveOnAlliedUnitTypes?: string[]
+  /**
+   * Unit kind ids this unit may move onto/through/land on regardless of the
+   * normal terrain/cliff/blockedByUnits rules — as long as EVERY current
+   * occupant of the hex is one of these kinds (any owner). E.g. The
+   * Majestic Bridge Tale: a land unit (Nomad/Merchant/Mountaineer) may move
+   * over or stop on the Bridge, a permanent structure sitting on an
+   * otherwise-impassable Sea hex. See legalMoveDestinations in
+   * ./movement.ts. A Ship needs no such override to pass under the Bridge
+   * without stopping — its own terrain/blockedByUnits rules already permit
+   * that; it simply never gains 'bridge' here or in
+   * canEndMoveOnUnitTypes, so it still can't land there.
+   */
+  canCrossOntoStructureKinds?: string[]
 }
 
 /**
@@ -117,6 +130,19 @@ export interface Unit {
   movement: UnitMovement
   /** Arbitrary per-unit tags for rules that key off unit traits (e.g. 'settlement', 'ship'). */
   traits: string[]
+  /**
+   * The two neighboring hexes this structure spans between, set once at
+   * creation for a transform whose effect has requiredMirroredPartnerOfKind
+   * (see TransformEffect in ./unitContent.ts and findMirroredPartnerUnit in
+   * ./unitActions.ts) — currently only Bridge (The Majestic Bridge Tale).
+   * Both entries are always adjacent to `coord` and directly opposite each
+   * other, but WHICH of the (possibly several) matching-terrain opposite
+   * pairs around the hex they were built on isn't otherwise recoverable
+   * once the two Nomads that built it are gone, so it's captured here
+   * rather than re-derived from surrounding terrain. HexBoard.tsx reads
+   * this to draw which two hex sides the Bridge physically connects.
+   */
+  connectedNeighborCoords?: [Coordinate, Coordinate]
 }
 
 /**

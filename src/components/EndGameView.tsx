@@ -150,6 +150,7 @@ export function EndGameView({
     coord: unit.coord,
     color: players.find((p) => p.id === unit.ownerId)?.color ?? '#a3a3a3',
     kind: unit.kind,
+    connectedNeighborCoords: unit.connectedNeighborCoords,
   }))
 
   return (

@@ -69,6 +69,7 @@ export function legalMoveDestinations(
   if (!movement.isMobile) return []
 
   const maxSteps = movement.moveDistance === undefined || movement.moveDistance === 'unlimited' ? Infinity : movement.moveDistance
+  const structureKinds = new Set(movement.canCrossOntoStructureKinds ?? [])
 
   const visited = new Set([coordKey(unit.coord)])
   const destinations: Coordinate[] = []
@@ -88,15 +89,24 @@ export function legalMoveDestinations(
         if (visited.has(key)) continue
 
         const toTile = getTile(state.board, neighbor)
-        if (!toTile || !movement.terrains.includes(toTile.terrain)) continue
-        if (!movement.canCrossCliffs && isCliffBetweenTerrains(fromTile.terrain, toTile.terrain, terrainLevels)) continue
+        if (!toTile) continue
 
         const occupants = unitsAt(state, neighbor)
-        if (blocksTransit(occupants, unit.ownerId, movement.blockedByUnits)) continue
+        // A hex occupied ENTIRELY by a "structure" kind this unit can cross
+        // (e.g. The Majestic Bridge Tale's Bridge) is always
+        // traversable/landable, regardless of its own terrain/cliff/
+        // blockedByUnits rules — see UnitMovement.canCrossOntoStructureKinds.
+        const crossesViaStructure = occupants.length > 0 && occupants.every((o) => structureKinds.has(o.kind))
+
+        if (!crossesViaStructure) {
+          if (!movement.terrains.includes(toTile.terrain)) continue
+          if (!movement.canCrossCliffs && isCliffBetweenTerrains(fromTile.terrain, toTile.terrain, terrainLevels)) continue
+          if (blocksTransit(occupants, unit.ownerId, movement.blockedByUnits)) continue
+        }
 
         visited.add(key)
         next.push(neighbor)
-        if (canLandOn(occupants, unit.ownerId, movement.canEndMoveOnUnitTypes, movement.canEndMoveOnAlliedUnitTypes)) {
+        if (crossesViaStructure || canLandOn(occupants, unit.ownerId, movement.canEndMoveOnUnitTypes, movement.canEndMoveOnAlliedUnitTypes)) {
           destinations.push(neighbor)
         }
       }
