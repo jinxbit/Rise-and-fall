@@ -3,6 +3,7 @@ import { CreateGamePage } from './pages/CreateGamePage'
 import { GamePage } from './pages/GamePage'
 import { HomePage } from './pages/HomePage'
 import { LobbyPage } from './pages/LobbyPage'
+import { MapBuilderPage } from './pages/MapBuilderPage'
 import { MyGamesPage } from './pages/MyGamesPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { PublicRoomsPage } from './pages/PublicRoomsPage'
@@ -14,6 +15,7 @@ function App() {
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/create" element={<CreateGamePage />} />
+          <Route path="/map-builder" element={<MapBuilderPage />} />
           <Route path="/games" element={<MyGamesPage />} />
           <Route path="/public" element={<PublicRoomsPage />} />
           <Route path="/profile" element={<ProfilePage />} />

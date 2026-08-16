@@ -130,6 +130,9 @@ export function HomePage() {
           <Link to="/public" className="underline hover:text-neutral-200">
             Public rooms
           </Link>
+          <Link to="/map-builder" className="underline hover:text-neutral-200">
+            Map builder
+          </Link>
           <button onClick={() => void signOut()} className="underline hover:text-neutral-200">
             Sign out
           </button>

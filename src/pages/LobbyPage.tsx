@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useDisplayName } from '../hooks/useDisplayName'
 import { GameLengthSelector } from '../components/GameLengthSelector'
+import { MapPoolSelector } from '../components/MapPoolSelector'
 import { MapTemplateSelector } from '../components/MapTemplateSelector'
 import { TaleSelector } from '../components/TaleSelector'
 import { listMapTemplates, listTales } from '../content/resolveContent'
@@ -314,7 +315,9 @@ export function LobbyPage() {
           {game.play_mode} · {players.length}/{game.max_players} players · {game.settings.gameLength} achievements ·{' '}
           {game.settings.mapTemplateId
             ? (listMapTemplates().find((t) => t.id === game.settings.mapTemplateId)?.name ?? game.settings.mapTemplateId)
-            : 'interactive map'}
+            : game.settings.mapPoolBoard
+              ? 'random saved map'
+              : 'interactive map'}
         </p>
         {game.settings.activeTaleIds.length > 0 && (
           <p className="text-sm text-neutral-500">
@@ -407,7 +410,19 @@ export function LobbyPage() {
             <div className="flex flex-col gap-3 rounded-md border border-neutral-800 p-3">
               <MapTemplateSelector
                 value={draftSettings.mapTemplateId}
-                onChange={(mapTemplateId) => setDraftSettings({ ...draftSettings, mapTemplateId })}
+                onChange={(mapTemplateId) => setDraftSettings({ ...draftSettings, mapTemplateId, mapPoolBoard: mapTemplateId ? null : draftSettings.mapPoolBoard, mapPoolMapId: mapTemplateId ? null : draftSettings.mapPoolMapId })}
+              />
+              <MapPoolSelector
+                playerCount={draftMaxPlayersValid ? draftMaxPlayers : 2}
+                value={draftSettings.mapPoolBoard ? { board: draftSettings.mapPoolBoard, mapId: draftSettings.mapPoolMapId ?? '' } : null}
+                onChange={(choice) =>
+                  setDraftSettings({
+                    ...draftSettings,
+                    mapPoolBoard: choice?.board ?? null,
+                    mapPoolMapId: choice?.mapId ?? null,
+                    mapTemplateId: choice ? null : draftSettings.mapTemplateId,
+                  })
+                }
               />
               <details>
                 <summary className="cursor-pointer text-sm font-medium text-neutral-400">Tales</summary>

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { GameLengthSelector } from '../components/GameLengthSelector'
+import { MapPoolSelector, type MapPoolChoice } from '../components/MapPoolSelector'
 import { MapTemplateSelector } from '../components/MapTemplateSelector'
 import { PlayModeSelector } from '../components/PlayModeSelector'
 import { TaleSelector } from '../components/TaleSelector'
@@ -18,6 +19,7 @@ export function CreateGamePage() {
   const [name, setName] = useState(() => randomRoomName())
   const [playMode, setPlayMode] = useState<PlayMode>('async')
   const [mapTemplateId, setMapTemplateId] = useState<string | null>(null)
+  const [mapPoolChoice, setMapPoolChoice] = useState<MapPoolChoice | null>(null)
   const [skipHotseatPassGate, setSkipHotseatPassGate] = useState(true)
   const [activeTaleIds, setActiveTaleIds] = useState<string[]>([])
   const [gameLength, setGameLength] = useState(4)
@@ -69,6 +71,8 @@ export function CreateGamePage() {
         displayName,
         avatarUrl,
         mapTemplateId,
+        mapPoolBoard: mapPoolChoice?.board ?? null,
+        mapPoolMapId: mapPoolChoice?.mapId ?? null,
         skipHotseatPassGate,
         activeTaleIds,
         gameLength,
@@ -151,7 +155,21 @@ export function CreateGamePage() {
         {playerCountError && <p className="text-sm text-red-400">{playerCountError}</p>}
         <h3 className="text-sm font-medium text-neutral-400">Variants</h3>
         <div className="flex flex-col gap-3 rounded-md border border-neutral-800 p-3">
-          <MapTemplateSelector value={mapTemplateId} onChange={setMapTemplateId} />
+          <MapTemplateSelector
+            value={mapTemplateId}
+            onChange={(id) => {
+              setMapTemplateId(id)
+              if (id) setMapPoolChoice(null)
+            }}
+          />
+          <MapPoolSelector
+            playerCount={playerCountValid ? maxPlayers : 2}
+            value={mapPoolChoice}
+            onChange={(choice) => {
+              setMapPoolChoice(choice)
+              if (choice) setMapTemplateId(null)
+            }}
+          />
           <details>
             <summary className="cursor-pointer text-sm font-medium text-neutral-400">Tales</summary>
             <div className="mt-3">
