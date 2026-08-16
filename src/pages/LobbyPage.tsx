@@ -403,19 +403,22 @@ export function LobbyPage() {
           </div>
 
           <div>
-            <h3 className="mb-2 text-sm font-medium text-neutral-400">Map</h3>
-            <MapTemplateSelector
-              value={draftSettings.mapTemplateId}
-              onChange={(mapTemplateId) => setDraftSettings({ ...draftSettings, mapTemplateId })}
-            />
-          </div>
-
-          <div>
-            <h3 className="mb-2 text-sm font-medium text-neutral-400">Tales (variant)</h3>
-            <TaleSelector
-              value={draftSettings.activeTaleIds}
-              onChange={(activeTaleIds) => setDraftSettings({ ...draftSettings, activeTaleIds })}
-            />
+            <h3 className="mb-2 text-sm font-medium text-neutral-400">Variants</h3>
+            <div className="flex flex-col gap-3 rounded-md border border-neutral-800 p-3">
+              <MapTemplateSelector
+                value={draftSettings.mapTemplateId}
+                onChange={(mapTemplateId) => setDraftSettings({ ...draftSettings, mapTemplateId })}
+              />
+              <details>
+                <summary className="cursor-pointer text-sm font-medium text-neutral-400">Tales</summary>
+                <div className="mt-3">
+                  <TaleSelector
+                    value={draftSettings.activeTaleIds}
+                    onChange={(activeTaleIds) => setDraftSettings({ ...draftSettings, activeTaleIds })}
+                  />
+                </div>
+              </details>
+            </div>
           </div>
 
           <div className="flex gap-2">
