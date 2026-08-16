@@ -389,7 +389,7 @@
           "description": "",
           "effect": {
             "actionType": "trade",
-            "goldPerCity": 5
+            "goldPerCity": 3
           }
         },
         {
