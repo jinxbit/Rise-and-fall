@@ -552,6 +552,7 @@ function applyTransform(state: GameState, playerId: string, unit: Unit, effect: 
     coord: resolvedTargetCoord,
     movement: content.movementByKind[effect.targetUnit] ?? { isMobile: false, terrains: [], canCrossCliffs: false },
     traits: [],
+    ...(partnerUnit ? { connectedNeighborCoords: [unit.coord, partnerUnit.coord] as [Coordinate, Coordinate] } : {}),
   }
 
   const clusterMateKeys = new Set(clusterMateCoords.map(coordKey))

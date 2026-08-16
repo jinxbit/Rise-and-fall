@@ -222,6 +222,7 @@ describe("transform effect's requiredMirroredPartnerOfKind + costByOwnTerrain (N
     const bridge = next.units.find((u) => u.kind === 'bridge')
     expect(bridge).toBeDefined()
     expect(coordKey(bridge!.coord)).toBe(coordKey({ q: 1, r: 0 }))
+    expect(bridge!.connectedNeighborCoords?.map(coordKey).sort()).toEqual([coordKey({ q: 0, r: 0 }), coordKey({ q: 2, r: 0 })].sort())
     expect(next.players.find((p) => p.id === 'p1')?.resources).toEqual({ gold: 0, wood: 5, stone: 1 })
   })
 

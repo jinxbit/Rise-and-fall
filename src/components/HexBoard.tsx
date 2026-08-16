@@ -157,6 +157,8 @@ export interface UnitMarker {
   historyHalos?: HistoryHaloType[]
   /** History-review overlay: a small tag near the marker for an income/produce/trade amount, e.g. "+5 Gold" or "+1 Wood, -5 Gold". */
   historyLabel?: string
+  /** Mirrors Unit.connectedNeighborCoords (see ../engine/types) — the two neighboring hexes this structure spans between, e.g. Bridge. Drawn as a marker on those two hex sides so it's visible which sides land units may cross onto/from. */
+  connectedNeighborCoords?: [Coordinate, Coordinate]
 }
 
 /** A movement event in history-review mode — one hex-to-hex hop, drawn as an arrow. A unit that moved more than once in the reviewed window gets one arrow per hop, in order. */
@@ -599,6 +601,16 @@ export function HexBoard(props: {
     }
   }
 
+  const structureConnectorEdges: { x1: number; y1: number; x2: number; y2: number }[] = []
+  for (const unit of props.units ?? []) {
+    if (!unit.connectedNeighborCoords) continue
+    const { x, y } = axialToPixel(unit.coord, size)
+    for (const neighborCoord of unit.connectedNeighborCoords) {
+      const { x: nx, y: ny } = axialToPixel(neighborCoord, size)
+      structureConnectorEdges.push(hexEdgeSegment(x, y, nx, ny, size - 1))
+    }
+  }
+
   return (
     <svg
       viewBox={`${minX} ${minY} ${maxX - minX} ${maxY - minY}`}
@@ -630,6 +642,19 @@ export function HexBoard(props: {
           x2={edge.x2}
           y2={edge.y2}
           stroke="#000000"
+          strokeWidth={4}
+          strokeLinecap="round"
+          pointerEvents="none"
+        />
+      ))}
+      {structureConnectorEdges.map((edge, i) => (
+        <line
+          key={`structure-connector-${i}`}
+          x1={edge.x1}
+          y1={edge.y1}
+          x2={edge.x2}
+          y2={edge.y2}
+          stroke="#d6b98c"
           strokeWidth={4}
           strokeLinecap="round"
           pointerEvents="none"
