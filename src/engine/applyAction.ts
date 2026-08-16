@@ -13,6 +13,7 @@ import type { BoardGenerationContent } from './boardGenerationContent'
 import { currentTilePlacerId, placeTile, placeUnit } from './boardSetup'
 import { EMPTY_TALE_CONTENT } from './taleContent'
 import type { TaleContent } from './taleContent'
+import { companionKindsByCardKind } from './tales'
 import type { ActionResult, GameState } from './types'
 import { EMPTY_UNIT_CONTENT } from './unitContent'
 import type { UnitContent } from './unitContent'
@@ -354,12 +355,25 @@ function applyResolveUnitAction(
   const resolvedUnitIds: string[] = []
   let createdThisTurn = [...state.unitsCreatedThisTurn]
   for (const assignment of unitActions) {
-    if (state.resolvedUnitIdsThisTurn.includes(assignment.unitId)) continue
     const actingUnit = nextState.units.find((u) => u.id === assignment.unitId)
     if (!actingUnit || actingUnit.ownerId !== playerId) continue
     const isCompanion = actingUnit.kind !== card.kind && companionKinds.includes(actingUnit.kind)
     if (actingUnit.kind !== card.kind && !isCompanion) continue
     if (isCompanion && createdThisTurn.includes(actingUnit.id)) continue // companion piece can't activate the turn it's built
+
+    // How many times this unit may act this turn — usually 1 (".includes"'s
+    // old boolean shape), but a Tale companion can double-activate off its
+    // parent card (e.g. The Capital Tale: activationsPerTurnByKind.capital
+    // === 2) — see UnitContent.activationsPerTurnByKind's doc comment.
+    // Counts both already-committed prior turns' worth of resolutions
+    // (state.resolvedUnitIdsThisTurn) and any within this same call
+    // (resolvedUnitIds so far), so a caller batching >1 assignment for the
+    // same unit in one RESOLVE_UNIT_ACTION can't exceed the cap either.
+    const activationsCap = unitContent.activationsPerTurnByKind[actingUnit.kind] ?? 1
+    const timesAlreadyResolved =
+      state.resolvedUnitIdsThisTurn.filter((id) => id === assignment.unitId).length +
+      resolvedUnitIds.filter((id) => id === assignment.unitId).length
+    if (timesAlreadyResolved >= activationsCap) continue
 
     const unitAction = (unitContent.actionsByKind[actingUnit.kind] ?? []).find((a) => a.id === assignment.actionId)
     if (!unitAction) continue
@@ -390,11 +404,13 @@ function applyResolveUnitAction(
   nextState = { ...nextState, resolvedUnitIdsThisTurn, unitsCreatedThisTurn: createdThisTurn }
   nextState = updateAchievementClaims(nextState, achievementContent, unitContent.unitSupplyCaps)
 
-  const actingUnitIds = nextState.units
+  const actingUnits = nextState.units
     .filter((u) => u.ownerId === playerId && (u.kind === card.kind || companionKinds.includes(u.kind)))
     .filter((u) => u.kind === card.kind || !createdThisTurn.includes(u.id))
-    .map((u) => u.id)
-  const everyUnitActed = actingUnitIds.every((id) => resolvedUnitIdsThisTurn.includes(id))
+  const everyUnitActed = actingUnits.every((u) => {
+    const activationsCap = unitContent.activationsPerTurnByKind[u.kind] ?? 1
+    return resolvedUnitIdsThisTurn.filter((id) => id === u.id).length >= activationsCap
+  })
   if (everyUnitActed) {
     return finishActionsTurn(nextState, playerId, achievementContent, taleContent)
   }
@@ -524,7 +540,7 @@ function applyPurchaseCard(
   const players = state.players.map((p) => (p.id === playerId ? nextPlayer : p))
 
   let nextState: GameState = { ...state, players, resourceBank: spent.bank, pendingPlayerIds: state.pendingPlayerIds.slice(1) }
-  nextState = syncCardZonesWithBoard(nextState)
+  nextState = syncCardZonesWithBoard(nextState, companionKindsByCardKind(taleContent))
   nextState = { ...nextState, activePlayerId: nextState.pendingPlayerIds[0] ?? null }
   nextState = skipEmptyDeclinePurchasers(nextState, achievementContent)
 

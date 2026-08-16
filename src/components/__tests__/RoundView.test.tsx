@@ -1019,7 +1019,7 @@ function buildRealUnitContent(): UnitContent {
   for (const terrain of terrainJson.terrainTypes) terrainLevels[terrain.id] = terrain.level
   const resourceCaps: Partial<Record<keyof Resources, number | null>> = {}
   for (const resource of resourcesJson.resources) resourceCaps[resource.id as keyof Resources] = resource.playerCap
-  return { actionsByKind, movementByKind, terrainLevels, resourceCaps, unitSupplyCaps, companionKindsByCardKind: {} }
+  return { actionsByKind, movementByKind, terrainLevels, resourceCaps, unitSupplyCaps, companionKindsByCardKind: {}, activationsPerTurnByKind: {} }
 }
 
 /** Builds an active-actions-phase GameState for `cardKind`, using the real content (see buildRealUnitContent), with p2 excluded so only p1's own units/turn matter — same setup shape as the City/Convert and Ship/Port describe blocks below. */
@@ -1267,6 +1267,7 @@ describe('RoundView — stacked units on one hex (Ship + Port, The Ports Tale)',
     resourceCaps: { gold: null, wood: 5, stone: 5 },
     unitSupplyCaps: { ship: 10, port: 10 },
     companionKindsByCardKind: { ship: ['port'] },
+    activationsPerTurnByKind: {},
   }
 
   function renderStacked() {

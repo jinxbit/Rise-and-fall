@@ -98,7 +98,18 @@ export const UNIT_ICONS: Record<string, IconShape[]> = {
     { kind: 'polygon', points: '8.3,13 12,7.5 15.7,13' },
     { kind: 'rect', x: 11.1, y: 16, width: 1.8, height: 4 },
   ],
+  // The Capital Tale — City's own crenellated battlement block, widened and
+  // topped with a raised central keep flying a banner: "grander than a
+  // City" through added height/width the same way Cathedral reads grander
+  // than Temple, rather than a new motif of its own (only one Capital ever
+  // exists at once).
+  capital: [
+    { kind: 'polygon', points: '3,19 3,9 6,9 6,11.5 8.5,11.5 8.5,9 10.5,9 10.5,11.5 13.5,11.5 13.5,9 15.5,9 15.5,11.5 18,11.5 18,9 21,9 21,19' },
+    { kind: 'rect', x: 9.3, y: 3.5, width: 5.4, height: 5.5, rx: 0.4 },
+    { kind: 'rect', x: 11.55, y: 0.6, width: 0.9, height: 3.4 },
+    { kind: 'polygon', points: '12,0.6 15.6,1.6 12,2.6' },
+  ],
 }
 
-/** City and Temple are immobile structures (never move once placed) — marked with a rectangle instead of the mobile units' circle. Port (The Ports Tale), Bank (The Banks Tale), and Cathedral (The Cathedral Tale) are likewise immobile once built. */
-export const STATIC_UNIT_KINDS = new Set(['city', 'temple', 'port', 'bank', 'cathedral'])
+/** City and Temple are immobile structures (never move once placed) — marked with a rectangle instead of the mobile units' circle. Port (The Ports Tale), Bank (The Banks Tale), Cathedral (The Cathedral Tale), and Capital (The Capital Tale) are likewise immobile once built. */
+export const STATIC_UNIT_KINDS = new Set(['city', 'temple', 'port', 'bank', 'cathedral', 'capital'])

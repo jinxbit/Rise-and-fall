@@ -3059,3 +3059,158 @@ available substitute, and is what actually caught the angle-math bug a
 unit test alone would have missed (the passing HexBoard.test.tsx case
 only exercised one option per group, never triggering the multi-option-
 per-group spread).
+
+## 64. The Capital Tale (variant, Tale #4) — cluster-consuming transforms, double-activating companions, and Tale-contributed Trophies
+
+Requested: implement The Capital, cataloged as "L" (large) complexity in
+`VARIANTS_PLAN.md` section 5.4 — it needed two engine capabilities no
+existing Tale (Ports/Banks/Cathedral, #61) had exercised yet: a transform
+that consumes more than just the acting unit, and a companion that
+activates more than once per turn.
+
+**The rule, precisely:** a City controlling 4 Cities arranged in a
+diamond (2 adjacent "spine" Cities plus the 2 Cities adjacent to both of
+them) may merge all 4 into the single Capital in the World, placed on the
+acting City's own hex. The Capital has no Civilization card of its own —
+each time its owner plays their City card, the Capital activates *twice*,
+performing 2 City actions (identical or different, per ruling — the
+rulebook doesn't require them to differ). Building it earns a real 20 VP
+Trophy, exactly like reaching full supply of any base unit kind (the
+Capital's own supply cap is 1, so "constructed" and "reached full supply"
+are the same event) — including triggering a real Decline phase for every
+player, per the rulebook's "Extra Trophies" rule. Per ruling, it also
+counts as a normal City for Ship's Trade action (the only concrete
+existing City-counting mechanic in the base game today; Merchant/Temple
+have no analogous "Trade"/"Taxes" action to extend).
+
+**New engine capability 1: a rhombus-cluster-consuming transform.**
+`TransformEffect.requiredAdjacentRhombusOfKind` (`unitContent.ts`) — when
+set, the acting unit's own hex must be one corner of a 4-hex rhombus
+entirely occupied by the acting player's own units of that kind; all 4 are
+removed (not just the acting one), and the new unit lands on the acting
+unit's own hex. New `findAdjacentRhombusCluster` (`unitActions.ts`) finds
+it: a hex-grid rhombus is two adjacent hexes (the "spine") plus the
+(exactly 2, fewer at a board edge) hexes adjacent to both — found via a
+new `commonNeighbors` helper. Since the acting hex can be either a spine
+or a wing corner, the search tries both roles: each neighbor as the other
+spine hex (covers acting-as-spine), then each mutually-adjacent pair of
+the acting hex's own neighbors as the spine (covers acting-as-wing, with
+the 4th hex being that edge's other common neighbor). Wired into
+`applyTransform` and `legalTransformTargets` (`actionTargeting.ts`)
+alongside the existing `requiredAdjacentOwnUnitKind`/`requiredOwnKindCount`
+condition fields.
+
+**New engine capability 2: a companion that reuses its parent's action
+list and activates more than once.** Two new `TaleExtraUnitContent`
+fields (`taleContent.ts`): `reusesCompanionActions` (the Capital has no
+actions of its own at all — `applyTaleModifiers`, `tales.ts`, resolves its
+final action list from `companionOfKind`'s own list, AFTER that kind's own
+Tale-added extras, so it picks up e.g. `construct-capital` too) and
+`activationsPerTurn` (new `UnitContent.activationsPerTurnByKind`, default
+1 for every kind — the Capital sets 2). `applyResolveUnitAction`
+(`applyAction.ts`) no longer treats "already acted" as a boolean
+(`resolvedUnitIdsThisTurn.includes(unitId)`) — it counts a unit's
+occurrences there against its kind's cap, both across prior calls this
+turn and within the same batched call. `RoundView.tsx` needed the same
+fix in its own two "still needs to act" filters (new
+`hasRemainingActivation` helper) — otherwise the live UI would hide the
+Capital as fully spent after its first activation.
+
+**New engine capability 3: Tale-contributed real Trophies.** Unlike
+Cathedral's `controllableStructures` (a dynamic, game-end-only "who holds
+it" bonus), Constructing the Capital is a one-time permanent claim that
+must trigger Decline immediately, mid-game — exactly what a base
+achievement (`content/achievements.json`) already does via
+`updateAchievementClaims`'s "first player to reach full supply of a unit
+kind" rule. New `TaleContent.extraAchievements` /
+`TaleExtraAchievement` (`taleContent.ts`) plus `applyTaleAchievementModifiers`
+(`tales.ts`), merged the same way `applyTaleModifiers` merges unit
+content, just onto `AchievementContent` instead — `GamePage.tsx` now
+builds `achievementContent` from `applyTaleAchievementModifiers(
+resolveAchievementContent(...), taleContent)`. Reusing the existing
+claim/decline/game-length/purchase-cost pipeline outright meant Capital's
+Trophy needed zero bespoke claim logic — the "generalized Trophy claim
+predicate" `VARIANTS_PLAN.md` flagged as still-needed infra (section 6,
+item 5) turns out to already exist for any Tale piece with a supply cap,
+which the Capital (only one ever) trivially has.
+
+**Content:** `content/tales.json`'s `the-capital` entry (#4, category
+`buildable`): the `capital` companion unit (supply cap 1,
+`reusesCompanionActions: true`, `activationsPerTurn: 2`), City's new
+`construct-capital` action (`requiredAdjacentRhombusOfKind: 'city'`,
+`forbiddenIfBoardHasKind: 'capital'`, no separate resource cost beyond the
+4 Cities), and the `extraAchievements` entry (20 VP). Schema
+(`tales.schema.json`) gained matching optional fields.
+
+**Smaller pieces:** `computeTradeGold` (Ship's Trade) now counts `'capital'`
+alongside `'city'` — hardcoded the same way `CREATABLE_KINDS_BY_TERRAIN`
+already hardcodes `'port'`, since the base engine doesn't otherwise know
+Tale-specific kind ids. A new hand-drawn icon (`unitIcons.ts`): City's own
+crenellation, widened and topped with a raised keep + banner — "grander
+than a City" through added height, the same idea Cathedral used against
+Temple — plus `capital` added to `STATIC_UNIT_KINDS`. `RoundView.tsx`'s
+achievements panel renders the Capital's Trophy alongside the base ones
+(sourced from `taleContent.extraAchievements` rather than the static
+`achievements.json` list, labeled from its unit kind id since Tale
+achievements carry no separate display name in `AchievementContent`,
+matching that type's existing "names are a display-layer lookup, not
+engine content" convention).
+
+14 new tests in `capital.test.ts` (rhombus geometry from both a spine and
+a wing starting hex, rejected with only 3 Cities or a non-rhombus line of
+4, ignores a mix of two players' Cities; content-merge correctness against
+the real `tales.json`/`units.json`; the cluster-consuming transform in
+isolation; and, end-to-end through `applyAction`, double activation off
+the City card with a rejected 3rd, the Trophy claim triggering a real
+Decline phase, and Ship's Trade counting the Capital). Every pre-existing
+`UnitContent` test fixture across the suite needed the new
+`activationsPerTurnByKind: {}` field (same mechanical update #61 caused
+when `companionKindsByCardKind` was introduced). 655 tests total (was
+641); `tsc -b`/`oxlint`/`vitest run`/`npm run build` all clean.
+
+**Not done, out of scope for this change:** live-UI click-testing (no
+Supabase-backed game available in this sandbox, same limitation as #63);
+the base game's `syncCardZonesWithBoard` only tracks a card's own literal
+kind on the board, not its companions — a player whose Capital is built
+from their *only* 4 Cities would see their City card cycle to supply
+until they build a new City elsewhere, same pre-existing characteristic
+every companion piece (Port/Bank/Cathedral) already has relative to its
+own parent kind, not something newly introduced here.
+
+## 65. Export json improvements
+
+Requested (issue #141): make the game state export easier and more
+efficient for debugging real games — a direct "copy" action in the
+menu, a real JSON format instead of a custom-prefixed blob, and docs
+on how to open/use the exported file.
+
+`src/lib/gameStateExport.ts`'s wire format changed from a
+`RAF-STATE-1:<base64>` string (not valid JSON on its own — an envelope
+`{schema, version, exportedAt, gameState}` gzipped+base64'd behind a
+prefix) to a real JSON object: `{ schema, version, exportedAt,
+gameStateZipped }`, where only `gameStateZipped` (the size-dominating
+part) is gzip+base64-encoded; `schema`/`version`/`exportedAt` stay
+plain, readable fields. `encodeGameStateExport`/`decodeGameStateExport`
+keep their existing signatures, so `GamePage.tsx`'s callers didn't
+change. Added `src/lib/gameStateExport.schema.json` (JSON Schema,
+matching the `src/content/*.schema.json` convention) documenting the
+file's shape.
+
+`GamePage.tsx`'s hamburger menu gained a "Copy game export" item that
+calls `handleCopyStateExport` directly — previously the only way to
+copy an export was to open the "Show game state JSON" panel first and
+click a button there. That panel's button is still there (relabeled
+"Copy game export" to match) for anyone who already has the panel
+open. Since the menu closes immediately after the new item is
+clicked, added a transient "Game export copied to clipboard!" banner
+(mirrors the existing error banner styling) so there's still feedback
+when the panel isn't open.
+
+Updated `gameStateExport.test.ts` for the new format (JSON-parse
+assertions instead of prefix checks) and doc comments in
+`engine/types.ts`/`gameGenesis.test.ts`/`content/README.md` that
+referenced the old `RAF-STATE-1` marker by name. Documented the format
+and how to decode it (in-app, via `jq`+`gzip`, or generically) in a new
+"Debugging: game state export" section in the top-level `README.md`.
+665 tests total; `tsc -b`/`oxlint`/`vitest run`/`npm run build` all
+clean.

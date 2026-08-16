@@ -31,6 +31,12 @@ function playerName(players: PlayerRow[], playerId: string | null): string {
   return players.find((p) => p.id === playerId)?.display_name ?? playerId
 }
 
+/** Whether `unit` still has an activation left this turn — usually just "hasn't acted yet," but a Tale companion may act more than once (e.g. The Capital Tale's Capital: unitContent.activationsPerTurnByKind.capital === 2) — see applyResolveUnitAction's matching cap check (engine/applyAction.ts). */
+function hasRemainingActivation(state: GameState, unitContent: UnitContent, unit: Unit): boolean {
+  const cap = unitContent.activationsPerTurnByKind[unit.kind] ?? 1
+  return state.resolvedUnitIdsThisTurn.filter((id) => id === unit.id).length < cap
+}
+
 function actionNeedsTargeting(effect: UnitAction['effect']): boolean {
   if (effect.actionType === 'create' || effect.actionType === 'convert' || effect.actionType === 'move') return true
   if (effect.actionType === 'transform') return effect.targetHex.location === 'adj'
@@ -475,6 +481,26 @@ function AchievementsPanel({
             </span>
           )
         })}
+        {/* A Tale-contributed real Trophy (e.g. The Capital) — claimed
+            permanently through the exact same pipeline as a base achievement
+            above (see TaleExtraAchievement's doc comment), just sourced from
+            taleContent instead of the static achievements.json list. */}
+        {taleContent.extraAchievements.map((achievement) => {
+          const claimedBy = state.claimedByAchievementId[achievement.id] ?? null
+          return (
+            <span
+              key={achievement.id}
+              className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 ${
+                claimedBy ? 'border-amber-700/50 bg-amber-500/10 text-amber-400' : 'border-neutral-800 text-neutral-500'
+              }`}
+            >
+              <UnitIcon kind={achievement.unitKind} className="h-3.5 w-3.5 shrink-0" />
+              <span>
+                {capitalize(achievement.unitKind)} ({achievement.victoryPoints} VP) — {claimedBy ? playerName(players, claimedBy) : 'unclaimed'}
+              </span>
+            </span>
+          )
+        })}
       </div>
       {taleContent.controllableStructures.length > 0 && (
         <>
@@ -620,7 +646,7 @@ function ActionsPanel(props: {
   if (!card || !myPlayerId) return <p className="text-red-400">No chosen card found for this player.</p>
 
   const actingUnits = eligibleActingUnits(state, unitContent, myPlayerId, card)
-  const remaining = actingUnits.filter((u) => !state.resolvedUnitIdsThisTurn.includes(u.id))
+  const remaining = actingUnits.filter((u) => hasRemainingActivation(state, unitContent, u))
   const bulkGroups = computeBulkActionGroups(state, unitContent, myPlayerId, remaining)
 
   return (
@@ -789,7 +815,7 @@ export function RoundView(props: {
   const myChosenCardId = myPlayerId ? state.chosenCardIdByPlayerId[myPlayerId] : null
   const myCard = myChosenCardId ? state.cards[myChosenCardId] : null
   const myActingUnits = isMyActionTurn && myCard && myPlayerId ? eligibleActingUnits(state, unitContent, myPlayerId, myCard) : []
-  const availableUnits = myActingUnits.filter((u) => !state.resolvedUnitIdsThisTurn.includes(u.id))
+  const availableUnits = myActingUnits.filter((u) => hasRemainingActivation(state, unitContent, u))
 
   // Normally exactly one unit (or none), but a hex can hold more than one
   // of the player's own acting units at once — e.g. a Ship docked at its

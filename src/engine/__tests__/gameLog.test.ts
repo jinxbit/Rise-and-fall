@@ -58,6 +58,7 @@ const content: UnitContent = {
   resourceCaps: { gold: null, wood: null, stone: null },
   unitSupplyCaps: { city: 2 },
   companionKindsByCardKind: {},
+  activationsPerTurnByKind: {},
 }
 
 const achievementContent: AchievementContent = {

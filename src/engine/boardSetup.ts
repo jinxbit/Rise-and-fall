@@ -293,7 +293,7 @@ export function placeUnit(state: GameState, playerId: string, unitKind: string, 
   const nextBoardSetup: BoardSetupState = { ...boardSetup, unitsRemainingByPlayerId, unitPlacerIndex: boardSetup.unitPlacerIndex + 1 }
 
   let nextState: GameState = { ...state, units, boardSetup: nextBoardSetup, idSequence }
-  nextState = syncCardZonesWithBoard(nextState)
+  nextState = syncCardZonesWithBoard(nextState, unitContent.companionKindsByCardKind)
 
   const everyoneDone = Object.values(unitsRemainingByPlayerId).every((k) => k.length === 0)
   if (everyoneDone) {

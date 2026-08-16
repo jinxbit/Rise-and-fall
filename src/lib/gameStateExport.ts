@@ -1,20 +1,28 @@
 import type { GameState as EngineGameState } from '../engine/types'
 
 /**
- * Debug export format for pasting a game state into a bug report or chat
- * (see GamePage.tsx's "Copy JSON" / "Copy state export" buttons).
- * Gzip-compressed and base64-encoded so a full game state collapses to a
- * single line that's actually pasteable, instead of the multi-kilobyte
- * pretty-printed JSON.
- * The envelope (schema + version) lets a decoder recognize and validate the
- * blob before trusting its contents, and gives room to change the encoding
- * later without breaking old exports.
+ * Debug export format for pasting a game state into a bug report or chat, or
+ * saving it as a `.json` file (see GamePage.tsx's "Copy JSON" / "Copy game
+ * export" buttons, and gameStateExport.schema.json for the file's schema).
+ * A plain JSON object so it opens in any editor/JSON viewer and round-trips
+ * through `JSON.parse`; only the game state itself is gzip-compressed and
+ * base64-encoded (as `gameStateZipped`), since that's what dominates the
+ * size — a full game state is tens of KB pretty-printed.
+ * `schema`/`version` let a decoder recognize and validate the file before
+ * trusting its contents, and give room to change the encoding later without
+ * breaking old exports.
  */
 export const GAME_STATE_EXPORT_SCHEMA = 'rise-and-fall/game-state-export'
 export const GAME_STATE_EXPORT_VERSION = 1
 
-/** Short non-JSON marker prefixed to every export so it's recognizable at a glance and a decoder can reject non-exports before attempting to decompress. */
-const EXPORT_PREFIX = 'RAF-STATE-1:'
+/** The on-disk/on-clipboard shape: a real JSON object, not a custom prefix + blob. */
+export interface GameStateExportFile {
+  schema: typeof GAME_STATE_EXPORT_SCHEMA
+  version: typeof GAME_STATE_EXPORT_VERSION
+  exportedAt: string
+  /** Gzip-compressed, base64-encoded `JSON.stringify(gameState)`. */
+  gameStateZipped: string
+}
 
 export interface GameStateExportEnvelope {
   schema: typeof GAME_STATE_EXPORT_SCHEMA
@@ -24,27 +32,29 @@ export interface GameStateExportEnvelope {
 }
 
 export async function encodeGameStateExport(gameState: EngineGameState): Promise<string> {
-  const envelope: GameStateExportEnvelope = {
+  const compressed = await gzip(new TextEncoder().encode(JSON.stringify(gameState)))
+  const file: GameStateExportFile = {
     schema: GAME_STATE_EXPORT_SCHEMA,
     version: GAME_STATE_EXPORT_VERSION,
     exportedAt: new Date().toISOString(),
-    gameState,
+    gameStateZipped: bytesToBase64(compressed),
   }
-  const compressed = await gzip(new TextEncoder().encode(JSON.stringify(envelope)))
-  return EXPORT_PREFIX + bytesToBase64(compressed)
+  return JSON.stringify(file)
 }
 
 export async function decodeGameStateExport(text: string): Promise<GameStateExportEnvelope> {
-  const trimmed = text.trim()
-  if (!trimmed.startsWith(EXPORT_PREFIX)) {
-    throw new Error(`Not a recognized game state export (expected the "${EXPORT_PREFIX}" prefix).`)
+  let file: GameStateExportFile
+  try {
+    file = JSON.parse(text.trim()) as GameStateExportFile
+  } catch {
+    throw new Error('Not a recognized game state export (expected a JSON object).')
   }
-  const decompressed = await gunzip(base64ToBytes(trimmed.slice(EXPORT_PREFIX.length)))
-  const envelope = JSON.parse(new TextDecoder().decode(decompressed)) as GameStateExportEnvelope
-  if (envelope.schema !== GAME_STATE_EXPORT_SCHEMA) {
-    throw new Error(`Unrecognized game state export schema: ${String(envelope.schema)}`)
+  if (file.schema !== GAME_STATE_EXPORT_SCHEMA) {
+    throw new Error(`Unrecognized game state export schema: ${String(file.schema)}`)
   }
-  return envelope
+  const decompressed = await gunzip(base64ToBytes(file.gameStateZipped))
+  const gameState = JSON.parse(new TextDecoder().decode(decompressed)) as EngineGameState
+  return { schema: file.schema, version: file.version, exportedAt: file.exportedAt, gameState }
 }
 
 async function gzip(data: Uint8Array<ArrayBuffer>): Promise<Uint8Array> {

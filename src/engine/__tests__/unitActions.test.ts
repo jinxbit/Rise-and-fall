@@ -77,6 +77,7 @@ const emptyContent: UnitContent = {
   resourceCaps: { gold: null, wood: 5, stone: 5 },
   unitSupplyCaps: {},
   companionKindsByCardKind: {},
+  activationsPerTurnByKind: {},
 }
 
 function goldOf(state: GameState, playerId: string): number {

@@ -169,6 +169,68 @@ export function hasOwnKindCountAtLeast(state: GameState, playerId: string, kind:
   return state.units.filter((u) => u.ownerId === playerId && u.kind === kind).length >= atLeast
 }
 
+/** Every hex adjacent to BOTH `a` and `b` — exactly 2 on an unbounded hex grid (the two hexes forming a triangle with each of `a`/`b`), fewer at a board edge. See findAdjacentRhombusCluster below. */
+function commonNeighbors(state: GameState, a: Coordinate, b: Coordinate): Coordinate[] {
+  const bNeighborKeys = new Set(neighborCoords(state.board, b).map(coordKey))
+  return neighborCoords(state.board, a).filter((c) => bNeighborKeys.has(coordKey(c)))
+}
+
+/**
+ * Finds a 4-hex rhombus of `playerId`'s own units of `kind`, one corner of
+ * which is `coord` — see TransformEffect.requiredAdjacentRhombusOfKind's
+ * doc comment (./unitContent.ts). A hex-grid rhombus is two adjacent hexes
+ * (the "spine") plus the (exactly 2) hexes adjacent to both of them (the
+ * "wings") — e.g. The Capital Tale's "control 4 adjacent Cities."
+ *
+ * `coord` may be either a spine hex or a wing hex of the rhombus found, so
+ * this tries both roles: first, each neighbor of `coord` as the OTHER
+ * spine hex (covers `coord` itself being a spine hex — the wings are then
+ * that edge's 2 common neighbors); then, each pair of `coord`'s own
+ * mutually-adjacent neighbors as the spine (covers `coord` being a wing —
+ * the 4th hex is that spine edge's other common neighbor, since `coord`
+ * itself is already one of the two). Returns the 3 other hexes (not
+ * including `coord`) on the first valid rhombus found, or null if `coord`
+ * isn't part of any.
+ *
+ * A candidate hex's unit doesn't count if it already resolved an action
+ * this turn (`state.resolvedUnitIdsThisTurn`) — a City that already acted
+ * can't also be folded into the Capital for free; the whole cluster must
+ * still be un-acted. (Presence in that list is enough, not a cap check
+ * against `UnitContent.activationsPerTurnByKind`, since every kind this
+ * effect has ever targeted — City — activates at most once per turn.)
+ */
+export function findAdjacentRhombusCluster(state: GameState, playerId: string, coord: Coordinate, kind: string): Coordinate[] | null {
+  const isOwnKind = (c: Coordinate) =>
+    unitsAt(state, c).some((u) => u.ownerId === playerId && u.kind === kind && !state.resolvedUnitIdsThisTurn.includes(u.id))
+  const neighbors = neighborCoords(state.board, coord)
+  const ownNeighbors = neighbors.filter(isOwnKind)
+
+  // coord as a spine hex: try each own-kind neighbor as the other spine hex.
+  for (const spinePartner of ownNeighbors) {
+    const wings = commonNeighbors(state, coord, spinePartner)
+    if (wings.length === 2 && wings.every(isOwnKind)) {
+      return [spinePartner, wings[0], wings[1]]
+    }
+  }
+
+  // coord as a wing hex: try each mutually-adjacent pair of coord's own-kind
+  // neighbors as the spine; the rhombus's 4th hex is that edge's other
+  // common neighbor (besides coord itself).
+  for (let i = 0; i < ownNeighbors.length; i++) {
+    for (let j = i + 1; j < ownNeighbors.length; j++) {
+      const [p, q] = [ownNeighbors[i], ownNeighbors[j]]
+      if (!isAdjacent(state, p, q)) continue
+      const wings = commonNeighbors(state, p, q)
+      const other = wings.find((w) => coordKey(w) !== coordKey(coord))
+      if (other && isOwnKind(other)) {
+        return [p, q, other]
+      }
+    }
+  }
+
+  return null
+}
+
 /** Whether any unit of `kind` (any owner) currently exists anywhere on the board — see TransformEffect.forbiddenIfBoardHasKind. */
 export function boardHasUnitOfKind(state: GameState, kind: string): boolean {
   return state.units.some((u) => u.kind === kind)
@@ -297,7 +359,11 @@ export function computeTradeGold(state: GameState, unit: Unit, effect: TradeEffe
   const cityIds = new Set<string>()
   for (const coord of seaArea) {
     for (const neighbor of adjacentUnits(state, coord)) {
-      if (neighbor.kind === 'city') cityIds.add(neighbor.id)
+      // Per ruling (The Capital Tale): "for Trade ... actions of Ships,
+      // ... the Capital counts as a normal City" — 'capital' is a Tale
+      // companion kind unknown to the base game, hardcoded here same as
+      // CREATABLE_KINDS_BY_TERRAIN's 'port' above.
+      if (neighbor.kind === 'city' || neighbor.kind === 'capital') cityIds.add(neighbor.id)
     }
   }
   return cityIds.size * effect.goldPerCity
@@ -415,6 +481,13 @@ function applyTransform(state: GameState, playerId: string, unit: Unit, effect: 
     if (!effect.ignoresCliff && crossesCliff(state, unit.coord, resolvedTargetCoord, content.terrainLevels)) return state
   }
 
+  let clusterMateCoords: Coordinate[] = []
+  if (effect.requiredAdjacentRhombusOfKind) {
+    const cluster = findAdjacentRhombusCluster(state, playerId, unit.coord, effect.requiredAdjacentRhombusOfKind)
+    if (!cluster) return state
+    clusterMateCoords = cluster
+  }
+
   if (hasReachedSupplyCap(state, playerId, effect.targetUnit, content.unitSupplyCaps)) return state
 
   const afterCost = tryPayCost(state, playerId, computeEffectiveTransformCost(state, effect))
@@ -430,7 +503,12 @@ function applyTransform(state: GameState, playerId: string, unit: Unit, effect: 
     traits: [],
   }
 
-  const units = effect.destroySelf ? afterCost.units.filter((u) => u.id !== unit.id) : afterCost.units
+  const clusterMateKeys = new Set(clusterMateCoords.map(coordKey))
+  const units = afterCost.units.filter((u) => {
+    if (effect.destroySelf && u.id === unit.id) return false
+    if (effect.requiredAdjacentRhombusOfKind && u.kind === effect.requiredAdjacentRhombusOfKind && u.ownerId === playerId && clusterMateKeys.has(coordKey(u.coord))) return false
+    return true
+  })
   return { ...afterCost, idSequence, units: [...units, newUnit] }
 }
 
@@ -611,5 +689,5 @@ export function applyUnitActionEffect(
   // applyResolveUnitAction in ./applyAction.ts, which rejects a
   // RESOLVE_UNIT_ACTION outright rather than silently accepting a no-op as
   // the unit's turn.
-  return nextState === state ? nextState : syncCardZonesWithBoard(nextState)
+  return nextState === state ? nextState : syncCardZonesWithBoard(nextState, content.companionKindsByCardKind)
 }

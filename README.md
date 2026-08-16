@@ -214,6 +214,48 @@ yet. Recommendation: **B**, since in-person play is exactly the case where
 turn-to-turn friction matters most — but it's your call, and it changes how
 much auth-layer work the next milestone needs.
 
+## Debugging: game state export
+
+Every in-progress game's menu (the hamburger icon top-left of `GamePage`)
+has a **"Copy game export"** action that copies a small JSON file to the
+clipboard — useful for attaching to a bug report, pasting into a chat, or
+inspecting a specific game's state without going through Supabase.
+
+The file is real JSON (open it in any editor, `JSON.parse` it, or save it
+as `whatever.json`) with this shape — see
+`src/lib/gameStateExport.schema.json` for the full JSON Schema:
+
+```json
+{
+  "schema": "rise-and-fall/game-state-export",
+  "version": 1,
+  "exportedAt": "2026-08-15T22:00:00.000Z",
+  "gameStateZipped": "H4sIAAAAAAAAA6tWKknMzs..."
+}
+```
+
+`schema`/`version` identify the file and its format; `exportedAt` is when
+it was generated. The actual game state lives in `gameStateZipped` —
+gzip-compressed then base64-encoded, since a real game state is tens of
+KB pretty-printed and that would otherwise dominate the file. To get the
+state back out:
+
+- **In this codebase**: `decodeGameStateExport(text)` from
+  `src/lib/gameStateExport.ts` parses the file, decompresses
+  `gameStateZipped`, and returns `{ schema, version, exportedAt, gameState }`
+  with `gameState` as a fully-typed `engine.GameState` (`src/engine/types.ts`).
+- **From the command line**, with `jq` and `gzip` installed:
+  ```sh
+  jq -r .gameStateZipped export.json | base64 -d | gunzip
+  ```
+- **In any language with gzip + base64 support**: base64-decode
+  `gameStateZipped`, then gunzip the result — you get back the
+  `JSON.stringify`'d `GameState`.
+
+There's also a **"Show game state JSON"** toggle in the same menu that
+prints the current state as plain (uncompressed) pretty-printed JSON
+inline in the page, for quick eyeballing without decoding anything.
+
 ## What's built (milestone 1)
 
 - Repo scaffold: Vite + React + TS + Tailwind v4.

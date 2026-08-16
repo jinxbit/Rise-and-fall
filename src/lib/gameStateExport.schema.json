@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://rise-and-fall.local/gameStateExport.schema.json",
+  "title": "Rise & Fall game state export",
+  "description": "A game's state, exported for debugging or bug reports via the in-game menu's \"Copy game export\" action (see src/lib/gameStateExport.ts). A plain JSON file — open it in any text editor or JSON viewer. The game state itself lives in `gameStateZipped`, gzip-compressed and base64-encoded to keep the file small; decode it with `encodeGameStateExport`/`decodeGameStateExport` in src/lib/gameStateExport.ts, or manually via base64-decode -> gunzip -> JSON.parse.",
+  "type": "object",
+  "required": ["schema", "version", "exportedAt", "gameStateZipped"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "description": "Identifies this file as a Rise & Fall game state export.",
+      "type": "string",
+      "const": "rise-and-fall/game-state-export"
+    },
+    "version": {
+      "description": "Export format version, bumped if the encoding of gameStateZipped ever changes.",
+      "type": "integer",
+      "const": 1
+    },
+    "exportedAt": {
+      "description": "When the export was generated, as an ISO 8601 timestamp.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "gameStateZipped": {
+      "description": "The game's engine.GameState (src/engine/types.ts), JSON-stringified, gzip-compressed, then base64-encoded.",
+      "type": "string"
+    }
+  }
+}

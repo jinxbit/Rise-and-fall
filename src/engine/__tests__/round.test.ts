@@ -6,8 +6,17 @@ import { createEmptyBoard } from '../board'
 import { cardIdFor, moveCard, UNIT_KINDS } from '../cards'
 import { createNewGame } from '../createGame'
 import { finishRound } from '../round'
+import { EMPTY_TALE_CONTENT } from '../taleContent'
+import type { TaleExtraUnitContent } from '../taleContent'
 import type { GameState, Unit } from '../types'
 import type { UnitContent } from '../unitContent'
+
+const CAPITAL_EXTRA_UNIT: TaleExtraUnitContent = {
+  movement: { isMobile: false, terrains: [], canCrossCliffs: false },
+  actions: [],
+  supplyCap: 1,
+  companionOfKind: 'city',
+}
 
 // These round-flow tests are about phase/turn sequencing, not action
 // outcomes (see unitActions.test.ts for those) — nobody here ever
@@ -23,6 +32,7 @@ const testUnitContent: UnitContent = {
   resourceCaps: {},
   unitSupplyCaps: {},
   companionKindsByCardKind: {},
+  activationsPerTurnByKind: {},
 }
 
 /**
@@ -621,5 +631,26 @@ describe('finishRound re-syncs recycled cards against the board (rule 5/6 + rule
     expect(p1After.handCardIds).toContain(cardIdFor('p1', 'nomad'))
     expect(p1After.handCardIds).toContain(cardIdFor('p1', 'merchant'))
     expect(p1After.handCardIds).toContain(cardIdFor('p1', 'mountaineer'))
+  })
+
+  it('recycles the City card into hand when its only backing unit is a Tale companion (e.g. Capital), not a plain City', () => {
+    let state = makeActiveGameWithFullHands()
+    const p1Index = state.players.findIndex((p) => p.id === 'p1')
+    let p1 = state.players[p1Index]
+    for (const cardId of [...p1.handCardIds]) {
+      p1 = moveCard(p1, cardId, 'discard')
+    }
+    const players = [...state.players]
+    players[p1Index] = p1
+    // p1 has a Capital (no plain City) — per the-capital Tale, "counts as a
+    // normal City" — so the City card must recycle into hand, not supply.
+    const units = [...state.units, { id: 'p1_capital', ownerId: 'p1', kind: 'capital', coord: { q: 200, r: 200 }, movement: { isMobile: false, terrains: [], canCrossCliffs: false }, traits: [] }]
+    state = { ...state, players, units }
+
+    const result = finishRound(state, EMPTY_ACHIEVEMENT_CONTENT, { ...EMPTY_TALE_CONTENT, extraUnitKinds: { capital: CAPITAL_EXTRA_UNIT } })
+
+    const p1After = result.players.find((p) => p.id === 'p1')!
+    expect(p1After.handCardIds).toContain(cardIdFor('p1', 'city'))
+    expect(p1After.supplyCardIds).not.toContain(cardIdFor('p1', 'city'))
   })
 })

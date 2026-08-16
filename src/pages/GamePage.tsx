@@ -8,7 +8,8 @@ import type { Action, LoggedAction } from '../engine/actions'
 import { applyActionAndFastForwardTiles } from '../engine/applyAction'
 import { buildGameLogFrom, extendGameLog } from '../engine/gameLog'
 import { replayActions } from '../engine/replay'
-import { applyTaleModifiers } from '../engine/tales'
+import { calculateScoreHistory } from '../engine/scoreHistory'
+import { applyTaleAchievementModifiers, applyTaleModifiers } from '../engine/tales'
 import type { ActionResult, GameEvent, GameState as EngineGameState, Coordinate } from '../engine/types'
 import { buildTurnReview, findReviewWindowStart } from '../engine/turnReview'
 import { currentActorId } from '../engine/turnOrder'
@@ -212,7 +213,15 @@ export function GamePage() {
     [players.length, gameState?.activeTaleIds],
   )
   const unitContent = useMemo(() => applyTaleModifiers(resolveUnitContent(players.length), taleContent), [players.length, taleContent])
-  const achievementContent = useMemo(() => resolveAchievementContent(gameState?.gameLength), [gameState?.gameLength])
+  // A Tale can grant a real Trophy of its own (e.g. The Capital Tale) —
+  // merged onto the base achievements the same way Tale unit content is,
+  // so claiming it goes through the exact same claim/decline/game-length
+  // pipeline as a base achievement. A no-op for a game with no such Tale
+  // active, same convention as applyTaleModifiers.
+  const achievementContent = useMemo(
+    () => applyTaleAchievementModifiers(resolveAchievementContent(gameState?.gameLength), taleContent),
+    [gameState?.gameLength, taleContent],
+  )
 
   const isCreator = game?.created_by === session?.user.id
   // Cancel is only offered while the room is genuinely Active (issue
@@ -542,6 +551,21 @@ export function GamePage() {
   const displayState = isReviewingHistory ? reviewState : gameState
 
   /**
+   * The "total score over time" series behind EndGameView's line chart —
+   * only worth deriving once the game is actually over, and only from the
+   * real (not history-review) state, so reviewing an earlier round never
+   * flickers the end-of-game chart's data. Keyed on actionHistory's length
+   * rather than `gameState` itself so an identical completed state refetched
+   * by a live subscription doesn't retrigger a full game replay for no
+   * reason (same rationale as playersSignature above).
+   */
+  const scoreHistory = useMemo(() => {
+    if (!genesis || !gameState || gameState.status !== 'completed') return null
+    return calculateScoreHistory(genesis, gameState.actionHistory, unitContent, achievementContent, boardGenerationContent, taleContent)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [genesis, gameState?.status, gameState?.actionHistory.length, unitContent, achievementContent, boardGenerationContent, taleContent])
+
+  /**
    * Writes whatever `computeNext` derives from the current state, retrying
    * against freshly refetched state (up to MAX_WRITE_RETRIES times) if the
    * write loses the optimistic-concurrency race — see MAX_WRITE_RETRIES's
@@ -595,6 +619,20 @@ export function GamePage() {
   }
 
   /**
+   * True when `action` was CHOOSE_CARD for a player who, in `stateBefore`
+   * (the state right before it was applied), had exactly one card in hand
+   * — i.e. it wasn't a real decision, SelectCardsPanel's auto-choose effect
+   * (RoundView.tsx) submitted it the instant the phase made that player
+   * pending, and would instantly do so again if Undo stopped here. Used by
+   * handleUndo to keep walking back past these instead of landing on one.
+   */
+  function wasForcedCardChoice(stateBefore: EngineGameState, action: Action): boolean {
+    if (action.type !== 'CHOOSE_CARD') return false
+    const player = stateBefore.players.find((p) => p.id === action.playerId)
+    return !!player && player.handCardIds.length === 1
+  }
+
+  /**
    * Undo: any player, at any time, can roll the game back one action —
    * deliberately not gated on `me`, unlike every other action here. `me` is
    * "which specific player is this submission on behalf of" (a hotseat seat
@@ -627,28 +665,57 @@ export function GamePage() {
    * writeWithRetry attempt (not just once up front), since a retry replays
    * against newer state than what `gameState` held when the button was
    * clicked.
+   *
+   * "One action" can mean more than one actionHistory entry: see
+   * wasForcedCardChoice below.
    */
   async function handleUndo() {
     if (!game) return
     setUndoing(true)
-    let undoneAction: Action | null = null
+    let undoneActions: Action[] = []
     try {
       const result = await writeWithRetry((state) => {
         if (state.actionHistory.length === 0) {
           return { ok: false, error: 'Nothing left to undo.' }
         }
         const genesis = buildGenesisState(game, players)
-        const previousHistory = state.actionHistory.slice(0, -1)
-        undoneAction = state.actionHistory[state.actionHistory.length - 1].action
-        const undoneState = replayActions(genesis, previousHistory, unitContent, achievementContent, boardGenerationContent, taleContent)
+        undoneActions = []
+        let history = state.actionHistory
+        let undoneState: EngineGameState
+        // A CHOOSE_CARD submitted for a one-card hand (SelectCardsPanel's
+        // auto-choose, RoundView.tsx) wasn't a real decision — stepping back
+        // past just that one action would land right back on the same
+        // forced choice, which the UI would instantly auto-resubmit, making
+        // Undo look like a no-op (issue #131). Keep walking back past any
+        // number of these until an action the player actually chose is
+        // reached, or history runs out.
+        do {
+          const lastAction = history[history.length - 1].action
+          undoneActions.push(lastAction)
+          history = history.slice(0, -1)
+          undoneState = replayActions(genesis, history, unitContent, achievementContent, boardGenerationContent, taleContent)
+        } while (history.length > 0 && wasForcedCardChoice(undoneState, undoneActions[undoneActions.length - 1]))
         return { ok: true, state: undoneState }
       })
-      if (result.ok && undoneAction) {
-        setRedoStack((stack) => [...stack, undoneAction as Action])
+      if (result.ok && undoneActions.length > 0) {
+        setRedoStack((stack) => [...stack, ...undoneActions])
       }
       setActionError(result.ok ? null : result.error)
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Failed to undo')
+      // replayActions (./gameGenesis.ts's buildGenesisState + ../engine/
+      // replay.ts) throws "Replay failed at action ...: <reason>" if some
+      // earlier action in this game's history no longer replays cleanly —
+      // e.g. a rules change landed on the live site while this particular
+      // game was in progress, so an action genuinely accepted back then no
+      // longer validates against today's rules. That JSON-dump message is
+      // meant for a developer, not a player, so show a plain explanation
+      // instead and keep the raw detail in the console for a bug report.
+      if (err instanceof Error && err.message.startsWith('Replay failed')) {
+        console.error('Undo: history no longer replays cleanly', err)
+        setActionError("Can't undo: this game's history no longer replays under the current rules, so Undo isn't available for this game.")
+      } else {
+        setActionError(err instanceof Error ? err.message : 'Failed to undo')
+      }
     } finally {
       setUndoing(false)
     }
@@ -686,10 +753,11 @@ export function GamePage() {
 
   /**
    * The pretty-printed JSON above is unwieldy to paste into a bug report or
-   * chat (easily tens of KB). This copies a gzip+base64 "state export"
-   * instead — a single line, a fraction of the size, and self-describing
-   * (see gameStateExport.ts's schema/version envelope) so it can be decoded
-   * back into the exact state it came from.
+   * chat (easily tens of KB). This copies a "game export" instead — a real
+   * JSON file (see gameStateExport.schema.json) whose gameStateZipped field
+   * gzip+base64-encodes the state, a fraction of the size and self-describing
+   * (schema/version) so it can be decoded back into the exact state it came
+   * from.
    */
   async function handleCopyStateExport() {
     if (!gameState) return
@@ -828,6 +896,19 @@ export function GamePage() {
                   className="px-3 py-2 text-left hover:bg-neutral-800"
                 >
                   Main menu
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={!gameState}
+                  onClick={() => {
+                    setMenuOpen(false)
+                    void handleCopyStateExport()
+                  }}
+                  title="Copies a game state export (a small JSON file) to the clipboard — paste it into a bug report or chat, or save it as a .json file."
+                  className="px-3 py-2 text-left hover:bg-neutral-800 disabled:opacity-50"
+                >
+                  Copy game export
                 </button>
                 <button
                   type="button"
@@ -996,6 +1077,10 @@ export function GamePage() {
 
       {stateExportError && <div className="rounded-md bg-red-500/10 p-3 text-sm text-red-400">{stateExportError}</div>}
 
+      {copiedStateExport && !showStateJson && (
+        <div className="rounded-md bg-emerald-500/10 p-3 text-sm text-emerald-400">Game export copied to clipboard!</div>
+      )}
+
       {lifecycleError && <div className="rounded-md bg-red-500/10 p-3 text-sm text-red-400">{lifecycleError}</div>}
 
       {observerError && <div className="rounded-md bg-red-500/10 p-3 text-sm text-red-400">{observerError}</div>}
@@ -1013,10 +1098,10 @@ export function GamePage() {
             <button
               type="button"
               onClick={() => void handleCopyStateExport()}
-              title="Copies a compressed, single-line export of the game state — easier to paste into a bug report or chat than the full JSON."
+              title="Copies a game state export (a small JSON file) — easier to paste into a bug report or chat, or save as a .json file, than the full JSON below."
               className="rounded-md border border-neutral-700 px-3 py-1 text-xs hover:border-neutral-500"
             >
-              {copiedStateExport ? 'Copied!' : 'Copy state export'}
+              {copiedStateExport ? 'Copied!' : 'Copy game export'}
             </button>
             <button
               type="button"
@@ -1085,7 +1170,7 @@ export function GamePage() {
       )}
 
       {displayState?.status === 'completed' && (
-        <EndGameView state={displayState} players={players} achievementContent={achievementContent} taleContent={taleContent} />
+        <EndGameView state={displayState} players={players} achievementContent={achievementContent} taleContent={taleContent} scoreHistory={scoreHistory} />
       )}
 
       {(!needsHotseatGate || isReviewingHistory) && displayState?.status === 'active' && (
