@@ -8,8 +8,8 @@ import {
   legalConvertTargets,
   legalCreateTargets,
   legalTransformTargets,
+  neededSupportCandidates,
 } from '../engine/actionTargeting'
-import type { SupportCandidate } from '../engine/actionTargeting'
 import { sortCardIdsForDisplay, UNIT_KINDS } from '../engine/cards'
 import { legalMoveDestinations } from '../engine/movement'
 import { calculatePurchaseCost } from '../engine/purchaseCost'
@@ -96,11 +96,15 @@ function eligibleActingUnits(state: GameState, unitContent: UnitContent, playerI
  * action was only reachable by support (see `supporting` below), in which
  * case picking a target moves to that mode instead of resolving.
  * `supporting`: the player picked an action they can't currently afford,
- * chose (or skipped, for a no-target action) a target, and is now choosing
- * which idle same-kind units cover the shortfall (issue #147's "supporting
- * actions" QoL request) — nothing is submitted until Confirm; clicking
- * anywhere that isn't a candidate unit or Confirm cancels the whole thing,
- * same as every other in-progress action pick.
+ * chose (or skipped, for a no-target action) a target, and is now clicking
+ * idle same-kind units highlighted on the map to cover the shortfall (issue
+ * #147's "supporting actions" QoL request) — only units whose own
+ * production would still help close the remaining gap are highlighted (see
+ * neededSupportCandidates), and each click resolves immediately once the
+ * cumulative selection covers the cost, same as every other action; no
+ * separate confirm step. Clicking anywhere that isn't a currently-needed
+ * candidate cancels the whole thing, same as every other in-progress action
+ * pick.
  */
 type ActionUiMode =
   | { kind: 'idle' }
@@ -764,63 +768,21 @@ function ActionsPanel(props: {
 /**
  * Shown while the player is picking which idle same-kind units cover the
  * shortfall for an action they can't currently afford (issue #147) — see
- * ActionUiMode's `supporting` variant. Each candidate is a toggle button
- * showing what it would produce; Confirm only enables once the selected
- * subset would actually cover the cost (`canConfirm`, computed by the
- * caller against boostedStateForSupport). Cancelling here, or clicking
- * anywhere on the board that isn't a candidate unit, abandons the whole
- * pick — nothing was ever submitted, so there's nothing to undo.
+ * ActionUiMode's `supporting` variant. No buttons here: the pickable units
+ * are highlighted directly on the map (HexBoard's UnitMarker.supportCandidate),
+ * and clicking one resolves immediately once the selection covers the cost —
+ * this is just the status line explaining what's happening and how to back
+ * out. `neededCandidateCount` is the currently-highlighted set (see
+ * neededSupportCandidates), which shrinks as the player covers each
+ * resource, so "no one left to help" only ever reflects what's still short.
  */
-function SupportPanel(props: {
-  actingUnitKind: string
-  actionLabel: string
-  candidates: SupportCandidate[]
-  selectedSupportUnitIds: string[]
-  canConfirm: boolean
-  onToggle: (unitId: string) => void
-  onConfirm: () => void
-  onCancel: () => void
-}) {
-  const { actingUnitKind, actionLabel, candidates, selectedSupportUnitIds, canConfirm, onToggle, onConfirm, onCancel } = props
+function SupportHint({ actingUnitKind, actionLabel, neededCandidateCount }: { actingUnitKind: string; actionLabel: string; neededCandidateCount: number }) {
   return (
-    <div className="flex flex-col gap-2 text-sm">
-      <p className="font-medium text-amber-400">
-        Not enough resources for {capitalize(actingUnitKind)}&rsquo;s &ldquo;{actionLabel}&rdquo; — choose idle {capitalize(actingUnitKind)}
-        {actingUnitKind.endsWith('s') ? '' : 's'} to cover the shortfall, then confirm. Click elsewhere to cancel.
-      </p>
-      <div className="flex flex-wrap gap-2">
-        {candidates.map((candidate) => {
-          const selected = selectedSupportUnitIds.includes(candidate.unit.id)
-          return (
-            <button
-              key={candidate.unit.id}
-              type="button"
-              onClick={() => onToggle(candidate.unit.id)}
-              className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1 ${
-                selected ? 'border-teal-400 bg-teal-950 text-teal-100' : 'border-neutral-700 hover:border-neutral-500'
-              }`}
-            >
-              <span>{candidate.action.name}</span>
-              <ResourceOutcomeBadges outcome={candidate.preview} />
-            </button>
-          )
-        })}
-        {candidates.length === 0 && <p className="text-neutral-500">No idle units are available to help.</p>}
-      </div>
-      <div className="flex gap-2">
-        <button
-          type="button"
-          onClick={onConfirm}
-          disabled={!canConfirm}
-          className="rounded-md bg-indigo-600 px-3 py-1 font-medium text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          Confirm
-        </button>
-        <button type="button" onClick={onCancel} className="rounded-md border border-neutral-700 px-3 py-1 hover:border-neutral-500">
-          Cancel
-        </button>
-      </div>
-    </div>
+    <p className="text-sm font-medium text-amber-400">
+      Not enough resources for {capitalize(actingUnitKind)}&rsquo;s &ldquo;{actionLabel}&rdquo; — click a highlighted idle {capitalize(actingUnitKind)}
+      {actingUnitKind.endsWith('s') ? '' : 's'} on the map to help cover it. Click elsewhere to cancel.
+      {neededCandidateCount === 0 && <span className="block font-normal text-neutral-500">No idle units are available to help.</span>}
+    </p>
   )
 }
 
@@ -1005,14 +967,10 @@ export function RoundView(props: {
   const supportingAction = supportingUnit && supportingActionId ? (unitContent.actionsByKind[supportingUnit.kind] ?? []).find((a) => a.id === supportingActionId) : null
   const supportingCandidates = supportingUnit && myPlayerId ? findSupportCandidates(state, myPlayerId, supportingUnit, unitContent) : []
   const supportingSelectedCandidates = supportingCandidates.filter((c) => supportingSelectedIds.includes(c.unit.id))
-  const supportingCanConfirm = (() => {
-    if (!supportingUnit || !supportingAction || !myPlayerId) return false
-    const boosted = boostedStateForSupport(state, myPlayerId, supportingSelectedCandidates)
-    if (!isActionAvailableForUnit(boosted, myPlayerId, supportingUnit, supportingAction, unitContent)) return false
-    if (!actionNeedsTargeting(supportingAction.effect)) return true
-    if (!supportingTarget) return false
-    return computeLegalTargets(boosted, myPlayerId, supportingUnit, supportingAction, unitContent).some((c) => c.q === supportingTarget.q && c.r === supportingTarget.r)
-  })()
+  const supportingNeededCandidates =
+    supportingUnit && supportingAction && myPlayerId
+      ? neededSupportCandidates(state, myPlayerId, supportingUnit, supportingAction, supportingCandidates, supportingSelectedCandidates)
+      : []
 
   function selectAction(unitId: string, actionId: string) {
     if (!myPlayerId) return
@@ -1033,32 +991,36 @@ export function RoundView(props: {
     }
   }
 
-  function toggleSupportUnit(unitId: string) {
-    setMode((prev) => {
-      if (prev.kind !== 'supporting') return prev
-      const isSelected = prev.selectedSupportUnitIds.includes(unitId)
-      return {
-        ...prev,
-        selectedSupportUnitIds: isSelected ? prev.selectedSupportUnitIds.filter((id) => id !== unitId) : [...prev.selectedSupportUnitIds, unitId],
-      }
-    })
-  }
-
-  function confirmSupport() {
-    if (!myPlayerId || !supportingUnit || !supportingAction || !supportingCanConfirm) return
-    const supportAssignments = supportingSelectedCandidates.map((c) => ({ unitId: c.unit.id, actionId: c.action.id }))
-    props.onResolveSupportedAction(supportAssignments, { unitId: supportingUnit.id, actionId: supportingAction.id, target: supportingTarget })
-    setMode({ kind: 'idle' })
-  }
-
   function handleBoardClick(coord: Coordinate) {
     if (mode.kind === 'supporting') {
-      const candidate = supportingCandidates.find((c) => c.unit.coord.q === coord.q && c.unit.coord.r === coord.r)
-      if (candidate) {
-        toggleSupportUnit(candidate.unit.id)
+      if (!supportingUnit || !supportingAction || !myPlayerId) {
+        setMode({ kind: 'idle' })
         return
       }
-      setMode({ kind: 'idle' })
+      // Clicking a unit already picked this pick is a no-op — it has
+      // nothing further to contribute, but shouldn't cancel the pick either.
+      if (supportingSelectedCandidates.some((c) => c.unit.coord.q === coord.q && c.unit.coord.r === coord.r)) return
+      const candidate = supportingNeededCandidates.find((c) => c.unit.coord.q === coord.q && c.unit.coord.r === coord.r)
+      if (!candidate) {
+        setMode({ kind: 'idle' })
+        return
+      }
+      const nextSelected = [...supportingSelectedCandidates, candidate]
+      const boosted = boostedStateForSupport(state, myPlayerId, nextSelected)
+      const actionReady =
+        isActionAvailableForUnit(boosted, myPlayerId, supportingUnit, supportingAction, unitContent) &&
+        (!actionNeedsTargeting(supportingAction.effect) ||
+          (!!supportingTarget &&
+            computeLegalTargets(boosted, myPlayerId, supportingUnit, supportingAction, unitContent).some((c) => c.q === supportingTarget!.q && c.r === supportingTarget!.r)))
+      if (actionReady) {
+        props.onResolveSupportedAction(
+          nextSelected.map((c) => ({ unitId: c.unit.id, actionId: c.action.id })),
+          { unitId: supportingUnit.id, actionId: supportingAction.id, target: supportingTarget },
+        )
+        setMode({ kind: 'idle' })
+      } else {
+        setMode({ kind: 'supporting', unitId: supportingUnit.id, actionId: supportingAction.id, target: supportingTarget, selectedSupportUnitIds: [...supportingSelectedIds, candidate.unit.id] })
+      }
       return
     }
     if (targetingUnit && targetingAction && legalTargets.some((c) => c.q === coord.q && c.r === coord.r)) {
@@ -1079,7 +1041,11 @@ export function RoundView(props: {
   }
 
   const availableUnitIds = new Set(availableUnits.map((u) => u.id))
-  const supportCandidateUnitIds = new Set(supportingCandidates.map((c) => c.unit.id))
+  // Highlighted candidates are only ones still needed to close the
+  // remaining shortfall (see neededSupportCandidates) — an already-selected
+  // unit stays highlighted too (solid, via supportSelected) as feedback for
+  // what's already been picked, even though it's no longer "needed".
+  const supportCandidateUnitIds = new Set([...supportingNeededCandidates.map((c) => c.unit.id), ...supportingSelectedIds])
   const historyByUnit = showHistory && turnReview ? summarizeUnitHistory(turnReview.events) : null
   const units: UnitMarker[] = state.units.map((u) => {
     const history = historyByUnit?.get(u.id)
@@ -1152,16 +1118,7 @@ export function RoundView(props: {
         <SelectCardsPanel state={state} players={players} myPlayerId={myPlayerId} onChooseCard={props.onChooseCard} />
       )}
       {!showHistory && state.roundPhase === 'actions' && mode.kind === 'supporting' && supportingUnit && supportingAction && (
-        <SupportPanel
-          actingUnitKind={supportingUnit.kind}
-          actionLabel={supportingAction.name}
-          candidates={supportingCandidates}
-          selectedSupportUnitIds={supportingSelectedIds}
-          canConfirm={supportingCanConfirm}
-          onToggle={toggleSupportUnit}
-          onConfirm={confirmSupport}
-          onCancel={() => setMode({ kind: 'idle' })}
-        />
+        <SupportHint actingUnitKind={supportingUnit.kind} actionLabel={supportingAction.name} neededCandidateCount={supportingNeededCandidates.length} />
       )}
       {!showHistory && state.roundPhase === 'actions' && mode.kind !== 'supporting' && (
         <ActionsPanel

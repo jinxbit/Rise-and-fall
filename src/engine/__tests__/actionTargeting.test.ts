@@ -8,6 +8,7 @@ import {
   legalConvertTargets,
   legalCreateTargets,
   legalTransformTargets,
+  neededSupportCandidates,
 } from '../actionTargeting'
 import { createEmptyBoard, setTile } from '../board'
 import type { ConvertEffect, CreateEffect, TransformEffect, UnitAction, UnitContent } from '../unitContent'
@@ -813,5 +814,47 @@ describe('findSupportCandidates / isActionSupportable / boostedStateForSupport',
     const builder = makeUnit('p1', 'nomad', { q: 0, r: 0 })
     const alone = makeState({ board: boardOf([[0, 0, 'plain']]), units: [builder], players: [makePlayer('p1', { resources: { gold: 0, wood: 0, stone: 0 } })] })
     expect(isActionSupportable(alone, 'p1', builder, transformToCityAction, nomadContent)).toBe(false)
+  })
+
+  describe('neededSupportCandidates', () => {
+    it("excludes a candidate whose only producible resource is already fully covered — e.g. the player already has enough wood, so a wood producer isn't needed", () => {
+      const { state, builder, woodSupport, stoneSupport } = setup()
+      const alreadyHasWood = { ...state, players: [makePlayer('p1', { resources: { gold: 0, wood: 2, stone: 0 } })] }
+      const candidates = findSupportCandidates(alreadyHasWood, 'p1', builder, nomadContent)
+
+      const needed = neededSupportCandidates(alreadyHasWood, 'p1', builder, transformToCityAction, candidates, [])
+
+      expect(needed.map((c) => c.unit.id)).toEqual([stoneSupport.id])
+      expect(needed.map((c) => c.unit.id)).not.toContain(woodSupport.id)
+    })
+
+    it('includes every candidate that could still help when nothing has been covered yet', () => {
+      const { state, builder, woodSupport, stoneSupport } = setup()
+      const candidates = findSupportCandidates(state, 'p1', builder, nomadContent)
+
+      const needed = neededSupportCandidates(state, 'p1', builder, transformToCityAction, candidates, [])
+
+      expect(needed.map((c) => c.unit.id).sort()).toEqual([stoneSupport.id, woodSupport.id].sort())
+    })
+
+    it('drops a resource from the needed set once an already-selected candidate would cover it, and always excludes anything already selected', () => {
+      const { state, builder, woodSupport, stoneSupport } = setup()
+      const candidates = findSupportCandidates(state, 'p1', builder, nomadContent)
+      const woodCandidate = candidates.find((c) => c.unit.id === woodSupport.id)!
+
+      const needed = neededSupportCandidates(state, 'p1', builder, transformToCityAction, candidates, [woodCandidate])
+
+      expect(needed.map((c) => c.unit.id)).toEqual([stoneSupport.id])
+    })
+
+    it('returns nothing once every cost entry is already covered', () => {
+      const { builder } = setup()
+      const funded = makeState({
+        board: boardOf([[0, 0, 'plain']]),
+        units: [builder],
+        players: [makePlayer('p1', { resources: { gold: 0, wood: 2, stone: 2 } })],
+      })
+      expect(neededSupportCandidates(funded, 'p1', builder, transformToCityAction, [], [])).toEqual([])
+    })
   })
 })

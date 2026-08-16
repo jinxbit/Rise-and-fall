@@ -290,6 +290,45 @@ export function isActionSupportable(state: GameState, playerId: string, unit: Un
   return isActionAvailableForUnit(boosted, playerId, unit, action, content)
 }
 
+/**
+ * `candidates` filtered down to only those that would still help close the
+ * gap between `action`'s cost and what `playerId` actually has once every
+ * unit in `selected` has already produced (see boostedStateForSupport) —
+ * drives which units RoundView actually highlights as pickable on the map
+ * for its 'supporting' UI mode (issue #147 follow-up), so a unit that could
+ * only ever contribute a resource the player is already sitting on enough
+ * of (e.g. transforming to a City that costs 1 wood + 1 stone while the
+ * player already holds 1 wood) is never offered as if picking it would
+ * still help. Always excludes anything already in `selected` — reselecting
+ * an already-picked unit has nothing left to contribute either. Reuses
+ * computeActionOutcomePreview for `action`'s own cost (its negative
+ * entries), so this can't drift from what the preview already shows the
+ * player for that action, and reuses boostedStateForSupport for the same
+ * "picked so far" bookkeeping isActionSupportable already trusts.
+ */
+export function neededSupportCandidates(
+  state: GameState,
+  playerId: string,
+  unit: Unit,
+  action: UnitAction,
+  candidates: SupportCandidate[],
+  selected: SupportCandidate[],
+): SupportCandidate[] {
+  const cost = computeActionOutcomePreview(state, playerId, unit, action) ?? {}
+  const boosted = boostedStateForSupport(state, playerId, selected)
+  const boostedPlayer = boosted.players.find((p) => p.id === playerId)
+  if (!boostedPlayer) return []
+  const selectedIds = new Set(selected.map((c) => c.unit.id))
+  return candidates.filter((candidate) => {
+    if (selectedIds.has(candidate.unit.id)) return false
+    return (['gold', 'wood', 'stone'] as const).some((key) => {
+      const costAmount = -(cost[key] ?? 0)
+      if (costAmount <= 0) return false
+      return costAmount - boostedPlayer.resources[key] > 0 && (candidate.preview[key] ?? 0) > 0
+    })
+  })
+}
+
 /** `cost`'s nonzero entries, negated — undefined if `cost` has nothing to spend, so a 0-cost action's preview omits an empty "-0" chip entirely. */
 function negatedCost(cost: ActionCost): Partial<Resources> | undefined {
   const entries = (Object.entries(cost) as [keyof Resources, number | undefined][]).filter(([, amount]) => amount)

@@ -1488,17 +1488,22 @@ describe('RoundView — supporting actions (issue #147)', () => {
     return { ...utils, onResolveUnit, onResolveSupportedAction }
   }
 
-  /** The SupportPanel's heading is split across several JSX text nodes (unit kind, action name) — matched by its containing <p>'s full textContent instead of a single-node regex. */
-  function findSupportPanelHeading(container: HTMLElement) {
+  /** The SupportHint's status line is split across several JSX text nodes (unit kind, action name) — matched by its containing <p>'s full textContent instead of a single-node regex. */
+  function findSupportHint(container: HTMLElement) {
     return [...container.querySelectorAll('p')].find((p) => p.textContent?.startsWith('Not enough resources for'))
   }
 
-  it('shows an unaffordable-but-supportable action distinctly, and clicking it skips straight to support-unit picking (self-location transform has no separate target step)', () => {
+  /** Every polygon hex, indexed the same way units were placed in renderSupportScenario: builder (0,0), woodSupport (1,0), stoneSupport (-1,0). */
+  function boardPolygons(container: HTMLElement) {
+    return container.querySelector('svg.bg-neutral-950')!.querySelectorAll(':scope > polygon')
+  }
+
+  it('shows an unaffordable-but-supportable action distinctly, and clicking it skips straight to support-unit picking (self-location transform has no separate target step) — no button panel, just a map hint', () => {
     const { container } = renderSupportScenario()
 
-    const boardSvg = container.querySelector('svg.bg-neutral-950')!
+    const polygons = boardPolygons(container)
     // The builder Nomad is the first unit placed, hence the first hex polygon clicked.
-    fireEvent.click(boardSvg.querySelectorAll(':scope > polygon')[0])
+    fireEvent.click(polygons[0])
 
     const transformOption = [...container.querySelectorAll('foreignObject div')].find((d) => d.textContent?.startsWith('Transform to City'))
     expect(transformOption).toBeTruthy()
@@ -1509,32 +1514,29 @@ describe('RoundView — supporting actions (issue #147)', () => {
 
     fireEvent.click(transformOption!)
 
-    expect(findSupportPanelHeading(container)).toBeTruthy()
-    expect(screen.getAllByText('Produce Resource', { exact: false })).toHaveLength(2)
+    expect(findSupportHint(container)).toBeTruthy()
+    // No candidate buttons or Confirm button — support units are picked by
+    // clicking them highlighted on the map instead (issue #147 follow-up).
+    expect(screen.queryByRole('button', { name: /Produce Resource/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Confirm' })).toBeNull()
   })
 
-  it('confirms only once selected support units fully cover the cost, then submits support units first followed by the primary action', () => {
+  it('clicking each highlighted support unit on the map covers the shortfall incrementally, then auto-resolves once fully covered — no confirm step', () => {
     const { container, onResolveSupportedAction, onResolveUnit } = renderSupportScenario()
 
-    const boardSvg = container.querySelector('svg.bg-neutral-950')!
-    fireEvent.click(boardSvg.querySelectorAll(':scope > polygon')[0])
+    const polygons = boardPolygons(container)
+    fireEvent.click(polygons[0])
     const transformOption = [...container.querySelectorAll('foreignObject div')].find((d) => d.textContent?.startsWith('Transform to City'))
     fireEvent.click(transformOption!)
 
-    const confirmButton = screen.getByRole('button', { name: 'Confirm' })
-    expect(confirmButton).toBeDisabled()
+    // Only wood covered — stone still short, nothing submitted yet.
+    fireEvent.click(polygons[1]) // woodSupport's hex
+    expect(onResolveSupportedAction).not.toHaveBeenCalled()
+    expect(findSupportHint(container)).toBeTruthy()
 
-    const produceButtons = screen.getAllByRole('button', { name: /Produce Resource/ })
-    expect(produceButtons).toHaveLength(2)
-
-    // Only wood covered — stone still short, Confirm stays disabled.
-    fireEvent.click(produceButtons[0])
-    expect(confirmButton).toBeDisabled()
-
-    fireEvent.click(produceButtons[1])
-    expect(confirmButton).not.toBeDisabled()
-
-    fireEvent.click(confirmButton)
+    // Covering stone too completes the shortfall — resolves immediately,
+    // with no separate confirm click.
+    fireEvent.click(polygons[2]) // stoneSupport's hex
 
     expect(onResolveUnit).not.toHaveBeenCalled()
     expect(onResolveSupportedAction).toHaveBeenCalledTimes(1)
@@ -1552,21 +1554,84 @@ describe('RoundView — supporting actions (issue #147)', () => {
   it('clicking elsewhere on the board cancels the whole in-progress support pick without submitting anything', () => {
     const { container, onResolveSupportedAction, onResolveUnit } = renderSupportScenario()
 
-    const boardSvg = container.querySelector('svg.bg-neutral-950')!
-    fireEvent.click(boardSvg.querySelectorAll(':scope > polygon')[0])
+    const polygons = boardPolygons(container)
+    fireEvent.click(polygons[0])
     const transformOption = [...container.querySelectorAll('foreignObject div')].find((d) => d.textContent?.startsWith('Transform to City'))
     fireEvent.click(transformOption!)
 
-    fireEvent.click(screen.getAllByRole('button', { name: /Produce Resource/ })[0])
-    expect(findSupportPanelHeading(container)).toBeTruthy()
+    fireEvent.click(polygons[1]) // woodSupport's hex — partial coverage, still in progress
+    expect(findSupportHint(container)).toBeTruthy()
 
     // Click a non-candidate hex — the builder's own hex isn't a support
     // candidate (findSupportCandidates excludes the acting unit itself).
-    fireEvent.click(boardSvg.querySelectorAll(':scope > polygon')[0])
+    fireEvent.click(polygons[0])
 
-    expect(findSupportPanelHeading(container)).toBeFalsy()
+    expect(findSupportHint(container)).toBeFalsy()
     expect(onResolveSupportedAction).not.toHaveBeenCalled()
     expect(onResolveUnit).not.toHaveBeenCalled()
+  })
+
+  it('does not highlight a candidate that could only produce a resource the player already has enough of (issue #147 follow-up)', () => {
+    const content = buildRealUnitContent()
+    const board = setTile(
+      setTile(setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'plain'), { q: 1, r: 0 }, 'forest'),
+      { q: -1, r: 0 },
+      'mountain',
+    )
+    const builder: Unit = { id: 'builder', ownerId: 'p1', kind: 'nomad', coord: { q: 0, r: 0 }, movement: content.movementByKind.nomad, traits: [] }
+    const woodSupport: Unit = { id: 'woodSupport', ownerId: 'p1', kind: 'nomad', coord: { q: 1, r: 0 }, movement: content.movementByKind.nomad, traits: [] }
+    const stoneSupport: Unit = { id: 'stoneSupport', ownerId: 'p1', kind: 'nomad', coord: { q: -1, r: 0 }, movement: content.movementByKind.nomad, traits: [] }
+    let state = beginActionsForUnits(content, board, [builder, woodSupport, stoneSupport], 'nomad')
+    // Transform to City costs 1 wood + 1 stone — the player already has the
+    // 1 wood covered, so only stone is still short.
+    state = { ...state, players: state.players.map((p) => (p.id === 'p1' ? { ...p, resources: { ...p.resources, wood: 1, stone: 0 } } : p)) }
+
+    const players: PlayerRow[] = [makePlayerRow('p1', 'Alice', '#ef4444'), makePlayerRow('p2', 'Bob', '#3b82f6')]
+    const onResolveSupportedAction = vi.fn()
+    const { container } = render(
+      <RoundView
+        state={state}
+        players={players}
+        myPlayerId="p1"
+        unitContent={content}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
+        turnReview={null}
+        showHistory={false}
+        onToggleHistory={() => {}}
+        gameLog={[]}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
+        onResolveSupportedAction={onResolveSupportedAction}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+
+    const polygons = boardPolygons(container)
+    fireEvent.click(polygons[0])
+    const transformOption = [...container.querySelectorAll('foreignObject div')].find((d) => d.textContent?.startsWith('Transform to City'))
+    fireEvent.click(transformOption!)
+    expect(findSupportHint(container)).toBeTruthy()
+
+    // Clicking the wood producer's hex isn't a needed candidate — treated
+    // the same as clicking anywhere else not currently useful: cancels.
+    fireEvent.click(polygons[1]) // woodSupport's hex
+    expect(findSupportHint(container)).toBeFalsy()
+    expect(onResolveSupportedAction).not.toHaveBeenCalled()
+
+    // Re-enter support picking and confirm the stone producer alone
+    // resolves it immediately, since stone was the only real shortfall.
+    fireEvent.click(polygons[0])
+    fireEvent.click([...container.querySelectorAll('foreignObject div')].find((d) => d.textContent?.startsWith('Transform to City'))!)
+    fireEvent.click(polygons[2]) // stoneSupport's hex
+
+    expect(onResolveSupportedAction).toHaveBeenCalledTimes(1)
+    const [supportAssignments] = onResolveSupportedAction.mock.calls[0]
+    expect(supportAssignments).toEqual([{ unitId: 'stoneSupport', actionId: 'produce-resource' }])
   })
 })
 
