@@ -186,6 +186,110 @@ export function isActionAvailableForUnit(state: GameState, playerId: string, uni
   }
 }
 
+/**
+ * One idle unit that could still help pay for another unit's costed action
+ * (create/transform/convert/site-create/a Merchant's buy trade-resource) —
+ * see findSupportCandidates/isActionSupportable below (issue #147's
+ * "supporting actions" QoL request). `unit`/`action` is the candidate's own
+ * resource-gathering pick (produce/income/trade/region-unit-count-income —
+ * whichever of its kind's actions gathers resources), `preview` its
+ * computeActionOutcomePreview right now.
+ */
+export interface SupportCandidate {
+  unit: Unit
+  action: UnitAction
+  preview: Partial<Resources>
+}
+
+/**
+ * Idle units of `actingUnit`'s own kind — unresolved this turn, excluding
+ * `actingUnit` itself — that could still perform one of that kind's
+ * resource-gathering actions (produce/income/trade/region-unit-count-income)
+ * right now. Deliberately same-kind only: per ruling (issue #147), this
+ * doesn't touch the "only units of the played card's kind may act" rule —
+ * it just lets OTHER idle units of that same kind cover a shortfall (e.g. an
+ * idle Nomad producing Wood so another Nomad can afford Transform to City;
+ * an idle City generating Income so another City can afford Create
+ * Merchant), the same as a player could already do by manually resolving
+ * those units' actions first in an earlier RESOLVE_UNIT_ACTION submission —
+ * see UnitActionAssignment's doc comment (../engine/actions.ts) on ordered,
+ * one-at-a-time resolution. This is purely a query for the UI to build that
+ * multi-unit submission automatically; it changes no rule and needs no
+ * changes to how RESOLVE_UNIT_ACTION itself resolves.
+ */
+export function findSupportCandidates(state: GameState, playerId: string, actingUnit: Unit, content: UnitContent): SupportCandidate[] {
+  const gatheringActions = (content.actionsByKind[actingUnit.kind] ?? []).filter(
+    (a) => a.effect.actionType === 'produce' || a.effect.actionType === 'income' || a.effect.actionType === 'trade' || a.effect.actionType === 'region-unit-count-income',
+  )
+  if (gatheringActions.length === 0) return []
+
+  const idleUnits = state.units.filter(
+    (u) => u.ownerId === playerId && u.kind === actingUnit.kind && u.id !== actingUnit.id && !state.resolvedUnitIdsThisTurn.includes(u.id),
+  )
+
+  const candidates: SupportCandidate[] = []
+  for (const unit of idleUnits) {
+    for (const action of gatheringActions) {
+      if (!isActionAvailableForUnit(state, playerId, unit, action, content)) continue
+      const preview = computeActionOutcomePreview(state, playerId, unit, action)
+      if (preview) candidates.push({ unit, action, preview })
+    }
+  }
+  return candidates
+}
+
+/**
+ * A hypothetical state where `playerId`'s resources have already received
+ * every one of `candidates`' previews — used only to ask "if these support
+ * units produced first, would the primary action then be legal/affordable"
+ * (isActionSupportable below, and RoundView's legal-target preview while
+ * choosing where to place a supported action) by reusing the exact same
+ * legality functions (legalCreateTargets/legalTransformTargets/
+ * legalConvertTargets/isActionAvailableForUnit) real resolution already
+ * trusts, rather than duplicating their cost/target rules a second time.
+ * Optimistic on purpose (ignores resourceBank depletion/caps across
+ * multiple candidates producing "simultaneously," and each candidate's own
+ * cap is only checked against the current, not-yet-boosted state) — the
+ * real RESOLVE_UNIT_ACTION submission this drives always resolves each
+ * assignment in order against the true state and safely no-ops anything
+ * that turns out short, same as any other action (see
+ * applyResolveUnitAction, ../engine/applyAction.ts), so an occasional
+ * over-optimistic preview here can never let a player actually spend
+ * resources that don't exist — worst case the primary action silently
+ * fails to resolve, exactly like any other unaffordable action today.
+ */
+export function boostedStateForSupport(state: GameState, playerId: string, candidates: SupportCandidate[]): GameState {
+  const player = state.players.find((p) => p.id === playerId)
+  if (!player) return state
+  const resources = { ...player.resources }
+  for (const candidate of candidates) {
+    for (const key of ['gold', 'wood', 'stone'] as const) {
+      const amount = candidate.preview[key]
+      if (amount && amount > 0) resources[key] += amount
+    }
+  }
+  const players = state.players.map((p) => (p.id === playerId ? { ...p, resources } : p))
+  return { ...state, players }
+}
+
+/**
+ * Whether `unit` can't afford/perform `action` right now, but COULD if some
+ * of its idle same-kind teammates (findSupportCandidates above) produced
+ * resources first — drives the radial menu's third "supportable" visual
+ * state (colored distinctly from both a normal and a fully-disabled option
+ * — see ActionMenuOption.supportable in ../components/HexBoard.tsx) and
+ * gates whether RoundView offers the "choose units to cover the shortfall"
+ * follow-up step. False whenever the action is already available (nothing
+ * to support) or no idle same-kind unit could gather anything right now.
+ */
+export function isActionSupportable(state: GameState, playerId: string, unit: Unit, action: UnitAction, content: UnitContent): boolean {
+  if (isActionAvailableForUnit(state, playerId, unit, action, content)) return false
+  const candidates = findSupportCandidates(state, playerId, unit, content)
+  if (candidates.length === 0) return false
+  const boosted = boostedStateForSupport(state, playerId, candidates)
+  return isActionAvailableForUnit(boosted, playerId, unit, action, content)
+}
+
 /** `cost`'s nonzero entries, negated — undefined if `cost` has nothing to spend, so a 0-cost action's preview omits an empty "-0" chip entirely. */
 function negatedCost(cost: ActionCost): Partial<Resources> | undefined {
   const entries = (Object.entries(cost) as [keyof Resources, number | undefined][]).filter(([, amount]) => amount)

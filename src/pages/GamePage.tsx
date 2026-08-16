@@ -1197,6 +1197,10 @@ export function GamePage() {
             if (!me) return
             void submitAction({ type: 'RESOLVE_UNIT_ACTION', playerId: me.id, unitActions: unitIds.map((unitId) => ({ unitId, actionId })) })
           }}
+          onResolveSupportedAction={(supportAssignments, primary) => {
+            if (!me) return
+            void submitAction({ type: 'RESOLVE_UNIT_ACTION', playerId: me.id, unitActions: [...supportAssignments, primary] })
+          }}
           onPassActions={() => {
             if (!me) return
             void submitAction({ type: 'PASS_ACTIONS', playerId: me.id })

@@ -92,6 +92,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
         onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -131,6 +132,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
         onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -171,6 +173,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
         onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -203,6 +206,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
         onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -253,6 +257,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
         onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -286,6 +291,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
         onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -313,6 +319,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
         onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -342,6 +349,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
         onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -382,6 +390,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
         onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -413,6 +422,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
         onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -442,6 +452,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
         onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -471,6 +482,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
         onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -501,6 +513,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
         onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -543,6 +556,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
         onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -579,6 +593,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
         onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -621,6 +636,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
         onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -657,6 +673,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
         onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -689,6 +706,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
         onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -728,6 +746,7 @@ describe('RoundView — select-cards phase auto-plays a single-card hand (issue 
         onChooseCard={onChooseCard}
         onResolveUnit={() => {}}
         onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -761,6 +780,7 @@ describe('RoundView — select-cards phase auto-plays a single-card hand (issue 
         onChooseCard={onChooseCard}
         onResolveUnit={() => {}}
         onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -793,6 +813,7 @@ describe('RoundView — select-cards phase auto-plays a single-card hand (issue 
         onChooseCard={onChooseCard}
         onResolveUnit={() => {}}
         onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -825,6 +846,7 @@ describe('RoundView — "Expand board" toggle', () => {
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
         onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -878,6 +900,7 @@ describe('RoundView — player detail panel (click a player chip for more info)'
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
         onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -937,6 +960,7 @@ describe('RoundView — player detail panel (click a player chip for more info)'
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
         onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -980,6 +1004,7 @@ describe('RoundView — player detail panel (click a player chip for more info)'
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
         onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -1077,6 +1102,7 @@ describe('RoundView — bulk actions on idle units (issue #61)', () => {
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
         onResolveBulkAction={onResolveBulkAction}
+        onResolveSupportedAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -1115,6 +1141,7 @@ describe('RoundView — bulk actions on idle units (issue #61)', () => {
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
         onResolveBulkAction={onResolveBulkAction}
+        onResolveSupportedAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -1153,6 +1180,7 @@ describe('RoundView — bulk actions on idle units (issue #61)', () => {
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
         onResolveBulkAction={onResolveBulkAction}
+        onResolveSupportedAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -1192,6 +1220,7 @@ describe('RoundView — bulk actions on idle units (issue #61)', () => {
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
         onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -1263,6 +1292,7 @@ describe("RoundView — City's Convert to Merchant/Mountaineer (bug report: \"no
         onChooseCard={() => {}}
         onResolveUnit={onResolveUnit}
         onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -1367,6 +1397,7 @@ describe('RoundView — stacked units on one hex (Ship + Port, The Ports Tale)',
         onChooseCard={() => {}}
         onResolveUnit={onResolveUnit}
         onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -1413,6 +1444,132 @@ describe('RoundView — stacked units on one hex (Ship + Port, The Ports Tale)',
   })
 })
 
+describe('RoundView — supporting actions (issue #147)', () => {
+  function renderSupportScenario() {
+    const content = buildRealUnitContent()
+    const board = setTile(
+      setTile(setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'plain'), { q: 1, r: 0 }, 'forest'),
+      { q: -1, r: 0 },
+      'mountain',
+    )
+    // Builder Nomad wants Transform to City (costs 1 wood + 1 stone) but the
+    // player has neither — two idle Nomads, one on Forest (produces wood),
+    // one on Mountain (produces stone), can cover it between them.
+    const builder: Unit = { id: 'builder', ownerId: 'p1', kind: 'nomad', coord: { q: 0, r: 0 }, movement: content.movementByKind.nomad, traits: [] }
+    const woodSupport: Unit = { id: 'woodSupport', ownerId: 'p1', kind: 'nomad', coord: { q: 1, r: 0 }, movement: content.movementByKind.nomad, traits: [] }
+    const stoneSupport: Unit = { id: 'stoneSupport', ownerId: 'p1', kind: 'nomad', coord: { q: -1, r: 0 }, movement: content.movementByKind.nomad, traits: [] }
+    const state = beginActionsForUnits(content, board, [builder, woodSupport, stoneSupport], 'nomad')
+
+    const players: PlayerRow[] = [makePlayerRow('p1', 'Alice', '#ef4444'), makePlayerRow('p2', 'Bob', '#3b82f6')]
+    const onResolveUnit = vi.fn()
+    const onResolveSupportedAction = vi.fn()
+    const utils = render(
+      <RoundView
+        state={state}
+        players={players}
+        myPlayerId="p1"
+        unitContent={content}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
+        turnReview={null}
+        showHistory={false}
+        onToggleHistory={() => {}}
+        gameLog={[]}
+        onChooseCard={() => {}}
+        onResolveUnit={onResolveUnit}
+        onResolveBulkAction={() => {}}
+        onResolveSupportedAction={onResolveSupportedAction}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+    return { ...utils, onResolveUnit, onResolveSupportedAction }
+  }
+
+  /** The SupportPanel's heading is split across several JSX text nodes (unit kind, action name) — matched by its containing <p>'s full textContent instead of a single-node regex. */
+  function findSupportPanelHeading(container: HTMLElement) {
+    return [...container.querySelectorAll('p')].find((p) => p.textContent?.startsWith('Not enough resources for'))
+  }
+
+  it('shows an unaffordable-but-supportable action distinctly, and clicking it skips straight to support-unit picking (self-location transform has no separate target step)', () => {
+    const { container } = renderSupportScenario()
+
+    const boardSvg = container.querySelector('svg.bg-neutral-950')!
+    // The builder Nomad is the first unit placed, hence the first hex polygon clicked.
+    fireEvent.click(boardSvg.querySelectorAll(':scope > polygon')[0])
+
+    const transformOption = [...container.querySelectorAll('foreignObject div')].find((d) => d.textContent?.startsWith('Transform to City'))
+    expect(transformOption).toBeTruthy()
+    // Rendered with the distinct amber "supportable" treatment, not the
+    // normal indigo one — see HexBoard's ActionMenuOption.supportable.
+    expect(transformOption!.className).toContain('border-amber-500')
+    expect(transformOption!.className).not.toContain('border-indigo-400')
+
+    fireEvent.click(transformOption!)
+
+    expect(findSupportPanelHeading(container)).toBeTruthy()
+    expect(screen.getAllByText('Produce Resource', { exact: false })).toHaveLength(2)
+  })
+
+  it('confirms only once selected support units fully cover the cost, then submits support units first followed by the primary action', () => {
+    const { container, onResolveSupportedAction, onResolveUnit } = renderSupportScenario()
+
+    const boardSvg = container.querySelector('svg.bg-neutral-950')!
+    fireEvent.click(boardSvg.querySelectorAll(':scope > polygon')[0])
+    const transformOption = [...container.querySelectorAll('foreignObject div')].find((d) => d.textContent?.startsWith('Transform to City'))
+    fireEvent.click(transformOption!)
+
+    const confirmButton = screen.getByRole('button', { name: 'Confirm' })
+    expect(confirmButton).toBeDisabled()
+
+    const produceButtons = screen.getAllByRole('button', { name: /Produce Resource/ })
+    expect(produceButtons).toHaveLength(2)
+
+    // Only wood covered — stone still short, Confirm stays disabled.
+    fireEvent.click(produceButtons[0])
+    expect(confirmButton).toBeDisabled()
+
+    fireEvent.click(produceButtons[1])
+    expect(confirmButton).not.toBeDisabled()
+
+    fireEvent.click(confirmButton)
+
+    expect(onResolveUnit).not.toHaveBeenCalled()
+    expect(onResolveSupportedAction).toHaveBeenCalledTimes(1)
+    const [supportAssignments, primary] = onResolveSupportedAction.mock.calls[0]
+    expect(supportAssignments).toEqual(
+      expect.arrayContaining([
+        { unitId: 'woodSupport', actionId: 'produce-resource' },
+        { unitId: 'stoneSupport', actionId: 'produce-resource' },
+      ]),
+    )
+    expect(supportAssignments).toHaveLength(2)
+    expect(primary).toEqual({ unitId: 'builder', actionId: 'transform-to-city', target: undefined })
+  })
+
+  it('clicking elsewhere on the board cancels the whole in-progress support pick without submitting anything', () => {
+    const { container, onResolveSupportedAction, onResolveUnit } = renderSupportScenario()
+
+    const boardSvg = container.querySelector('svg.bg-neutral-950')!
+    fireEvent.click(boardSvg.querySelectorAll(':scope > polygon')[0])
+    const transformOption = [...container.querySelectorAll('foreignObject div')].find((d) => d.textContent?.startsWith('Transform to City'))
+    fireEvent.click(transformOption!)
+
+    fireEvent.click(screen.getAllByRole('button', { name: /Produce Resource/ })[0])
+    expect(findSupportPanelHeading(container)).toBeTruthy()
+
+    // Click a non-candidate hex — the builder's own hex isn't a support
+    // candidate (findSupportCandidates excludes the acting unit itself).
+    fireEvent.click(boardSvg.querySelectorAll(':scope > polygon')[0])
+
+    expect(findSupportPanelHeading(container)).toBeFalsy()
+    expect(onResolveSupportedAction).not.toHaveBeenCalled()
+    expect(onResolveUnit).not.toHaveBeenCalled()
+  })
+})
+
 describe('RoundView — history review toggle', () => {
   function renderWithReview(turnReview: TurnReview | null, showHistory: boolean, onToggleHistory: () => void = () => {}) {
     const state = makeState()
@@ -1436,6 +1593,7 @@ describe('RoundView — history review toggle', () => {
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
         onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -1463,6 +1621,7 @@ describe('RoundView — history review toggle', () => {
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
         onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
