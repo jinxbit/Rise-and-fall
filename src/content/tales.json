@@ -138,6 +138,69 @@
       }
     },
     {
+      "id": "the-majestic-bridge",
+      "number": 5,
+      "name": "The Majestic Bridge",
+      "description": "There's only one Bridge in the whole World. Two of a player's own Nomads on matching terrain (2 Plains, 2 Forests, or 2 Mountains), aligned in a straight line across an empty Sea space, can be returned to Reserve to build it there instead. Once built it belongs to no one and can never be destroyed: any land unit may move over or stop on it, while Ships may pass beneath but never dock there.",
+      "category": "buildable",
+      "extraUnits": [
+        {
+          "id": "bridge",
+          "name": "The Bridge",
+          "description": "The single Bridge in the World, spanning a Sea space between two matching-terrain spaces. Belongs to no player and can never be destroyed. A land unit may move over or stop on it; a Ship may pass beneath it but never dock there. Not considered a Plains, Forest, or Mountain space — the Sea space beneath it still counts as Sea for every other purpose.",
+          "companionOfKind": "nomad",
+          "movement": {
+            "isMobile": false,
+            "terrains": [],
+            "canCrossCliffs": false
+          },
+          "supply": {
+            "byPlayerCount": { "2": 1, "3": 1, "4": 1, "5": 1, "6": 1, "7": 1, "8": 1 }
+          },
+          "victoryPoints": {
+            "byBoardCount": []
+          },
+          "actions": []
+        }
+      ],
+      "extraActionsByKind": {
+        "nomad": [
+          {
+            "id": "construct-the-bridge",
+            "name": "Constructing the Bridge",
+            "description": "Requires another of your own Nomads on a matching-terrain space (Plains, Forest, or Mountain) directly across an empty, adjacent Sea space, all 3 spaces aligned in a straight line. Returns both Nomads to your Reserve and places the Bridge on the Sea space between them. Costs 4 Stone between two Plains, 4 Wood between two Forests, or 5 Wood between two Mountains. Only ever built once in the World.",
+            "effect": {
+              "actionType": "transform",
+              "targetUnit": "bridge",
+              "targetHex": { "terrainType": ["water"], "location": "adj" },
+              "destroySelf": true,
+              "cost": {},
+              "costByOwnTerrain": {
+                "plain": { "stone": 4 },
+                "forest": { "wood": 4 },
+                "mountain": { "wood": 5 }
+              },
+              "requiredMirroredPartnerOfKind": "nomad",
+              "ignoresCliff": true,
+              "forbiddenIfBoardHasKind": "bridge"
+            }
+          }
+        ]
+      },
+      "movementOverridesByKind": {
+        "nomad": { "canCrossOntoStructureKinds": ["bridge"] },
+        "merchant": { "canCrossOntoStructureKinds": ["bridge"] },
+        "mountaineer": { "canCrossOntoStructureKinds": ["bridge"] }
+      },
+      "extraAchievements": [
+        {
+          "id": "bridge",
+          "unitKind": "bridge",
+          "victoryPoints": 20
+        }
+      ]
+    },
+    {
       "id": "the-banks",
       "number": 6,
       "name": "The Banks",

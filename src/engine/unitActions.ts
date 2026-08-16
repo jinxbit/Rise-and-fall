@@ -142,7 +142,7 @@ export function hasReachedSupplyCap(state: GameState, playerId: string, kind: st
  * content mistake can't reintroduce any of these violations.
  */
 const CREATABLE_KINDS_BY_TERRAIN: Partial<Record<Terrain, string[]>> = {
-  water: ['ship', 'port'],
+  water: ['ship', 'port', 'bridge'],
   glacier: ['mountaineer'],
 }
 
@@ -237,21 +237,65 @@ export function boardHasUnitOfKind(state: GameState, kind: string): boolean {
 }
 
 /**
- * The actual cost a `transform` action would charge right now — `effect.cost`
- * plus, if `extraCostPerBoardUnitCount` is set, that much extra per existing
- * unit of `countKind` anywhere on the board (any owner) — e.g. The Banks
- * Tale's Construct a Bank: 5 extra GP per Bank already in the World. Shared
- * by applyTransform below and actionTargeting.ts's legalTransformTargets, same
- * reasoning as computeIncomeGold above.
+ * The acting player's own unit of `kind`, on the far side of `targetCoord`
+ * from `ownCoord` — its point-reflection through targetCoord (exactly 2
+ * hex-steps from ownCoord, in the same direction ownCoord -> targetCoord) —
+ * only if that far hex shares ownCoord's own terrain, so the two "ends" and
+ * targetCoord in between count as aligned on a shared terrain — see
+ * TransformEffect.requiredMirroredPartnerOfKind. A candidate doesn't count
+ * if it already resolved an action this turn, same rule as
+ * findAdjacentRhombusCluster above. Null if ownCoord/targetCoord aren't
+ * adjacent, there's no tile on either end, the terrains don't match, or no
+ * such unit exists.
  */
-export function computeEffectiveTransformCost(state: GameState, effect: TransformEffect): ActionCost {
-  if (!effect.extraCostPerBoardUnitCount) return effect.cost
+export function findMirroredPartnerUnit(
+  state: GameState,
+  playerId: string,
+  ownCoord: Coordinate,
+  targetCoord: Coordinate,
+  kind: string,
+): Unit | null {
+  if (!isAdjacent(state, ownCoord, targetCoord)) return null
+  const mirrorCoord: Coordinate = { q: 2 * targetCoord.q - ownCoord.q, r: 2 * targetCoord.r - ownCoord.r }
+  if (!isAdjacent(state, targetCoord, mirrorCoord)) return null
+
+  const ownTile = getTile(state.board, ownCoord)
+  const mirrorTile = getTile(state.board, mirrorCoord)
+  if (!ownTile || !mirrorTile || ownTile.terrain !== mirrorTile.terrain) return null
+
+  return (
+    unitsAt(state, mirrorCoord).find((u) => u.ownerId === playerId && u.kind === kind && !state.resolvedUnitIdsThisTurn.includes(u.id)) ?? null
+  )
+}
+
+/**
+ * The actual cost a `transform` action would charge right now — starts from
+ * `effect.cost`, or `effect.costByOwnTerrain[terrain of ownCoord]` when set
+ * and that terrain has an entry (see TransformEffect.costByOwnTerrain — e.g.
+ * The Majestic Bridge Tale's Constructing the Bridge) — then adds, if
+ * `extraCostPerBoardUnitCount` is set, that much extra per existing unit of
+ * `countKind` anywhere on the board (any owner) — e.g. The Banks Tale's
+ * Construct a Bank: 5 extra GP per Bank already in the World. `ownCoord`
+ * (the acting unit's own hex) is omitted by callers with no
+ * costByOwnTerrain to resolve. Shared by applyTransform below and
+ * actionTargeting.ts's legalTransformTargets, same reasoning as
+ * computeIncomeGold above.
+ */
+export function computeEffectiveTransformCost(state: GameState, effect: TransformEffect, ownCoord?: Coordinate): ActionCost {
+  let baseCost = effect.cost
+  if (effect.costByOwnTerrain && ownCoord) {
+    const tile = getTile(state.board, ownCoord)
+    const terrainCost = tile && effect.costByOwnTerrain[tile.terrain]
+    if (terrainCost) baseCost = terrainCost
+  }
+
+  if (!effect.extraCostPerBoardUnitCount) return baseCost
   const { countKind, costPerUnit } = effect.extraCostPerBoardUnitCount
   const count = state.units.filter((u) => u.kind === countKind).length
   return {
-    gold: (effect.cost.gold ?? 0) + (costPerUnit.gold ?? 0) * count,
-    wood: (effect.cost.wood ?? 0) + (costPerUnit.wood ?? 0) * count,
-    stone: (effect.cost.stone ?? 0) + (costPerUnit.stone ?? 0) * count,
+    gold: (baseCost.gold ?? 0) + (costPerUnit.gold ?? 0) * count,
+    wood: (baseCost.wood ?? 0) + (costPerUnit.wood ?? 0) * count,
+    stone: (baseCost.stone ?? 0) + (costPerUnit.stone ?? 0) * count,
   }
 }
 
@@ -488,9 +532,16 @@ function applyTransform(state: GameState, playerId: string, unit: Unit, effect: 
     clusterMateCoords = cluster
   }
 
+  let partnerUnit: Unit | undefined
+  if (effect.requiredMirroredPartnerOfKind) {
+    const partner = findMirroredPartnerUnit(state, playerId, unit.coord, resolvedTargetCoord, effect.requiredMirroredPartnerOfKind)
+    if (!partner) return state
+    partnerUnit = partner
+  }
+
   if (hasReachedSupplyCap(state, playerId, effect.targetUnit, content.unitSupplyCaps)) return state
 
-  const afterCost = tryPayCost(state, playerId, computeEffectiveTransformCost(state, effect))
+  const afterCost = tryPayCost(state, playerId, computeEffectiveTransformCost(state, effect, unit.coord))
   if (!afterCost) return state
 
   const { id, idSequence } = nextSequenceId(afterCost, 'created_unit')
@@ -507,6 +558,7 @@ function applyTransform(state: GameState, playerId: string, unit: Unit, effect: 
   const units = afterCost.units.filter((u) => {
     if (effect.destroySelf && u.id === unit.id) return false
     if (effect.requiredAdjacentRhombusOfKind && u.kind === effect.requiredAdjacentRhombusOfKind && u.ownerId === playerId && clusterMateKeys.has(coordKey(u.coord))) return false
+    if (partnerUnit && u.id === partnerUnit.id) return false
     return true
   })
   return { ...afterCost, idSequence, units: [...units, newUnit] }

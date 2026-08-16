@@ -100,6 +100,19 @@ export interface UnitMovement {
    * both are checked together in legalMoveDestinations' canLandOn.
    */
   canEndMoveOnAlliedUnitTypes?: string[]
+  /**
+   * Unit kind ids this unit may move onto/through/land on regardless of the
+   * normal terrain/cliff/blockedByUnits rules — as long as EVERY current
+   * occupant of the hex is one of these kinds (any owner). E.g. The
+   * Majestic Bridge Tale: a land unit (Nomad/Merchant/Mountaineer) may move
+   * over or stop on the Bridge, a permanent structure sitting on an
+   * otherwise-impassable Sea hex. See legalMoveDestinations in
+   * ./movement.ts. A Ship needs no such override to pass under the Bridge
+   * without stopping — its own terrain/blockedByUnits rules already permit
+   * that; it simply never gains 'bridge' here or in
+   * canEndMoveOnUnitTypes, so it still can't land there.
+   */
+  canCrossOntoStructureKinds?: string[]
 }
 
 /**

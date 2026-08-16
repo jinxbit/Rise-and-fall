@@ -109,7 +109,16 @@ export const UNIT_ICONS: Record<string, IconShape[]> = {
     { kind: 'rect', x: 11.55, y: 0.6, width: 0.9, height: 3.4 },
     { kind: 'polygon', points: '12,0.6 15.6,1.6 12,2.6' },
   ],
+  // The Majestic Bridge Tale — a low arch spanning two piers, deliberately
+  // wide and flat (unlike every other icon's tall/vertical silhouette) to
+  // read as "a span across water" at a glance.
+  bridge: [
+    { kind: 'rect', x: 3, y: 15, width: 2.4, height: 6 },
+    { kind: 'rect', x: 18.6, y: 15, width: 2.4, height: 6 },
+    { kind: 'path', d: 'M2,15 Q12,4 22,15 L18.4,15 Q12,9.5 5.6,15 Z' },
+    { kind: 'rect', x: 2, y: 15, width: 20, height: 2, rx: 0.6 },
+  ],
 }
 
-/** City and Temple are immobile structures (never move once placed) — marked with a rectangle instead of the mobile units' circle. Port (The Ports Tale), Bank (The Banks Tale), Cathedral (The Cathedral Tale), and Capital (The Capital Tale) are likewise immobile once built. */
-export const STATIC_UNIT_KINDS = new Set(['city', 'temple', 'port', 'bank', 'cathedral', 'capital'])
+/** City and Temple are immobile structures (never move once placed) — marked with a rectangle instead of the mobile units' circle. Port (The Ports Tale), Bank (The Banks Tale), Cathedral (The Cathedral Tale), Capital (The Capital Tale), and Bridge (The Majestic Bridge Tale) are likewise immobile once built. */
+export const STATIC_UNIT_KINDS = new Set(['city', 'temple', 'port', 'bank', 'cathedral', 'capital', 'bridge'])

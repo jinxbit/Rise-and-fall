@@ -35,7 +35,14 @@ export function eliminatePlayer(state: GameState, playerId: string): GameState {
     stone: state.resourceBank.stone + eliminated.resources.stone,
   }
 
-  const units = state.units.filter((u) => u.ownerId !== playerId)
+  // The Majestic Bridge Tale: the Bridge is a permanent, indestructible
+  // World piece that "belongs to no player" per its own rules text — it's
+  // still stamped with a real ownerId (the player who built it, see
+  // content/tales.json's construct-the-bridge) purely so the existing
+  // ownership-keyed Trophy-claim machinery can recognize it, but that
+  // owner's own elimination must never take the Bridge off the board with
+  // them.
+  const units = state.units.filter((u) => u.ownerId !== playerId || u.kind === 'bridge')
   const turnOrder = state.turnOrder.filter((id) => id !== playerId)
   const pendingPlayerIds = state.pendingPlayerIds.filter((id) => id !== playerId)
   // selectCards and decline are both simultaneous phases with no single

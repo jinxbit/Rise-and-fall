@@ -11,6 +11,7 @@ import {
   computeTradeGold,
   crossesCliff,
   findAdjacentRhombusCluster,
+  findMirroredPartnerUnit,
   hasAdjacentOwnUnitKind,
   hasAdjacentTerrain,
   hasOwnKindCountAtLeast,
@@ -52,7 +53,7 @@ export function legalCreateTargets(state: GameState, playerId: string, unit: Uni
 
 export function legalTransformTargets(state: GameState, playerId: string, unit: Unit, effect: TransformEffect, content: UnitContent): Coordinate[] {
   const player = state.players.find((p) => p.id === playerId)
-  if (!player || !canAffordCost(player.resources, computeEffectiveTransformCost(state, effect))) return []
+  if (!player || !canAffordCost(player.resources, computeEffectiveTransformCost(state, effect, unit.coord))) return []
   if (hasReachedSupplyCap(state, playerId, effect.targetUnit, content.unitSupplyCaps)) return []
   if (effect.requiredAdjacentTerrain && !hasAdjacentTerrain(state, unit.coord, effect.requiredAdjacentTerrain)) return []
   if (effect.requiredAdjacentOwnUnitKind && !hasAdjacentOwnUnitKind(state, playerId, unit.coord, effect.requiredAdjacentOwnUnitKind)) return []
@@ -72,6 +73,7 @@ export function legalTransformTargets(state: GameState, playerId: string, unit: 
     if (!isCreationAllowedOnTerrain(effect.targetUnit, tile.terrain)) return false
     if (!isTransformTargetAvailable(state, coord, effect.allowedOccupantKinds)) return false
     if (!effect.ignoresCliff && crossesCliff(state, unit.coord, coord, content.terrainLevels)) return false
+    if (effect.requiredMirroredPartnerOfKind && !findMirroredPartnerUnit(state, playerId, unit.coord, coord, effect.requiredMirroredPartnerOfKind)) return false
     return true
   })
 }
@@ -239,7 +241,7 @@ export function computeActionOutcomePreview(state: GameState, playerId: string, 
     case 'site-create':
       return negatedCost(effect.cost)
     case 'transform':
-      return negatedCost(computeEffectiveTransformCost(state, effect))
+      return negatedCost(computeEffectiveTransformCost(state, effect, unit.coord))
     case 'convert':
       return negatedCost(effect.cost)
     case 'move':

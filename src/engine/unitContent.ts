@@ -121,6 +121,33 @@ export interface TransformEffect {
    * findAdjacentRhombusCluster in ./unitActions.ts.
    */
   requiredAdjacentRhombusOfKind?: string
+  /**
+   * Optional extra condition, replacing the ordinary "only the acting unit
+   * is consumed" rule with a second, DISTANT own unit rather than an
+   * adjacent one (contrast requiredAdjacentRhombusOfKind above): the acting
+   * unit's own hex and `targetHex` must be adjacent (targetHex.location:
+   * 'adj'), and the hex on the far side of targetHex — its point-reflection
+   * through targetHex, exactly 2 hex-steps from the acting unit in the same
+   * direction — must hold the acting player's own unit of this kind, on a
+   * hex sharing the acting unit's own terrain (so the two "ends" and the
+   * target hex in between are aligned in a straight line). When satisfied,
+   * that far unit is removed too (not just the acting one), same as
+   * requiredAdjacentRhombusOfKind's cluster. E.g. The Majestic Bridge
+   * Tale's Constructing the Bridge: "2 Nomads on two spaces of the same
+   * terrain type ... separated by an empty Sea space." See
+   * findMirroredPartnerUnit in ./unitActions.ts.
+   */
+  requiredMirroredPartnerOfKind?: string
+  /**
+   * Optional replacement for `cost`, keyed by the ACTING unit's own hex's
+   * terrain — e.g. The Majestic Bridge Tale's Constructing the Bridge costs
+   * 4 Stone between two Plains, 4 Wood between two Forests, or 5 Wood
+   * between two Mountains. Falls back to `cost` for a terrain with no entry
+   * here. Undefined (the default) means cost never varies by the acting
+   * unit's own terrain, matching every transform action before this field
+   * existed. See computeEffectiveTransformCost in ./unitActions.ts.
+   */
+  costByOwnTerrain?: Record<string, ActionCost>
 }
 
 /**
