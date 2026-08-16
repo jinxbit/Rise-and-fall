@@ -1,5 +1,15 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
-import { computeActionOutcomePreview, isActionAvailableForUnit, legalConvertTargets, legalCreateTargets, legalTransformTargets } from '../engine/actionTargeting'
+import {
+  boostedStateForSupport,
+  computeActionOutcomePreview,
+  findSupportCandidates,
+  isActionAvailableForUnit,
+  isActionSupportable,
+  legalConvertTargets,
+  legalCreateTargets,
+  legalTransformTargets,
+  neededSupportCandidates,
+} from '../engine/actionTargeting'
 import { sortCardIdsForDisplay, UNIT_KINDS } from '../engine/cards'
 import { legalMoveDestinations } from '../engine/movement'
 import { calculatePurchaseCost } from '../engine/purchaseCost'
@@ -43,6 +53,16 @@ function actionNeedsTargeting(effect: UnitAction['effect']): boolean {
   return false
 }
 
+/** Every legal target hex for `action`, against whatever `state` is passed — shared by RoundView's normal legal-target preview and, for a supported action, its "would this target still be legal once support units produced" confirm check (same query, just against a boosted hypothetical state — see boostedStateForSupport). Empty for a no-target action (see actionNeedsTargeting). */
+function computeLegalTargets(state: GameState, playerId: string, unit: Unit, action: UnitAction, unitContent: UnitContent): Coordinate[] {
+  const effect = action.effect
+  if (effect.actionType === 'create') return legalCreateTargets(state, playerId, unit, effect, unitContent)
+  if (effect.actionType === 'transform' && effect.targetHex.location === 'adj') return legalTransformTargets(state, playerId, unit, effect, unitContent)
+  if (effect.actionType === 'convert') return legalConvertTargets(state, playerId, unit, effect, unitContent)
+  if (effect.actionType === 'move') return legalMoveDestinations(state, unit, unit.movement, unitContent.terrainLevels)
+  return []
+}
+
 /**
  * Every one of the player's own units that may act this turn once `card`
  * is played: units of the card's own kind, plus any Tale "companion piece"
@@ -72,9 +92,25 @@ function eligibleActingUnits(state: GameState, unitContent: UnitContent, playerI
  * target hex was picked from that menu, for a specific unit — the next
  * legal-hex click on the board resolves it immediately (see onResolveUnit
  * in RoundView below — there's no local staging/submit step; each pick is
- * its own RESOLVE_UNIT_ACTION dispatch, applied right away).
+ * its own RESOLVE_UNIT_ACTION dispatch, applied right away), UNLESS the
+ * action was only reachable by support (see `supporting` below), in which
+ * case picking a target moves to that mode instead of resolving.
+ * `supporting`: the player picked an action they can't currently afford,
+ * chose (or skipped, for a no-target action) a target, and is now clicking
+ * idle same-kind units highlighted on the map to cover the shortfall (issue
+ * #147's "supporting actions" QoL request) — only units whose own
+ * production would still help close the remaining gap are highlighted (see
+ * neededSupportCandidates), and each click resolves immediately once the
+ * cumulative selection covers the cost, same as every other action; no
+ * separate confirm step. Clicking anywhere that isn't a currently-needed
+ * candidate cancels the whole thing, same as every other in-progress action
+ * pick.
  */
-type ActionUiMode = { kind: 'idle' } | { kind: 'menu'; coord: Coordinate } | { kind: 'targeting'; unitId: string; actionId: string }
+type ActionUiMode =
+  | { kind: 'idle' }
+  | { kind: 'menu'; coord: Coordinate }
+  | { kind: 'targeting'; unitId: string; actionId: string }
+  | { kind: 'supporting'; unitId: string; actionId: string; target?: Coordinate; selectedSupportUnitIds: string[] }
 
 function PhaseBanner({ state }: { state: GameState }) {
   const phaseLabel: Record<RoundPhase, string> = {
@@ -729,6 +765,27 @@ function ActionsPanel(props: {
   )
 }
 
+/**
+ * Shown while the player is picking which idle same-kind units cover the
+ * shortfall for an action they can't currently afford (issue #147) — see
+ * ActionUiMode's `supporting` variant. No buttons here: the pickable units
+ * are highlighted directly on the map (HexBoard's UnitMarker.supportCandidate),
+ * and clicking one resolves immediately once the selection covers the cost —
+ * this is just the status line explaining what's happening and how to back
+ * out. `neededCandidateCount` is the currently-highlighted set (see
+ * neededSupportCandidates), which shrinks as the player covers each
+ * resource, so "no one left to help" only ever reflects what's still short.
+ */
+function SupportHint({ actingUnitKind, actionLabel, neededCandidateCount }: { actingUnitKind: string; actionLabel: string; neededCandidateCount: number }) {
+  return (
+    <p className="text-sm font-medium text-amber-400">
+      Not enough resources for {capitalize(actingUnitKind)}&rsquo;s &ldquo;{actionLabel}&rdquo; — click a highlighted idle {capitalize(actingUnitKind)}
+      {actingUnitKind.endsWith('s') ? '' : 's'} on the map to help cover it. Click elsewhere to cancel.
+      {neededCandidateCount === 0 && <span className="block font-normal text-neutral-500">No idle units are available to help.</span>}
+    </p>
+  )
+}
+
 function DeclinePanel(props: { state: GameState; players: PlayerRow[]; myPlayerId: string | null; onMoveToDecline: (cardId: string) => void }) {
   const { state, players, myPlayerId, onMoveToDecline } = props
   if (!myPlayerId) return null
@@ -842,6 +899,15 @@ export function RoundView(props: {
   onResolveUnit: (unitId: string, actionId: string, target?: Coordinate) => void
   /** Resolves the same no-target action (see actionNeedsTargeting) for every listed unit id in one submission — see ActionsPanel's bulk-action buttons (issue #61). */
   onResolveBulkAction: (unitIds: string[], actionId: string) => void
+  /**
+   * Resolves a "supporting actions" pick (issue #147): the chosen idle
+   * same-kind units' resource-gathering actions, in order, immediately
+   * followed by the primary unit's action — one RESOLVE_UNIT_ACTION
+   * submission, so the support units' resources are already banked by the
+   * time the primary action's cost is checked (see UnitActionAssignment's
+   * doc comment, ../engine/actions.ts).
+   */
+  onResolveSupportedAction: (supportAssignments: { unitId: string; actionId: string }[], primary: { unitId: string; actionId: string; target?: Coordinate }) => void
   onPassActions: () => void
   onMoveToDecline: (cardId: string) => void
   onPurchaseCard: (cardId: string) => void
@@ -874,20 +940,37 @@ export function RoundView(props: {
   const targetingActionId = mode.kind === 'targeting' ? mode.actionId : null
   const targetingUnit = targetingUnitId ? (myActingUnits.find((u) => u.id === targetingUnitId) ?? null) : null
   const targetingAction = targetingUnit && targetingActionId ? (unitContent.actionsByKind[targetingUnit.kind] ?? []).find((a) => a.id === targetingActionId) : null
+  // Whether the picked action is affordable right this instant — when it
+  // isn't (but isActionSupportable said yes), legal targets are previewed
+  // against a hypothetical boosted state (see boostedStateForSupport) so the
+  // player can still pick where the action will land; the real resolve only
+  // happens once support units are chosen and confirmed (see the
+  // 'supporting' branch of handleBoardClick below).
+  const targetingActionAvailableNow = !!(targetingUnit && targetingAction && myPlayerId && isActionAvailableForUnit(state, myPlayerId, targetingUnit, targetingAction, unitContent))
+  const targetingSupportCandidates =
+    targetingUnit && targetingAction && myPlayerId && !targetingActionAvailableNow ? findSupportCandidates(state, myPlayerId, targetingUnit, unitContent) : []
 
   let legalTargets: Coordinate[] = []
   if (targetingUnit && targetingAction && myPlayerId) {
-    const effect = targetingAction.effect
-    if (effect.actionType === 'create') {
-      legalTargets = legalCreateTargets(state, myPlayerId, targetingUnit, effect, unitContent)
-    } else if (effect.actionType === 'transform' && effect.targetHex.location === 'adj') {
-      legalTargets = legalTransformTargets(state, myPlayerId, targetingUnit, effect, unitContent)
-    } else if (effect.actionType === 'convert') {
-      legalTargets = legalConvertTargets(state, myPlayerId, targetingUnit, effect, unitContent)
-    } else if (effect.actionType === 'move') {
-      legalTargets = legalMoveDestinations(state, targetingUnit, targetingUnit.movement, unitContent.terrainLevels)
-    }
+    const legalTargetsState = targetingActionAvailableNow ? state : boostedStateForSupport(state, myPlayerId, targetingSupportCandidates)
+    legalTargets = computeLegalTargets(legalTargetsState, myPlayerId, targetingUnit, targetingAction, unitContent)
   }
+
+  // 'supporting' mode's acting unit/action/candidates — recomputed fresh
+  // against the real (not-yet-boosted) `state`, since nothing has actually
+  // been submitted yet at this point (see ActionUiMode's doc comment).
+  const supportingUnitId = mode.kind === 'supporting' ? mode.unitId : null
+  const supportingActionId = mode.kind === 'supporting' ? mode.actionId : null
+  const supportingTarget = mode.kind === 'supporting' ? mode.target : undefined
+  const supportingSelectedIds = mode.kind === 'supporting' ? mode.selectedSupportUnitIds : []
+  const supportingUnit = supportingUnitId ? (myActingUnits.find((u) => u.id === supportingUnitId) ?? null) : null
+  const supportingAction = supportingUnit && supportingActionId ? (unitContent.actionsByKind[supportingUnit.kind] ?? []).find((a) => a.id === supportingActionId) : null
+  const supportingCandidates = supportingUnit && myPlayerId ? findSupportCandidates(state, myPlayerId, supportingUnit, unitContent) : []
+  const supportingSelectedCandidates = supportingCandidates.filter((c) => supportingSelectedIds.includes(c.unit.id))
+  const supportingNeededCandidates =
+    supportingUnit && supportingAction && myPlayerId
+      ? neededSupportCandidates(state, myPlayerId, supportingUnit, supportingAction, supportingCandidates, supportingSelectedCandidates)
+      : []
 
   function selectAction(unitId: string, actionId: string) {
     if (!myPlayerId) return
@@ -895,19 +978,58 @@ export function RoundView(props: {
     if (!unit) return
     const action = (unitContent.actionsByKind[unit.kind] ?? []).find((a) => a.id === actionId)
     if (!action) return
-    if (!isActionAvailableForUnit(state, myPlayerId, unit, action, unitContent)) return
+    const availableNow = isActionAvailableForUnit(state, myPlayerId, unit, action, unitContent)
+    if (!availableNow && !isActionSupportable(state, myPlayerId, unit, action, unitContent)) return
     if (actionNeedsTargeting(action.effect)) {
       setMode({ kind: 'targeting', unitId: unit.id, actionId })
-    } else {
+    } else if (availableNow) {
       props.onResolveUnit(unit.id, actionId)
       setMode({ kind: 'idle' })
+    } else {
+      // No target to pick — go straight to choosing support units.
+      setMode({ kind: 'supporting', unitId: unit.id, actionId, selectedSupportUnitIds: [] })
     }
   }
 
   function handleBoardClick(coord: Coordinate) {
+    if (mode.kind === 'supporting') {
+      if (!supportingUnit || !supportingAction || !myPlayerId) {
+        setMode({ kind: 'idle' })
+        return
+      }
+      // Clicking a unit already picked this pick is a no-op — it has
+      // nothing further to contribute, but shouldn't cancel the pick either.
+      if (supportingSelectedCandidates.some((c) => c.unit.coord.q === coord.q && c.unit.coord.r === coord.r)) return
+      const candidate = supportingNeededCandidates.find((c) => c.unit.coord.q === coord.q && c.unit.coord.r === coord.r)
+      if (!candidate) {
+        setMode({ kind: 'idle' })
+        return
+      }
+      const nextSelected = [...supportingSelectedCandidates, candidate]
+      const boosted = boostedStateForSupport(state, myPlayerId, nextSelected)
+      const actionReady =
+        isActionAvailableForUnit(boosted, myPlayerId, supportingUnit, supportingAction, unitContent) &&
+        (!actionNeedsTargeting(supportingAction.effect) ||
+          (!!supportingTarget &&
+            computeLegalTargets(boosted, myPlayerId, supportingUnit, supportingAction, unitContent).some((c) => c.q === supportingTarget!.q && c.r === supportingTarget!.r)))
+      if (actionReady) {
+        props.onResolveSupportedAction(
+          nextSelected.map((c) => ({ unitId: c.unit.id, actionId: c.action.id })),
+          { unitId: supportingUnit.id, actionId: supportingAction.id, target: supportingTarget },
+        )
+        setMode({ kind: 'idle' })
+      } else {
+        setMode({ kind: 'supporting', unitId: supportingUnit.id, actionId: supportingAction.id, target: supportingTarget, selectedSupportUnitIds: [...supportingSelectedIds, candidate.unit.id] })
+      }
+      return
+    }
     if (targetingUnit && targetingAction && legalTargets.some((c) => c.q === coord.q && c.r === coord.r)) {
-      props.onResolveUnit(targetingUnit.id, targetingAction.id, coord)
-      setMode({ kind: 'idle' })
+      if (targetingActionAvailableNow) {
+        props.onResolveUnit(targetingUnit.id, targetingAction.id, coord)
+        setMode({ kind: 'idle' })
+      } else {
+        setMode({ kind: 'supporting', unitId: targetingUnit.id, actionId: targetingAction.id, target: coord, selectedSupportUnitIds: [] })
+      }
       return
     }
     const clickedUnits = availableUnits.filter((u) => u.coord.q === coord.q && u.coord.r === coord.r)
@@ -919,6 +1041,11 @@ export function RoundView(props: {
   }
 
   const availableUnitIds = new Set(availableUnits.map((u) => u.id))
+  // Highlighted candidates are only ones still needed to close the
+  // remaining shortfall (see neededSupportCandidates) — an already-selected
+  // unit stays highlighted too (solid, via supportSelected) as feedback for
+  // what's already been picked, even though it's no longer "needed".
+  const supportCandidateUnitIds = new Set([...supportingNeededCandidates.map((c) => c.unit.id), ...supportingSelectedIds])
   const historyByUnit = showHistory && turnReview ? summarizeUnitHistory(turnReview.events) : null
   const units: UnitMarker[] = state.units.map((u) => {
     const history = historyByUnit?.get(u.id)
@@ -927,6 +1054,8 @@ export function RoundView(props: {
       color: players.find((p) => p.id === u.ownerId)?.color ?? '#a3a3a3',
       kind: u.kind,
       highlighted: isMyActionTurn && availableUnitIds.has(u.id),
+      supportCandidate: mode.kind === 'supporting' && supportCandidateUnitIds.has(u.id),
+      supportSelected: mode.kind === 'supporting' && supportingSelectedIds.includes(u.id),
       historyHalos: history?.halos,
       historyLabel: history && Object.keys(history.resourceDelta).length > 0 ? formatResourceDelta(history.resourceDelta) : undefined,
       connectedNeighborCoords: u.connectedNeighborCoords,
@@ -934,21 +1063,27 @@ export function RoundView(props: {
   })
   const historyArrows: HistoryArrow[] = historyByUnit ? [...historyByUnit.values()].flatMap((h) => h.moves) : []
 
-  const ghostCells: GhostCell[] = legalTargets.map((coord) => ({ coord, legal: true }))
+  const ghostCells: GhostCell[] =
+    mode.kind === 'supporting' && supportingTarget ? [{ coord: supportingTarget, legal: true }] : legalTargets.map((coord) => ({ coord, legal: true }))
   const actionMenu =
     menuCoord && menuUnits.length > 0 && myPlayerId
       ? {
           coord: menuCoord,
           options: menuUnits.flatMap((unit) =>
-            (unitContent.actionsByKind[unit.kind] ?? []).map((a) => ({
-              unitId: unit.id,
-              unitKind: capitalize(unit.kind),
-              id: a.id,
-              label: a.name,
-              description: a.description,
-              outcome: computeActionOutcomePreview(state, myPlayerId, unit, a),
-              disabled: !isActionAvailableForUnit(state, myPlayerId, unit, a, unitContent),
-            })),
+            (unitContent.actionsByKind[unit.kind] ?? []).map((a) => {
+              const availableNow = isActionAvailableForUnit(state, myPlayerId, unit, a, unitContent)
+              const supportable = !availableNow && isActionSupportable(state, myPlayerId, unit, a, unitContent)
+              return {
+                unitId: unit.id,
+                unitKind: capitalize(unit.kind),
+                id: a.id,
+                label: a.name,
+                description: a.description,
+                outcome: computeActionOutcomePreview(state, myPlayerId, unit, a),
+                disabled: !availableNow && !supportable,
+                supportable,
+              }
+            }),
           ),
           onSelect: selectAction,
         }
@@ -982,7 +1117,10 @@ export function RoundView(props: {
       {!showHistory && state.roundPhase === 'selectCards' && (
         <SelectCardsPanel state={state} players={players} myPlayerId={myPlayerId} onChooseCard={props.onChooseCard} />
       )}
-      {!showHistory && state.roundPhase === 'actions' && (
+      {!showHistory && state.roundPhase === 'actions' && mode.kind === 'supporting' && supportingUnit && supportingAction && (
+        <SupportHint actingUnitKind={supportingUnit.kind} actionLabel={supportingAction.name} neededCandidateCount={supportingNeededCandidates.length} />
+      )}
+      {!showHistory && state.roundPhase === 'actions' && mode.kind !== 'supporting' && (
         <ActionsPanel
           state={state}
           players={players}

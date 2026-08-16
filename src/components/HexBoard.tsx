@@ -153,6 +153,15 @@ export interface UnitMarker {
   kind: string
   /** Draws a bright ring around the unit — e.g. "this unit can still act this turn, click it." */
   highlighted?: boolean
+  /**
+   * Draws a teal ring around the unit while the player is choosing which
+   * idle units will cover a shortfall (see RoundView's 'supporting' UI mode,
+   * issue #147) — pulsing when it's an eligible-but-not-yet-chosen
+   * candidate, solid once `supportSelected` too.
+   */
+  supportCandidate?: boolean
+  /** Only meaningful alongside `supportCandidate: true` — this candidate is currently picked to help cover the shortfall. */
+  supportSelected?: boolean
   /** History-review overlay: one ring per applicable event type since the reviewed window began — concentric if more than one applies to the same unit. */
   historyHalos?: HistoryHaloType[]
   /** History-review overlay: a small tag near the marker for an income/produce/trade amount, e.g. "+5 Gold" or "+1 Wood, -5 Gold". */
@@ -228,6 +237,16 @@ export interface ActionMenuOption {
    * than "you cannot pick this").
    */
   disabled?: boolean
+  /**
+   * True when the unit can't afford this action right now, but could if
+   * some of its idle same-kind teammates produced the shortfall first (see
+   * isActionSupportable, ../engine/actionTargeting.ts — issue #147's
+   * "supporting actions" QoL request). Rendered as a third, distinct amber
+   * treatment, still clickable — picking it walks the player through
+   * choosing target then support units instead of resolving immediately.
+   * Never true at the same time as `disabled`.
+   */
+  supportable?: boolean
 }
 
 /**
@@ -721,6 +740,11 @@ export function HexBoard(props: {
                 <animate attributeName="opacity" values="1;0.35;1" dur="1.4s" repeatCount="indefinite" />
               </circle>
             )}
+            {unit.supportCandidate && (
+              <circle cx={x} cy={y} r={size * 0.65 * scale} fill="none" stroke="#2dd4bf" strokeWidth={unit.supportSelected ? 3 : 2}>
+                {!unit.supportSelected && <animate attributeName="opacity" values="1;0.35;1" dur="1.4s" repeatCount="indefinite" />}
+              </circle>
+            )}
             {historyHalos.map((haloType, hi) => (
               <circle
                 key={`halo-${haloType}`}
@@ -794,6 +818,7 @@ export function HexBoard(props: {
               const ox = actionMenuCenter.x + radius * Math.cos(angle)
               const oy = actionMenuCenter.y + radius * Math.sin(angle)
               const disabled = option.disabled ?? false
+              const supportable = !disabled && (option.supportable ?? false)
               return (
                 <g
                   key={`${option.unitId}-${option.id}`}
@@ -805,18 +830,20 @@ export function HexBoard(props: {
                     y1={actionMenuCenter.y}
                     x2={ox}
                     y2={oy}
-                    stroke={disabled ? '#3f3f46' : '#71717a'}
+                    stroke={disabled ? '#3f3f46' : supportable ? '#b45309' : '#71717a'}
                     strokeWidth={1}
                     strokeDasharray={disabled ? '3 3' : undefined}
                   />
                   <foreignObject x={ox - boxWidth / 2} y={oy - boxHeight / 2} width={boxWidth} height={boxHeight}>
                     <div
                       style={{ fontSize: size * 0.3, lineHeight: 1.15 }}
-                      title={option.description}
+                      title={supportable ? `${option.description ?? ''}\n\nOther idle units can cover the shortfall — pick this to choose which ones.`.trim() : option.description}
                       className={
                         disabled
                           ? 'flex h-full w-full flex-col items-center justify-center rounded-md border-2 border-dashed border-red-900 bg-neutral-900 px-1 text-center font-medium text-neutral-500'
-                          : 'flex h-full w-full flex-col items-center justify-center rounded-md border-2 border-indigo-400 bg-indigo-950 px-1 text-center font-medium text-indigo-100 hover:bg-indigo-900'
+                          : supportable
+                            ? 'flex h-full w-full flex-col items-center justify-center rounded-md border-2 border-amber-500 bg-amber-950 px-1 text-center font-medium text-amber-100 hover:bg-amber-900'
+                            : 'flex h-full w-full flex-col items-center justify-center rounded-md border-2 border-indigo-400 bg-indigo-950 px-1 text-center font-medium text-indigo-100 hover:bg-indigo-900'
                       }
                     >
                       {showGroupLabels && (
