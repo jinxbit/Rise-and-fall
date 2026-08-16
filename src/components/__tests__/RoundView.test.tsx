@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { RoundView } from '../RoundView'
 import { EMPTY_ACHIEVEMENT_CONTENT } from '../../engine/achievementContent'
@@ -1084,7 +1084,9 @@ describe('RoundView — bulk actions on idle units (issue #61)', () => {
       />,
     )
 
-    const bulkButton = screen.getByRole('button', { name: 'Produce Resource — all (2) (+2 Wood)' })
+    const bulkButton = screen.getByRole('button', { name: /Produce Resource — all \(2\)/ })
+    expect(within(bulkButton).getByTitle('Wood')).toBeInTheDocument()
+    expect(bulkButton.textContent).toContain('+2')
     fireEvent.click(bulkButton)
 
     expect(onResolveBulkAction).toHaveBeenCalledWith(['nomadA', 'nomadB'], 'produce-resource')
@@ -1120,7 +1122,9 @@ describe('RoundView — bulk actions on idle units (issue #61)', () => {
       />,
     )
 
-    const bulkButton = screen.getByRole('button', { name: 'Produce Resource — all (1) (+1 Wood)' })
+    const bulkButton = screen.getByRole('button', { name: /Produce Resource — all \(1\)/ })
+    expect(within(bulkButton).getByTitle('Wood')).toBeInTheDocument()
+    expect(bulkButton.textContent).toContain('+1')
     fireEvent.click(bulkButton)
 
     expect(onResolveBulkAction).toHaveBeenCalledWith(['nomadForest'], 'produce-resource')
@@ -1156,7 +1160,10 @@ describe('RoundView — bulk actions on idle units (issue #61)', () => {
       />,
     )
 
-    const bulkButton = screen.getByRole('button', { name: 'Produce Resource — all (2) (+1 Wood, +1 Stone)' })
+    const bulkButton = screen.getByRole('button', { name: /Produce Resource — all \(2\)/ })
+    expect(within(bulkButton).getByTitle('Wood')).toBeInTheDocument()
+    expect(within(bulkButton).getByTitle('Stone')).toBeInTheDocument()
+    expect(bulkButton.textContent).toContain('+1')
     fireEvent.click(bulkButton)
 
     expect(onResolveBulkAction).toHaveBeenCalledWith(['nomadForest', 'nomadMountain'], 'produce-resource')

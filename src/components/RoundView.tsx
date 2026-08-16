@@ -159,6 +159,35 @@ function formatResourceDelta(delta: Partial<Resources>): string {
     .join(', ')
 }
 
+/**
+ * The icon+colour rendering of a resource outcome (see resourceIcons.ts's
+ * RESOURCE_ICONS/RESOURCE_COLOR_CLASS) — one badge per affected resource,
+ * e.g. a gold coin icon in gold next to "+1", a plank icon in brown next to
+ * "+2". Mirrors HexBoard's per-unit ActionMenuOption.outcome rendering so a
+ * bulk-action button's aggregated outcome reads the same way as the radial
+ * menu's per-unit preview it's replacing (see the trigger comment on issue
+ * #61: "describe the outcome using iconography and colors").
+ */
+function ResourceOutcomeBadges({ outcome, className = '' }: { outcome: Partial<Resources>; className?: string }) {
+  const entries = RESOURCE_ORDER.filter((key) => outcome[key])
+  if (entries.length === 0) return null
+  return (
+    <span className={`inline-flex items-center gap-1.5 ${className}`}>
+      {entries.map((key) => {
+        const amount = outcome[key]!
+        const label = RESOURCE_LABELS.find(([k]) => k === key)![1]
+        return (
+          <span key={key} className={`inline-flex items-center gap-0.5 font-bold ${RESOURCE_COLOR_CLASS[key]}`}>
+            <ResourceIcon resource={key} title={label} className="h-3.5 w-3.5 shrink-0" />
+            {amount > 0 ? '+' : ''}
+            {amount}
+          </span>
+        )
+      })}
+    </span>
+  )
+}
+
 /** A resource total's change since the reviewed window began, e.g. " (+5)" — blank if it didn't change (or there's nothing to compare against). */
 function deltaSuffix(amount: number | undefined): string {
   if (!amount) return ''
@@ -675,19 +704,19 @@ function ActionsPanel(props: {
 
       {bulkGroups.length > 0 && (
         <div className="flex flex-wrap gap-2">
-          {bulkGroups.map((group) => {
-            const outcomeText = formatResourceDelta(group.outcome)
-            return (
-              <button
-                key={`${group.kind}:${group.actionId}`}
-                onClick={() => onResolveBulkAction(group.unitIds, group.actionId)}
-                title={`Apply "${group.label}" to every remaining ${capitalize(group.kind)} that can currently take it, without picking each one individually on the board.`}
-                className="rounded-md border border-neutral-700 px-3 py-1 hover:border-neutral-500"
-              >
-                {group.label} — all ({group.unitIds.length}){outcomeText && ` (${outcomeText})`}
-              </button>
-            )
-          })}
+          {bulkGroups.map((group) => (
+            <button
+              key={`${group.kind}:${group.actionId}`}
+              onClick={() => onResolveBulkAction(group.unitIds, group.actionId)}
+              title={`Apply "${group.label}" to every remaining ${capitalize(group.kind)} that can currently take it, without picking each one individually on the board.`}
+              className="inline-flex items-center gap-1.5 rounded-md border border-neutral-700 px-3 py-1 hover:border-neutral-500"
+            >
+              <span>
+                {group.label} — all ({group.unitIds.length})
+              </span>
+              <ResourceOutcomeBadges outcome={group.outcome} />
+            </button>
+          ))}
         </div>
       )}
 
