@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { RoundView } from '../RoundView'
 import { EMPTY_ACHIEVEMENT_CONTENT } from '../../engine/achievementContent'
@@ -91,6 +91,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -129,6 +130,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -168,6 +170,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -199,6 +202,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -248,6 +252,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -280,6 +285,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -306,6 +312,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -334,6 +341,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -373,6 +381,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -403,6 +412,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -431,6 +441,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -459,6 +470,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -488,6 +500,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -529,6 +542,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -564,6 +578,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -605,6 +620,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -640,6 +656,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -671,6 +688,7 @@ describe('RoundView — player status summary and achievements panel', () => {
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -709,6 +727,7 @@ describe('RoundView — select-cards phase auto-plays a single-card hand (issue 
         gameLog={[]}
         onChooseCard={onChooseCard}
         onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -741,6 +760,7 @@ describe('RoundView — select-cards phase auto-plays a single-card hand (issue 
         gameLog={[]}
         onChooseCard={onChooseCard}
         onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -772,6 +792,7 @@ describe('RoundView — select-cards phase auto-plays a single-card hand (issue 
         gameLog={[]}
         onChooseCard={onChooseCard}
         onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -803,6 +824,7 @@ describe('RoundView — "Expand board" toggle', () => {
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -855,6 +877,7 @@ describe('RoundView — player detail panel (click a player chip for more info)'
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -913,6 +936,7 @@ describe('RoundView — player detail panel (click a player chip for more info)'
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -955,6 +979,7 @@ describe('RoundView — player detail panel (click a player chip for more info)'
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -996,6 +1021,190 @@ function buildRealUnitContent(): UnitContent {
   for (const resource of resourcesJson.resources) resourceCaps[resource.id as keyof Resources] = resource.playerCap
   return { actionsByKind, movementByKind, terrainLevels, resourceCaps, unitSupplyCaps, companionKindsByCardKind: {}, activationsPerTurnByKind: {} }
 }
+
+/** Builds an active-actions-phase GameState for `cardKind`, using the real content (see buildRealUnitContent), with p2 excluded so only p1's own units/turn matter — same setup shape as the City/Convert and Ship/Port describe blocks below. */
+function beginActionsForUnits(content: UnitContent, board: ReturnType<typeof createEmptyBoard>, units: Unit[], cardKind: string): GameState {
+  const lobby = createNewGame({
+    gameId: 'g',
+    playMode: 'hotseat',
+    board,
+    players: [
+      { id: 'p1', authUserId: null, displayName: 'Alice', color: 'red' },
+      { id: 'p2', authUserId: null, displayName: 'Bob', color: 'blue' },
+    ],
+    resourceBank: { gold: 100, wood: 100, stone: 100 },
+  })
+  const active: GameState = {
+    ...lobby,
+    board,
+    units,
+    status: 'active',
+    turnOrder: ['p1'],
+    players: lobby.players.map((p) => (p.id === 'p2' ? { ...p, eliminated: true } : p)),
+  }
+  const selecting = beginSelectCardsPhase(syncCardZonesWithBoard(active))
+  const chosen = applyAction(selecting, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', cardKind) }, content)
+  if (!chosen.ok) throw new Error('setup failed: ' + chosen.error)
+  return chosen.state
+}
+
+const BULK_TEST_PLAYERS: PlayerRow[] = [
+  { id: 'p1', game_id: 'g', user_id: 'p1', display_name: 'Alice', avatar_url: null, seat_index: 0, color: '#ef4444', is_active: true, joined_at: '', ready_for_version: 0 },
+  { id: 'p2', game_id: 'g', user_id: 'p2', display_name: 'Bob', avatar_url: null, seat_index: 1, color: '#3b82f6', is_active: true, joined_at: '', ready_for_version: 0 },
+]
+
+describe('RoundView — bulk actions on idle units (issue #61)', () => {
+  it('shows a bulk-action button for a no-target action shared by every idle unit, and resolves them all in one submission when clicked', () => {
+    const content = buildRealUnitContent()
+    const board = setTile(setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'forest'), { q: 1, r: 0 }, 'forest')
+    const nomadA: Unit = { id: 'nomadA', ownerId: 'p1', kind: 'nomad', coord: { q: 0, r: 0 }, movement: content.movementByKind.nomad, traits: [] }
+    const nomadB: Unit = { id: 'nomadB', ownerId: 'p1', kind: 'nomad', coord: { q: 1, r: 0 }, movement: content.movementByKind.nomad, traits: [] }
+    const state = beginActionsForUnits(content, board, [nomadA, nomadB], 'nomad')
+
+    const onResolveBulkAction = vi.fn()
+    render(
+      <RoundView
+        state={state}
+        players={BULK_TEST_PLAYERS}
+        myPlayerId="p1"
+        unitContent={content}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
+        turnReview={null}
+        showHistory={false}
+        onToggleHistory={() => {}}
+        gameLog={[]}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onResolveBulkAction={onResolveBulkAction}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+
+    const bulkButton = screen.getByRole('button', { name: /Produce Resource — all \(2\)/ })
+    expect(within(bulkButton).getByTitle('Wood')).toBeInTheDocument()
+    expect(bulkButton.textContent).toContain('+2')
+    fireEvent.click(bulkButton)
+
+    expect(onResolveBulkAction).toHaveBeenCalledWith(['nomadA', 'nomadB'], 'produce-resource')
+  })
+
+  it("only counts units the action would actually pay out for — a Nomad on Plain (no resourceByTerrain entry) doesn't inflate the count or get bulk-resolved", () => {
+    const content = buildRealUnitContent()
+    const board = setTile(setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'forest'), { q: 1, r: 0 }, 'plain')
+    const nomadForest: Unit = { id: 'nomadForest', ownerId: 'p1', kind: 'nomad', coord: { q: 0, r: 0 }, movement: content.movementByKind.nomad, traits: [] }
+    const nomadPlain: Unit = { id: 'nomadPlain', ownerId: 'p1', kind: 'nomad', coord: { q: 1, r: 0 }, movement: content.movementByKind.nomad, traits: [] }
+    const state = beginActionsForUnits(content, board, [nomadForest, nomadPlain], 'nomad')
+
+    const onResolveBulkAction = vi.fn()
+    render(
+      <RoundView
+        state={state}
+        players={BULK_TEST_PLAYERS}
+        myPlayerId="p1"
+        unitContent={content}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
+        turnReview={null}
+        showHistory={false}
+        onToggleHistory={() => {}}
+        gameLog={[]}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onResolveBulkAction={onResolveBulkAction}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+
+    const bulkButton = screen.getByRole('button', { name: /Produce Resource — all \(1\)/ })
+    expect(within(bulkButton).getByTitle('Wood')).toBeInTheDocument()
+    expect(bulkButton.textContent).toContain('+1')
+    fireEvent.click(bulkButton)
+
+    expect(onResolveBulkAction).toHaveBeenCalledWith(['nomadForest'], 'produce-resource')
+  })
+
+  it('aggregates the outcome across units producing different resources, e.g. a Forest Nomad + a Mountain Nomad shows the combined total', () => {
+    const content = buildRealUnitContent()
+    const board = setTile(setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'forest'), { q: 1, r: 0 }, 'mountain')
+    const nomadForest: Unit = { id: 'nomadForest', ownerId: 'p1', kind: 'nomad', coord: { q: 0, r: 0 }, movement: content.movementByKind.nomad, traits: [] }
+    const nomadMountain: Unit = { id: 'nomadMountain', ownerId: 'p1', kind: 'nomad', coord: { q: 1, r: 0 }, movement: content.movementByKind.nomad, traits: [] }
+    const state = beginActionsForUnits(content, board, [nomadForest, nomadMountain], 'nomad')
+
+    const onResolveBulkAction = vi.fn()
+    render(
+      <RoundView
+        state={state}
+        players={BULK_TEST_PLAYERS}
+        myPlayerId="p1"
+        unitContent={content}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
+        turnReview={null}
+        showHistory={false}
+        onToggleHistory={() => {}}
+        gameLog={[]}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onResolveBulkAction={onResolveBulkAction}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+
+    const bulkButton = screen.getByRole('button', { name: /Produce Resource — all \(2\)/ })
+    expect(within(bulkButton).getByTitle('Wood')).toBeInTheDocument()
+    expect(within(bulkButton).getByTitle('Stone')).toBeInTheDocument()
+    expect(bulkButton.textContent).toContain('+1')
+    fireEvent.click(bulkButton)
+
+    expect(onResolveBulkAction).toHaveBeenCalledWith(['nomadForest', 'nomadMountain'], 'produce-resource')
+  })
+
+  it('shows no bulk-action button for an action that needs a target hex (e.g. Transform to Ship), even with multiple idle units sharing it', () => {
+    const content = buildRealUnitContent()
+    const board = setTile(setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'water'), { q: 1, r: 0 }, 'water')
+    const nomadA: Unit = { id: 'nomadA', ownerId: 'p1', kind: 'nomad', coord: { q: 0, r: 0 }, movement: content.movementByKind.nomad, traits: [] }
+    const nomadB: Unit = { id: 'nomadB', ownerId: 'p1', kind: 'nomad', coord: { q: 1, r: 0 }, movement: content.movementByKind.nomad, traits: [] }
+    let state = beginActionsForUnits(content, board, [nomadA, nomadB], 'nomad')
+    state = { ...state, players: state.players.map((p) => (p.id === 'p1' ? { ...p, resources: { gold: 5, wood: 5, stone: 5 } } : p)) }
+
+    render(
+      <RoundView
+        state={state}
+        players={BULK_TEST_PLAYERS}
+        myPlayerId="p1"
+        unitContent={content}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
+        turnReview={null}
+        showHistory={false}
+        onToggleHistory={() => {}}
+        gameLog={[]}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+
+    // Both Nomads sit on Water — Transform to Ship's targetHex is 'adj' (needs
+    // a player-picked hex), so no bulk button should offer it, unlike Produce
+    // Resource in the tests above.
+    expect(screen.queryByRole('button', { name: /Transform to Ship/ })).not.toBeInTheDocument()
+  })
+})
 
 describe("RoundView — City's Convert to Merchant/Mountaineer (bug report: \"no follow up selection of which unit to transform\")", () => {
   it('clicking City, then Convert to Merchant, then the adjacent Nomad hex resolves with that Nomad as the target', () => {
@@ -1053,6 +1262,7 @@ describe("RoundView — City's Convert to Merchant/Mountaineer (bug report: \"no
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={onResolveUnit}
+        onResolveBulkAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -1156,6 +1366,7 @@ describe('RoundView — stacked units on one hex (Ship + Port, The Ports Tale)',
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={onResolveUnit}
+        onResolveBulkAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -1224,6 +1435,7 @@ describe('RoundView — history review toggle', () => {
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}
@@ -1250,6 +1462,7 @@ describe('RoundView — history review toggle', () => {
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
         onPassActions={() => {}}
         onMoveToDecline={() => {}}
         onPurchaseCard={() => {}}

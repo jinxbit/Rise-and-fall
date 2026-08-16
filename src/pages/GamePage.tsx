@@ -1193,6 +1193,10 @@ export function GamePage() {
             if (!me) return
             void submitAction({ type: 'RESOLVE_UNIT_ACTION', playerId: me.id, unitActions: [{ unitId, actionId, target }] })
           }}
+          onResolveBulkAction={(unitIds, actionId) => {
+            if (!me) return
+            void submitAction({ type: 'RESOLVE_UNIT_ACTION', playerId: me.id, unitActions: unitIds.map((unitId) => ({ unitId, actionId })) })
+          }}
           onPassActions={() => {
             if (!me) return
             void submitAction({ type: 'PASS_ACTIONS', playerId: me.id })

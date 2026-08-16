@@ -159,6 +159,35 @@ function formatResourceDelta(delta: Partial<Resources>): string {
     .join(', ')
 }
 
+/**
+ * The icon+colour rendering of a resource outcome (see resourceIcons.ts's
+ * RESOURCE_ICONS/RESOURCE_COLOR_CLASS) — one badge per affected resource,
+ * e.g. a gold coin icon in gold next to "+1", a plank icon in brown next to
+ * "+2". Mirrors HexBoard's per-unit ActionMenuOption.outcome rendering so a
+ * bulk-action button's aggregated outcome reads the same way as the radial
+ * menu's per-unit preview it's replacing (see the trigger comment on issue
+ * #61: "describe the outcome using iconography and colors").
+ */
+function ResourceOutcomeBadges({ outcome, className = '' }: { outcome: Partial<Resources>; className?: string }) {
+  const entries = RESOURCE_ORDER.filter((key) => outcome[key])
+  if (entries.length === 0) return null
+  return (
+    <span className={`inline-flex items-center gap-1.5 ${className}`}>
+      {entries.map((key) => {
+        const amount = outcome[key]!
+        const label = RESOURCE_LABELS.find(([k]) => k === key)![1]
+        return (
+          <span key={key} className={`inline-flex items-center gap-0.5 font-bold ${RESOURCE_COLOR_CLASS[key]}`}>
+            <ResourceIcon resource={key} title={label} className="h-3.5 w-3.5 shrink-0" />
+            {amount > 0 ? '+' : ''}
+            {amount}
+          </span>
+        )
+      })}
+    </span>
+  )
+}
+
 /** A resource total's change since the reviewed window began, e.g. " (+5)" — blank if it didn't change (or there's nothing to compare against). */
 function deltaSuffix(amount: number | undefined): string {
   if (!amount) return ''
@@ -594,14 +623,60 @@ function SelectCardsPanel(props: { state: GameState; players: PlayerRow[]; myPla
   )
 }
 
+interface BulkActionGroup {
+  kind: string
+  actionId: string
+  label: string
+  unitIds: string[]
+  /** Sum of computeActionOutcomePreview across every unit in the group — e.g. two idle Forest Nomads' Produce Resource combine into `{ wood: 2 }`. */
+  outcome: Partial<Resources>
+}
+
+/**
+ * Every no-target action (see actionNeedsTargeting) at least one of
+ * `remaining`'s units can currently take, grouped by unit kind + action id
+ * — e.g. every idle Nomad/Mountaineer's Produce Resource, or every idle
+ * Ship/Merchant/City/Temple's trade/income action (issue #61). Drives the
+ * "act on everyone at once" buttons in ActionsPanel below, so a player
+ * doesn't have to click through each unit individually on the board for an
+ * action that never needed a target hex in the first place. Each group's
+ * `outcome` is the aggregated resource preview across its units (see
+ * computeActionOutcomePreview), shown on the button alongside the count.
+ */
+function computeBulkActionGroups(state: GameState, unitContent: UnitContent, playerId: string, remaining: Unit[]): BulkActionGroup[] {
+  const groups = new Map<string, BulkActionGroup>()
+  for (const unit of remaining) {
+    for (const action of unitContent.actionsByKind[unit.kind] ?? []) {
+      if (actionNeedsTargeting(action.effect)) continue
+      if (!isActionAvailableForUnit(state, playerId, unit, action, unitContent)) continue
+      const key = `${unit.kind}:${action.id}`
+      let group = groups.get(key)
+      if (!group) {
+        group = { kind: unit.kind, actionId: action.id, label: action.name, unitIds: [], outcome: {} }
+        groups.set(key, group)
+      }
+      group.unitIds.push(unit.id)
+      const unitOutcome = computeActionOutcomePreview(state, playerId, unit, action)
+      if (unitOutcome) {
+        for (const resourceKey of RESOURCE_ORDER) {
+          const amount = unitOutcome[resourceKey]
+          if (amount) group.outcome[resourceKey] = (group.outcome[resourceKey] ?? 0) + amount
+        }
+      }
+    }
+  }
+  return [...groups.values()]
+}
+
 function ActionsPanel(props: {
   state: GameState
   players: PlayerRow[]
   myPlayerId: string | null
   unitContent: UnitContent
   onPassActions: () => void
+  onResolveBulkAction: (unitIds: string[], actionId: string) => void
 }) {
-  const { state, players, myPlayerId, unitContent, onPassActions } = props
+  const { state, players, myPlayerId, unitContent, onPassActions, onResolveBulkAction } = props
   const activePlayerId = state.pendingPlayerIds[0] ?? null
   const isMyTurn = activePlayerId !== null && activePlayerId === myPlayerId
 
@@ -615,6 +690,7 @@ function ActionsPanel(props: {
 
   const actingUnits = eligibleActingUnits(state, unitContent, myPlayerId, card)
   const remaining = actingUnits.filter((u) => hasRemainingActivation(state, unitContent, u))
+  const bulkGroups = computeBulkActionGroups(state, unitContent, myPlayerId, remaining)
 
   return (
     <div className="flex flex-col gap-3 text-sm">
@@ -625,6 +701,24 @@ function ActionsPanel(props: {
       </p>
 
       {actingUnits.length === 0 && <p className="text-neutral-500">No units of this kind to act.</p>}
+
+      {bulkGroups.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {bulkGroups.map((group) => (
+            <button
+              key={`${group.kind}:${group.actionId}`}
+              onClick={() => onResolveBulkAction(group.unitIds, group.actionId)}
+              title={`Apply "${group.label}" to every remaining ${capitalize(group.kind)} that can currently take it, without picking each one individually on the board.`}
+              className="inline-flex items-center gap-1.5 rounded-md border border-neutral-700 px-3 py-1 hover:border-neutral-500"
+            >
+              <span>
+                {group.label} — all ({group.unitIds.length})
+              </span>
+              <ResourceOutcomeBadges outcome={group.outcome} />
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="flex gap-2">
         <button onClick={onPassActions} className="rounded-md bg-indigo-600 px-3 py-1 font-medium text-white hover:bg-indigo-500">
@@ -746,6 +840,8 @@ export function RoundView(props: {
   gameLog: GameEvent[]
   onChooseCard: (cardId: string) => void
   onResolveUnit: (unitId: string, actionId: string, target?: Coordinate) => void
+  /** Resolves the same no-target action (see actionNeedsTargeting) for every listed unit id in one submission — see ActionsPanel's bulk-action buttons (issue #61). */
+  onResolveBulkAction: (unitIds: string[], actionId: string) => void
   onPassActions: () => void
   onMoveToDecline: (cardId: string) => void
   onPurchaseCard: (cardId: string) => void
@@ -886,7 +982,14 @@ export function RoundView(props: {
         <SelectCardsPanel state={state} players={players} myPlayerId={myPlayerId} onChooseCard={props.onChooseCard} />
       )}
       {!showHistory && state.roundPhase === 'actions' && (
-        <ActionsPanel state={state} players={players} myPlayerId={myPlayerId} unitContent={unitContent} onPassActions={props.onPassActions} />
+        <ActionsPanel
+          state={state}
+          players={players}
+          myPlayerId={myPlayerId}
+          unitContent={unitContent}
+          onPassActions={props.onPassActions}
+          onResolveBulkAction={props.onResolveBulkAction}
+        />
       )}
       {!showHistory && state.roundPhase === 'decline' && (
         <DeclinePanel state={state} players={players} myPlayerId={myPlayerId} onMoveToDecline={props.onMoveToDecline} />
