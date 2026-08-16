@@ -34,7 +34,9 @@ describe('gameStateExport', () => {
     const state = buildGenesisState(makeGame(), makePlayers())
 
     const encoded = await encodeGameStateExport(state)
-    expect(encoded.startsWith('RAF-STATE-1:')).toBe(true)
+    const parsed = JSON.parse(encoded)
+    expect(parsed.schema).toBe(GAME_STATE_EXPORT_SCHEMA)
+    expect(typeof parsed.gameStateZipped).toBe('string')
 
     const envelope = await decodeGameStateExport(encoded)
     expect(envelope.schema).toBe(GAME_STATE_EXPORT_SCHEMA)
@@ -50,12 +52,11 @@ describe('gameStateExport', () => {
     expect(encoded.length).toBeLessThan(pretty.length / 2)
   })
 
-  it('rejects text that is not one of its exports', async () => {
-    await expect(decodeGameStateExport('{"not": "an export"}')).rejects.toThrow(/RAF-STATE-1/)
+  it('rejects text that is not valid JSON', async () => {
+    await expect(decodeGameStateExport('not json at all')).rejects.toThrow(/recognized game state export/)
   })
 
-  it('rejects a blob whose schema does not match', async () => {
-    const foreign = btoa('irrelevant')
-    await expect(decodeGameStateExport(`RAF-STATE-1:${foreign}`)).rejects.toThrow()
+  it('rejects an object whose schema does not match', async () => {
+    await expect(decodeGameStateExport('{"not": "an export"}')).rejects.toThrow(/schema/)
   })
 })

@@ -753,10 +753,11 @@ export function GamePage() {
 
   /**
    * The pretty-printed JSON above is unwieldy to paste into a bug report or
-   * chat (easily tens of KB). This copies a gzip+base64 "state export"
-   * instead — a single line, a fraction of the size, and self-describing
-   * (see gameStateExport.ts's schema/version envelope) so it can be decoded
-   * back into the exact state it came from.
+   * chat (easily tens of KB). This copies a "game export" instead — a real
+   * JSON file (see gameStateExport.schema.json) whose gameStateZipped field
+   * gzip+base64-encodes the state, a fraction of the size and self-describing
+   * (schema/version) so it can be decoded back into the exact state it came
+   * from.
    */
   async function handleCopyStateExport() {
     if (!gameState) return
@@ -895,6 +896,19 @@ export function GamePage() {
                   className="px-3 py-2 text-left hover:bg-neutral-800"
                 >
                   Main menu
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={!gameState}
+                  onClick={() => {
+                    setMenuOpen(false)
+                    void handleCopyStateExport()
+                  }}
+                  title="Copies a game state export (a small JSON file) to the clipboard — paste it into a bug report or chat, or save it as a .json file."
+                  className="px-3 py-2 text-left hover:bg-neutral-800 disabled:opacity-50"
+                >
+                  Copy game export
                 </button>
                 <button
                   type="button"
@@ -1063,6 +1077,10 @@ export function GamePage() {
 
       {stateExportError && <div className="rounded-md bg-red-500/10 p-3 text-sm text-red-400">{stateExportError}</div>}
 
+      {copiedStateExport && !showStateJson && (
+        <div className="rounded-md bg-emerald-500/10 p-3 text-sm text-emerald-400">Game export copied to clipboard!</div>
+      )}
+
       {lifecycleError && <div className="rounded-md bg-red-500/10 p-3 text-sm text-red-400">{lifecycleError}</div>}
 
       {observerError && <div className="rounded-md bg-red-500/10 p-3 text-sm text-red-400">{observerError}</div>}
@@ -1080,10 +1098,10 @@ export function GamePage() {
             <button
               type="button"
               onClick={() => void handleCopyStateExport()}
-              title="Copies a compressed, single-line export of the game state — easier to paste into a bug report or chat than the full JSON."
+              title="Copies a game state export (a small JSON file) — easier to paste into a bug report or chat, or save as a .json file, than the full JSON below."
               className="rounded-md border border-neutral-700 px-3 py-1 text-xs hover:border-neutral-500"
             >
-              {copiedStateExport ? 'Copied!' : 'Copy state export'}
+              {copiedStateExport ? 'Copied!' : 'Copy game export'}
             </button>
             <button
               type="button"

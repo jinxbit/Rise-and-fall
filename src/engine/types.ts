@@ -266,7 +266,7 @@ export interface GameState {
    * whole game, carried here (set once by createNewGame/buildGenesisState) so a
    * caller resolving this game's effective content (resolveTaleContent +
    * applyTaleModifiers) never needs the DB row itself, and so an exported
-   * GameState (RAF-STATE-1, ./gameStateExport.ts) is self-describing.
+   * GameState (see ./gameStateExport.ts's game export) is self-describing.
    * Empty means the Tales variant is off. The engine itself never reads
    * this — it stays content-agnostic, same as every other Tale mechanic.
    */
