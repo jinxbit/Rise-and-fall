@@ -17,6 +17,19 @@ export interface ScoreSnapshot {
   totalByPlayerId: Record<string, number>
 }
 
+export interface AchievementClaimEvent {
+  /** GameState.turn (the round number) the achievement was claimed in — achievements can be claimed mid-round, so this isn't necessarily a round-boundary snapshot's turn, though it always matches one since a snapshot is taken every time turn advances. */
+  turn: number
+  achievementId: string
+  playerId: string
+}
+
+export interface ScoreHistoryResult {
+  snapshots: ScoreSnapshot[]
+  /** Every achievement claim that occurred during the replay, in the order claimed — for the "which round was this achievement claimed in" markers on the end-of-game score chart (EndGameView.tsx/ScoreOverTimeChart.tsx). */
+  achievementClaims: AchievementClaimEvent[]
+}
+
 function snapshotOf(state: GameState, achievementContent: AchievementContent, taleContent: TaleContent): ScoreSnapshot {
   const breakdown = calculateVPBreakdown(state, achievementContent, taleContent)
   const totalByPlayerId: Record<string, number> = {}
@@ -43,15 +56,23 @@ export function calculateScoreHistory(
   achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT,
   boardGenerationContent: BoardGenerationContent = EMPTY_BOARD_GENERATION_CONTENT,
   taleContent: TaleContent = EMPTY_TALE_CONTENT,
-): ScoreSnapshot[] {
+): ScoreHistoryResult {
   let state = genesis
   let lastSnapshotState = state
   const snapshots: ScoreSnapshot[] = [snapshotOf(state, achievementContent, taleContent)]
+  const achievementClaims: AchievementClaimEvent[] = []
 
   for (const entry of actionHistory) {
     const result = applyAction(state, entry.action, unitContent, achievementContent, boardGenerationContent, taleContent, true)
     if (!result.ok) break
+    const previousState = state
     state = result.state
+
+    for (const [achievementId, playerId] of Object.entries(state.claimedByAchievementId)) {
+      if (previousState.claimedByAchievementId[achievementId]) continue
+      achievementClaims.push({ turn: state.turn, achievementId, playerId })
+    }
+
     if (state.turn !== lastSnapshotState.turn) {
       snapshots.push(snapshotOf(state, achievementContent, taleContent))
       lastSnapshotState = state
@@ -59,5 +80,5 @@ export function calculateScoreHistory(
   }
 
   if (state !== lastSnapshotState) snapshots.push(snapshotOf(state, achievementContent, taleContent))
-  return snapshots
+  return { snapshots, achievementClaims }
 }

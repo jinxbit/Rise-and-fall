@@ -74,7 +74,7 @@ const content: AchievementContent = {
 }
 
 describe('EndGameView', () => {
-  it('shows every player, ranked by total VP descending, with an itemized breakdown of what each score is made of', () => {
+  it('shows every player, ranked by total VP descending, with the breakdown table pivoted one row per scoring criterion', () => {
     const state = makeState()
     const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
 
@@ -84,14 +84,22 @@ describe('EndGameView', () => {
     // Real content/achievements.json's display name for 'city-mastery' is
     // "City" — EndGameView resolves the id to a name via the real
     // listAchievements(), independent of the test's own achievementContent.
-    // Anchored to the start so it doesn't also match the "1 City:" board-count line below it.
-    expect(screen.getByText(/^City:/)).toBeInTheDocument()
-    expect(screen.getByText('1 City:', { exact: false })).toBeInTheDocument()
-    expect(screen.getByText('4 Gold:', { exact: false })).toBeInTheDocument()
-    expect(screen.getByText('6 points')).toBeInTheDocument()
+    // Each row is the same criterion for every player's column: the achievement
+    // row ("city-mastery") and the board-count row (kind "city") are separate
+    // rows, in separate category groups, even though both happen to be
+    // labeled "City".
+    expect(screen.getByTestId('breakdown-group-Achievements')).toHaveTextContent('Achievements')
+    expect(screen.getByTestId('breakdown-cell-Achievements-city-mastery-p1')).toHaveTextContent('3 points')
+    // p2 (Bob) never claimed it — blank, not a stray value.
+    expect(screen.getByTestId('breakdown-cell-Achievements-city-mastery-p2')).toHaveTextContent('—')
 
-    // p2 (Bob): nothing claimed, no units, no gold — scored nothing at all.
-    expect(screen.getByText('No points scored')).toBeInTheDocument()
+    expect(screen.getByTestId('breakdown-cell-Units-city-p1')).toHaveTextContent('1 point')
+    expect(screen.getByTestId('breakdown-cell-Units-city-p1')).toHaveTextContent('1 on board')
+
+    expect(screen.getByTestId('breakdown-cell-Gold-gold-p1')).toHaveTextContent('2 points')
+    expect(screen.getByTestId('breakdown-cell-Gold-gold-p1')).toHaveTextContent('4 gold')
+
+    expect(screen.getByTestId('breakdown-points-p1')).toHaveTextContent('6 points')
 
     // Ranked highest total first: Alice's column comes before Bob's.
     const headers = [...container.querySelectorAll('[data-testid="score-breakdown"] th')]
@@ -103,15 +111,26 @@ describe('EndGameView', () => {
     expect(screen.getByText('Winner:', { exact: false })).toBeInTheDocument()
   })
 
-  it('pluralizes a board-count line correctly ("2 Cities", not "2 Citys")', () => {
+  it('shows a single "Breakdown" fallback row when nobody scored anything', () => {
+    const state = { ...makeState(), claimedByAchievementId: {}, units: [] }
+    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
+    const noGoldContent: AchievementContent = { ...content, goldPerVictoryPoint: null }
+    const noGoldState = { ...state, players: state.players.map((p) => ({ ...p, resources: { ...p.resources, gold: 0 } })) }
+
+    render(<EndGameView state={noGoldState} players={players} achievementContent={noGoldContent} taleContent={EMPTY_TALE_CONTENT} />)
+
+    expect(screen.queryByTestId('breakdown-group-Achievements')).not.toBeInTheDocument()
+    expect(screen.getAllByText('No points scored')).toHaveLength(2)
+  })
+
+  it('pluralizes an achievement quantity correctly (e.g. board-count "2 on board")', () => {
     const state = { ...makeState(), units: [...makeState().units, unitAt('p1', 'city')] }
     const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
     const twoCityContent: AchievementContent = { ...content, unitBoardCountVP: { city: [1, 2] } }
 
     render(<EndGameView state={state} players={players} achievementContent={twoCityContent} taleContent={EMPTY_TALE_CONTENT} />)
 
-    expect(screen.getByText('2 Cities:', { exact: false })).toBeInTheDocument()
-    expect(screen.queryByText(/Citys/)).not.toBeInTheDocument()
+    expect(screen.getByTestId('breakdown-cell-Units-city-p1')).toHaveTextContent('2 on board')
   })
 
   it("highlights the winner(s) with a trophy, even ranked below someone eliminated", () => {
@@ -145,8 +164,9 @@ describe('EndGameView', () => {
 
     render(<EndGameView state={state} players={players} achievementContent={content} taleContent={taleContent} />)
 
-    // p2 (Bob) had "No points scored" without the Cathedral; now scores exactly its 15 VP.
-    expect(screen.getByText('The Cathedral:', { exact: false })).toBeInTheDocument()
+    // p2 (Bob) scored nothing without the Cathedral; now scores exactly its 15 VP.
+    expect(screen.getByTestId('breakdown-row-Structures-cathedral')).toHaveTextContent('The Cathedral')
+    expect(screen.getByTestId('breakdown-cell-Structures-cathedral-p2')).toHaveTextContent('15 points')
     expect(screen.getByTestId('breakdown-points-p2')).toHaveTextContent('15 points')
   })
 
@@ -254,15 +274,17 @@ describe('EndGameView', () => {
     const chartSvg = container.querySelector('[data-testid="score-categories"] svg')
     expect(chartSvg?.textContent).not.toContain('Bob')
 
-    // Score breakdown: Bob's Points/Breakdown/Resources/Units cells say "Eliminated" instead of the misleading leftover detail.
+    // Score breakdown: Bob's Points/Resources/On board cells say "Eliminated" instead of the misleading leftover detail,
+    // and his claimed-before-elimination "temple-mastery" achievement never becomes a pivoted row at all — an eliminated
+    // player's leftover VP source shouldn't resurrect a category nobody currently active scored in.
     expect(screen.getByTestId('breakdown-points-p2')).toHaveTextContent('Eliminated')
-    expect(screen.getByTestId('breakdown-lines-p2')).toHaveTextContent('Eliminated')
+    expect(screen.queryByTestId('breakdown-row-Achievements-temple-mastery')).not.toBeInTheDocument()
     expect(screen.getByTestId('breakdown-resources-p2')).toHaveTextContent('Eliminated')
     expect(screen.getByTestId('breakdown-units-p2')).toHaveTextContent('Eliminated')
 
     // Alice (not eliminated) is unaffected.
     expect(screen.getByTestId('breakdown-points-p1')).toHaveTextContent('6 points')
-    expect(screen.getByTestId('breakdown-lines-p1')).not.toHaveTextContent('Eliminated')
+    expect(screen.getByTestId('breakdown-cell-Achievements-city-mastery-p1')).toHaveTextContent('3 points')
     expect(screen.getByTestId('breakdown-resources-p1')).toHaveTextContent('4 Gold, 0 Wood, 0 Stone')
   })
 
