@@ -75,6 +75,28 @@ describe('syncCardZonesWithBoard (rules 5 & 6)', () => {
     expect(findCardZone(p1, cardIdFor('p1', 'city'))).toBe('decline')
   })
 
+  it('counts a Tale companion (e.g. Capital) as its card kind (City), so the card stays in hand with no plain City left', () => {
+    let state = makeLobbyGame()
+    state = { ...state, units: [makeUnit('p1', 'city')] }
+    state = syncCardZonesWithBoard(state, { city: ['capital'] })
+
+    const withCapitalOnly = { ...state, units: [makeUnit('p1', 'capital')] }
+    const synced = syncCardZonesWithBoard(withCapitalOnly, { city: ['capital'] })
+    const p1 = synced.players.find((p) => p.id === 'p1')!
+    expect(findCardZone(p1, cardIdFor('p1', 'city'))).toBe('hand')
+  })
+
+  it('moves a companion-only card back to supply once the companion mapping is not supplied (no Tale active)', () => {
+    let state = makeLobbyGame()
+    state = { ...state, units: [makeUnit('p1', 'city')] }
+    state = syncCardZonesWithBoard(state, { city: ['capital'] })
+
+    const withCapitalOnly = { ...state, units: [makeUnit('p1', 'capital')] }
+    const synced = syncCardZonesWithBoard(withCapitalOnly)
+    const p1 = synced.players.find((p) => p.id === 'p1')!
+    expect(findCardZone(p1, cardIdFor('p1', 'city'))).toBe('supply')
+  })
+
   it('startGame does not itself put any cards in hand — units go down later, during board setup', () => {
     // Real rule 6 (card enters hand once a unit of that kind is placed) is
     // exercised via placeUnit() in boardSetup.test.ts, once the interactive

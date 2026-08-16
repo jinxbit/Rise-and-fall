@@ -366,6 +366,48 @@ describe('The Capital, end-to-end through applyAction', () => {
     expect(result.state.claimedByAchievementId.capital).toBe('p1')
     expect(isDeclineTriggered(result.state)).toBe(true)
   })
+
+  it('counts the Capital as a City for card zone sync — the City card stays in hand even with 0 plain Cities left', () => {
+    const { unitContent, achievementContent } = realContent()
+    const cities = RHOMBUS.map((coord) => makeUnit('p1', 'city', coord, unitContent.movementByKind.city))
+    const p1Cards = createPlayerCards('p1')
+    const p2Cards = createPlayerCards('p2')
+    const cards = [...p1Cards, ...p2Cards].reduce((acc, c) => ({ ...acc, [c.id]: c }), {} as GameState['cards'])
+
+    let state = makeState({
+      board: rhombusBoard(),
+      units: cities,
+      cards,
+      players: [
+        makePlayer('p1', { handCardIds: [cardIdFor('p1', 'city')], resources: { gold: 0, wood: 5, stone: 5 } }),
+        makePlayer('p2', { handCardIds: [cardIdFor('p2', 'nomad')] }),
+      ],
+      turnOrder: ['p1', 'p2'],
+      roundPhase: 'selectCards',
+    })
+    state = beginSelectCardsPhase(state)
+    const chosen = chooseCards(state)
+
+    const acting = chosen.units.find((u) => u.kind === 'city')!
+    const result = applyAction(
+      chosen,
+      { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [{ unitId: acting.id, actionId: 'construct-capital' }] },
+      unitContent,
+      achievementContent,
+    )
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.state.units.some((u) => u.ownerId === 'p1' && u.kind === 'city')).toBe(false)
+    // The City card was played this turn (now in `discard`, per rules 3 & 4
+    // — see finishActionsTurn) rather than `hand`, but the point still
+    // holds: it must NOT have been forced into `supply` just because the 4
+    // plain Cities that built the Capital are gone — the Capital counts as
+    // a City.
+    const p1 = result.state.players.find((p) => p.id === 'p1')!
+    expect(p1.discardCardIds).toContain(cardIdFor('p1', 'city'))
+    expect(p1.supplyCardIds).not.toContain(cardIdFor('p1', 'city'))
+  })
 })
 
 // --- Group 5: Capital counts as a City for Ship's Trade (per rule text) ---

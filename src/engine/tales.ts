@@ -19,15 +19,30 @@ import type { UnitAction, UnitContent } from './unitContent'
  * needs to call this at all, though it's harmless to always call it with
  * EMPTY_TALE_CONTENT for a uniform call site.
  */
+/**
+ * Which companion kinds count as their card kind for the purposes of
+ * playing a card (UnitContent.companionKindsByCardKind) — e.g.
+ * `{ city: ['capital'] }`, derived straight from taleContent.extraUnitKinds
+ * so callers that only have TaleContent in scope (not a full merged
+ * UnitContent) can still answer "does this companion count as kind X?"
+ * without re-deriving the whole action-list merge below. Also used by
+ * applyTaleModifiers itself — the base game never contributes any entries
+ * of its own (see EMPTY_UNIT_CONTENT), so this is always the complete map.
+ */
+export function companionKindsByCardKind(taleContent: TaleContent): Record<string, string[]> {
+  const result: Record<string, string[]> = {}
+  for (const [kind, extraUnit] of Object.entries(taleContent.extraUnitKinds)) {
+    result[extraUnit.companionOfKind] = [...(result[extraUnit.companionOfKind] ?? []), kind]
+  }
+  return result
+}
+
 export function applyTaleModifiers(base: UnitContent, taleContent: TaleContent): UnitContent {
   const actionsByKind: Record<string, UnitAction[]> = { ...base.actionsByKind }
   const movementByKind = { ...base.movementByKind }
   const unitSupplyCaps = { ...base.unitSupplyCaps }
   const activationsPerTurnByKind = { ...base.activationsPerTurnByKind }
-  const companionKindsByCardKind: Record<string, string[]> = {}
-  for (const [cardKind, companions] of Object.entries(base.companionKindsByCardKind)) {
-    companionKindsByCardKind[cardKind] = [...companions]
-  }
+  const mergedCompanionKindsByCardKind = companionKindsByCardKind(taleContent)
 
   for (const [kind, extra] of Object.entries(taleContent.extraActionsByKind)) {
     actionsByKind[kind] = [...(actionsByKind[kind] ?? []), ...extra]
@@ -36,7 +51,6 @@ export function applyTaleModifiers(base: UnitContent, taleContent: TaleContent):
   for (const [kind, extraUnit] of Object.entries(taleContent.extraUnitKinds)) {
     movementByKind[kind] = extraUnit.movement
     unitSupplyCaps[kind] = extraUnit.supplyCap
-    companionKindsByCardKind[extraUnit.companionOfKind] = [...(companionKindsByCardKind[extraUnit.companionOfKind] ?? []), kind]
     if (extraUnit.activationsPerTurn !== undefined) activationsPerTurnByKind[kind] = extraUnit.activationsPerTurn
     // A companion that reuses its parent card's actions (The Capital Tale)
     // resolves its final action list AFTER every kind's own extraActionsByKind
@@ -52,7 +66,14 @@ export function applyTaleModifiers(base: UnitContent, taleContent: TaleContent):
     movementByKind[kind] = { ...movementByKind[kind], ...override }
   }
 
-  return { ...base, actionsByKind, movementByKind, unitSupplyCaps, companionKindsByCardKind, activationsPerTurnByKind }
+  return {
+    ...base,
+    actionsByKind,
+    movementByKind,
+    unitSupplyCaps,
+    companionKindsByCardKind: mergedCompanionKindsByCardKind,
+    activationsPerTurnByKind,
+  }
 }
 
 /**
