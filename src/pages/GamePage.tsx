@@ -6,6 +6,7 @@ import { RoundView } from '../components/RoundView'
 import { resolveAchievementContent, resolveBoardGenerationContent, resolveTaleContent, resolveUnitContent } from '../content/resolveContent'
 import type { Action, LoggedAction } from '../engine/actions'
 import { applyActionAndFastForwardTiles } from '../engine/applyAction'
+import { stripOccupants } from '../engine/board'
 import { buildGameLogFrom, extendGameLog } from '../engine/gameLog'
 import { replayActions } from '../engine/replay'
 import { calculateScoreHistory } from '../engine/scoreHistory'
@@ -34,6 +35,7 @@ import {
   writeGameState,
 } from '../lib/gameApi'
 import { encodeGameStateExport } from '../lib/gameStateExport'
+import { saveMapToPool } from '../lib/mapPoolApi'
 
 /**
  * Two players' writes racing the game_state row's optimistic-concurrency
@@ -68,6 +70,9 @@ export function GamePage() {
   const [copiedStateJson, setCopiedStateJson] = useState(false)
   const [copiedStateExport, setCopiedStateExport] = useState(false)
   const [stateExportError, setStateExportError] = useState<string | null>(null)
+  const [savingMap, setSavingMap] = useState(false)
+  const [mapSaved, setMapSaved] = useState(false)
+  const [mapSaveError, setMapSaveError] = useState<string | null>(null)
   const [undoing, setUndoing] = useState(false)
   const [redoing, setRedoing] = useState(false)
   /**
@@ -138,6 +143,8 @@ export function GamePage() {
     if (!roomCode) return
     setHotseatActivePlayerId(null)
     setReviewIndex(null)
+    setMapSaved(false)
+    setMapSaveError(null)
     autoObserveAttemptedRef.current = false
     autoReviewAppliedRef.current = false
     void (async () => {
@@ -771,6 +778,30 @@ export function GamePage() {
     }
   }
 
+  /**
+   * Save this game's current board terrain to the map pool (issue #164) —
+   * the same pool src/pages/MapBuilderPage.tsx's dedicated build-a-map flow
+   * (issue #23) feeds, just sourced from a real game already under way
+   * instead of a from-scratch builder session. `stripOccupants` clears the
+   * board's unit/settlement occupancy first: a pool entry only ever seeds a
+   * future game's terrain (see beginBoardSetupWithPresetBoard), and this
+   * game's own unit ids on the board wouldn't mean anything there.
+   */
+  async function handleSaveMap() {
+    if (!gameState || !session) return
+    setSavingMap(true)
+    setMapSaveError(null)
+    try {
+      await saveMapToPool({ board: stripOccupants(gameState.board), playerCount: players.length, userId: session.user.id })
+      setMapSaved(true)
+      setTimeout(() => setMapSaved(false), 1500)
+    } catch (err) {
+      setMapSaveError(err instanceof Error ? err.message : 'Failed to save map')
+    } finally {
+      setSavingMap(false)
+    }
+  }
+
   async function handleCancelRoom() {
     if (!game) return
     if (!window.confirm('Cancel this room? Play will be disabled for everyone — this cannot be undone.')) return
@@ -922,6 +953,19 @@ export function GamePage() {
                   className="px-3 py-2 text-left hover:bg-neutral-800 disabled:opacity-50"
                 >
                   {showStateJson ? 'Hide' : 'Show'} game state JSON
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={!gameState || gameState.status === 'boardSetup' || savingMap}
+                  onClick={() => {
+                    setMenuOpen(false)
+                    void handleSaveMap()
+                  }}
+                  title="Save this game's current board layout to the map pool, so a future game can start from it."
+                  className="px-3 py-2 text-left hover:bg-neutral-800 disabled:opacity-50"
+                >
+                  {savingMap ? 'Saving map…' : 'Save this map'}
                 </button>
                 {canEditVisibility && (
                   <button
@@ -1080,6 +1124,10 @@ export function GamePage() {
       {copiedStateExport && !showStateJson && (
         <div className="rounded-md bg-emerald-500/10 p-3 text-sm text-emerald-400">Game export copied to clipboard!</div>
       )}
+
+      {mapSaveError && <div className="rounded-md bg-red-500/10 p-3 text-sm text-red-400">{mapSaveError}</div>}
+
+      {mapSaved && <div className="rounded-md bg-emerald-500/10 p-3 text-sm text-emerald-400">Map saved to the pool!</div>}
 
       {lifecycleError && <div className="rounded-md bg-red-500/10 p-3 text-sm text-red-400">{lifecycleError}</div>}
 

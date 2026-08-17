@@ -27,6 +27,24 @@ export function getTile(board: Board, coord: Coordinate): Tile | undefined {
 }
 
 /**
+ * A copy of `board` with every tile's `occupantIds` cleared — used when
+ * saving a map from a real, already-underway game to the map pool (see
+ * src/lib/mapPoolApi.ts's saveMapToPool), since a pool entry only ever
+ * seeds a future game's *terrain*. Left as-is, the unit/settlement ids on
+ * `board.tiles` right now belong to players and units from this game that
+ * won't exist in whatever future game picks the map up (which starts unit
+ * placement fresh on top of the preset board — see
+ * beginBoardSetupWithPresetBoard in ./boardSetup.ts), so those stale ids
+ * would read as tiles already occupied there.
+ */
+export function stripOccupants(board: Board): Board {
+  return {
+    ...board,
+    tiles: Object.fromEntries(Object.entries(board.tiles).map(([key, tile]) => [key, { ...tile, occupantIds: [] }])),
+  }
+}
+
+/**
  * A stable, deterministic string signature of a board's terrain layout —
  * every hex's coordinate + terrain, sorted so tile insertion order never
  * affects the result. Used to detect duplicate saved maps (see
