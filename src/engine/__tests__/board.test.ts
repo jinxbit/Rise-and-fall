@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { canonicalizeBoard, createEmptyBoard, coordsWithinDistance, getTile, neighborCoords, setTile } from '../board'
+import { canonicalizeBoard, createEmptyBoard, coordsWithinDistance, getTile, neighborCoords, setTile, stripOccupants } from '../board'
 import { coordKey } from '../types'
 
 describe('board', () => {
@@ -65,6 +65,16 @@ describe('board', () => {
       const board = setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'plain')
       const occupied = { ...board, tiles: { ...board.tiles, '0,0': { ...board.tiles['0,0'], occupantIds: ['unit_1'] } } }
       expect(canonicalizeBoard(board)).toBe(canonicalizeBoard(occupied))
+    })
+  })
+
+  describe('stripOccupants', () => {
+    it('clears occupantIds on every tile, leaving terrain untouched', () => {
+      const board = setTile(setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'plain'), { q: 1, r: 0 }, 'forest')
+      const occupied = { ...board, tiles: { ...board.tiles, '0,0': { ...board.tiles['0,0'], occupantIds: ['unit_1', 'unit_2'] } } }
+      const stripped = stripOccupants(occupied)
+      expect(Object.values(stripped.tiles).every((t) => t.occupantIds.length === 0)).toBe(true)
+      expect(canonicalizeBoard(stripped)).toBe(canonicalizeBoard(board))
     })
   })
 })
