@@ -3214,3 +3214,77 @@ and how to decode it (in-app, via `jq`+`gzip`, or generically) in a new
 "Debugging: game state export" section in the top-level `README.md`.
 665 tests total; `tsc -b`/`oxlint`/`vitest run`/`npm run build` all
 clean.
+
+## 66. Map pool — save a built map, categorized by player count, and start a future game from a random one (issue #23)
+
+Requested: let players save a map to a pool (categorized by player
+count, no exact duplicate twice), add a dedicated mode just for
+building and saving maps, and add a game option to start from a random
+saved map instead of the interactive board-setup construction phase.
+
+This builds on top of the existing static-content map templates
+(entry `#12`, `content/mapTemplates.json`) rather than replacing them —
+a template is one curated, developer-shipped map; the pool is player-
+saved and grows over time. New table `public.map_pool`
+(`0016_map_pool.sql`): `board` (jsonb) + `player_count` + a `board_key`
+text column holding `canonicalizeBoard(board)` (new export in
+`engine/board.ts` — every tile's coordinate+terrain, sorted, so
+insertion order never affects it), with `unique (player_count,
+board_key)` enforcing "the same map can't be saved twice" server-side.
+RLS: any signed-in user can read the whole pool (needed to browse/pick
+from it); insert only as yourself. `src/lib/mapPoolApi.ts` wraps this:
+`saveMapToPool` (turns a unique-violation into a friendly "already
+saved" error), `listMapPoolByPlayerCount`, `pickRandomMapFromPool`.
+
+**Determinism constraint this had to respect:** `buildGenesisState`
+(`gameGenesis.ts`) is a synchronous, deterministic function of the
+`games` row alone (entry `#14`) — GamePage.tsx calls it inside
+`useMemo`, and undo/redo depend on it never touching the network. A
+naive "store the pool map's id, resolve it at genesis time" design
+would have made genesis async (a DB fetch) for the first time ever.
+Avoided that entirely: `GameSettings.mapPoolBoard` stores the *resolved
+board itself* (not just an id) — the random pick happens once, at the
+moment a player toggles the option (`MapPoolSelector.tsx`, an async
+`pickRandomMapFromPool` call triggered by the checkbox/"pick a
+different one" button, not on every render) — and from then on
+`buildGenesisState` treats it exactly like `mapTemplateId`, just
+resolved from `settings` directly instead of static JSON
+(`startGameWithPresetBoard`, already existing from entry `#12`).
+`mapTemplateId` wins if both are somehow set. `mapPoolMapId` is also
+stored, display-only, never read by genesis.
+
+`MapPoolSelector.tsx` (new component, mirrors `MapTemplateSelector.tsx`'s
+role) is wired into both `CreateGamePage.tsx` (keyed off the room's
+`maxPlayers`) and `LobbyPage.tsx`'s pre-start config editor (keyed off
+`draftMaxPlayers`, matching how `mapTemplateId` was already editable
+there) — mutually exclusive with the template selector in both places
+(picking one clears the other).
+
+**Map Builder mode** (`src/pages/MapBuilderPage.tsx`, new route
+`/map-builder`, linked from `HomePage.tsx`'s nav): deliberately *not* a
+new `games.play_mode` value — that would have dragged the whole
+lobby/seating/RLS/Realtime apparatus into what's fundamentally a solo,
+ephemeral drafting tool. Instead it's a self-contained page holding its
+own local `GameState` (never persisted to `games`/`game_state` — no DB
+row at all until the final `saveMapToPool` write): picks a player
+count, calls the *exact same* `createNewGame`/`beginBoardSetup`/
+`applyActionAndFastForwardTiles` engine functions and `BoardSetupView`
+UI a real game's board setup uses, with N synthetic local "seats"
+(`builder-0..N-1`) so tile quantities/starting-water-seeding come out
+identical to what N real players would build — `myPlayerId` is always
+set to whoever's nominal turn it is (`currentTilePlacerId`), so the one
+person present can place every tile without a real multi-seat lobby.
+Stops once `tileTierQueue` empties (starting-unit placement is skipped
+entirely — the pool only cares about terrain) and shows a "Save this
+map" button.
+
+Added `canonicalizeBoard` tests (`board.test.ts` — order-independence,
+terrain-difference sensitivity, ignores non-terrain tile state like
+`occupantIds`) and `gameGenesis.test.ts` coverage for the new
+`mapPoolBoard` branch (resolves to the exact given board; `mapTemplateId`
+still wins if both are set). `mapPoolApi.ts` itself is untested, same
+as every other DB-calling wrapper in `lib/` (e.g. `gameApi.ts`) — no
+live Supabase in this sandbox to test against. 724 tests total (was
+719); `tsc -b`/`oxlint`/`vitest run`/`npm run build` all clean. Not
+click-tested in a browser — same sandbox limitation as all prior UI
+work here.

@@ -36,5 +36,8 @@ export function buildGenesisState(game: GameRow, players: PlayerRow[]): GameStat
     if (!presetBoard) throw new Error(`Unknown map template: ${game.settings.mapTemplateId}`)
     return startGameWithPresetBoard(lobbyState, presetBoard)
   }
+  if (game.settings.mapPoolBoard) {
+    return startGameWithPresetBoard(lobbyState, game.settings.mapPoolBoard)
+  }
   return startGame(lobbyState, resolveBoardGenerationContent(players.length))
 }

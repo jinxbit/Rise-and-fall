@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createEmptyBoard, coordsWithinDistance, getTile, neighborCoords, setTile } from '../board'
+import { canonicalizeBoard, createEmptyBoard, coordsWithinDistance, getTile, neighborCoords, setTile } from '../board'
 import { coordKey } from '../types'
 
 describe('board', () => {
@@ -45,6 +45,26 @@ describe('board', () => {
     it('distance 0 returns nothing', () => {
       const board = createEmptyBoard('hex')
       expect(coordsWithinDistance(board, { q: 0, r: 0 }, 0)).toEqual([])
+    })
+  })
+
+  describe('canonicalizeBoard', () => {
+    it('is the same for two boards built with the same tiles in a different order', () => {
+      const a = setTile(setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'plain'), { q: 1, r: 0 }, 'water')
+      const b = setTile(setTile(createEmptyBoard('hex'), { q: 1, r: 0 }, 'water'), { q: 0, r: 0 }, 'plain')
+      expect(canonicalizeBoard(a)).toBe(canonicalizeBoard(b))
+    })
+
+    it('differs when a tile terrain differs', () => {
+      const a = setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'plain')
+      const b = setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'forest')
+      expect(canonicalizeBoard(a)).not.toBe(canonicalizeBoard(b))
+    })
+
+    it('is unaffected by non-terrain tile state (e.g. occupantIds)', () => {
+      const board = setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'plain')
+      const occupied = { ...board, tiles: { ...board.tiles, '0,0': { ...board.tiles['0,0'], occupantIds: ['unit_1'] } } }
+      expect(canonicalizeBoard(board)).toBe(canonicalizeBoard(occupied))
     })
   })
 })

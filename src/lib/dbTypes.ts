@@ -3,7 +3,7 @@
 // is stored/queried, not the rules-engine's in-memory GameState shape. The
 // game_state.state column holds a serialized engine GameState.
 
-import type { PlayMode, GameState as EngineGameState } from '../engine/types'
+import type { Board, PlayMode, GameState as EngineGameState } from '../engine/types'
 
 /**
  * Per-game, creation-time configuration — a single JSONB column
@@ -18,6 +18,21 @@ import type { PlayMode, GameState as EngineGameState } from '../engine/types'
 export interface GameSettings {
   /** Content id of a pre-made map template (src/content/mapTemplates.json), or null to build the map interactively as usual. */
   mapTemplateId: string | null
+  /**
+   * A concrete board (terrain layout only) resolved from a random
+   * `map_pool` row (0016_map_pool.sql) at creation/lobby-edit time — see
+   * MapPoolSelector.tsx — or null to not use one. Embedded directly here
+   * rather than just an id so buildGenesisState stays a synchronous,
+   * deterministic function of this row alone (see its doc comment) —
+   * same reasoning as mapTemplateId, just resolved from the DB instead of
+   * static content, at the moment it's chosen rather than every time
+   * genesis is rebuilt. Treated as mutually exclusive with mapTemplateId
+   * by the UI; if both are somehow set, buildGenesisState prefers
+   * mapTemplateId.
+   */
+  mapPoolBoard: Board | null
+  /** Which map_pool row mapPoolBoard came from, for display only — never read by buildGenesisState. */
+  mapPoolMapId: string | null
   /** Hotseat only: skip GamePage.tsx's "pass the device" confirmation gate between local players' turns. Irrelevant for live/async. */
   skipHotseatPassGate: boolean
   /** Content ids of active Tales (src/content/tales.json). Empty = Tales variant off. */
@@ -94,6 +109,16 @@ export interface GameStateRow {
   active_player_id: string | null
   version: number
   updated_at: string
+}
+
+/** A saved map in the pool (0016_map_pool.sql) — see src/lib/mapPoolApi.ts. */
+export interface MapPoolRow {
+  id: string
+  player_count: number
+  board: Board
+  board_key: string
+  created_by: string
+  created_at: string
 }
 
 /** Per-account settings — see supabase/migrations/0005_discord_webhooks.sql. */

@@ -16,7 +16,7 @@ function makeGame(overrides: Partial<GameRow> = {}, settingsOverrides: Partial<G
     created_by: 'auth_1',
     created_at: '',
     updated_at: '',
-    settings: { mapTemplateId: null, skipHotseatPassGate: false, activeTaleIds: [], gameLength: 4, ...settingsOverrides },
+    settings: { mapTemplateId: null, mapPoolBoard: null, mapPoolMapId: null, skipHotseatPassGate: false, activeTaleIds: [], gameLength: 4, ...settingsOverrides },
     config_version: 0,
     visibility: 'private',
     ...overrides,
@@ -59,6 +59,23 @@ describe('buildGenesisState', () => {
     expect(genesis.boardSetup?.tileTierQueue).toEqual([])
     expect(Object.keys(genesis.board.tiles).length).toBeGreaterThan(50)
     expect(genesis.actionHistory).toEqual([])
+  })
+
+  it('with a mapPoolBoard, skips straight to unit placement on that exact board (same mechanism as a map template)', () => {
+    const poolBoard = buildGenesisState(makeGame({}, { mapTemplateId: 'classic' }), makePlayers()).board
+    const genesis = buildGenesisState(makeGame({}, { mapTemplateId: null, mapPoolBoard: poolBoard }), makePlayers())
+
+    expect(genesis.status).toBe('boardSetup')
+    expect(genesis.boardSetup?.tileTierQueue).toEqual([])
+    expect(genesis.board).toEqual(poolBoard)
+  })
+
+  it('prefers mapTemplateId over mapPoolBoard if both are somehow set', () => {
+    const templateGenesis = buildGenesisState(makeGame({}, { mapTemplateId: 'classic' }), makePlayers())
+    const otherBoard = buildGenesisState(makeGame({}, { mapTemplateId: null }), makePlayers()).board
+    const genesis = buildGenesisState(makeGame({}, { mapTemplateId: 'classic', mapPoolBoard: otherBoard }), makePlayers())
+
+    expect(genesis.board).toEqual(templateGenesis.board)
   })
 
   it('throws for an unknown map template id', () => {

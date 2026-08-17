@@ -3,7 +3,7 @@ import { nextSeatIndex } from './seatIndex'
 import type { GameRow, GameSettings, GameStateRow, ObserverRow, PlayerRow } from './dbTypes'
 import type { MyGameEntry } from './myGamesView'
 import type { PublicRoomEntry } from './publicRoomsView'
-import type { GameState as EngineGameState, PlayMode } from '../engine/types'
+import type { Board, GameState as EngineGameState, PlayMode } from '../engine/types'
 
 /**
  * Reads a user's Discord webhook URL (supabase/migrations/0005_discord_webhooks.sql).
@@ -64,6 +64,10 @@ export async function createGame(params: {
   maxPlayers?: number
   /** Content id of a pre-made map template (src/content/mapTemplates.json) to skip interactive tile placement, or null/omitted for the usual interactive setup. */
   mapTemplateId?: string | null
+  /** A board resolved from a randomly-picked map_pool row (see MapPoolSelector.tsx), or null/omitted for the usual interactive setup. Mutually exclusive with mapTemplateId in the UI. */
+  mapPoolBoard?: Board | null
+  /** Which map_pool row mapPoolBoard came from, for display only. */
+  mapPoolMapId?: string | null
   /** Hotseat only: skip the "pass the device" confirmation gate between local players' turns (see GamePage.tsx). Ignored for live/async. Defaults to false (gate shown) when omitted; CreateGamePage.tsx's checkbox defaults to checked (true). */
   skipHotseatPassGate?: boolean
   /** Content ids of active Tales (src/content/tales.json) for the Tales variant, or omitted/empty for none. */
@@ -81,6 +85,8 @@ export async function createGame(params: {
 
   const settings: GameSettings = {
     mapTemplateId: params.mapTemplateId ?? null,
+    mapPoolBoard: params.mapPoolBoard ?? null,
+    mapPoolMapId: params.mapPoolMapId ?? null,
     skipHotseatPassGate: params.skipHotseatPassGate ?? false,
     activeTaleIds: params.activeTaleIds ?? [],
     gameLength: params.gameLength ?? 4,

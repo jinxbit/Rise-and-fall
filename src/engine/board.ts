@@ -26,6 +26,22 @@ export function getTile(board: Board, coord: Coordinate): Tile | undefined {
   return board.tiles[coordKey(coord)]
 }
 
+/**
+ * A stable, deterministic string signature of a board's terrain layout —
+ * every hex's coordinate + terrain, sorted so tile insertion order never
+ * affects the result. Used to detect duplicate saved maps (see
+ * src/lib/mapPoolApi.ts's saveMapToPool) — deliberately terrain-only,
+ * ignoring `id`/`occupantIds`/`placementId`, since two boards with
+ * identical terrain are the same map for pooling purposes regardless of
+ * how they were built or what (if anything) is standing on them.
+ */
+export function canonicalizeBoard(board: Board): string {
+  const tiles = Object.values(board.tiles)
+    .map((t) => `${t.coord.q},${t.coord.r},${t.terrain}`)
+    .sort()
+  return `${board.shape}|${tiles.join(';')}`
+}
+
 /** Axial hex neighbor offsets (pointy-top convention). */
 const HEX_DIRECTIONS: Coordinate[] = [
   { q: 1, r: 0 },
