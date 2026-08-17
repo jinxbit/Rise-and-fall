@@ -3,8 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useDisplayName } from '../hooks/useDisplayName'
 import { GameLengthSelector } from '../components/GameLengthSelector'
-import { MapPoolSelector } from '../components/MapPoolSelector'
-import { MapTemplateSelector } from '../components/MapTemplateSelector'
+import { MapModeSelector, type MapMode, type MapPoolChoice } from '../components/MapModeSelector'
 import { TaleSelector } from '../components/TaleSelector'
 import { listMapTemplates, listTales } from '../content/resolveContent'
 import { buildGenesisState, resolveMapPoolRandomAtStart } from '../lib/gameGenesis'
@@ -46,6 +45,7 @@ export function LobbyPage() {
   const [draftSettings, setDraftSettings] = useState<GameSettings | null>(null)
   const [draftMinPlayersInput, setDraftMinPlayersInput] = useState('2')
   const [draftMaxPlayersInput, setDraftMaxPlayersInput] = useState('4')
+  const [draftMapMode, setDraftMapMode] = useState<MapMode>('build')
 
   const load = useCallback(async () => {
     if (!roomCode) return
@@ -123,6 +123,7 @@ export function LobbyPage() {
     setDraftSettings(game.settings)
     setDraftMinPlayersInput(String(game.min_players))
     setDraftMaxPlayersInput(String(game.max_players))
+    setDraftMapMode(game.settings.mapPoolBoard ? 'select' : game.settings.mapPoolRandomAtStart ? 'blind' : 'build')
     setConfigOpen(true)
   }
 
@@ -304,10 +305,14 @@ export function LobbyPage() {
     }
   }
 
-  // A picked-now saved map is built for one exact player count, not a
+  // A selected saved map is built for one exact player count, not a
   // range (issue #166) — while one's active, it overrides the free-typed
   // min/max fields below rather than coexisting with them.
   const draftMapPoolLocked = draftSettings?.mapPoolBoard != null
+  const draftMapChoice: MapPoolChoice | null =
+    draftSettings?.mapPoolBoard != null
+      ? { board: draftSettings.mapPoolBoard, mapId: draftSettings.mapPoolMapId ?? '', playerCount: Number(draftMaxPlayersInput) }
+      : null
   const draftMinPlayers = Number(draftMinPlayersInput)
   const draftMaxPlayers = Number(draftMaxPlayersInput)
   const draftMinPlayersValid = draftMapPoolLocked || (/^\d+$/.test(draftMinPlayersInput.trim()) && draftMinPlayers >= 1)
@@ -392,37 +397,39 @@ export function LobbyPage() {
             <p className="text-xs text-neutral-500">Changing this will ask everyone to confirm Ready again.</p>
           </div>
 
-          <div className="flex gap-4">
-            <label className="flex flex-1 flex-col gap-1 text-sm text-neutral-400">
-              Min players
-              <input
-                type="number"
-                inputMode="numeric"
-                disabled={draftMapPoolLocked}
-                value={draftMinPlayersInput}
-                onChange={(e) => setDraftMinPlayersInput(e.target.value)}
-                className={`rounded-md border bg-neutral-900 px-3 py-2 text-neutral-100 disabled:opacity-50 ${
-                  draftMinPlayersValid ? 'border-neutral-700' : 'border-red-500'
-                }`}
-              />
-            </label>
-            <label className="flex flex-1 flex-col gap-1 text-sm text-neutral-400">
-              Max players
-              <input
-                type="number"
-                inputMode="numeric"
-                disabled={draftMapPoolLocked}
-                value={draftMaxPlayersInput}
-                onChange={(e) => setDraftMaxPlayersInput(e.target.value)}
-                className={`rounded-md border bg-neutral-900 px-3 py-2 text-neutral-100 disabled:opacity-50 ${
-                  draftMaxPlayersValid && draftMaxPlayers >= draftMinPlayers && draftMaxPlayers >= players.length
-                    ? 'border-neutral-700'
-                    : 'border-red-500'
-                }`}
-              />
-            </label>
-          </div>
-          {draftMapPoolLocked && <p className="text-xs text-neutral-500">Locked to {draftMaxPlayers} players by the picked map.</p>}
+          {draftMapMode === 'select' ? (
+            <p className="text-xs text-neutral-500">Set by the player count picked below, under Map.</p>
+          ) : (
+            <div className="flex gap-4">
+              <label className="flex flex-1 flex-col gap-1 text-sm text-neutral-400">
+                Min players
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  value={draftMinPlayersInput}
+                  onChange={(e) => setDraftMinPlayersInput(e.target.value)}
+                  className={`rounded-md border bg-neutral-900 px-3 py-2 text-neutral-100 ${
+                    draftMinPlayersValid ? 'border-neutral-700' : 'border-red-500'
+                  }`}
+                />
+              </label>
+              <label className="flex flex-1 flex-col gap-1 text-sm text-neutral-400">
+                Max players
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  value={draftMaxPlayersInput}
+                  onChange={(e) => setDraftMaxPlayersInput(e.target.value)}
+                  className={`rounded-md border bg-neutral-900 px-3 py-2 text-neutral-100 ${
+                    draftMaxPlayersValid && draftMaxPlayers >= draftMinPlayers && draftMaxPlayers >= players.length
+                      ? 'border-neutral-700'
+                      : 'border-red-500'
+                  }`}
+                />
+              </label>
+            </div>
+          )}
+          {draftMapPoolLocked && <p className="text-xs text-neutral-500">Locked to {draftMaxPlayers} players by the selected map.</p>}
           {draftPlayerCountError && <p className="text-sm text-red-400">{draftPlayerCountError}</p>}
 
           <div>
@@ -436,60 +443,27 @@ export function LobbyPage() {
           <div>
             <h3 className="mb-2 text-sm font-medium text-neutral-400">Variants</h3>
             <div className="flex flex-col gap-3 rounded-md border border-neutral-800 p-3">
-              <MapTemplateSelector
-                value={draftSettings.mapTemplateId}
-                onChange={(mapTemplateId) =>
-                  setDraftSettings((prev) =>
-                    prev && {
-                      ...prev,
-                      mapTemplateId,
-                      mapPoolBoard: mapTemplateId ? null : prev.mapPoolBoard,
-                      mapPoolMapId: mapTemplateId ? null : prev.mapPoolMapId,
-                      mapPoolRandomAtStart: mapTemplateId ? false : prev.mapPoolRandomAtStart,
-                    },
-                  )
-                }
-              />
-              <MapPoolSelector
+              <MapModeSelector
+                mode={draftMapMode}
+                onModeChange={(mode) => {
+                  setDraftMapMode(mode)
+                  setDraftSettings((prev) => prev && { ...prev, mapPoolRandomAtStart: mode === 'blind', mapTemplateId: null })
+                }}
                 initialPlayerCount={draftMaxPlayersValid ? draftMaxPlayers : 4}
-                value={
-                  draftSettings.mapPoolBoard
-                    ? { board: draftSettings.mapPoolBoard, mapId: draftSettings.mapPoolMapId ?? '', playerCount: draftMaxPlayers }
-                    : null
-                }
-                randomAtStart={draftSettings.mapPoolRandomAtStart}
-                onChange={(choice) => {
+                mapChoice={draftMapChoice}
+                onMapChoiceChange={(choice) => {
                   // Functional updater (not a spread of the `draftSettings`
                   // closed over at render time): this fires asynchronously,
                   // after pickRandomMapFromPool resolves, by which point a
-                  // sibling handler below (onRandomAtStartChange, switching
-                  // *out* of "random at start" mode to trigger this pick)
-                  // may have already applied its own update — spreading a
-                  // stale snapshot here would silently revert that.
-                  setDraftSettings((prev) =>
-                    prev && {
-                      ...prev,
-                      mapPoolBoard: choice?.board ?? null,
-                      mapPoolMapId: choice?.mapId ?? null,
-                      mapTemplateId: choice ? null : prev.mapTemplateId,
-                    },
-                  )
+                  // sibling render (e.g. a mode switch) may have already
+                  // applied its own update — spreading a stale snapshot
+                  // here would silently revert that.
+                  setDraftSettings((prev) => prev && { ...prev, mapPoolBoard: choice?.board ?? null, mapPoolMapId: choice?.mapId ?? null })
                   if (choice) {
                     setDraftMinPlayersInput(String(choice.playerCount))
                     setDraftMaxPlayersInput(String(choice.playerCount))
                   }
                 }}
-                onRandomAtStartChange={(randomAtStart) =>
-                  setDraftSettings((prev) =>
-                    prev && {
-                      ...prev,
-                      mapPoolRandomAtStart: randomAtStart,
-                      mapPoolBoard: randomAtStart ? null : prev.mapPoolBoard,
-                      mapPoolMapId: randomAtStart ? null : prev.mapPoolMapId,
-                      mapTemplateId: randomAtStart ? null : prev.mapTemplateId,
-                    },
-                  )
-                }
               />
               <details>
                 <summary className="cursor-pointer text-sm font-medium text-neutral-400">Tales</summary>

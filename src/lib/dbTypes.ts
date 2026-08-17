@@ -21,7 +21,7 @@ export interface GameSettings {
   /**
    * A concrete board (terrain layout only) resolved from a random
    * `map_pool` row (0016_map_pool.sql) at creation/lobby-edit time — see
-   * MapPoolSelector.tsx — or null to not use one. Embedded directly here
+   * MapModeSelector.tsx — or null to not use one. Embedded directly here
    * rather than just an id so buildGenesisState stays a synchronous,
    * deterministic function of this row alone (see its doc comment) —
    * same reasoning as mapTemplateId, just resolved from the DB instead of
