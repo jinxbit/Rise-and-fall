@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { applyAction } from '../../engine/applyAction'
 import { replayActions } from '../../engine/replay'
-import { buildGenesisState } from '../gameGenesis'
-import type { GameRow, GameSettings, PlayerRow } from '../dbTypes'
+import { buildGenesisState, resolveMapPoolRandomAtStart } from '../gameGenesis'
+import type { GameRow, GameSettings, MapPoolRow, PlayerRow } from '../dbTypes'
 
 function makeGame(overrides: Partial<GameRow> = {}, settingsOverrides: Partial<GameSettings> = {}): GameRow {
   return {
@@ -16,7 +16,7 @@ function makeGame(overrides: Partial<GameRow> = {}, settingsOverrides: Partial<G
     created_by: 'auth_1',
     created_at: '',
     updated_at: '',
-    settings: { mapTemplateId: null, mapPoolBoard: null, mapPoolMapId: null, skipHotseatPassGate: false, activeTaleIds: [], gameLength: 4, ...settingsOverrides },
+    settings: { mapTemplateId: null, mapPoolBoard: null, mapPoolMapId: null, mapPoolRandomAtStart: false, skipHotseatPassGate: false, activeTaleIds: [], gameLength: 4, ...settingsOverrides },
     config_version: 0,
     visibility: 'private',
     ...overrides,
@@ -28,6 +28,15 @@ function makePlayers(): PlayerRow[] {
     { id: 'p1', game_id: 'game_1', user_id: 'auth_1', display_name: 'Alice', avatar_url: null, seat_index: 0, color: '#ef4444', is_active: true, joined_at: '', ready_for_version: 0 },
     { id: 'p2', game_id: 'game_1', user_id: 'auth_2', display_name: 'Bob', avatar_url: null, seat_index: 1, color: '#3b82f6', is_active: true, joined_at: '', ready_for_version: 0 },
   ]
+}
+
+function makeSettings(overrides: Partial<GameSettings> = {}): GameSettings {
+  return { mapTemplateId: null, mapPoolBoard: null, mapPoolMapId: null, mapPoolRandomAtStart: false, skipHotseatPassGate: false, activeTaleIds: [], gameLength: 4, ...overrides }
+}
+
+function makePoolRow(overrides: Partial<MapPoolRow> = {}): MapPoolRow {
+  const board = buildGenesisState(makeGame({}, { mapTemplateId: 'classic' }), makePlayers()).board
+  return { id: 'pool_1', player_count: 2, board, board_key: 'key', created_by: 'auth_1', created_at: '', ...overrides }
 }
 
 describe('buildGenesisState', () => {
@@ -112,5 +121,40 @@ describe('buildGenesisState', () => {
     expect(undone.units).toHaveLength(0)
     expect(undone.actionHistory).toEqual([])
     expect(undone.board).toEqual(rebuiltGenesis.board)
+  })
+})
+
+describe('resolveMapPoolRandomAtStart', () => {
+  it("locks a picked map's board/id into settings when random-at-start is active and nothing is locked in yet", () => {
+    const settings = makeSettings({ mapPoolRandomAtStart: true })
+    const picked = makePoolRow()
+
+    const resolved = resolveMapPoolRandomAtStart(settings, picked)
+
+    expect(resolved.mapPoolBoard).toEqual(picked.board)
+    expect(resolved.mapPoolMapId).toBe(picked.id)
+    expect(resolved.mapPoolRandomAtStart).toBe(true)
+  })
+
+  it('falls back to interactive board building (returns settings unchanged) when no saved map fits the actual player count', () => {
+    const settings = makeSettings({ mapPoolRandomAtStart: true })
+
+    const resolved = resolveMapPoolRandomAtStart(settings, null)
+
+    expect(resolved).toBe(settings)
+    expect(resolved.mapPoolBoard).toBeNull()
+  })
+
+  it('is a no-op when random-at-start is off', () => {
+    const settings = makeSettings({ mapPoolRandomAtStart: false })
+    const resolved = resolveMapPoolRandomAtStart(settings, makePoolRow())
+    expect(resolved).toBe(settings)
+  })
+
+  it('is a no-op when a board is already locked in (e.g. a second call after the first already resolved it)', () => {
+    const settings = makeSettings({ mapPoolRandomAtStart: true, mapPoolBoard: makePoolRow({ id: 'pool_1' }).board, mapPoolMapId: 'pool_1' })
+    const resolved = resolveMapPoolRandomAtStart(settings, makePoolRow({ id: 'pool_2' }))
+    expect(resolved).toBe(settings)
+    expect(resolved.mapPoolMapId).toBe('pool_1')
   })
 })

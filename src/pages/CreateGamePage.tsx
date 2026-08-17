@@ -20,6 +20,7 @@ export function CreateGamePage() {
   const [playMode, setPlayMode] = useState<PlayMode>('async')
   const [mapTemplateId, setMapTemplateId] = useState<string | null>(null)
   const [mapPoolChoice, setMapPoolChoice] = useState<MapPoolChoice | null>(null)
+  const [mapPoolRandomAtStart, setMapPoolRandomAtStart] = useState(false)
   const [skipHotseatPassGate, setSkipHotseatPassGate] = useState(true)
   const [activeTaleIds, setActiveTaleIds] = useState<string[]>([])
   const [gameLength, setGameLength] = useState(4)
@@ -29,10 +30,13 @@ export function CreateGamePage() {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
-  const minPlayers = Number(minPlayersInput)
-  const maxPlayers = Number(maxPlayersInput)
-  const minPlayersValid = /^\d+$/.test(minPlayersInput.trim()) && minPlayers >= 1
-  const maxPlayersValid = /^\d+$/.test(maxPlayersInput.trim()) && maxPlayers >= 1 && maxPlayers <= MAX_PLAYERS
+  // A picked-now saved map is built for one exact player count, not a
+  // range (issue #166) — while one's active, it overrides the free-typed
+  // min/max fields below rather than coexisting with them.
+  const minPlayers = mapPoolChoice ? mapPoolChoice.playerCount : Number(minPlayersInput)
+  const maxPlayers = mapPoolChoice ? mapPoolChoice.playerCount : Number(maxPlayersInput)
+  const minPlayersValid = mapPoolChoice !== null || (/^\d+$/.test(minPlayersInput.trim()) && minPlayers >= 1)
+  const maxPlayersValid = mapPoolChoice !== null || (/^\d+$/.test(maxPlayersInput.trim()) && maxPlayers >= 1 && maxPlayers <= MAX_PLAYERS)
   const playerCountValid = minPlayersValid && maxPlayersValid && maxPlayers >= minPlayers
   const playerCountError = !minPlayersValid
     ? `Min players must be a whole number of at least 1.`
@@ -73,6 +77,7 @@ export function CreateGamePage() {
         mapTemplateId,
         mapPoolBoard: mapPoolChoice?.board ?? null,
         mapPoolMapId: mapPoolChoice?.mapId ?? null,
+        mapPoolRandomAtStart,
         skipHotseatPassGate,
         activeTaleIds,
         gameLength,
@@ -132,9 +137,10 @@ export function CreateGamePage() {
             <input
               type="number"
               inputMode="numeric"
-              value={minPlayersInput}
+              disabled={mapPoolChoice !== null}
+              value={mapPoolChoice ? mapPoolChoice.playerCount : minPlayersInput}
               onChange={(e) => setMinPlayersInput(e.target.value)}
-              className={`w-14 rounded-md border bg-neutral-900 px-3 py-2 text-center text-neutral-100 ${
+              className={`w-14 rounded-md border bg-neutral-900 px-3 py-2 text-center text-neutral-100 disabled:opacity-50 ${
                 minPlayersValid ? 'border-neutral-700' : 'border-red-500'
               }`}
             />
@@ -144,14 +150,16 @@ export function CreateGamePage() {
             <input
               type="number"
               inputMode="numeric"
-              value={maxPlayersInput}
+              disabled={mapPoolChoice !== null}
+              value={mapPoolChoice ? mapPoolChoice.playerCount : maxPlayersInput}
               onChange={(e) => setMaxPlayersInput(e.target.value)}
-              className={`w-14 rounded-md border bg-neutral-900 px-3 py-2 text-center text-neutral-100 ${
+              className={`w-14 rounded-md border bg-neutral-900 px-3 py-2 text-center text-neutral-100 disabled:opacity-50 ${
                 maxPlayersValid && maxPlayers >= minPlayers ? 'border-neutral-700' : 'border-red-500'
               }`}
             />
           </label>
         </div>
+        {mapPoolChoice && <p className="text-xs text-neutral-500">Locked to {mapPoolChoice.playerCount} players by the picked map.</p>}
         {playerCountError && <p className="text-sm text-red-400">{playerCountError}</p>}
         <h3 className="text-sm font-medium text-neutral-400">Variants</h3>
         <div className="flex flex-col gap-3 rounded-md border border-neutral-800 p-3">
@@ -159,15 +167,23 @@ export function CreateGamePage() {
             value={mapTemplateId}
             onChange={(id) => {
               setMapTemplateId(id)
-              if (id) setMapPoolChoice(null)
+              if (id) {
+                setMapPoolChoice(null)
+                setMapPoolRandomAtStart(false)
+              }
             }}
           />
           <MapPoolSelector
-            playerCount={playerCountValid ? maxPlayers : 2}
+            initialPlayerCount={playerCountValid ? maxPlayers : 4}
             value={mapPoolChoice}
+            randomAtStart={mapPoolRandomAtStart}
             onChange={(choice) => {
               setMapPoolChoice(choice)
               if (choice) setMapTemplateId(null)
+            }}
+            onRandomAtStartChange={(randomAtStart) => {
+              setMapPoolRandomAtStart(randomAtStart)
+              if (randomAtStart) setMapTemplateId(null)
             }}
           />
           <details>
