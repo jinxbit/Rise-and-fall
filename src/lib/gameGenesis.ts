@@ -13,7 +13,7 @@ import { resolveBoardGenerationContent, resolveMapTemplateBoard, resolveResource
 import { createEmptyBoard } from '../engine/board'
 import { createNewGame, startGame, startGameWithPresetBoard } from '../engine/createGame'
 import type { GameState } from '../engine/types'
-import type { GameRow, PlayerRow } from './dbTypes'
+import type { GameRow, GameSettings, MapPoolRow, PlayerRow } from './dbTypes'
 
 export function buildGenesisState(game: GameRow, players: PlayerRow[]): GameState {
   const lobbyState = createNewGame({
@@ -40,4 +40,23 @@ export function buildGenesisState(game: GameRow, players: PlayerRow[]): GameStat
     return startGameWithPresetBoard(lobbyState, game.settings.mapPoolBoard)
   }
   return startGame(lobbyState, resolveBoardGenerationContent(players.length))
+}
+
+/**
+ * Resolves GameSettings.mapPoolRandomAtStart ("truly random" map, issue
+ * #166) against an already-looked-up map_pool row for the actual seated
+ * player count, into an updated GameSettings with that board locked in —
+ * or `settings` unchanged if the mode isn't active, a board's already
+ * locked in, or `picked` is null (no saved map fits that count, so
+ * buildGenesisState falls back to its normal interactive board-building
+ * path). Pure and synchronous — unlike buildGenesisState it doesn't touch
+ * the DB itself; LobbyPage.tsx's handleStart() does the actual
+ * pickRandomMapFromPool lookup (mapPoolApi.ts) and persists the result via
+ * updateGameSettings before calling buildGenesisState, so genesis stays a
+ * deterministic function of the game row alone (see buildGenesisState's
+ * doc comment) once the game is under way.
+ */
+export function resolveMapPoolRandomAtStart(settings: GameSettings, picked: MapPoolRow | null): GameSettings {
+  if (!settings.mapPoolRandomAtStart || settings.mapPoolBoard || !picked) return settings
+  return { ...settings, mapPoolBoard: picked.board, mapPoolMapId: picked.id }
 }

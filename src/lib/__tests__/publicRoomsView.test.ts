@@ -16,7 +16,7 @@ function makeGame(overrides: Partial<GameRow> = {}, settingsOverrides: Partial<G
     created_by: 'auth_1',
     created_at: '',
     updated_at: '2026-01-01T00:00:00Z',
-    settings: { mapTemplateId: 'classic', mapPoolBoard: null, mapPoolMapId: null, skipHotseatPassGate: false, activeTaleIds: [], gameLength: 4, ...settingsOverrides },
+    settings: { mapTemplateId: 'classic', mapPoolBoard: null, mapPoolMapId: null, mapPoolRandomAtStart: false, skipHotseatPassGate: false, activeTaleIds: [], gameLength: 4, ...settingsOverrides },
     config_version: 0,
     visibility: 'public',
     ...overrides,

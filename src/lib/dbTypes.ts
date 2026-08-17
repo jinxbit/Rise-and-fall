@@ -33,6 +33,19 @@ export interface GameSettings {
   mapPoolBoard: Board | null
   /** Which map_pool row mapPoolBoard came from, for display only — never read by buildGenesisState. */
   mapPoolMapId: string | null
+  /**
+   * "Truly random" map mode (issue #166): don't lock in a `mapPoolBoard` yet —
+   * instead, LobbyPage.tsx's handleStart() picks a random map_pool row
+   * matching the *actual* seated player count once the host starts the
+   * game, then persists the result into mapPoolBoard/mapPoolMapId (so
+   * buildGenesisState stays a synchronous function of this row alone — see
+   * mapPoolBoard's doc comment). If no saved map fits that count, the game
+   * falls back to interactive board building, same as no map source at
+   * all. Mutually exclusive with mapTemplateId/mapPoolBoard in the UI;
+   * ignored by buildGenesisState once mapPoolBoard is set (the pick has
+   * already happened).
+   */
+  mapPoolRandomAtStart: boolean
   /** Hotseat only: skip GamePage.tsx's "pass the device" confirmation gate between local players' turns. Irrelevant for live/async. */
   skipHotseatPassGate: boolean
   /** Content ids of active Tales (src/content/tales.json). Empty = Tales variant off. */

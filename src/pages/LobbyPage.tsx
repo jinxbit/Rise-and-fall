@@ -7,7 +7,8 @@ import { MapPoolSelector } from '../components/MapPoolSelector'
 import { MapTemplateSelector } from '../components/MapTemplateSelector'
 import { TaleSelector } from '../components/TaleSelector'
 import { listMapTemplates, listTales } from '../content/resolveContent'
-import { buildGenesisState } from '../lib/gameGenesis'
+import { buildGenesisState, resolveMapPoolRandomAtStart } from '../lib/gameGenesis'
+import { pickRandomMapFromPool } from '../lib/mapPoolApi'
 import {
   addLocalPlayer,
   cancelGame,
@@ -198,6 +199,24 @@ export function LobbyPage() {
     if (!game) return
     setBusy(true)
     try {
+      // "Random saved map at start" (issue #166): resolve the actual pick
+      // now that the real seated player count is known, and persist it into
+      // settings.mapPoolBoard before building genesis — buildGenesisState
+      // must stay a synchronous, deterministic function of the game row
+      // alone (see gameGenesis.ts) for undo/replay to keep working, so the
+      // randomness can't live inside it. No saved map for this exact count
+      // just falls through to buildGenesisState's normal interactive
+      // board-building path, per GameSettings.mapPoolRandomAtStart.
+      let startingGame = game
+      if (game.settings.mapPoolRandomAtStart && !game.settings.mapPoolBoard) {
+        const picked = await pickRandomMapFromPool(players.length)
+        const settings = resolveMapPoolRandomAtStart(game.settings, picked)
+        if (settings !== game.settings) {
+          await updateGameSettings(game.id, { settings, minPlayers: game.min_players, maxPlayers: game.max_players })
+          startingGame = { ...game, settings }
+        }
+      }
+
       // The `games` row's own status stays the coarse lobby/active/completed
       // (see dbTypes.ts) — the engine's finer-grained status (boardSetup ->
       // active) lives only in the game_state row's GameState.status, and
@@ -207,7 +226,7 @@ export function LobbyPage() {
       // to 'active' just to move everyone out of the lobby screen.
       const existingState = await getGameState(game.id)
       if (!existingState) {
-        await insertGameState(game.id, buildGenesisState(game, players))
+        await insertGameState(game.id, buildGenesisState(startingGame, players))
       }
       await setGameStatus(game.id, 'active')
     } catch (err) {
@@ -285,11 +304,15 @@ export function LobbyPage() {
     }
   }
 
+  // A picked-now saved map is built for one exact player count, not a
+  // range (issue #166) — while one's active, it overrides the free-typed
+  // min/max fields below rather than coexisting with them.
+  const draftMapPoolLocked = draftSettings?.mapPoolBoard != null
   const draftMinPlayers = Number(draftMinPlayersInput)
   const draftMaxPlayers = Number(draftMaxPlayersInput)
-  const draftMinPlayersValid = /^\d+$/.test(draftMinPlayersInput.trim()) && draftMinPlayers >= 1
+  const draftMinPlayersValid = draftMapPoolLocked || (/^\d+$/.test(draftMinPlayersInput.trim()) && draftMinPlayers >= 1)
   const draftMaxPlayersValid =
-    /^\d+$/.test(draftMaxPlayersInput.trim()) && draftMaxPlayers >= 1 && draftMaxPlayers <= MAX_PLAYERS
+    draftMapPoolLocked || (/^\d+$/.test(draftMaxPlayersInput.trim()) && draftMaxPlayers >= 1 && draftMaxPlayers <= MAX_PLAYERS)
   const draftConfigValid =
     draftSettings !== null &&
     draftMinPlayersValid &&
@@ -317,7 +340,9 @@ export function LobbyPage() {
             ? (listMapTemplates().find((t) => t.id === game.settings.mapTemplateId)?.name ?? game.settings.mapTemplateId)
             : game.settings.mapPoolBoard
               ? 'random saved map'
-              : 'interactive map'}
+              : game.settings.mapPoolRandomAtStart
+                ? 'random saved map (picked when the game starts)'
+                : 'interactive map'}
         </p>
         {game.settings.activeTaleIds.length > 0 && (
           <p className="text-sm text-neutral-500">
@@ -373,9 +398,10 @@ export function LobbyPage() {
               <input
                 type="number"
                 inputMode="numeric"
+                disabled={draftMapPoolLocked}
                 value={draftMinPlayersInput}
                 onChange={(e) => setDraftMinPlayersInput(e.target.value)}
-                className={`rounded-md border bg-neutral-900 px-3 py-2 text-neutral-100 ${
+                className={`rounded-md border bg-neutral-900 px-3 py-2 text-neutral-100 disabled:opacity-50 ${
                   draftMinPlayersValid ? 'border-neutral-700' : 'border-red-500'
                 }`}
               />
@@ -385,9 +411,10 @@ export function LobbyPage() {
               <input
                 type="number"
                 inputMode="numeric"
+                disabled={draftMapPoolLocked}
                 value={draftMaxPlayersInput}
                 onChange={(e) => setDraftMaxPlayersInput(e.target.value)}
-                className={`rounded-md border bg-neutral-900 px-3 py-2 text-neutral-100 ${
+                className={`rounded-md border bg-neutral-900 px-3 py-2 text-neutral-100 disabled:opacity-50 ${
                   draftMaxPlayersValid && draftMaxPlayers >= draftMinPlayers && draftMaxPlayers >= players.length
                     ? 'border-neutral-700'
                     : 'border-red-500'
@@ -395,6 +422,7 @@ export function LobbyPage() {
               />
             </label>
           </div>
+          {draftMapPoolLocked && <p className="text-xs text-neutral-500">Locked to {draftMaxPlayers} players by the picked map.</p>}
           {draftPlayerCountError && <p className="text-sm text-red-400">{draftPlayerCountError}</p>}
 
           <div>
@@ -410,18 +438,57 @@ export function LobbyPage() {
             <div className="flex flex-col gap-3 rounded-md border border-neutral-800 p-3">
               <MapTemplateSelector
                 value={draftSettings.mapTemplateId}
-                onChange={(mapTemplateId) => setDraftSettings({ ...draftSettings, mapTemplateId, mapPoolBoard: mapTemplateId ? null : draftSettings.mapPoolBoard, mapPoolMapId: mapTemplateId ? null : draftSettings.mapPoolMapId })}
+                onChange={(mapTemplateId) =>
+                  setDraftSettings((prev) =>
+                    prev && {
+                      ...prev,
+                      mapTemplateId,
+                      mapPoolBoard: mapTemplateId ? null : prev.mapPoolBoard,
+                      mapPoolMapId: mapTemplateId ? null : prev.mapPoolMapId,
+                      mapPoolRandomAtStart: mapTemplateId ? false : prev.mapPoolRandomAtStart,
+                    },
+                  )
+                }
               />
               <MapPoolSelector
-                playerCount={draftMaxPlayersValid ? draftMaxPlayers : 2}
-                value={draftSettings.mapPoolBoard ? { board: draftSettings.mapPoolBoard, mapId: draftSettings.mapPoolMapId ?? '' } : null}
-                onChange={(choice) =>
-                  setDraftSettings({
-                    ...draftSettings,
-                    mapPoolBoard: choice?.board ?? null,
-                    mapPoolMapId: choice?.mapId ?? null,
-                    mapTemplateId: choice ? null : draftSettings.mapTemplateId,
-                  })
+                initialPlayerCount={draftMaxPlayersValid ? draftMaxPlayers : 4}
+                value={
+                  draftSettings.mapPoolBoard
+                    ? { board: draftSettings.mapPoolBoard, mapId: draftSettings.mapPoolMapId ?? '', playerCount: draftMaxPlayers }
+                    : null
+                }
+                randomAtStart={draftSettings.mapPoolRandomAtStart}
+                onChange={(choice) => {
+                  // Functional updater (not a spread of the `draftSettings`
+                  // closed over at render time): this fires asynchronously,
+                  // after pickRandomMapFromPool resolves, by which point a
+                  // sibling handler below (onRandomAtStartChange, switching
+                  // *out* of "random at start" mode to trigger this pick)
+                  // may have already applied its own update — spreading a
+                  // stale snapshot here would silently revert that.
+                  setDraftSettings((prev) =>
+                    prev && {
+                      ...prev,
+                      mapPoolBoard: choice?.board ?? null,
+                      mapPoolMapId: choice?.mapId ?? null,
+                      mapTemplateId: choice ? null : prev.mapTemplateId,
+                    },
+                  )
+                  if (choice) {
+                    setDraftMinPlayersInput(String(choice.playerCount))
+                    setDraftMaxPlayersInput(String(choice.playerCount))
+                  }
+                }}
+                onRandomAtStartChange={(randomAtStart) =>
+                  setDraftSettings((prev) =>
+                    prev && {
+                      ...prev,
+                      mapPoolRandomAtStart: randomAtStart,
+                      mapPoolBoard: randomAtStart ? null : prev.mapPoolBoard,
+                      mapPoolMapId: randomAtStart ? null : prev.mapPoolMapId,
+                      mapTemplateId: randomAtStart ? null : prev.mapTemplateId,
+                    },
+                  )
                 }
               />
               <details>
