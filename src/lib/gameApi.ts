@@ -64,7 +64,7 @@ export async function createGame(params: {
   maxPlayers?: number
   /** Content id of a pre-made map template (src/content/mapTemplates.json) to skip interactive tile placement, or null/omitted for the usual interactive setup. */
   mapTemplateId?: string | null
-  /** A board resolved from a randomly-picked map_pool row (see MapPoolSelector.tsx), or null/omitted for the usual interactive setup. Mutually exclusive with mapTemplateId in the UI. */
+  /** A board resolved from a randomly-picked map_pool row (see MapModeSelector.tsx), or null/omitted for the usual interactive setup. Mutually exclusive with mapTemplateId in the UI. */
   mapPoolBoard?: Board | null
   /** Which map_pool row mapPoolBoard came from, for display only. */
   mapPoolMapId?: string | null

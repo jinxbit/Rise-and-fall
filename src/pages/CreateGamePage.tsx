@@ -1,8 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { GameLengthSelector } from '../components/GameLengthSelector'
-import { MapPoolSelector, type MapPoolChoice } from '../components/MapPoolSelector'
-import { MapTemplateSelector } from '../components/MapTemplateSelector'
+import { MapModeSelector, type MapMode, type MapPoolChoice } from '../components/MapModeSelector'
 import { PlayModeSelector } from '../components/PlayModeSelector'
 import { TaleSelector } from '../components/TaleSelector'
 import { useAuth } from '../hooks/useAuth'
@@ -18,9 +17,8 @@ export function CreateGamePage() {
 
   const [name, setName] = useState(() => randomRoomName())
   const [playMode, setPlayMode] = useState<PlayMode>('async')
-  const [mapTemplateId, setMapTemplateId] = useState<string | null>(null)
-  const [mapPoolChoice, setMapPoolChoice] = useState<MapPoolChoice | null>(null)
-  const [mapPoolRandomAtStart, setMapPoolRandomAtStart] = useState(false)
+  const [mapMode, setMapMode] = useState<MapMode>('build')
+  const [mapChoice, setMapChoice] = useState<MapPoolChoice | null>(null)
   const [skipHotseatPassGate, setSkipHotseatPassGate] = useState(true)
   const [activeTaleIds, setActiveTaleIds] = useState<string[]>([])
   const [gameLength, setGameLength] = useState(4)
@@ -30,13 +28,13 @@ export function CreateGamePage() {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
-  // A picked-now saved map is built for one exact player count, not a
+  // A selected saved map is built for one exact player count, not a
   // range (issue #166) — while one's active, it overrides the free-typed
   // min/max fields below rather than coexisting with them.
-  const minPlayers = mapPoolChoice ? mapPoolChoice.playerCount : Number(minPlayersInput)
-  const maxPlayers = mapPoolChoice ? mapPoolChoice.playerCount : Number(maxPlayersInput)
-  const minPlayersValid = mapPoolChoice !== null || (/^\d+$/.test(minPlayersInput.trim()) && minPlayers >= 1)
-  const maxPlayersValid = mapPoolChoice !== null || (/^\d+$/.test(maxPlayersInput.trim()) && maxPlayers >= 1 && maxPlayers <= MAX_PLAYERS)
+  const minPlayers = mapChoice ? mapChoice.playerCount : Number(minPlayersInput)
+  const maxPlayers = mapChoice ? mapChoice.playerCount : Number(maxPlayersInput)
+  const minPlayersValid = mapChoice !== null || (/^\d+$/.test(minPlayersInput.trim()) && minPlayers >= 1)
+  const maxPlayersValid = mapChoice !== null || (/^\d+$/.test(maxPlayersInput.trim()) && maxPlayers >= 1 && maxPlayers <= MAX_PLAYERS)
   const playerCountValid = minPlayersValid && maxPlayersValid && maxPlayers >= minPlayers
   const playerCountError = !minPlayersValid
     ? `Min players must be a whole number of at least 1.`
@@ -74,10 +72,10 @@ export function CreateGamePage() {
         userId: user.id,
         displayName,
         avatarUrl,
-        mapTemplateId,
-        mapPoolBoard: mapPoolChoice?.board ?? null,
-        mapPoolMapId: mapPoolChoice?.mapId ?? null,
-        mapPoolRandomAtStart,
+        mapTemplateId: null,
+        mapPoolBoard: mapChoice?.board ?? null,
+        mapPoolMapId: mapChoice?.mapId ?? null,
+        mapPoolRandomAtStart: mapMode === 'blind',
         skipHotseatPassGate,
         activeTaleIds,
         gameLength,
@@ -131,60 +129,46 @@ export function CreateGamePage() {
         <h3 className="text-sm font-medium text-neutral-400">Game length</h3>
         <GameLengthSelector value={gameLength} onChange={setGameLength} />
         <h3 className="text-sm font-medium text-neutral-400">Players</h3>
-        <div className="flex gap-4">
-          <label className="flex flex-col gap-1 text-sm text-neutral-400">
-            Min players
-            <input
-              type="number"
-              inputMode="numeric"
-              disabled={mapPoolChoice !== null}
-              value={mapPoolChoice ? mapPoolChoice.playerCount : minPlayersInput}
-              onChange={(e) => setMinPlayersInput(e.target.value)}
-              className={`w-14 rounded-md border bg-neutral-900 px-3 py-2 text-center text-neutral-100 disabled:opacity-50 ${
-                minPlayersValid ? 'border-neutral-700' : 'border-red-500'
-              }`}
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm text-neutral-400">
-            Max players
-            <input
-              type="number"
-              inputMode="numeric"
-              disabled={mapPoolChoice !== null}
-              value={mapPoolChoice ? mapPoolChoice.playerCount : maxPlayersInput}
-              onChange={(e) => setMaxPlayersInput(e.target.value)}
-              className={`w-14 rounded-md border bg-neutral-900 px-3 py-2 text-center text-neutral-100 disabled:opacity-50 ${
-                maxPlayersValid && maxPlayers >= minPlayers ? 'border-neutral-700' : 'border-red-500'
-              }`}
-            />
-          </label>
-        </div>
-        {mapPoolChoice && <p className="text-xs text-neutral-500">Locked to {mapPoolChoice.playerCount} players by the picked map.</p>}
+        {mapMode === 'select' ? (
+          <p className="text-xs text-neutral-500">Set by the player count picked below, under Map.</p>
+        ) : (
+          <div className="flex gap-4">
+            <label className="flex flex-col gap-1 text-sm text-neutral-400">
+              Min players
+              <input
+                type="number"
+                inputMode="numeric"
+                value={minPlayersInput}
+                onChange={(e) => setMinPlayersInput(e.target.value)}
+                className={`w-14 rounded-md border bg-neutral-900 px-3 py-2 text-center text-neutral-100 ${
+                  minPlayersValid ? 'border-neutral-700' : 'border-red-500'
+                }`}
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm text-neutral-400">
+              Max players
+              <input
+                type="number"
+                inputMode="numeric"
+                value={maxPlayersInput}
+                onChange={(e) => setMaxPlayersInput(e.target.value)}
+                className={`w-14 rounded-md border bg-neutral-900 px-3 py-2 text-center text-neutral-100 ${
+                  maxPlayersValid && maxPlayers >= minPlayers ? 'border-neutral-700' : 'border-red-500'
+                }`}
+              />
+            </label>
+          </div>
+        )}
+        {mapChoice && <p className="text-xs text-neutral-500">Locked to {mapChoice.playerCount} players by the selected map.</p>}
         {playerCountError && <p className="text-sm text-red-400">{playerCountError}</p>}
         <h3 className="text-sm font-medium text-neutral-400">Variants</h3>
         <div className="flex flex-col gap-3 rounded-md border border-neutral-800 p-3">
-          <MapTemplateSelector
-            value={mapTemplateId}
-            onChange={(id) => {
-              setMapTemplateId(id)
-              if (id) {
-                setMapPoolChoice(null)
-                setMapPoolRandomAtStart(false)
-              }
-            }}
-          />
-          <MapPoolSelector
+          <MapModeSelector
+            mode={mapMode}
+            onModeChange={setMapMode}
+            mapChoice={mapChoice}
+            onMapChoiceChange={setMapChoice}
             initialPlayerCount={playerCountValid ? maxPlayers : 4}
-            value={mapPoolChoice}
-            randomAtStart={mapPoolRandomAtStart}
-            onChange={(choice) => {
-              setMapPoolChoice(choice)
-              if (choice) setMapTemplateId(null)
-            }}
-            onRandomAtStartChange={(randomAtStart) => {
-              setMapPoolRandomAtStart(randomAtStart)
-              if (randomAtStart) setMapTemplateId(null)
-            }}
           />
           <details>
             <summary className="cursor-pointer text-sm font-medium text-neutral-400">Tales</summary>

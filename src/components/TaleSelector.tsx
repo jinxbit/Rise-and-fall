@@ -8,8 +8,8 @@ const CATEGORY_LABEL: Record<string, string> = {
 
 /**
  * Multi-select toggle list for the Tales variant (src/content/tales.json) —
- * each Tale is independently on/off, unlike MapTemplateSelector's
- * single-choice buttons. "Randomize" is a convenience shuffle (each Tale
+ * each Tale is independently on/off, unlike MapModeSelector's single-choice
+ * map-mode radios. "Randomize" is a convenience shuffle (each Tale
  * independently included at 50/50), not the rulebook's "draw one per
  * player" — that count depends on how many players actually join, which
  * isn't known yet at game-creation time (see CreateGamePage.tsx), and doesn't

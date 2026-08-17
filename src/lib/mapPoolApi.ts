@@ -1,6 +1,6 @@
 // Reads/writes for the map pool (0016_map_pool.sql) — player-saved maps,
 // categorized by player count, built via MapBuilderPage.tsx and later
-// picked up at random by CreateGamePage/LobbyPage's MapPoolSelector to
+// picked up at random by CreateGamePage/LobbyPage's MapModeSelector to
 // skip interactive board setup (see GameSettings.mapPoolBoard).
 
 import { canonicalizeBoard } from '../engine/board'

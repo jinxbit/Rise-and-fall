@@ -5,7 +5,7 @@
 // engine and BoardSetupView UI a real game's board setup uses) on behalf
 // of a chosen player count, then saves the finished terrain layout to the
 // map pool (src/lib/mapPoolApi.ts) for future games to pick up at random
-// (see MapPoolSelector.tsx) instead of building one from scratch.
+// (see MapModeSelector.tsx) instead of building one from scratch.
 
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
