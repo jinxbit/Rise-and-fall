@@ -48,7 +48,7 @@ export function MapModeSelector(props: {
 }) {
   const { mode, onModeChange, mapChoice, onMapChoiceChange, initialPlayerCount } = props
   const [playerCount, setPlayerCount] = useState(() =>
-    Math.min(MAX_PLAYERS, Math.max(2, mapChoice?.playerCount ?? initialPlayerCount ?? 4)),
+    Math.min(MAX_PLAYERS, Math.max(2, mapChoice?.playerCount ?? initialPlayerCount ?? 2)),
   )
   const [poolSize, setPoolSize] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)

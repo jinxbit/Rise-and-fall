@@ -168,7 +168,7 @@ export function CreateGamePage() {
             onModeChange={setMapMode}
             mapChoice={mapChoice}
             onMapChoiceChange={setMapChoice}
-            initialPlayerCount={playerCountValid ? maxPlayers : 4}
+            initialPlayerCount={playerCountValid ? minPlayers : 2}
           />
           <details>
             <summary className="cursor-pointer text-sm font-medium text-neutral-400">Tales</summary>
