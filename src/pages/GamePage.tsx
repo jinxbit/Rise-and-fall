@@ -949,6 +949,21 @@ export function GamePage() {
                 >
                   Main menu
                 </button>
+                {canConcede && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    disabled={isReviewingHistory}
+                    onClick={() => {
+                      setMenuOpen(false)
+                      void handleConcede()
+                    }}
+                    title="Concede this game — you'll be eliminated and can no longer act, same as running out of cards."
+                    className="px-3 py-2 text-left text-red-400 hover:bg-neutral-800 disabled:opacity-50"
+                  >
+                    Concede
+                  </button>
+                )}
                 <button
                   type="button"
                   role="menuitem"
@@ -1062,17 +1077,6 @@ export function GamePage() {
               className="rounded-md border border-neutral-700 px-3 py-1 text-sm hover:border-neutral-500 disabled:opacity-50"
             >
               Stop observing
-            </button>
-          )}
-          {canConcede && (
-            <button
-              type="button"
-              disabled={isReviewingHistory}
-              onClick={() => void handleConcede()}
-              title="Concede this game — you'll be eliminated and can no longer act, same as running out of cards."
-              className="rounded-md border border-red-800 px-3 py-1 text-sm text-red-400 hover:border-red-500 disabled:opacity-50"
-            >
-              Concede
             </button>
           )}
           <button
