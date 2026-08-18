@@ -237,6 +237,14 @@ function findAllLegalPlacements(board: Board, shapeCells: Coordinate[], placesOn
 /** Bounds the backtracking searches below so a pathological board can't hang a placement check indefinitely — see canPlaceRemainingTiles's doc comment. */
 const COMBO_SEARCH_STEP_BUDGET = 200_000
 
+/** Step-count/budget bookkeeping for a findDisjointCombos search — see RoomCheckDiagnostics, which surfaces this for the UI. */
+interface ComboSearchResult {
+  combos: CandidatePlacement[][]
+  stepsUsed: number
+  /** Whether the search spent its entire stepBudget — i.e. it may have given up before proving/disproving a fit exhaustively, rather than concluding on its own. */
+  budgetReached: boolean
+}
+
 /**
  * Finds up to `limit` distinct ways to choose `count` pairwise-disjoint
  * placements out of `placements` (each combo is a set — order doesn't
@@ -249,7 +257,7 @@ function findDisjointCombos(
   count: number,
   limit: number,
   stepBudget: number = COMBO_SEARCH_STEP_BUDGET,
-): CandidatePlacement[][] {
+): ComboSearchResult {
   const results: CandidatePlacement[][] = []
   const chosen: CandidatePlacement[] = []
   let steps = 0
@@ -273,7 +281,7 @@ function findDisjointCombos(
   }
 
   backtrack(0, new Set())
-  return results
+  return { combos: results, stepsUsed: steps, budgetReached: steps >= stepBudget }
 }
 
 /**
@@ -305,10 +313,44 @@ function findDisjointCombos(
  * there's always room somewhere.
  */
 export function canPlaceRemainingTiles(board: Board, shapeCells: Coordinate[], placesOn: Terrain[] | null, count: number): boolean {
-  if (placesOn === null || count <= 0) return true
+  return canPlaceRemainingTilesDetailed(board, shapeCells, placesOn, count).legal
+}
 
+/**
+ * Execution info for canPlaceRemainingTiles's bounded backtracking search —
+ * surfaced so the board-setup UI can show what the rule-4 room check
+ * actually did for the tile a player just placed (see issue #189): whether
+ * it concluded on its own or gave up at the COMBO_SEARCH_STEP_BUDGET cap,
+ * how many backtracking steps ("iterations") that took, how long it took,
+ * and the resulting legal/illegal verdict.
+ */
+export interface RoomCheckDiagnostics {
+  /** False for placesOn: null (water) or count <= 0, where the search never actually runs — the board is unbounded, so there's always room. */
+  ran: boolean
+  legal: boolean
+  stepsUsed: number
+  stepBudget: number
+  budgetReached: boolean
+  elapsedMs: number
+}
+
+/** Same check as canPlaceRemainingTiles, but returns the full RoomCheckDiagnostics instead of just the legal/illegal verdict. */
+export function canPlaceRemainingTilesDetailed(
+  board: Board,
+  shapeCells: Coordinate[],
+  placesOn: Terrain[] | null,
+  count: number,
+): RoomCheckDiagnostics {
+  if (placesOn === null || count <= 0) {
+    return { ran: false, legal: true, stepsUsed: 0, stepBudget: COMBO_SEARCH_STEP_BUDGET, budgetReached: false, elapsedMs: 0 }
+  }
+
+  const startTime = performance.now()
   const placements = findAllLegalPlacements(board, shapeCells, placesOn)
-  return findDisjointCombos(placements, count, 1).length > 0
+  const { combos, stepsUsed, budgetReached } = findDisjointCombos(placements, count, 1)
+  const elapsedMs = performance.now() - startTime
+
+  return { ran: true, legal: combos.length > 0, stepsUsed, stepBudget: COMBO_SEARCH_STEP_BUDGET, budgetReached, elapsedMs }
 }
 
 /**
@@ -346,7 +388,7 @@ export function findForcedPlacement(
   const placements = findAllLegalPlacements(board, shapeCells, placesOn)
   if (placements.length > 60) return null
 
-  const combos = findDisjointCombos(placements, count, 2)
+  const { combos } = findDisjointCombos(placements, count, 2)
   if (combos.length !== 1) return null
 
   const [chosen] = combos[0]

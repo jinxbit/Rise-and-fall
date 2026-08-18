@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { getTile } from '../engine/board'
 import { placedShapeCells, rotateShape, shapeCenterCell } from '../engine/boardGeneration'
+import type { RoomCheckDiagnostics } from '../engine/boardGeneration'
 import type { BoardGenerationContent } from '../engine/boardGenerationContent'
-import { checkTilePlacementLegality, currentTilePlacerId, currentUnitPlacerId, isLegalStartingUnitPlacement } from '../engine/boardSetup'
+import { checkTilePlacementLegalityDetailed, currentTilePlacerId, currentUnitPlacerId, isLegalStartingUnitPlacement } from '../engine/boardSetup'
 import type { Board, Coordinate, GameState } from '../engine/types'
 import type { PlayerRow } from '../lib/dbTypes'
 import type { GhostCell, PlacementControls } from './HexBoard'
@@ -39,6 +40,35 @@ function playerName(players: PlayerRow[], playerId: string | null): string {
   return players.find((p) => p.id === playerId)?.display_name ?? playerId
 }
 
+/**
+ * Reports what the rule-4 "room for the rest of this tier" search (see
+ * canPlaceRemainingTilesDetailed in ../engine/boardGeneration.ts) did for
+ * the most recently placed tile — issue #189: cap/iterations/time/result,
+ * so an unusually slow or near-capped check is visible instead of silent.
+ * `roomCheck === undefined` means no tile has been placed yet this session;
+ * `null` means the last placement didn't need the search at all (it was the
+ * last tile of its tier, so nothing remained to check room for).
+ */
+function RoomCheckPanel({ roomCheck }: { roomCheck: RoomCheckDiagnostics | null | undefined }) {
+  if (roomCheck === undefined) return null
+
+  return (
+    <div className="rounded-md border border-neutral-800 bg-neutral-900/50 p-3 text-xs text-neutral-400">
+      <p className="font-medium text-neutral-300">Rule-4 room check (last tile placed)</p>
+      {roomCheck === null || !roomCheck.ran ? (
+        <p className="mt-1">Not run — that tile was the last of its tier, so there was nothing left to check room for.</p>
+      ) : (
+        <ul className="mt-1 list-disc space-y-0.5 pl-4">
+          <li>{roomCheck.budgetReached ? `Hit the ${roomCheck.stepBudget.toLocaleString()}-iteration cap` : `Finished before the ${roomCheck.stepBudget.toLocaleString()}-iteration cap`}</li>
+          <li>{roomCheck.stepsUsed.toLocaleString()} iterations evaluated</li>
+          <li>{roomCheck.elapsedMs < 1 ? '<1 ms' : `${Math.round(roomCheck.elapsedMs)} ms`} elapsed</li>
+          <li>Result: {roomCheck.legal ? 'a legal placement of every remaining tile was found' : 'no legal placement of every remaining tile was found'}</li>
+        </ul>
+      )}
+    </div>
+  )
+}
+
 function TilePlacementPanel(props: {
   state: GameState
   players: PlayerRow[]
@@ -61,6 +91,12 @@ function TilePlacementPanel(props: {
   const [center, setCenter] = useState<Coordinate | null>(null)
   const [rotation, setRotation] = useState(0)
 
+  // The rule-4 room-check diagnostics for the most recently *confirmed*
+  // placement (see RoomCheckPanel) — undefined until the first tile of this
+  // session is placed, then sticks around across turns (not reset by the
+  // effect below) until the next one replaces it.
+  const [lastRoomCheck, setLastRoomCheck] = useState<RoomCheckDiagnostics | null | undefined>(undefined)
+
   // A new turn (mine or someone else's) starts fresh — clears any pending,
   // unconfirmed choice left over from before.
   useEffect(() => {
@@ -75,7 +111,7 @@ function TilePlacementPanel(props: {
   const rotatedCenterOffset = tierContent ? rotateShape([shapeCenterCell(tierContent.shapeCells)], rotation)[0] : null
   const anchor = center && rotatedCenterOffset ? { q: center.q - rotatedCenterOffset.q, r: center.r - rotatedCenterOffset.r } : null
 
-  // checkTilePlacementLegality is the expensive part of this render (it can
+  // checkTilePlacementLegalityDetailed is the expensive part of this render (it can
   // run a bounded combinatorial backtracking search — see
   // canPlaceRemainingTiles/findDisjointCombos in ../engine/boardGeneration.ts
   // — over every legal placement of the board's current size), so it's
@@ -87,11 +123,12 @@ function TilePlacementPanel(props: {
   // by reference (both are only ever replaced, never mutated in place — see
   // GameState's own event-sourcing model) plus the anchor/rotation's actual
   // (primitive) values, since `anchor` itself is a fresh object every render.
-  const legalityError = useMemo(
-    () => (anchor ? checkTilePlacementLegality(state, anchor, rotation, boardGenerationContent) : null),
+  const legalityResult = useMemo(
+    () => (anchor ? checkTilePlacementLegalityDetailed(state, anchor, rotation, boardGenerationContent) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [state, boardGenerationContent, anchor?.q, anchor?.r, rotation],
   )
+  const legalityError = legalityResult?.error ?? null
 
   if (!tierContent) {
     return <p className="text-red-400">No board-generation content for tier &apos;{tier}&apos;.</p>
@@ -113,7 +150,10 @@ function TilePlacementPanel(props: {
     isMyTurn && anchor && center && legal
       ? {
           coord: center,
-          onConfirm: () => onPlaceTile(anchor, rotation),
+          onConfirm: () => {
+            setLastRoomCheck(legalityResult?.roomCheck ?? null)
+            onPlaceTile(anchor, rotation)
+          },
         }
       : null
 
@@ -168,6 +208,8 @@ function TilePlacementPanel(props: {
         interactive={isMyTurn}
         onHexClick={handleHexClick}
       />
+
+      <RoomCheckPanel roomCheck={lastRoomCheck} />
     </div>
   )
 }
