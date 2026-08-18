@@ -43,20 +43,23 @@ function playerName(players: PlayerRow[], playerId: string | null): string {
 /**
  * Reports what the rule-4 "room for the rest of this tier" search (see
  * canPlaceRemainingTilesDetailed in ../engine/boardGeneration.ts) did for
- * the most recently placed tile — issue #189: cap/iterations/time/result,
- * so an unusually slow or near-capped check is visible instead of silent.
- * `roomCheck === undefined` means no tile has been placed yet this session;
- * `null` means the last placement didn't need the search at all (it was the
- * last tile of its tier, so nothing remained to check room for).
+ * the currently pending placement (the hex the player has clicked, before
+ * they confirm it) — issue #191: this should update on every click, not
+ * only once a tile is actually placed, so a slow or near-capped check is
+ * visible while the player is still choosing where to put the tile.
+ * `roomCheck === undefined` means no hex is currently selected; `null`
+ * means the pending placement didn't reach the search at all (either it's
+ * already illegal for some other reason, or it's the last tile of its
+ * tier, so nothing remains to check room for).
  */
 function RoomCheckPanel({ roomCheck }: { roomCheck: RoomCheckDiagnostics | null | undefined }) {
   if (roomCheck === undefined) return null
 
   return (
     <div className="rounded-md border border-neutral-800 bg-neutral-900/50 p-3 text-xs text-neutral-400">
-      <p className="font-medium text-neutral-300">Rule-4 room check (last tile placed)</p>
+      <p className="font-medium text-neutral-300">Rule-4 room check (current placement)</p>
       {roomCheck === null || !roomCheck.ran ? (
-        <p className="mt-1">Not run — that tile was the last of its tier, so there was nothing left to check room for.</p>
+        <p className="mt-1">Not run — either the placement is already illegal for another reason, or it&apos;s the last tile of its tier, so there&apos;s nothing left to check room for.</p>
       ) : (
         <ul className="mt-1 list-disc space-y-0.5 pl-4">
           <li>{roomCheck.budgetReached ? `Hit the ${roomCheck.stepBudget.toLocaleString()}-iteration cap` : `Finished before the ${roomCheck.stepBudget.toLocaleString()}-iteration cap`}</li>
@@ -90,12 +93,6 @@ function TilePlacementPanel(props: {
   // where the player clicked.
   const [center, setCenter] = useState<Coordinate | null>(null)
   const [rotation, setRotation] = useState(0)
-
-  // The rule-4 room-check diagnostics for the most recently *confirmed*
-  // placement (see RoomCheckPanel) — undefined until the first tile of this
-  // session is placed, then sticks around across turns (not reset by the
-  // effect below) until the next one replaces it.
-  const [lastRoomCheck, setLastRoomCheck] = useState<RoomCheckDiagnostics | null | undefined>(undefined)
 
   // A new turn (mine or someone else's) starts fresh — clears any pending,
   // unconfirmed choice left over from before.
@@ -150,10 +147,7 @@ function TilePlacementPanel(props: {
     isMyTurn && anchor && center && legal
       ? {
           coord: center,
-          onConfirm: () => {
-            setLastRoomCheck(legalityResult?.roomCheck ?? null)
-            onPlaceTile(anchor, rotation)
-          },
+          onConfirm: () => onPlaceTile(anchor, rotation),
         }
       : null
 
@@ -209,7 +203,7 @@ function TilePlacementPanel(props: {
         onHexClick={handleHexClick}
       />
 
-      <RoomCheckPanel roomCheck={lastRoomCheck} />
+      <RoomCheckPanel roomCheck={legalityResult?.roomCheck} />
     </div>
   )
 }
