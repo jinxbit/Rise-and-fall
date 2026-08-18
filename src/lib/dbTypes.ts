@@ -140,5 +140,7 @@ export interface ProfileRow {
   discord_webhook_url: string | null
   /** Custom display name, overriding the Discord-derived one — see 0015_profile_display_name.sql. Null means "use the Discord name" (src/lib/displayName.ts). */
   display_name: string | null
+  /** Grants the room-lifecycle "delete any game" override (0017_admin_delete_any_game.sql) — nothing in the UI sets this, it's assigned directly via SQL. */
+  is_admin: boolean
   updated_at: string
 }
