@@ -14,7 +14,9 @@ import type { Coordinate } from './types'
 // in ./applyAction.ts), MOVE_TO_DECLINE (phase 3, simultaneous, only
 // reachable when triggered), PURCHASE_CARD / PASS_PURCHASE (phase 4, turn
 // order). Recycle-check and round-end are automatic engine bookkeeping,
-// not player actions.
+// not player actions. CONCEDE is the one exception to all of the above: any
+// player may submit it at any point once the game is active, regardless of
+// round phase or whose turn it is.
 
 /**
  * Places one tile of the current tier (src/engine/boardGenerationContent.ts's
@@ -109,6 +111,21 @@ export interface PassPurchaseAction {
   playerId: string
 }
 
+/**
+ * A player voluntarily gives up, at any point once the game is active —
+ * unlike every other action above, not tied to any particular round phase
+ * or to it being this player's turn. Treated identically to an automatic
+ * no-card elimination (see eliminatePlayer in ./elimination.ts): removed
+ * from the board and turn order for the rest of the game, excluded from
+ * winning, resources returned to the bank. See applyConcede in
+ * ./applyAction.ts for how this chains into whatever phase transition the
+ * conceding player's own pending turn would otherwise have blocked.
+ */
+export interface ConcedeAction {
+  type: 'CONCEDE'
+  playerId: string
+}
+
 export type Action =
   | PlaceTileAction
   | PlaceUnitAction
@@ -118,6 +135,7 @@ export type Action =
   | MoveToDeclineAction
   | PurchaseCardAction
   | PassPurchaseAction
+  | ConcedeAction
 
 /**
  * One entry in `GameState.actionHistory` — event sourcing: every action
