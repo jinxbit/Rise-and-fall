@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useDisplayName } from '../hooks/useDisplayName'
+import { useIsAdmin } from '../hooks/useIsAdmin'
 import { GameLengthSelector } from '../components/GameLengthSelector'
 import { MapModeSelector, type MapMode, type MapPoolChoice } from '../components/MapModeSelector'
 import { TaleSelector } from '../components/TaleSelector'
@@ -33,6 +34,7 @@ export function LobbyPage() {
   const { roomCode } = useParams<{ roomCode: string }>()
   const { session, loading: authLoading } = useAuth()
   const { displayName, loading: displayNameLoading } = useDisplayName(session?.user ?? null)
+  const isAdmin = useIsAdmin(session?.user ?? null)
   const navigate = useNavigate()
 
   const [game, setGame] = useState<GameRow | null>(null)
@@ -104,7 +106,10 @@ export function LobbyPage() {
   // guard; these just decide what to render — see the room lifecycle spec's
   // sections 3/12 for the deletable/cancelable states).
   const canCancel = isCreator && game.status === 'lobby'
-  const canDelete = isCreator && (game.status === 'lobby' || game.status === 'canceled')
+  // Admins (0017_admin_delete_any_game.sql) bypass both the ownership and
+  // status restrictions — the matching RLS policy is the real guard, same
+  // as the owner-only checks below.
+  const canDelete = (isCreator && (game.status === 'lobby' || game.status === 'canceled')) || isAdmin
   // Configuration editing (issue section 9): Owner-only, and only pre-start —
   // 0009_config_versioning.sql's trigger rejects it once the room isn't lobby.
   const canEditConfig = isCreator && game.status === 'lobby'

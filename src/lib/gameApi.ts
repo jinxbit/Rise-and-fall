@@ -40,6 +40,19 @@ export async function saveProfileDisplayName(userId: string, displayName: string
   if (error) throw error
 }
 
+/**
+ * Whether this user holds the "delete any game" override (issue #177,
+ * 0017_admin_delete_any_game.sql) — `false` covers both "no profile row
+ * yet" and "profile row with the flag unset", same null-collapsing pattern
+ * as getProfileDisplayName. There's no UI to set this; it's assigned
+ * directly via SQL, so this is read-only.
+ */
+export async function getIsAdmin(userId: string): Promise<boolean> {
+  const { data, error } = await supabase.from('profiles').select('is_admin').eq('user_id', userId).maybeSingle()
+  if (error) throw error
+  return data?.is_admin ?? false
+}
+
 const PLAYER_COLORS = ['#ef4444', '#3b82f6', '#22c55e', '#eab308', '#a855f7', '#f97316', '#06b6d4', '#ec4899']
 /** One color per seat (PLAYER_COLORS above), so this is also the hard ceiling on max_players — used by LobbyPage.tsx's config editor to bound the input. */
 export const MAX_PLAYERS = PLAYER_COLORS.length
