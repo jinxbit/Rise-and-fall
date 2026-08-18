@@ -61,10 +61,18 @@ export async function listAllMapPool(): Promise<MapPoolRow[]> {
  * 0018_admin_delete_map_pool.sql's is the only delete policy on this
  * table — so a non-admin's call resolves with no matching row and no
  * error (Postgres RLS silently filters rows the policy doesn't grant).
+ * Chaining `.select()` is what surfaces that: without it PostgREST
+ * returns 204 with no body for a 0-row delete, indistinguishable from
+ * deleting the row that's actually there (issue #188) — with it, an
+ * RLS-denied or already-gone id comes back as an empty array we can
+ * turn into a real error instead of a silent no-op.
  */
 export async function deleteMapFromPool(mapId: string): Promise<void> {
-  const { error } = await supabase.from('map_pool').delete().eq('id', mapId)
+  const { data, error } = await supabase.from('map_pool').delete().eq('id', mapId).select('id')
   if (error) throw error
+  if (!data || data.length === 0) {
+    throw new Error('Map was not deleted — you may not have admin access, or it was already removed.')
+  }
 }
 
 /**
