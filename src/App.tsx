@@ -1,4 +1,5 @@
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
+import { AdminMapsPage } from './pages/AdminMapsPage'
 import { CreateGamePage } from './pages/CreateGamePage'
 import { GamePage } from './pages/GamePage'
 import { HomePage } from './pages/HomePage'
@@ -16,6 +17,7 @@ function App() {
           <Route path="/" element={<HomePage />} />
           <Route path="/create" element={<CreateGamePage />} />
           <Route path="/map-builder" element={<MapBuilderPage />} />
+          <Route path="/admin/maps" element={<AdminMapsPage />} />
           <Route path="/games" element={<MyGamesPage />} />
           <Route path="/public" element={<PublicRoomsPage />} />
           <Route path="/profile" element={<ProfilePage />} />

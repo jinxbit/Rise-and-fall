@@ -43,6 +43,31 @@ export async function listMapPoolByPlayerCount(playerCount: number): Promise<Map
 }
 
 /**
+ * Every saved map, across all player counts — for the admin maps screen
+ * (issue #185), which browses/deletes the whole pool rather than one
+ * player-count bucket at a time. Small-scale like listMyGames/
+ * listPublicRooms, so callers paginate client-side (lib/pagination.ts)
+ * rather than this taking offset/limit params.
+ */
+export async function listAllMapPool(): Promise<MapPoolRow[]> {
+  const { data, error } = await supabase.from('map_pool').select().order('created_at', { ascending: false })
+  if (error) throw error
+  return data as MapPoolRow[]
+}
+
+/**
+ * Removes a map from the pool (issue #185). Only an admin's delete
+ * succeeds — 0016_map_pool.sql grants no owner-delete policy, and
+ * 0018_admin_delete_map_pool.sql's is the only delete policy on this
+ * table — so a non-admin's call resolves with no matching row and no
+ * error (Postgres RLS silently filters rows the policy doesn't grant).
+ */
+export async function deleteMapFromPool(mapId: string): Promise<void> {
+  const { error } = await supabase.from('map_pool').delete().eq('id', mapId)
+  if (error) throw error
+}
+
+/**
  * One random saved map for `playerCount`, or null if the pool has none
  * yet. Used once, at game creation/lobby-edit time, to lock in a concrete
  * board — see GameSettings.mapPoolBoard's doc comment for why the

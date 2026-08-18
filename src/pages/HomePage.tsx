@@ -5,6 +5,7 @@ import { GuestSignIn } from '../components/GuestSignIn'
 import { Pagination } from '../components/Pagination'
 import { useAuth } from '../hooks/useAuth'
 import { useDisplayName } from '../hooks/useDisplayName'
+import { useIsAdmin } from '../hooks/useIsAdmin'
 import { getGameByRoomCode, listMyGames, listPublicRooms } from '../lib/gameApi'
 import { signOut } from '../lib/auth'
 import { paginate } from '../lib/pagination'
@@ -29,6 +30,7 @@ function gamePath(entry: MyGameEntry): string {
 export function HomePage() {
   const { session, loading } = useAuth()
   const { displayName } = useDisplayName(session?.user ?? null)
+  const isAdmin = useIsAdmin(session?.user ?? null)
   const navigate = useNavigate()
 
   const [roomCodeInput, setRoomCodeInput] = useState('')
@@ -133,6 +135,11 @@ export function HomePage() {
           <Link to="/map-builder" className="underline hover:text-neutral-200">
             Map builder
           </Link>
+          {isAdmin && (
+            <Link to="/admin/maps" className="underline hover:text-neutral-200">
+              Saved maps
+            </Link>
+          )}
           <button onClick={() => void signOut()} className="underline hover:text-neutral-200">
             Sign out
           </button>
