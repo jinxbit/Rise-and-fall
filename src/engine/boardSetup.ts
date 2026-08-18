@@ -1,13 +1,14 @@
 import { getTile } from './board'
 import {
   applyTilePlacement,
-  canPlaceRemainingTiles,
+  canPlaceRemainingTilesDetailed,
   isLegalTilePlacement,
   placedShapeCells,
   seedStartingWaterTiles,
   touchesEnoughExistingTerrain,
   wouldEncloseEmptyHexes,
 } from './boardGeneration'
+import type { RoomCheckDiagnostics } from './boardGeneration'
 import type { BoardGenerationContent, TileTierContent } from './boardGenerationContent'
 import { syncCardZonesWithBoard } from './cards'
 import { nextSequenceId } from './idSequence'
@@ -126,20 +127,36 @@ export function checkTilePlacementLegality(
   rotationSteps: number,
   content: BoardGenerationContent,
 ): string | null {
+  return checkTilePlacementLegalityDetailed(state, anchor, rotationSteps, content).error
+}
+
+/** checkTilePlacementLegality's result, plus (when the rule-4 room search actually ran) its RoomCheckDiagnostics — see issue #189: the board-setup UI shows these for the tile a player just placed. */
+export interface TilePlacementLegalityResult {
+  error: string | null
+  roomCheck: RoomCheckDiagnostics | null
+}
+
+/** Same check as checkTilePlacementLegality, but also returns the rule-4 room search's RoomCheckDiagnostics (null if that search didn't run — e.g. an otherwise-illegal placement, or the last tile of a tier). */
+export function checkTilePlacementLegalityDetailed(
+  state: GameState,
+  anchor: Coordinate,
+  rotationSteps: number,
+  content: BoardGenerationContent,
+): TilePlacementLegalityResult {
   const boardSetup = state.boardSetup
   if (state.status !== 'boardSetup' || !boardSetup || boardSetup.tileTierQueue.length === 0) {
-    return 'Tile placement is not currently active'
+    return { error: 'Tile placement is not currently active', roomCheck: null }
   }
 
   const tierTerrain = boardSetup.tileTierQueue[0]
   const tierContent = findTierContent(content, tierTerrain)
   if (!tierContent) {
-    return `No board-generation content for tier '${tierTerrain}'`
+    return { error: `No board-generation content for tier '${tierTerrain}'`, roomCheck: null }
   }
 
   const placedCells = placedShapeCells(tierContent.shapeCells, anchor, rotationSteps)
   if (!isLegalTilePlacement(state.board, placedCells, tierContent.placesOn)) {
-    return 'Illegal tile placement'
+    return { error: 'Illegal tile placement', roomCheck: null }
   }
 
   // Two extra rules that only apply to the base terrain (placesOn: null —
@@ -148,10 +165,10 @@ export function checkTilePlacementLegality(
   // no way out.
   if (tierContent.placesOn === null) {
     if (!touchesEnoughExistingTerrain(state.board, placedCells, tierContent.terrain, WATER_EXPANSION_MIN_TOUCHING)) {
-      return `A new Sea tile must touch at least ${WATER_EXPANSION_MIN_TOUCHING} Sea tiles already on the board`
+      return { error: `A new Sea tile must touch at least ${WATER_EXPANSION_MIN_TOUCHING} Sea tiles already on the board`, roomCheck: null }
     }
     if (wouldEncloseEmptyHexes(state.board, placedCells)) {
-      return 'This placement would seal off an empty area with no way out'
+      return { error: 'This placement would seal off an empty area with no way out', roomCheck: null }
     }
   }
 
@@ -163,12 +180,14 @@ export function checkTilePlacementLegality(
     // that wouldn't leave room for every remaining tile of this tier is
     // rejected outright, same as any other illegal placement — the player
     // has to pick a different anchor/rotation instead.
-    if (!canPlaceRemainingTiles(board, tierContent.shapeCells, tierContent.placesOn, tilesRemainingInTier)) {
-      return 'This placement would leave no legal spot for the rest of this tier'
+    const roomCheck = canPlaceRemainingTilesDetailed(board, tierContent.shapeCells, tierContent.placesOn, tilesRemainingInTier)
+    if (!roomCheck.legal) {
+      return { error: 'This placement would leave no legal spot for the rest of this tier', roomCheck }
     }
+    return { error: null, roomCheck }
   }
 
-  return null
+  return { error: null, roomCheck: null }
 }
 
 /**
