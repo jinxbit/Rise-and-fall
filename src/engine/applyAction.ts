@@ -3,7 +3,7 @@ import type { AchievementContent } from './achievementContent'
 import { EMPTY_ACHIEVEMENT_CONTENT } from './achievementContent'
 import { updateAchievementClaims } from './achievements'
 import { moveCard, syncCardZonesWithBoard } from './cards'
-import { eliminatePlayersWithNoCardToDecline } from './elimination'
+import { eliminatePlayer, eliminatePlayersWithNoCardToDecline } from './elimination'
 import { findForcedPlacement } from './boardGeneration'
 import { calculatePurchaseCost } from './purchaseCost'
 import { spendResource } from './resources'
@@ -212,6 +212,8 @@ function dispatchAction(
       return applyPurchaseCard(state, action.playerId, action.cardId, achievementContent, taleContent)
     case 'PASS_PURCHASE':
       return applyPassPurchase(state, action.playerId, achievementContent, taleContent)
+    case 'CONCEDE':
+      return applyConcede(state, action.playerId, achievementContent, taleContent)
     default: {
       const exhaustive: never = action
       return { ok: false, error: `Unknown action: ${JSON.stringify(exhaustive)}` }
@@ -570,6 +572,55 @@ function applyPassPurchase(
 
   if (nextState.pendingPlayerIds.length === 0) {
     nextState = finishRound(nextState, achievementContent, taleContent)
+  }
+  return { ok: true, state: nextState }
+}
+
+/**
+ * A player concedes: treated exactly like eliminatePlayer's automatic
+ * no-card eliminations (./elimination.ts) — removed from the board/turn
+ * order for good, excluded from winning, resources returned to the bank —
+ * except it can happen at ANY point while the game is active, not just when
+ * a phase's own elimination check runs. That's the one thing this needs to
+ * handle that eliminatePlayer's other two callers
+ * (eliminatePlayersWithNoCardToPlay/eliminatePlayersWithNoCardToDecline)
+ * don't: a conceding player may still be owed something in the current
+ * phase (a card choice, an action-phase turn, a decline, a purchase
+ * decision) that nobody else can supply for them, so removing them from
+ * pendingPlayerIds can itself be what completes the phase — same as
+ * applyChooseCard/finishActionsTurn/applyMoveToDecline/applyPassPurchase
+ * each already chain forward when their own removal empties
+ * pendingPlayerIds. Skipped if the elimination already ended the game
+ * outright (eliminatePlayer's last-player-standing check), same as every
+ * other post-elimination chain point.
+ */
+function applyConcede(state: GameState, playerId: string, achievementContent: AchievementContent, taleContent: TaleContent): ActionResult {
+  const player = state.players.find((p) => p.id === playerId)
+  if (!player) {
+    return { ok: false, error: `Unknown player: ${playerId}` }
+  }
+  if (player.eliminated) {
+    return { ok: false, error: 'Player is already eliminated' }
+  }
+
+  let nextState = eliminatePlayer(state, playerId)
+  if (nextState.status === 'completed' || nextState.pendingPlayerIds.length > 0) {
+    return { ok: true, state: nextState }
+  }
+
+  switch (nextState.roundPhase) {
+    case 'selectCards':
+      nextState = beginActionsPhase(nextState)
+      break
+    case 'actions':
+      nextState = beginPostActionsPhase(nextState, achievementContent, taleContent)
+      break
+    case 'decline':
+      nextState = beginPurchasePhase(nextState, achievementContent, taleContent)
+      break
+    case 'purchase':
+      nextState = finishRound(nextState, achievementContent, taleContent)
+      break
   }
   return { ok: true, state: nextState }
 }

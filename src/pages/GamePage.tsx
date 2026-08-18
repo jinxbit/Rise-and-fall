@@ -299,6 +299,11 @@ export function GamePage() {
   const me = isHotseat
     ? players.find((p) => p.id === (skipHotseatGate ? pendingActorId : hotseatActivePlayerId))
     : players.find((p) => p.user_id === session?.user.id)
+  // Concede (issue #172): only a seated player, in a game that's actually
+  // under way, who hasn't already been eliminated — mirrors CONCEDE's own
+  // engine-side rejection of an unknown/already-eliminated player
+  // (applyConcede in engine/applyAction.ts).
+  const canConcede = !!me && gameState?.status === 'active' && !gameState.players.find((p) => p.id === me.id)?.eliminated
 
   /**
    * Deterministically rebuilt from the game's row + seated players — see
@@ -623,6 +628,22 @@ export function GamePage() {
     const result = await writeWithRetry((state) => applyActionAndFastForwardTiles(state, action, unitContent, achievementContent, boardGenerationContent, taleContent))
     if (result.ok) setRedoStack([])
     setActionError(result.ok ? null : result.error)
+  }
+
+  /**
+   * Concede (issue #172): a seated, not-yet-eliminated player gives up —
+   * treated identically to an automatic no-card elimination (see
+   * eliminatePlayer in engine/elimination.ts, and CONCEDE's dispatch in
+   * engine/applyAction.ts), removed from the board/turn order for the rest
+   * of the game and excluded from winning. Unlike every other action `me`
+   * submits below, this isn't gated on it being their turn or any
+   * particular round phase — a player can concede at any point once the
+   * game is active.
+   */
+  async function handleConcede() {
+    if (!me) return
+    if (!window.confirm('Concede this game? You will be eliminated and cannot undo this by yourself — this cannot be undone.')) return
+    await submitAction({ type: 'CONCEDE', playerId: me.id })
   }
 
   /**
@@ -1041,6 +1062,17 @@ export function GamePage() {
               className="rounded-md border border-neutral-700 px-3 py-1 text-sm hover:border-neutral-500 disabled:opacity-50"
             >
               Stop observing
+            </button>
+          )}
+          {canConcede && (
+            <button
+              type="button"
+              disabled={isReviewingHistory}
+              onClick={() => void handleConcede()}
+              title="Concede this game — you'll be eliminated and can no longer act, same as running out of cards."
+              className="rounded-md border border-red-800 px-3 py-1 text-sm text-red-400 hover:border-red-500 disabled:opacity-50"
+            >
+              Concede
             </button>
           )}
           <button

@@ -83,6 +83,8 @@ function describePrimaryAction(action: Action, before: GameState, after: GameSta
     }
     case 'PASS_PURCHASE':
       return [{ playerId: action.playerId, message: `Player ${action.playerId} passed on purchasing` }]
+    case 'CONCEDE':
+      return [{ playerId: action.playerId, message: `Player ${action.playerId} conceded` }]
     default: {
       const exhaustive: never = action
       throw new Error(`Unknown action: ${JSON.stringify(exhaustive)}`)
