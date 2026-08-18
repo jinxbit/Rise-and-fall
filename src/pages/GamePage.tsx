@@ -16,6 +16,7 @@ import { buildTurnReview, findReviewWindowStart } from '../engine/turnReview'
 import { currentActorId } from '../engine/turnOrder'
 import { useAuth } from '../hooks/useAuth'
 import { useDisplayName } from '../hooks/useDisplayName'
+import { useIsAdmin } from '../hooks/useIsAdmin'
 import type { GameRow, ObserverRow, PlayerRow } from '../lib/dbTypes'
 import { buildGenesisState } from '../lib/gameGenesis'
 import {
@@ -56,6 +57,7 @@ export function GamePage() {
   const { roomCode } = useParams<{ roomCode: string }>()
   const { session, loading: authLoading } = useAuth()
   const { displayName: observerDisplayName, loading: observerDisplayNameLoading } = useDisplayName(session?.user ?? null)
+  const isAdmin = useIsAdmin(session?.user ?? null)
   const navigate = useNavigate()
 
   const [game, setGame] = useState<GameRow | null>(null)
@@ -236,7 +238,10 @@ export function GamePage() {
   // here too (see dbTypes.ts's GameRow comment), so the finer-grained
   // engine status rules out canceling a game that's already over.
   const canCancel = isCreator && game?.status === 'active' && gameState?.status !== 'completed'
-  const canDelete = isCreator && game?.status === 'canceled'
+  // Admins (0017_admin_delete_any_game.sql) bypass both the ownership and
+  // status restrictions — the matching RLS policy is the real guard, same
+  // as LobbyPage.tsx's matching canDelete.
+  const canDelete = (isCreator && game?.status === 'canceled') || isAdmin
   // Visibility (issue section 4): Owner-only, any time short of canceled —
   // not gameplay configuration, so it stays editable after the room leaves
   // the lobby (see LobbyPage.tsx's matching toggle and setGameVisibility).
