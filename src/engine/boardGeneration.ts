@@ -235,7 +235,7 @@ function findAllLegalPlacements(board: Board, shapeCells: Coordinate[], placesOn
 }
 
 /** Bounds the backtracking searches below so a pathological board can't hang a placement check indefinitely — see canPlaceRemainingTiles's doc comment. */
-const COMBO_SEARCH_STEP_BUDGET = 1_000_000
+const COMBO_SEARCH_STEP_BUDGET = 5_000_000
 
 /** Step-count/budget bookkeeping for a findDisjointCombos search — see RoomCheckDiagnostics, which surfaces this for the UI. */
 interface ComboSearchResult {
