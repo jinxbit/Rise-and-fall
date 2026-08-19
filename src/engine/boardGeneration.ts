@@ -211,7 +211,7 @@ interface CandidatePlacement {
   rotationSteps: number
 }
 
-/** Every distinct legal placement of `shapeCells` on `board` (deduped by covered cell-set — a symmetric shape can reach the same cells via more than one rotation/anchor pair). */
+/** Every distinct legal placement of `shapeCells` on `board` (deduped by covered cell-set — a symmetric shape can reach the same cells via more than one rotation/anchor pair), ordered by prioritizePlacements so the backtracking searches below (findDisjointCombos) tend to find a working combo well before exhausting their step budget. */
 function findAllLegalPlacements(board: Board, shapeCells: Coordinate[], placesOn: Terrain[]): CandidatePlacement[] {
   const candidateHexes = Object.values(board.tiles).filter((tile) => placesOn.includes(tile.terrain))
   const seen = new Set<string>()
@@ -231,7 +231,97 @@ function findAllLegalPlacements(board: Board, shapeCells: Coordinate[], placesOn
       }
     }
   }
+  return prioritizePlacements(board, placements, placesOn, shapeCells.length)
+}
+
+/**
+ * Every hex among `placement`'s own neighbors that's still `placesOn`-
+ * eligible (i.e. not part of `placement` itself) and would be left in a
+ * connected pocket smaller than `shapeSize` once `placement`'s cells are
+ * taken — a pocket that size can never host a same-tier tile no matter how
+ * the rest of the tier gets arranged, since every remaining tile needs at
+ * least `shapeSize` connected eligible hexes. Counts only the pockets that
+ * actually touch `placement` (the ones its removal from the eligible set
+ * could possibly shrink or split); pockets elsewhere on the board are
+ * identical for every candidate being compared and don't affect the
+ * ordering.
+ *
+ * A count-only lower bound, not an exact fit test (a same-size-or-larger
+ * pocket can still fail to fit the tile's actual outline) — good enough to
+ * rank candidates by, per the issue's own framing ("does not leave enough
+ * space for a tile to be placed"), without the cost of testing every
+ * rotation against every pocket.
+ */
+function countNewlyDeadHexes(board: Board, eligibleKeys: Set<string>, placement: CandidatePlacement, shapeSize: number): number {
+  const visited = new Set(placement.cells.map(coordKey))
+  let deadCount = 0
+
+  for (const cell of placement.cells) {
+    for (const neighbor of neighborCoords(board, cell)) {
+      const key = coordKey(neighbor)
+      if (visited.has(key) || !eligibleKeys.has(key)) continue
+
+      const component: Coordinate[] = []
+      const stack = [neighbor]
+      visited.add(key)
+      while (stack.length > 0) {
+        const c = stack.pop()!
+        component.push(c)
+        for (const n of neighborCoords(board, c)) {
+          const nKey = coordKey(n)
+          if (visited.has(nKey) || !eligibleKeys.has(nKey)) continue
+          visited.add(nKey)
+          stack.push(n)
+        }
+      }
+      if (component.length < shapeSize) deadCount += component.length
+    }
+  }
+  return deadCount
+}
+
+/** How many of `placement`'s own cells border a hex that's *not* `placesOn`-eligible (another terrain, an untiled hole, or the board's unbounded exterior) — i.e. sit on the boundary of the eligible region rather than buried in its interior. */
+function countEdgeAdjacentCells(board: Board, eligibleKeys: Set<string>, placement: CandidatePlacement): number {
+  const placedKeys = new Set(placement.cells.map(coordKey))
+  let count = 0
+  for (const cell of placement.cells) {
+    const touchesEdge = neighborCoords(board, cell).some((n) => {
+      const key = coordKey(n)
+      return !placedKeys.has(key) && !eligibleKeys.has(key)
+    })
+    if (touchesEdge) count++
+  }
+  return count
+}
+
+/**
+ * Orders `placements` so findDisjointCombos's backtracking tries the most
+ * promising ones first — per the issue's greedy proposal:
+ * 1. Fewest newly-dead water hexes first (countNewlyDeadHexes) — placements
+ *    that would seal off a pocket too small for any remaining tile are
+ *    exactly the ones that can make an otherwise-fitting arrangement
+ *    unreachable, so trying those last (as a last resort, not a first
+ *    guess) keeps more of the board's real options open for longer.
+ * 2. Among ties, most edge-adjacent cells first (countEdgeAdjacentCells) —
+ *    consuming the eligible region's boundary before its interior leaves
+ *    interior hexes flanked by more still-eligible neighbors, which is
+ *    less likely to strand them.
+ *
+ * This only changes which combo the bounded search reaches first, never
+ * whether one exists — findDisjointCombos still backtracks over every
+ * placement given enough budget, so a placement ranked last here is still
+ * tried if every better-ranked one fails.
+ */
+function prioritizePlacements(board: Board, placements: CandidatePlacement[], placesOn: Terrain[], shapeSize: number): CandidatePlacement[] {
+  const eligibleKeys = new Set(Object.values(board.tiles).filter((tile) => placesOn.includes(tile.terrain)).map((tile) => coordKey(tile.coord)))
   return placements
+    .map((placement) => ({
+      placement,
+      dead: countNewlyDeadHexes(board, eligibleKeys, placement, shapeSize),
+      edge: countEdgeAdjacentCells(board, eligibleKeys, placement),
+    }))
+    .sort((a, b) => a.dead - b.dead || b.edge - a.edge)
+    .map((scored) => scored.placement)
 }
 
 /** Bounds the backtracking searches below so a pathological board can't hang a placement check indefinitely — see canPlaceRemainingTiles's doc comment. */

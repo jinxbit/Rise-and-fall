@@ -3288,3 +3288,43 @@ live Supabase in this sandbox to test against. 724 tests total (was
 719); `tsc -b`/`oxlint`/`vitest run`/`npm run build` all clean. Not
 click-tested in a browser — same sandbox limitation as all prior UI
 work here.
+
+## 67. Rule 4's room-check search could exhaust its whole step budget on a board it could actually solve (issue #194)
+
+`canPlaceRemainingTilesDetailed`'s bounded backtracking search (entry
+`#48`) is exhaustive in principle but capped at `COMBO_SEARCH_STEP_BUDGET`
+steps — a poor candidate order can burn through the entire budget before
+reaching a combo that actually works, conservatively reporting "no room"
+even though a legal full arrangement exists. Confirmed with a crafted
+board (`boardGeneration.test.ts`'s new "stays well under its step
+budget..." test): 16 independent 4-hex trap chains (each only fully
+tileable one way — a middle "cross" domino strands both ends), laid out
+so the wrong direction is discovered first. Without ordering, this
+already burns ~325k steps at 8 chains and exhausts the full 5,000,000 at
+12, wrongly rejecting a board that's trivially solvable chain-by-chain.
+
+Per the issue's own proposed fix: `findAllLegalPlacements`
+(`boardGeneration.ts`) now orders its candidates via a new
+`prioritizePlacements` before handing them to `findDisjointCombos`,
+so the same exhaustive backtracking tries the most promising branches
+first instead of in raw discovery order:
+1. Fewest newly-created "dead" water hexes first (`countNewlyDeadHexes`)
+   — a lower-bound, count-only check (flood-fills the `placesOn`-eligible
+   pockets touching the candidate and sums the ones smaller than one
+   tile's cell count, since no remaining tile can ever fit there again).
+   A placement that would strand a pocket like that is exactly the kind
+   that turns an otherwise-solvable board into a dead end, so it's tried
+   last, not first.
+2. Among ties, most edge-adjacent cells first (`countEdgeAdjacentCells`)
+   — cells bordering something outside the eligible region (another
+   terrain, a hole, or the board's unbounded exterior) — consuming the
+   pool's boundary before its interior leaves interior hexes with more
+   still-eligible neighbors, less likely to strand them later.
+
+This only changes which combo the bounded search reaches first, never
+whether one exists — a placement ranked last is still tried if every
+better-ranked one fails, so every existing `canPlaceRemainingTiles`/
+`findForcedPlacement` test still passes unchanged. On the crafted 16-chain
+board above, the ordered search now finds the full arrangement in ~33
+steps instead of exhausting the budget. 736 tests total (was 735);
+`tsc -b`/`oxlint`/`vitest run`/`npm run build` all clean.
