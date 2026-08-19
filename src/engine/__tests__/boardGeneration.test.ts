@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   applyTilePlacement,
   canPlaceRemainingTiles,
+  canPlaceRemainingTilesDetailed,
   findForcedPlacement,
   isLegalTilePlacement,
   placedShapeCells,
@@ -200,6 +201,41 @@ describe('canPlaceRemainingTiles', () => {
     // old greedy check couldn't find the fit it needed.
     const board = boardOf([[1, 0, 'water'], [0, 0, 'water'], [2, 0, 'water'], [3, 0, 'water']])
     expect(canPlaceRemainingTiles(board, domino, ['water'], 2)).toBe(true)
+  })
+
+  it('stays well under its step budget on many repeated 4-hex trap chains — issue #194', () => {
+    // Same trap shape as the test above (a 4-hex chain only fully tileable
+    // one way — the middle "cross" domino strands both ends), repeated
+    // across many independent chains, geometrically arranged so the cross
+    // domino's direction is discovered by findAllLegalPlacements *before*
+    // the correct pairing's direction (rotation 0 vs rotation 1 — see
+    // prioritizePlacements in ../boardGeneration.ts). Without ordering
+    // candidates by how many hexes they'd strand, the backtracking search
+    // has to explore combinations of wrong ("cross") picks across chains
+    // before backing out of each one: at 8 chains this already burns
+    // ~325k steps, and at 12 it exhausts the entire 5,000,000-step budget
+    // and wrongly reports no room, even though every chain is independently
+    // and trivially solvable. The greedy ordering (fewest newly-stranded
+    // hexes first) picks the correct pairing in each chain on the first
+    // try, so this stays linear in the number of chains instead.
+    const numChains = 16
+    let board = createEmptyBoard('hex')
+    for (let i = 0; i < numChains; i++) {
+      const baseQ = i * 10
+      const main1 = { q: baseQ, r: 0 }
+      const main2 = { q: baseQ + 1, r: -1 }
+      const branch1 = { q: baseQ + 2, r: -1 }
+      const branch2 = { q: baseQ + 3, r: -2 }
+      board = setTile(board, main2, 'water')
+      board = setTile(board, branch1, 'water')
+      board = setTile(board, main1, 'water')
+      board = setTile(board, branch2, 'water')
+    }
+
+    const result = canPlaceRemainingTilesDetailed(board, domino, ['water'], numChains * 2)
+    expect(result.legal).toBe(true)
+    expect(result.budgetReached).toBe(false)
+    expect(result.stepsUsed).toBeLessThan(1000)
   })
 })
 
