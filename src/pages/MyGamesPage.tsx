@@ -2,7 +2,15 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { listMyGames } from '../lib/gameApi'
-import { groupMyGames, isMyTurn, myGameStatus, type MyGameEntry, type MyGameStatus } from '../lib/myGamesView'
+import {
+  formatUpdatedAt,
+  groupMyGames,
+  isMyTurn,
+  myGameStatus,
+  pendingActorIds,
+  type MyGameEntry,
+  type MyGameStatus,
+} from '../lib/myGamesView'
 
 const STATUS_LABEL: Record<MyGameStatus, string> = {
   lobby: 'Waiting in lobby',
@@ -117,20 +125,34 @@ export function MyGamesPage() {
 function GameRowItem({ entry, onOpen }: { entry: MyGameEntry; onOpen: () => void }) {
   const myTurn = isMyTurn(entry)
   const status = myGameStatus(entry)
+  const finished = status === 'completed'
+  const pending = pendingActorIds(entry)
 
   return (
     <li>
       <button
         onClick={onOpen}
-        className="flex w-full items-center justify-between gap-3 rounded-md border border-neutral-800 bg-neutral-900 px-4 py-3 text-left hover:border-neutral-600"
+        className={`flex w-full flex-col gap-1 rounded-md border px-4 py-3 text-left ${
+          myTurn
+            ? 'border-indigo-500 bg-indigo-950/40 hover:border-indigo-400'
+            : finished
+              ? 'border-neutral-800/60 bg-neutral-900/40 text-neutral-500 hover:border-neutral-700'
+              : 'border-neutral-800 bg-neutral-900 hover:border-neutral-600'
+        }`}
       >
-        <div className="flex flex-col gap-1">
-          <span className="font-medium">{entry.game.name}</span>
-          <span className="text-sm text-neutral-400">
-            Room {entry.game.room_code} · {STATUS_LABEL[status]} · {entry.players.map((p) => p.display_name).join(', ')}
-          </span>
-        </div>
-        {myTurn && <span className="shrink-0 rounded-full bg-indigo-600 px-3 py-1 text-xs font-medium text-white">Your turn</span>}
+        <span className={`font-medium ${finished ? 'text-neutral-500' : ''}`}>{entry.game.name}</span>
+        <span className={`text-sm ${finished ? 'text-neutral-600' : 'text-neutral-400'}`}>
+          {STATUS_LABEL[status]} ·{' '}
+          {entry.players.map((p, i) => (
+            <span key={p.id} className={pending.includes(p.id) ? 'font-semibold text-neutral-100' : undefined}>
+              {i > 0 && ', '}
+              {p.display_name}
+            </span>
+          ))}
+        </span>
+        <span className={`text-xs ${finished ? 'text-neutral-600' : 'text-neutral-500'}`}>
+          {formatUpdatedAt(entry.game.updated_at)}
+        </span>
       </button>
     </li>
   )
