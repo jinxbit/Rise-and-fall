@@ -812,7 +812,7 @@ function DeclinePanel(props: { state: GameState; players: PlayerRow[]; myPlayerI
             <button
               key={cardId}
               onClick={() => onMoveToDecline(cardId)}
-              className="rounded-md border border-neutral-700 px-3 py-1 hover:border-neutral-500"
+              className="rounded-md border border-red-700 px-3 py-1 hover:border-red-500"
             >
               {card ? capitalize(card.kind) : cardId}
             </button>
@@ -861,7 +861,7 @@ function PurchasePanel(props: {
               key={cardId}
               disabled={me.resources.gold < cost}
               onClick={() => onPurchaseCard(cardId)}
-              className="rounded-md border border-neutral-700 px-3 py-1 hover:border-neutral-500 disabled:opacity-40"
+              className="rounded-md border border-amber-500 px-3 py-1 hover:border-amber-300 disabled:opacity-40"
             >
               {card ? capitalize(card.kind) : cardId}
             </button>

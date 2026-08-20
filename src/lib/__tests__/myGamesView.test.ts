@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { buildGenesisState } from '../gameGenesis'
-import { groupMyGames, isCanceled, isFinished, isMyTurn, myGameStatus, type MyGameEntry } from '../myGamesView'
+import {
+  formatUpdatedAt,
+  groupMyGames,
+  isCanceled,
+  isFinished,
+  isMyTurn,
+  myGameStatus,
+  pendingActorIds,
+  type MyGameEntry,
+} from '../myGamesView'
 import type { GameRow, GameSettings, PlayerRow } from '../dbTypes'
 import type { GameState as EngineGameState } from '../../engine/types'
 
@@ -118,6 +127,50 @@ describe('isMyTurn', () => {
         }),
       ),
     ).toBe(true)
+  })
+})
+
+describe('pendingActorIds', () => {
+  it('is empty with no game_state row yet (lobby)', () => {
+    expect(pendingActorIds(makeEntry({ gameState: null }))).toEqual([])
+  })
+
+  it('returns the active player when one player is up', () => {
+    expect(pendingActorIds(makeEntry({ gameState: makeActiveState({ activePlayerId: 'p2' }) }))).toEqual(['p2'])
+  })
+
+  it('returns every pending player during a simultaneous phase', () => {
+    expect(
+      pendingActorIds(makeEntry({ gameState: makeActiveState({ activePlayerId: null, pendingPlayerIds: ['p1', 'p2'] }) })),
+    ).toEqual(['p1', 'p2'])
+  })
+
+  it('is empty once the game is completed', () => {
+    expect(pendingActorIds(makeEntry({ gameState: makeActiveState({ status: 'completed' }) }))).toEqual([])
+  })
+})
+
+describe('formatUpdatedAt', () => {
+  const now = new Date('2026-01-02T12:00:00Z')
+
+  it('reports "just now" for sub-minute updates', () => {
+    expect(formatUpdatedAt('2026-01-02T11:59:45Z', now)).toBe('Updated just now')
+  })
+
+  it('reports minutes ago within the last hour', () => {
+    expect(formatUpdatedAt('2026-01-02T11:45:00Z', now)).toBe('Updated 15m ago')
+  })
+
+  it('reports hours ago within the last day', () => {
+    expect(formatUpdatedAt('2026-01-02T09:00:00Z', now)).toBe('Updated 3h ago')
+  })
+
+  it('reports days ago within the last week', () => {
+    expect(formatUpdatedAt('2025-12-31T12:00:00Z', now)).toBe('Updated 2d ago')
+  })
+
+  it('falls back to a date for updates a week or older', () => {
+    expect(formatUpdatedAt('2025-12-20T12:00:00Z', now)).toBe(`Updated ${new Date('2025-12-20T12:00:00Z').toLocaleDateString()}`)
   })
 })
 

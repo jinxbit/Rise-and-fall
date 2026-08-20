@@ -1,9 +1,18 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { ErrorBanner } from '../components/ErrorBanner'
+import { GameOverviewCard } from '../components/GameOverviewCard'
 import { useAuth } from '../hooks/useAuth'
 import { listPublicRooms } from '../lib/gameApi'
-import { groupPublicRooms, isJoinable, type PublicRoomEntry } from '../lib/publicRoomsView'
+import { formatUpdatedAt } from '../lib/gameCardView'
+import {
+  groupPublicRooms,
+  isJoinable,
+  isMyTurn,
+  pendingActorIds,
+  publicRoomBucket,
+  type PublicRoomEntry,
+} from '../lib/publicRoomsView'
 
 /**
  * The Public Rooms discovery screen (issue #40 section 5): every room whose
@@ -71,6 +80,7 @@ export function PublicRoomsPage() {
         <RoomSection
           title="Joinable"
           entries={notStarted}
+          userId={session.user.id}
           onOpen={(entry) => navigate(`/lobby/${entry.game.room_code}`)}
           renderAction={(entry) => (isJoinable(entry) ? 'Join' : 'Full')}
         />
@@ -80,6 +90,7 @@ export function PublicRoomsPage() {
         <RoomSection
           title="In progress"
           entries={inProgress}
+          userId={session.user.id}
           onOpen={(entry) => navigate(`/game/${entry.game.room_code}`)}
           renderAction={(entry) =>
             entry.players.some((p) => p.user_id === session.user.id) ? 'Continue' : 'Observe'
@@ -91,6 +102,7 @@ export function PublicRoomsPage() {
         <RoomSection
           title="Finished"
           entries={finished}
+          userId={session.user.id}
           onOpen={(entry) => navigate(`/game/${entry.game.room_code}`)}
           renderAction={() => 'View'}
         />
@@ -102,11 +114,13 @@ export function PublicRoomsPage() {
 function RoomSection({
   title,
   entries,
+  userId,
   onOpen,
   renderAction,
 }: {
   title: string
   entries: PublicRoomEntry[]
+  userId: string
   onOpen: (entry: PublicRoomEntry) => void
   renderAction: (entry: PublicRoomEntry) => string
 }) {
@@ -115,23 +129,19 @@ function RoomSection({
       <h2 className="font-medium text-neutral-200">{title}</h2>
       <ul className="flex flex-col gap-2">
         {entries.map((entry) => (
-          <li key={entry.game.id}>
-            <button
-              onClick={() => onOpen(entry)}
-              className="flex w-full items-center justify-between gap-3 rounded-md border border-neutral-800 bg-neutral-900 px-4 py-3 text-left hover:border-neutral-600"
-            >
-              <div className="flex flex-col gap-1">
-                <span className="font-medium">{entry.game.name}</span>
-                <span className="text-sm text-neutral-400">
-                  Room {entry.game.room_code} · {entry.game.play_mode} · {entry.players.length}/{entry.game.max_players} players ·{' '}
-                  {entry.players.map((p) => p.display_name).join(', ') || 'no players yet'}
-                </span>
-              </div>
-              <span className="shrink-0 rounded-full bg-indigo-600 px-3 py-1 text-xs font-medium text-white">
-                {renderAction(entry)}
-              </span>
-            </button>
-          </li>
+          <GameOverviewCard
+            key={entry.game.id}
+            name={entry.game.name}
+            roomCode={entry.game.room_code}
+            description={`${entry.game.play_mode} · ${entry.players.length}/${entry.game.max_players} players`}
+            players={entry.players}
+            pendingPlayerIds={pendingActorIds(entry)}
+            isMyTurn={isMyTurn(entry, userId)}
+            isFinished={publicRoomBucket(entry) === 'finished'}
+            updatedAt={formatUpdatedAt(entry.game.updated_at)}
+            action={renderAction(entry)}
+            onOpen={() => onOpen(entry)}
+          />
         ))}
       </ul>
     </section>
