@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="200" viewBox="0 0 160 200">
+  <circle cx="80" cy="80" r="70" fill="#f2f2ef" stroke="#c9c9c2" stroke-width="2"/>
+  <g transform="translate(32,32) scale(4)" fill="#14161a">
+    <path d="M7.5,20 Q4,20 4,15 Q4,10 8.3,9 Q12,8.3 15.7,9 Q20,10 20,15 Q20,20 16.5,20 Z"/>
+    <rect x="9.7" y="6.6" width="4.6" height="3" rx="1"/>
+    <circle cx="9.7" cy="5.6" r="1.6"/>
+    <circle cx="14.3" cy="5.6" r="1.6"/>
+    <circle cx="12" cy="6.1" r="1"/>
+  </g>
+  <text x="80" y="192" text-anchor="middle" font-family="'Trebuchet MS', Arial, sans-serif" font-size="16" font-weight="700" fill="#222">B: Refined Purse</text>
+</svg>

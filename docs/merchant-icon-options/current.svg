@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="200" viewBox="0 0 160 200">
+  <circle cx="80" cy="80" r="70" fill="#f2f2ef" stroke="#c9c9c2" stroke-width="2"/>
+  <g transform="translate(32,32) scale(4)" fill="#14161a">
+    <path d="M8.5,20 Q5,20 5,15.4 Q5,10.6 9,9.6 L15,9.6 Q19,10.6 19,15.4 Q19,20 15.5,20 Z"/>
+    <rect x="10" y="6.3" width="4" height="3.5" rx="0.8"/>
+    <circle cx="12" cy="6" r="1"/>
+  </g>
+  <text x="80" y="192" text-anchor="middle" font-family="'Trebuchet MS', Arial, sans-serif" font-size="16" font-weight="700" fill="#222">Current</text>
+</svg>

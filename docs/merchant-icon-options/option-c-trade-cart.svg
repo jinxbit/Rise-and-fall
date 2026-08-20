@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="200" viewBox="0 0 160 200">
+  <circle cx="80" cy="80" r="70" fill="#f2f2ef" stroke="#c9c9c2" stroke-width="2"/>
+  <g transform="translate(32,32) scale(4)" fill="#14161a">
+    <rect x="4" y="13.5" width="13" height="4.5" rx="1"/>
+    <path d="M8,13.5 Q5.7,13.5 5.7,10.5 Q5.7,7.7 9,7.2 Q12.2,6.8 12.6,9.2 Q13,11.5 11.8,13.5 Z"/>
+    <circle cx="7" cy="19.3" r="2.5"/>
+    <circle cx="14" cy="19.3" r="2.5"/>
+    <polygon points="17,17.5 21.5,10 22.6,10.7 18.1,18.2"/>
+  </g>
+  <text x="80" y="192" text-anchor="middle" font-family="'Trebuchet MS', Arial, sans-serif" font-size="16" font-weight="700" fill="#222">C: Trade Cart</text>
+</svg>

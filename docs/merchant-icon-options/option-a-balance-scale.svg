@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="200" viewBox="0 0 160 200">
+  <circle cx="80" cy="80" r="70" fill="#f2f2ef" stroke="#c9c9c2" stroke-width="2"/>
+  <g transform="translate(32,32) scale(4)" fill="#14161a">
+    <rect x="11.3" y="7" width="1.4" height="12"/>
+    <rect x="8" y="19" width="8" height="1.6" rx="0.5"/>
+    <circle cx="12" cy="5.5" r="1.4"/>
+    <rect x="4.5" y="6.8" width="15" height="1.3" rx="0.5"/>
+    <rect x="6.1" y="8.1" width="0.7" height="3.4"/>
+    <rect x="17.2" y="8.1" width="0.7" height="3.4"/>
+    <path d="M4,11.5 Q6.45,15 8.9,11.5 Z"/>
+    <path d="M15.1,11.5 Q17.55,15 20,11.5 Z"/>
+  </g>
+  <text x="80" y="192" text-anchor="middle" font-family="'Trebuchet MS', Arial, sans-serif" font-size="16" font-weight="700" fill="#222">A: Balance Scale</text>
+</svg>
