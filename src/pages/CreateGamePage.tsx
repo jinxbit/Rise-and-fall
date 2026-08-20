@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { ErrorBanner } from '../components/ErrorBanner'
 import { GameLengthSelector } from '../components/GameLengthSelector'
 import { MapModeSelector, type MapMode, type MapPoolChoice } from '../components/MapModeSelector'
 import { PlayModeSelector } from '../components/PlayModeSelector'
@@ -100,7 +101,7 @@ export function CreateGamePage() {
         </Link>
       </header>
 
-      {error && <div className="rounded-md bg-red-500/10 p-3 text-sm text-red-400">{error}</div>}
+      {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
 
       <section className="flex flex-col gap-3">
         <label className="flex flex-col gap-1 text-sm text-neutral-400">

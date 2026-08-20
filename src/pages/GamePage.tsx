@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { BoardSetupView } from '../components/BoardSetupView'
 import { EndGameView } from '../components/EndGameView'
+import { ErrorBanner } from '../components/ErrorBanner'
 import { RoundView } from '../components/RoundView'
 import { resolveAchievementContent, resolveBoardGenerationContent, resolveTaleContent, resolveUnitContent } from '../content/resolveContent'
 import type { Action, LoggedAction } from '../engine/actions'
@@ -1160,19 +1161,19 @@ export function GamePage() {
         </div>
       )}
 
-      {stateExportError && <div className="rounded-md bg-red-500/10 p-3 text-sm text-red-400">{stateExportError}</div>}
+      {stateExportError && <ErrorBanner message={stateExportError} onDismiss={() => setStateExportError(null)} />}
 
       {copiedStateExport && !showStateJson && (
         <div className="rounded-md bg-emerald-500/10 p-3 text-sm text-emerald-400">Game export copied to clipboard!</div>
       )}
 
-      {mapSaveError && <div className="rounded-md bg-red-500/10 p-3 text-sm text-red-400">{mapSaveError}</div>}
+      {mapSaveError && <ErrorBanner message={mapSaveError} onDismiss={() => setMapSaveError(null)} />}
 
       {mapSaved && <div className="rounded-md bg-emerald-500/10 p-3 text-sm text-emerald-400">Map saved to the pool!</div>}
 
-      {lifecycleError && <div className="rounded-md bg-red-500/10 p-3 text-sm text-red-400">{lifecycleError}</div>}
+      {lifecycleError && <ErrorBanner message={lifecycleError} onDismiss={() => setLifecycleError(null)} />}
 
-      {observerError && <div className="rounded-md bg-red-500/10 p-3 text-sm text-red-400">{observerError}</div>}
+      {observerError && <ErrorBanner message={observerError} onDismiss={() => setObserverError(null)} />}
 
       {game.status === 'canceled' && (
         <div className="rounded-md bg-neutral-800/60 p-3 text-sm text-neutral-300">
@@ -1206,7 +1207,7 @@ export function GamePage() {
         </div>
       )}
 
-      {actionError && <div className="rounded-md bg-red-500/10 p-3 text-sm text-red-400">{actionError}</div>}
+      {actionError && <ErrorBanner message={actionError} onDismiss={() => setActionError(null)} />}
 
       {!gameState && canObserve && (
         <div className="flex flex-col items-center gap-4 rounded-md border border-neutral-800 p-12 text-center">
