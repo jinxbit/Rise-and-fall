@@ -96,8 +96,8 @@ export function HomePage() {
   if (!session) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 p-8 text-center">
-        <SupportBanner />
         <h1 className="text-3xl font-semibold">Rise &amp; Fall</h1>
+        <SupportBanner />
         <p className="max-w-sm text-neutral-400">
           Sign in with Discord to create or join a game with your friends.
         </p>
@@ -146,7 +146,6 @@ export function HomePage() {
 
   return (
     <div className="mx-auto flex max-w-lg flex-col gap-8 p-8">
-      <SupportBanner />
       <header className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Rise &amp; Fall</h1>
         <div className="flex items-center gap-3 text-sm text-neutral-400">
@@ -174,6 +173,8 @@ export function HomePage() {
           </button>
         </div>
       </header>
+
+      <SupportBanner />
 
       {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
       {loadError && <ErrorBanner message={loadError} onDismiss={() => setLoadError(null)} />}
