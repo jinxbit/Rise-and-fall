@@ -251,7 +251,27 @@ export function LobbyPage() {
   async function handleCopyRoomLink() {
     if (!game) return
     const link = `${window.location.origin}/lobby/${game.room_code}`
-    await navigator.clipboard.writeText(`Play Rise&Fall with me: ${link}`)
+    const text = `Play Rise&Fall with me: ${link}`
+    const html = `Play Rise&amp;Fall with me: <a href="${link}">join</a>`
+    // Rich targets (Slack, Discord, email, Google Docs, …) get "join" as a
+    // clickable link instead of a raw URL; text/plain stays as a fallback
+    // for targets that don't understand text/html (chat inputs, terminals).
+    if (typeof ClipboardItem !== 'undefined') {
+      try {
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            'text/plain': new Blob([text], { type: 'text/plain' }),
+            'text/html': new Blob([html], { type: 'text/html' }),
+          }),
+        ])
+        setLinkCopied(true)
+        setTimeout(() => setLinkCopied(false), 1500)
+        return
+      } catch {
+        // Fall through to the plain-text copy below.
+      }
+    }
+    await navigator.clipboard.writeText(text)
     setLinkCopied(true)
     setTimeout(() => setLinkCopied(false), 1500)
   }
@@ -342,56 +362,62 @@ export function LobbyPage() {
 
   return (
     <div className="mx-auto flex max-w-lg flex-col gap-6 p-8">
-      <header>
-        <h1 className="text-2xl font-semibold">{game.name}</h1>
-        <p className="text-sm text-neutral-500">Room {game.room_code}</p>
-        <button
-          type="button"
-          onClick={() => void handleCopyRoomLink()}
-          className="mt-2 rounded-md border border-neutral-700 px-3 py-2 text-sm font-medium text-neutral-300 hover:border-indigo-400 hover:text-indigo-300"
-        >
-          {linkCopied ? 'Link copied!' : 'Copy room link'}
-        </button>
-        <p className="text-neutral-400">
-          {game.play_mode} · {players.length}/{game.max_players} players · {game.settings.gameLength} achievements ·{' '}
-          {game.settings.mapTemplateId
-            ? (listMapTemplates().find((t) => t.id === game.settings.mapTemplateId)?.name ?? game.settings.mapTemplateId)
-            : game.settings.mapPoolBoard
-              ? 'random saved map'
-              : game.settings.mapPoolRandomAtStart
-                ? 'random saved map (picked when the game starts)'
-                : 'interactive map'}
-        </p>
-        {game.settings.activeTaleIds.length > 0 && (
-          <p className="text-sm text-neutral-500">
-            Tales:{' '}
-            {game.settings.activeTaleIds
-              .map((id) => listTales().find((t) => t.id === id)?.name ?? id)
-              .join(', ')}
-          </p>
-        )}
-        <p className="mt-1 text-sm text-neutral-500">
-          {game.visibility === 'public' ? 'Public — listed on the Public rooms screen' : 'Private — only reachable via this room’s link/code'}
-          {canEditVisibility && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void handleToggleVisibility()}
-              className="ml-2 text-indigo-400 hover:text-indigo-300 disabled:opacity-50"
-            >
-              Make {game.visibility === 'public' ? 'private' : 'public'}
-            </button>
-          )}
-        </p>
-        {canEditConfig && !configOpen && (
+      <header className="flex flex-col gap-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-semibold">{game.name}</h1>
+            <p className="text-sm text-neutral-500">Room {game.room_code}</p>
+          </div>
           <button
             type="button"
-            onClick={openConfigEditor}
-            className="mt-2 text-sm text-indigo-400 hover:text-indigo-300"
+            onClick={() => void handleCopyRoomLink()}
+            className="shrink-0 rounded-md border border-neutral-700 px-3 py-2 text-sm font-medium text-neutral-300 hover:border-indigo-400 hover:text-indigo-300"
           >
-            Edit configuration
+            {linkCopied ? 'Link copied!' : 'Copy room link'}
           </button>
-        )}
+        </div>
+        <div className="flex flex-col gap-1">
+          <p className="text-neutral-400">
+            {game.play_mode} · {players.length}/{game.max_players} players · {game.settings.gameLength} achievements ·{' '}
+            {game.settings.mapTemplateId
+              ? (listMapTemplates().find((t) => t.id === game.settings.mapTemplateId)?.name ?? game.settings.mapTemplateId)
+              : game.settings.mapPoolBoard
+                ? 'random saved map'
+                : game.settings.mapPoolRandomAtStart
+                  ? 'random saved map (picked when the game starts)'
+                  : 'interactive map'}
+          </p>
+          {game.settings.activeTaleIds.length > 0 && (
+            <p className="text-sm text-neutral-500">
+              Tales:{' '}
+              {game.settings.activeTaleIds
+                .map((id) => listTales().find((t) => t.id === id)?.name ?? id)
+                .join(', ')}
+            </p>
+          )}
+          <p className="text-sm text-neutral-500">
+            {game.visibility === 'public' ? 'Public — listed on the Public rooms screen' : 'Private — only reachable via this room’s link/code'}
+            {canEditVisibility && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void handleToggleVisibility()}
+                className="ml-2 text-indigo-400 hover:text-indigo-300 disabled:opacity-50"
+              >
+                Make {game.visibility === 'public' ? 'private' : 'public'}
+              </button>
+            )}
+          </p>
+          {canEditConfig && !configOpen && (
+            <button
+              type="button"
+              onClick={openConfigEditor}
+              className="self-start text-sm text-indigo-400 hover:text-indigo-300"
+            >
+              Edit configuration
+            </button>
+          )}
+        </div>
       </header>
 
       {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
