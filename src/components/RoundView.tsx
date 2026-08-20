@@ -2,6 +2,7 @@ import { Fragment, useEffect, useRef, useState } from 'react'
 import {
   boostedStateForSupport,
   computeActionOutcomePreview,
+  computeActionShortfall,
   findSupportCandidates,
   isActionAvailableForUnit,
   isActionSupportable,
@@ -1086,6 +1087,7 @@ export function RoundView(props: {
                 outcome: computeActionOutcomePreview(state, myPlayerId, unit, a),
                 disabled: !availableNow && !supportable,
                 supportable,
+                shortfall: supportable ? computeActionShortfall(state, myPlayerId, unit, a) : undefined,
               }
             }),
           ),

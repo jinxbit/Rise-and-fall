@@ -7,6 +7,13 @@ import type { IconShape } from './unitIcons'
 import { STATIC_UNIT_KINDS, UNIT_ICONS } from './unitIcons'
 
 const RESOURCE_ORDER: (keyof Resources)[] = ['gold', 'wood', 'stone']
+const RESOURCE_LABEL: Record<keyof Resources, string> = { gold: 'Gold', wood: 'Wood', stone: 'Stone' }
+
+/** "Short 2 Stone, 1 Gold" — the supportable option's bottom-of-box explainer text (see ActionMenuOption.shortfall). */
+function formatShortfall(shortfall: Partial<Resources>): string {
+  const parts = RESOURCE_ORDER.filter((key) => shortfall[key]).map((key) => `${shortfall[key]} ${RESOURCE_LABEL[key]}`)
+  return `Short ${parts.join(', ')}`
+}
 
 // Pointy-top axial hex rendering. Matches the axial convention used
 // throughout src/engine (HEX_DIRECTIONS in ../engine/board.ts, the shape
@@ -247,6 +254,14 @@ export interface ActionMenuOption {
    * Never true at the same time as `disabled`.
    */
   supportable?: boolean
+  /**
+   * When `supportable`, how much more of each resource is still short (see
+   * computeActionShortfall, ../engine/actionTargeting.ts) — rendered as a
+   * terse line at the bottom of the option box (e.g. "Short 2 Stone") so the
+   * amber border's meaning is legible without hovering for the tooltip
+   * (issue #224). Undefined/omitted whenever `supportable` is false.
+   */
+  shortfall?: Partial<Resources>
 }
 
 /**
@@ -853,7 +868,7 @@ export function HexBoard(props: {
                         disabled
                           ? 'flex h-full w-full flex-col items-center justify-center rounded-md border-2 border-dashed border-red-900 bg-neutral-900 px-1 text-center font-medium text-neutral-500'
                           : supportable
-                            ? 'flex h-full w-full flex-col items-center justify-center rounded-md border-2 border-amber-500 bg-amber-950 px-1 text-center font-medium text-amber-100 hover:bg-amber-900'
+                            ? 'flex h-full w-full flex-col items-center justify-center rounded-md border-2 border-amber-500 bg-indigo-950 px-1 text-center font-medium text-indigo-100 hover:bg-indigo-900'
                             : 'flex h-full w-full flex-col items-center justify-center rounded-md border-2 border-indigo-400 bg-indigo-950 px-1 text-center font-medium text-indigo-100 hover:bg-indigo-900'
                       }
                     >
@@ -874,6 +889,9 @@ export function HexBoard(props: {
                             )
                           })}
                         </span>
+                      )}
+                      {supportable && option.shortfall && (
+                        <span className="mt-0.5 text-[0.7em] leading-tight font-normal text-amber-500">{formatShortfall(option.shortfall)}</span>
                       )}
                     </div>
                   </foreignObject>
