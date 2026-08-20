@@ -155,8 +155,18 @@ Deno.serve(async (req) => {
 
   // SITE_URL is an optional secret (supabase secrets set SITE_URL=...) — without
   // it the message falls back to showing the room code instead of a clickable link.
+  // Only the origin is used, so a value that's accidentally a full page URL (e.g.
+  // copy-pasted from the browser while testing, like https://site.example/lobby/AB12)
+  // still produces a correct link instead of nesting that path into the game URL.
   const siteUrl = Deno.env.get('SITE_URL')
-  const gameUrl = siteUrl ? `${siteUrl.replace(/\/+$/, '')}/game/${game.room_code}` : null
+  let gameUrl: string | null = null
+  if (siteUrl) {
+    try {
+      gameUrl = `${new URL(siteUrl).origin}/game/${game.room_code}`
+    } catch {
+      // Malformed SITE_URL secret — fall back to the room code rather than emitting a broken link.
+    }
+  }
   const phase = phaseLabel(payload.record.state)
   const round = payload.record.state.status === 'active' ? payload.record.state.turn : null
 
