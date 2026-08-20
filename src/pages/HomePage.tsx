@@ -10,7 +10,6 @@ import { useAuth } from '../hooks/useAuth'
 import { useDisplayName } from '../hooks/useDisplayName'
 import { useIsAdmin } from '../hooks/useIsAdmin'
 import { getGameByRoomCode, listMyGames, listPublicRooms } from '../lib/gameApi'
-import { signOut } from '../lib/auth'
 import { paginate } from '../lib/pagination'
 import {
   formatUpdatedAt,
@@ -149,14 +148,6 @@ export function HomePage() {
       <header className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Rise &amp; Fall</h1>
         <div className="flex items-center gap-3 text-sm text-neutral-400">
-          {avatarUrl && <img src={avatarUrl} alt="" className="h-8 w-8 rounded-full" />}
-          <span>{displayName}</span>
-          <Link to="/profile" className="underline hover:text-neutral-200">
-            Profile
-          </Link>
-          <Link to="/games" className="underline hover:text-neutral-200">
-            My games
-          </Link>
           <Link to="/public" className="underline hover:text-neutral-200">
             Public rooms
           </Link>
@@ -168,9 +159,10 @@ export function HomePage() {
               Saved maps
             </Link>
           )}
-          <button onClick={() => void signOut()} className="underline hover:text-neutral-200">
-            Sign out
-          </button>
+          <Link to="/profile" className="flex items-center gap-2 hover:text-neutral-200">
+            {avatarUrl && <img src={avatarUrl} alt="" className="h-8 w-8 rounded-full" />}
+            <span>{displayName}</span>
+          </Link>
         </div>
       </header>
 
