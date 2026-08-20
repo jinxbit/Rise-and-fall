@@ -17,7 +17,10 @@
 // in the Edge Function runtime — the service-role key is what lets this
 // read any player's `profiles.discord_webhook_url` regardless of RLS
 // (0013_discord_notify_backend.sql drops the old co-player-read policy,
-// since browsers no longer need that access).
+// since browsers no longer need that access), and lets it call
+// `auth.admin.getUserById` to resolve each player's Discord snowflake ID
+// (from their Discord OAuth identity) so the ping can `@mention` them —
+// a plain name in a webhook message doesn't actually notify anyone.
 
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 
@@ -93,6 +96,7 @@ const WEBHOOK_URL_PATTERN = /^https:\/\/(?:discord\.com|discordapp\.com)\/api\/w
 // that file's doc comment for why this Edge Function can't just import it.
 function turnNotificationMessage(params: {
   displayName: string
+  discordUserId: string | null
   roomName: string
   roomCode: string
   phase: string
@@ -104,7 +108,14 @@ function turnNotificationMessage(params: {
   // the raw URL below — without one, fall back to the room code on its own line.
   const roomName = params.gameUrl ? `[${params.roomName}](${params.gameUrl})` : params.roomName
   const fallback = params.gameUrl ? '' : `\nRoom \`${params.roomCode}\``
-  return `**Rise & Fall** — **${params.displayName}**, it's your turn to **${params.phase}** in **${roomName}**${roundText}.${fallback}`
+  const mention = params.discordUserId ? `<@${params.discordUserId}>` : `**${params.displayName}**`
+  return `**Rise & Fall** — ${mention}, it's your turn to **${params.phase}** in **${roomName}**${roundText}.${fallback}`
+}
+
+// Kept in sync with src/lib/discordNotify.ts's discordUserIdFromIdentities —
+// see that file's doc comment for why this Edge Function can't just import it.
+function discordUserIdFromIdentities(identities: { provider: string; id: string }[] | null | undefined): string | null {
+  return identities?.find((identity) => identity.provider === 'discord')?.id ?? null
 }
 
 async function sendDiscordNotification(webhookUrl: string, content: string): Promise<void> {
@@ -192,13 +203,22 @@ Deno.serve(async (req) => {
   const webhookByUserId = new Map((profiles ?? []).map((p) => [p.user_id, p.discord_webhook_url]))
 
   await Promise.allSettled(
-    players.map((player) => {
+    players.map(async (player) => {
       const webhookUrl = webhookByUserId.get(player.user_id)
-      if (!webhookUrl || !WEBHOOK_URL_PATTERN.test(webhookUrl)) return Promise.resolve()
+      if (!webhookUrl || !WEBHOOK_URL_PATTERN.test(webhookUrl)) return
+
+      // Look up the player's Discord snowflake ID so the ping can @mention them
+      // (a plain name in a webhook message doesn't notify anyone) — falls back
+      // to the bold display name if the lookup fails or they never signed in
+      // with Discord (e.g. the guest auth bypass).
+      const { data: authUser } = await supabase.auth.admin.getUserById(player.user_id)
+      const discordUserId = discordUserIdFromIdentities(authUser?.user?.identities ?? null)
+
       return sendDiscordNotification(
         webhookUrl,
         turnNotificationMessage({
           displayName: player.display_name,
+          discordUserId,
           roomName: game.name,
           roomCode: game.room_code,
           phase,

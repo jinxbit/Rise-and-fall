@@ -16,11 +16,26 @@ export function isDiscordWebhookUrl(url: string): boolean {
   return WEBHOOK_URL_PATTERN.test(url.trim())
 }
 
+/**
+ * A signed-in Supabase Auth user's Discord snowflake ID (for `<@id>` mentions),
+ * taken from their Discord OAuth identity — `UserIdentity.id` is the provider's
+ * own user ID, not Supabase's internal identity row ID. `null` if the user never
+ * signed in with Discord (e.g. the guest auth bypass).
+ *
+ * Mirrored in supabase/functions/notify-discord-turn/index.ts, which can't
+ * import from src/ — keep the two in sync if this ever changes.
+ */
+export function discordUserIdFromIdentities(identities: { provider: string; id: string }[] | null | undefined): string | null {
+  return identities?.find((identity) => identity.provider === 'discord')?.id ?? null
+}
+
 // Mirrored in supabase/functions/notify-discord-turn/index.ts, which sends
 // the real pings — that Edge Function can't import from src/, so keep the
 // two in sync if this ever changes.
 export function turnNotificationMessage(params: {
   displayName: string
+  /** Discord snowflake ID to `@mention` (so the recipient is actually pinged), or null to fall back to the bold display name. */
+  discordUserId: string | null
   roomName: string
   roomCode: string
   phase: string
@@ -34,7 +49,8 @@ export function turnNotificationMessage(params: {
   // the raw URL below — without one, fall back to the room code on its own line.
   const roomName = params.gameUrl ? `[${params.roomName}](${params.gameUrl})` : params.roomName
   const fallback = params.gameUrl ? '' : `\nRoom \`${params.roomCode}\``
-  return `**Rise & Fall** — **${params.displayName}**, it's your turn to **${params.phase}** in **${roomName}**${roundText}.${fallback}`
+  const mention = params.discordUserId ? `<@${params.discordUserId}>` : `**${params.displayName}**`
+  return `**Rise & Fall** — ${mention}, it's your turn to **${params.phase}** in **${roomName}**${roundText}.${fallback}`
 }
 
 /**

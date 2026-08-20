@@ -55,7 +55,7 @@ export function ProfilePage() {
         onSaved={setProfileDisplayName}
       />
 
-      <DiscordWebhookSettings userId={user.id} />
+      <DiscordWebhookSettings user={user} />
     </div>
   )
 }
