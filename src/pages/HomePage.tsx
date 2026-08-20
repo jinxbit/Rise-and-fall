@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { DiscordSignIn } from '../components/DiscordSignIn'
+import { ErrorBanner } from '../components/ErrorBanner'
 import { GuestSignIn } from '../components/GuestSignIn'
 import { Pagination } from '../components/Pagination'
 import { useAuth } from '../hooks/useAuth'
@@ -74,7 +75,7 @@ export function HomePage() {
         <p className="max-w-sm text-neutral-400">
           Sign in with Discord to create or join a game with your friends.
         </p>
-        {error && <div className="rounded-md bg-red-500/10 p-3 text-sm text-red-400">{error}</div>}
+        {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
         <div className="flex flex-col items-center gap-3">
           <DiscordSignIn onError={setError} />
           {import.meta.env.VITE_ALLOW_GUEST_AUTH === 'true' && <GuestSignIn onError={setError} />}
@@ -146,8 +147,8 @@ export function HomePage() {
         </div>
       </header>
 
-      {error && <div className="rounded-md bg-red-500/10 p-3 text-sm text-red-400">{error}</div>}
-      {loadError && <div className="rounded-md bg-red-500/10 p-3 text-sm text-red-400">{loadError}</div>}
+      {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
+      {loadError && <ErrorBanner message={loadError} onDismiss={() => setLoadError(null)} />}
 
       <section className="flex flex-col gap-3">
         <Link

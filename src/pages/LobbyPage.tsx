@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useDisplayName } from '../hooks/useDisplayName'
 import { useIsAdmin } from '../hooks/useIsAdmin'
+import { ErrorBanner } from '../components/ErrorBanner'
 import { GameLengthSelector } from '../components/GameLengthSelector'
 import { MapModeSelector, type MapMode, type MapPoolChoice } from '../components/MapModeSelector'
 import { TaleSelector } from '../components/TaleSelector'
@@ -386,7 +387,7 @@ export function LobbyPage() {
         )}
       </header>
 
-      {error && <div className="rounded-md bg-red-500/10 p-3 text-sm text-red-400">{error}</div>}
+      {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
 
       {game.status === 'canceled' && (
         <div className="rounded-md bg-neutral-800/60 p-3 text-sm text-neutral-300">
