@@ -139,7 +139,7 @@ function RoomSection({
           <GameOverviewCard
             key={entry.game.id}
             name={entry.game.name}
-            description={`${entry.game.play_mode} · ${entry.players.length}/${entry.game.max_players} players`}
+            description={`${entry.players.length}/${entry.game.max_players} players`}
             phase={PHASE_LABEL[publicRoomBucket(entry)]}
             players={entry.players}
             pendingPlayerIds={pendingActorIds(entry)}
