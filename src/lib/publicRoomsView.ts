@@ -6,6 +6,7 @@
 
 import type { GameState as EngineGameState } from '../engine/types'
 import type { GameRow, PlayerRow } from './dbTypes'
+import { isMyTurnFor, pendingActorIdsFor } from './gameCardView'
 
 /**
  * One publicly-listed room, plus everything the list view needs to render
@@ -42,6 +43,17 @@ export function isJoinable(entry: PublicRoomEntry): boolean {
 /** Observable per issue section 4: Active and In Progress. */
 export function isObservable(entry: PublicRoomEntry): boolean {
   return publicRoomBucket(entry) === 'inProgress'
+}
+
+/** The seated players who must act next, or `[]` if nobody's turn is pending (lobby/finished). */
+export function pendingActorIds(entry: PublicRoomEntry): string[] {
+  return pendingActorIdsFor(entry.gameState)
+}
+
+/** True if any of `userId`'s seats in this room is one of the players pendingActorIds() says must act next. */
+export function isMyTurn(entry: PublicRoomEntry, userId: string): boolean {
+  const myPlayerIds = entry.players.filter((p) => p.user_id === userId).map((p) => p.id)
+  return isMyTurnFor(entry.gameState, myPlayerIds)
 }
 
 /**

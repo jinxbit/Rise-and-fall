@@ -3,9 +3,11 @@
 // import time, same reason as seatIndex.ts) so turn/finished classification
 // and sorting can be unit tested without a real project config.
 
-import { pendingActorIds as pendingActorIdsForState } from '../engine/turnOrder'
 import type { GameState as EngineGameState } from '../engine/types'
 import type { GameRow, PlayerRow } from './dbTypes'
+import { isMyTurnFor, pendingActorIdsFor } from './gameCardView'
+
+export { formatUpdatedAt } from './gameCardView'
 
 /**
  * One game the current user is seated in, plus everything the list/detail
@@ -47,30 +49,12 @@ export function isCanceled(entry: MyGameEntry): boolean {
 
 /** The seated players who must act next, or `[]` if nobody's turn is pending (lobby/completed). */
 export function pendingActorIds(entry: MyGameEntry): string[] {
-  return entry.gameState ? pendingActorIdsForState(entry.gameState) : []
+  return pendingActorIdsFor(entry.gameState)
 }
 
 /** True if any of the current user's seats is one of the players pendingActorIds() says must act next. */
 export function isMyTurn(entry: MyGameEntry): boolean {
-  const pending = pendingActorIds(entry)
-  return entry.myPlayerIds.some((id) => pending.includes(id))
-}
-
-/**
- * Short "time ago" label for a game's games.updated_at. `now` is injectable
- * for tests; defaults to the real current time.
- */
-export function formatUpdatedAt(isoTimestamp: string, now: Date = new Date()): string {
-  const updated = new Date(isoTimestamp)
-  const diffMinutes = Math.round((now.getTime() - updated.getTime()) / 60_000)
-
-  if (diffMinutes < 1) return 'Updated just now'
-  if (diffMinutes < 60) return `Updated ${diffMinutes}m ago`
-  const diffHours = Math.round(diffMinutes / 60)
-  if (diffHours < 24) return `Updated ${diffHours}h ago`
-  const diffDays = Math.round(diffHours / 24)
-  if (diffDays < 7) return `Updated ${diffDays}d ago`
-  return `Updated ${updated.toLocaleDateString()}`
+  return isMyTurnFor(entry.gameState, entry.myPlayerIds)
 }
 
 /**
