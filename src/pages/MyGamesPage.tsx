@@ -130,7 +130,7 @@ function GameRowItem({ entry, onOpen }: { entry: MyGameEntry; onOpen: () => void
   return (
     <GameOverviewCard
       name={entry.game.name}
-      description={STATUS_LABEL[status]}
+      phase={STATUS_LABEL[status]}
       players={entry.players}
       pendingPlayerIds={pendingActorIds(entry)}
       isMyTurn={isMyTurn(entry)}
