@@ -26,6 +26,7 @@ import {
   isMyTurn as isMyTurnInPublicRoom,
   pendingActorIds as pendingActorIdsInPublicRoom,
   publicRoomBucket,
+  type PublicRoomBucket,
   type PublicRoomEntry,
 } from '../lib/publicRoomsView'
 
@@ -37,6 +38,12 @@ const STATUS_LABEL: Record<MyGameStatus, string> = {
   active: 'In progress',
   completed: 'Finished',
   canceled: 'Canceled',
+}
+
+const PUBLIC_PHASE_LABEL: Record<PublicRoomBucket, string> = {
+  notStarted: 'Not started',
+  inProgress: 'In progress',
+  finished: 'Finished',
 }
 
 /** Same routing rule as MyGamesPage.tsx's gamePath — no game_state row yet means the room is still in the lobby. */
@@ -61,6 +68,7 @@ export function HomePage() {
   const [myGamesPage, setMyGamesPage] = useState(0)
   const [joinablePage, setJoinablePage] = useState(0)
   const [inProgressPage, setInProgressPage] = useState(0)
+  const [finishedPage, setFinishedPage] = useState(0)
 
   useEffect(() => {
     if (!session) return
@@ -120,7 +128,7 @@ export function HomePage() {
     }
   }
 
-  const { active: myGamesInProgress } = groupMyGames(myEntries ?? [])
+  const { active: myGamesInProgress, finished: myFinishedGames } = groupMyGames(myEntries ?? [])
   const { notStarted, inProgress: publicInProgress } = groupPublicRooms(publicEntries ?? [])
   // "Latest" here means most-recently created — unlike the in-progress list
   // below, a fresh lobby's updated_at rarely differs from its created_at, but
@@ -132,6 +140,7 @@ export function HomePage() {
   const myGamesPageItems = paginate(myGamesInProgress, myGamesPage, PAGE_SIZE)
   const joinablePageItems = paginate(joinablePublic, joinablePage, PAGE_SIZE)
   const inProgressPageItems = paginate(publicInProgress, inProgressPage, PAGE_SIZE)
+  const finishedPageItems = paginate(myFinishedGames, finishedPage, PAGE_SIZE)
 
   return (
     <div className="mx-auto flex max-w-lg flex-col gap-8 p-8">
@@ -243,13 +252,25 @@ export function HomePage() {
                   key={entry.game.id}
                   entry={entry}
                   userId={session.user.id}
-                  action={entry.players.some((p) => p.user_id === session.user.id) ? 'Continue' : 'Observe'}
+                  action={entry.players.some((p) => p.user_id === session.user.id) ? undefined : 'Observe'}
                   onOpen={() => navigate(`/game/${entry.game.room_code}`)}
                 />
               ))}
             </ul>
           )}
           <Pagination page={inProgressPage} pageSize={PAGE_SIZE} total={publicInProgress.length} onChange={setInProgressPage} />
+        </section>
+      )}
+
+      {myEntries !== null && myFinishedGames.length > 0 && (
+        <section className="flex flex-col gap-3">
+          <h2 className="font-medium text-neutral-200">Finished games</h2>
+          <ul className="flex flex-col gap-2">
+            {finishedPageItems.map((entry) => (
+              <MyGameRow key={entry.game.id} entry={entry} onOpen={() => navigate(gamePath(entry))} />
+            ))}
+          </ul>
+          <Pagination page={finishedPage} pageSize={PAGE_SIZE} total={myFinishedGames.length} onChange={setFinishedPage} />
         </section>
       )}
     </div>
@@ -262,8 +283,7 @@ function MyGameRow({ entry, onOpen }: { entry: MyGameEntry; onOpen: () => void }
   return (
     <GameOverviewCard
       name={entry.game.name}
-      roomCode={entry.game.room_code}
-      description={STATUS_LABEL[status]}
+      phase={STATUS_LABEL[status]}
       players={entry.players}
       pendingPlayerIds={pendingActorIds(entry)}
       isMyTurn={isMyTurn(entry)}
@@ -282,18 +302,20 @@ function PublicGameRow({
 }: {
   entry: PublicRoomEntry
   userId: string
-  action: string
+  action?: string
   onOpen: () => void
 }) {
+  const bucket = publicRoomBucket(entry)
   return (
     <GameOverviewCard
       name={entry.game.name}
-      roomCode={entry.game.room_code}
       description={`${entry.game.play_mode} · ${entry.players.length}/${entry.game.max_players} players`}
+      phase={PUBLIC_PHASE_LABEL[bucket]}
       players={entry.players}
       pendingPlayerIds={pendingActorIdsInPublicRoom(entry)}
       isMyTurn={isMyTurnInPublicRoom(entry, userId)}
-      isFinished={publicRoomBucket(entry) === 'finished'}
+      isFinished={bucket === 'finished'}
+      isJoinable={isJoinable(entry)}
       updatedAt={formatUpdatedAt(entry.game.updated_at)}
       action={action}
       onOpen={onOpen}
