@@ -10,6 +10,7 @@ import { TaleSelector } from '../components/TaleSelector'
 import { listMapTemplates, listTales } from '../content/resolveContent'
 import { buildGenesisState, resolveMapPoolRandomAtStart } from '../lib/gameGenesis'
 import { pickRandomMapFromPool } from '../lib/mapPoolApi'
+import { setPendingRedirect } from '../lib/pendingRedirect'
 import {
   addLocalPlayer,
   cancelGame,
@@ -92,8 +93,13 @@ export function LobbyPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameId, load, navigate])
 
-  if (authLoading) return <div className="p-8 text-neutral-400">Loading…</div>
-  if (!session) return <div className="p-8 text-neutral-400">Sign in from the home page first.</div>
+  useEffect(() => {
+    if (authLoading || session || !roomCode) return
+    setPendingRedirect(`/lobby/${roomCode}`)
+    navigate('/', { replace: true })
+  }, [authLoading, session, roomCode, navigate])
+
+  if (authLoading || !session) return <div className="p-8 text-neutral-400">Loading…</div>
   if (!game) return <div className="p-8 text-neutral-400">Looking for room {roomCode}…</div>
 
   const user = session.user

@@ -38,6 +38,7 @@ import {
 } from '../lib/gameApi'
 import { encodeGameStateExport } from '../lib/gameStateExport'
 import { saveMapToPool } from '../lib/mapPoolApi'
+import { setPendingRedirect } from '../lib/pendingRedirect'
 
 /**
  * Two players' writes racing the game_state row's optimistic-concurrency
@@ -60,6 +61,12 @@ export function GamePage() {
   const { displayName: observerDisplayName, loading: observerDisplayNameLoading } = useDisplayName(session?.user ?? null)
   const isAdmin = useIsAdmin(session?.user ?? null)
   const navigate = useNavigate()
+
+  useEffect(() => {
+    if (authLoading || session || !roomCode) return
+    setPendingRedirect(`/game/${roomCode}`)
+    navigate('/', { replace: true })
+  }, [authLoading, session, roomCode, navigate])
 
   const [game, setGame] = useState<GameRow | null>(null)
   const [players, setPlayers] = useState<PlayerRow[]>([])
@@ -915,8 +922,7 @@ export function GamePage() {
     }
   }
 
-  if (authLoading) return <div className="p-8 text-neutral-400">Loading…</div>
-  if (!session) return <div className="p-8 text-neutral-400">Sign in from the home page first.</div>
+  if (authLoading || !session) return <div className="p-8 text-neutral-400">Loading…</div>
   if (!game) return <div className="p-8 text-neutral-400">Looking for room {roomCode}…</div>
 
   return (

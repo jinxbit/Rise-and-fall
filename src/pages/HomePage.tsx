@@ -11,6 +11,7 @@ import { useDisplayName } from '../hooks/useDisplayName'
 import { useIsAdmin } from '../hooks/useIsAdmin'
 import { getGameByRoomCode, listMyGames, listPublicRooms } from '../lib/gameApi'
 import { paginate } from '../lib/pagination'
+import { consumePendingRedirect } from '../lib/pendingRedirect'
 import {
   formatUpdatedAt,
   groupMyGames,
@@ -69,6 +70,12 @@ export function HomePage() {
   const [joinablePage, setJoinablePage] = useState(0)
   const [inProgressPage, setInProgressPage] = useState(0)
   const [finishedPage, setFinishedPage] = useState(0)
+
+  useEffect(() => {
+    if (!session) return
+    const redirect = consumePendingRedirect()
+    if (redirect) navigate(redirect, { replace: true })
+  }, [session, navigate])
 
   useEffect(() => {
     if (!session) return
