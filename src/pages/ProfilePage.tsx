@@ -3,6 +3,7 @@ import { DiscordWebhookSettings } from '../components/DiscordWebhookSettings'
 import { DisplayNameSettings } from '../components/DisplayNameSettings'
 import { useAuth } from '../hooks/useAuth'
 import { useDisplayName } from '../hooks/useDisplayName'
+import { signOut } from '../lib/auth'
 import { resolveDisplayName } from '../lib/displayName'
 
 export function ProfilePage() {
@@ -33,9 +34,17 @@ export function ProfilePage() {
     <div className="mx-auto flex max-w-lg flex-col gap-8 p-8">
       <header className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Profile</h1>
-        <Link to="/" className="text-sm underline hover:text-neutral-200">
-          Home
-        </Link>
+        <div className="flex items-center gap-3 text-sm text-neutral-400">
+          <Link to="/" className="underline hover:text-neutral-200">
+            Home
+          </Link>
+          <Link to="/games" className="underline hover:text-neutral-200">
+            My games
+          </Link>
+          <button onClick={() => void signOut()} className="underline hover:text-neutral-200">
+            Sign out
+          </button>
+        </div>
       </header>
 
       <DisplayNameSettings
