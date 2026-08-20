@@ -22,7 +22,7 @@ describe('turnNotificationMessage', () => {
       gameUrl: 'https://example.com/game/AB12',
     })
     expect(message).toBe(
-      "**Rise & Fall** — **Alice**, it's your turn to **select a card** in **The War Room** (Round 3).\nhttps://example.com/game/AB12",
+      "**Rise & Fall** — **Alice**, it's your turn to **select a card** in **[The War Room](https://example.com/game/AB12)** (Round 3).",
     )
   })
 
