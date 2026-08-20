@@ -15,15 +15,6 @@ export function SupportBanner() {
         </a>
         ,{' '}
         <a
-          href="https://store.steampowered.com/app/2956790/Rise__Fall__Online_Digital_Edition/"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="underline hover:text-amber-200"
-        >
-          Steam
-        </a>
-        ,{' '}
-        <a
           href="https://discord.gg/x7znCBrm"
           target="_blank"
           rel="noopener noreferrer"
