@@ -120,12 +120,23 @@ across live/async/hotseat sessions.
   actually run on to the allow list, e.g.:
   - `http://localhost:5173` (local dev)
   - your Vercel deployment URL, once you have one
+  - any custom domain (including a CNAME) you point at the Vercel
+    deployment, once it's live
 - The app calls `signInWithOAuth` with `redirectTo: window.location.origin`,
   so whatever origin the user is on when they click "Sign in with Discord"
   needs to be in this list.
+- Also update **Site URL** on the same page to match your primary domain.
+  Supabase falls back to Site URL — not the `redirectTo` you passed —
+  whenever the requested redirect isn't in the allow list above, so a
+  stale Site URL (Supabase defaults new projects to
+  `http://localhost:3000`) is the usual cause of getting bounced to
+  `localhost:3000` after adding a custom domain.
 
 Once that's done, "Sign in with Discord" on the home page should work end
-to end.
+to end. **Whenever you add or change a domain later** (e.g. attaching a new
+CNAME in Vercel), repeat this step — Supabase auth for a domain not yet in
+the allow list will silently redirect to the Site URL instead of failing
+loudly, which looks exactly like "logging in sends me to localhost:3000".
 
 ## Discord turn notifications (optional, per player)
 
