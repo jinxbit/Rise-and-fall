@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   boostedStateForSupport,
   computeActionOutcomePreview,
+  computeActionShortfall,
   findSupportCandidates,
   isActionAvailableForUnit,
   isActionSupportable,
@@ -814,6 +815,33 @@ describe('findSupportCandidates / isActionSupportable / boostedStateForSupport',
     const builder = makeUnit('p1', 'nomad', { q: 0, r: 0 })
     const alone = makeState({ board: boardOf([[0, 0, 'plain']]), units: [builder], players: [makePlayer('p1', { resources: { gold: 0, wood: 0, stone: 0 } })] })
     expect(isActionSupportable(alone, 'p1', builder, transformToCityAction, nomadContent)).toBe(false)
+  })
+
+  describe('computeActionShortfall', () => {
+    it('reports how much more of each resource is still needed', () => {
+      const { state, builder } = setup()
+      expect(computeActionShortfall(state, 'p1', builder, transformToCityAction)).toEqual({ wood: 2, stone: 2 })
+    })
+
+    it('omits a resource the player already has enough of', () => {
+      const { builder } = setup()
+      const partiallyFunded = makeState({
+        board: boardOf([[0, 0, 'plain']]),
+        units: [builder],
+        players: [makePlayer('p1', { resources: { gold: 0, wood: 2, stone: 0 } })],
+      })
+      expect(computeActionShortfall(partiallyFunded, 'p1', builder, transformToCityAction)).toEqual({ stone: 2 })
+    })
+
+    it('is undefined once the action is already affordable', () => {
+      const { builder } = setup()
+      const funded = makeState({
+        board: boardOf([[0, 0, 'plain']]),
+        units: [builder],
+        players: [makePlayer('p1', { resources: { gold: 0, wood: 2, stone: 2 } })],
+      })
+      expect(computeActionShortfall(funded, 'p1', builder, transformToCityAction)).toBeUndefined()
+    })
   })
 
   describe('neededSupportCandidates', () => {

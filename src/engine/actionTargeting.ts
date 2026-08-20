@@ -329,6 +329,27 @@ export function neededSupportCandidates(
   })
 }
 
+/**
+ * How much more of each resource `unit` would still need to afford `action`
+ * right now — e.g. `{ stone: 2 }` for a Transform to City costing 3 Stone
+ * while the player holds 1. Drives the radial menu's concise shortfall text
+ * on a "supportable" option (ActionMenuOption.shortfall, ../components/
+ * HexBoard.tsx — issue #224's request to explain the gap in words, not just
+ * an amber border), so the player knows what's missing before picking
+ * support units. Reuses computeActionOutcomePreview's cost the same way
+ * neededSupportCandidates does, so the two can't drift apart. Undefined once
+ * nothing is short, mirroring computeActionOutcomePreview's own convention.
+ */
+export function computeActionShortfall(state: GameState, playerId: string, unit: Unit, action: UnitAction): Partial<Resources> | undefined {
+  const player = state.players.find((p) => p.id === playerId)
+  if (!player) return undefined
+  const cost = computeActionOutcomePreview(state, playerId, unit, action) ?? {}
+  const entries = (['gold', 'wood', 'stone'] as const)
+    .map((key): [keyof Resources, number] => [key, -(cost[key] ?? 0) - player.resources[key]])
+    .filter(([, shortfall]) => shortfall > 0)
+  return entries.length > 0 ? (Object.fromEntries(entries) as Partial<Resources>) : undefined
+}
+
 /** `cost`'s nonzero entries, negated — undefined if `cost` has nothing to spend, so a 0-cost action's preview omits an empty "-0" chip entirely. */
 function negatedCost(cost: ActionCost): Partial<Resources> | undefined {
   const entries = (Object.entries(cost) as [keyof Resources, number | undefined][]).filter(([, amount]) => amount)

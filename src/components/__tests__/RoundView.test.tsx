@@ -1507,10 +1507,13 @@ describe('RoundView — supporting actions (issue #147)', () => {
 
     const transformOption = [...container.querySelectorAll('foreignObject div')].find((d) => d.textContent?.startsWith('Transform to City'))
     expect(transformOption).toBeTruthy()
-    // Rendered with the distinct amber "supportable" treatment, not the
-    // normal indigo one — see HexBoard's ActionMenuOption.supportable.
+    // Rendered with the distinct amber "supportable" treatment — a gold
+    // border on the otherwise-normal box, not a full amber fill (issue
+    // #224) — and a concise shortfall explainer at the bottom.
     expect(transformOption!.className).toContain('border-amber-500')
     expect(transformOption!.className).not.toContain('border-indigo-400')
+    expect(transformOption!.className).not.toContain('bg-amber-950')
+    expect(transformOption!.textContent).toContain('Short 1 Wood, 1 Stone')
 
     fireEvent.click(transformOption!)
 
