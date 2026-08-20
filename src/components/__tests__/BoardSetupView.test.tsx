@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { BoardSetupView } from '../BoardSetupView'
 import { createEmptyBoard, setTile } from '../../engine/board'
@@ -63,7 +63,7 @@ const boardGenerationContent: BoardGenerationContent = {
 }
 
 describe('BoardSetupView — tile placement ghost legality', () => {
-  it('shows the ghost as illegal (red) and hides Confirm entirely when the placement fails an extra rule (touching < 2 Sea tiles) — regression for the reported "shows green when it cannot be placed" bug', () => {
+  it('shows the ghost as illegal (red) and hides Confirm entirely when the placement fails an extra rule (touching < 2 Sea tiles) — regression for the reported "shows green when it cannot be placed" bug', async () => {
     const board = setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'water')
     const state = makeWaterPlacementState(board)
 
@@ -89,18 +89,49 @@ describe('BoardSetupView — tile placement ghost legality', () => {
     expect(hex).not.toBeNull()
     fireEvent.click(hex!)
 
-    const ghostCovered = container.querySelector('polygon[data-ghost-coord="1,0"]')
-    const ghostExtra = container.querySelector('polygon[data-ghost-coord="2,0"]')
-    expect(ghostCovered).not.toBeNull()
-    expect(ghostExtra).not.toBeNull()
-    expect(ghostCovered?.getAttribute('stroke')).toBe('#ef4444')
-    expect(ghostExtra?.getAttribute('stroke')).toBe('#ef4444')
+    // The legality check is deferred to a macrotask (issue #205, so the
+    // board can paint an "analyzing" overlay before the — possibly slow —
+    // check actually runs), so the result only shows up after that tick.
+    await waitFor(() => {
+      const ghostCovered = container.querySelector('polygon[data-ghost-coord="1,0"]')
+      const ghostExtra = container.querySelector('polygon[data-ghost-coord="2,0"]')
+      expect(ghostCovered?.getAttribute('stroke')).toBe('#ef4444')
+      expect(ghostExtra?.getAttribute('stroke')).toBe('#ef4444')
+    })
 
-    expect(screen.getByText(/at least 2 Sea tiles/)).toBeInTheDocument()
+    expect(await screen.findByText(/at least 2 Sea tiles/)).toBeInTheDocument()
     expect(screen.queryByText('Confirm')).toBeNull()
   })
 
-  it('shows the ghost as legal (green) and enables Confirm once the placement satisfies every rule', () => {
+  it('shows an "analyzing" overlay on the map while the legality check is pending, before it resolves — issue #205', async () => {
+    const board = setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'water')
+    const state = makeWaterPlacementState(board)
+
+    render(
+      <BoardSetupView
+        state={state}
+        players={[makePlayerRow('p1', 'Alice'), makePlayerRow('p2', 'Bob')]}
+        myPlayerId="p1"
+        boardGenerationContent={boardGenerationContent}
+        onPlaceTile={vi.fn()}
+        onPlaceUnit={vi.fn()}
+      />,
+    )
+
+    expect(screen.queryByText('Analyzing legal placement…')).toBeNull()
+
+    const hex = document.querySelector('polygon[data-coord="2,0"]')
+    fireEvent.click(hex!)
+
+    // The check itself is deferred to a macrotask (see TilePlacementPanel),
+    // so right after the click — before that tick runs — the overlay should
+    // already be up rather than the board just looking frozen.
+    expect(screen.getByText('Analyzing legal placement…')).toBeInTheDocument()
+
+    await waitFor(() => expect(screen.queryByText('Analyzing legal placement…')).toBeNull())
+  })
+
+  it('shows the ghost as legal (green) and enables Confirm once the placement satisfies every rule', async () => {
     let board = setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'water')
     board = setTile(board, { q: 1, r: -1 }, 'water')
     const state = makeWaterPlacementState(board)
@@ -121,9 +152,11 @@ describe('BoardSetupView — tile placement ghost legality', () => {
     const hex = container.querySelector('polygon[data-coord="2,0"]')
     fireEvent.click(hex!)
 
-    const ghostCovered = container.querySelector('polygon[data-ghost-coord="1,0"]')
-    expect(ghostCovered?.getAttribute('stroke')).toBe('#22c55e')
-    expect(screen.getByText('Confirm')).toBeEnabled()
+    await waitFor(() => {
+      const ghostCovered = container.querySelector('polygon[data-ghost-coord="1,0"]')
+      expect(ghostCovered?.getAttribute('stroke')).toBe('#22c55e')
+    })
+    expect(await screen.findByText('Confirm')).toBeEnabled()
   })
 
   it('marks the clicked (anchor) hex with a rotate hint once a placement is pending — issue #115', () => {
@@ -149,7 +182,7 @@ describe('BoardSetupView — tile placement ghost legality', () => {
     expect(container.querySelector('[data-rotate-hint-coord="2,0"]')).not.toBeNull()
   })
 
-  it('renders Confirm inside the board SVG, next to the selected hex, instead of a static row above it — issue #120', () => {
+  it('renders Confirm inside the board SVG, next to the selected hex, instead of a static row above it — issue #120', async () => {
     // Two Sea tiles, as in the "legal placement" test above — Confirm only
     // ever renders for a legal pending placement (issue #121).
     let board = setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'water')
@@ -176,7 +209,7 @@ describe('BoardSetupView — tile placement ghost legality', () => {
     // The controls live inside the SVG, in a foreignObject anchored to the
     // clicked hex — not a fixed block outside/above the board (the old
     // layout, which could end up far from the tile on a large board).
-    const confirmButton = screen.getByText('Confirm')
+    const confirmButton = await screen.findByText('Confirm')
     expect(svg.contains(confirmButton)).toBe(true)
     const foreignObject = confirmButton.closest('foreignObject')
     expect(foreignObject).not.toBeNull()

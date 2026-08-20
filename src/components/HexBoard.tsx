@@ -504,6 +504,16 @@ export function HexBoard(props: {
   size?: number
   /** Raises the board's max on-screen height (see RoundView.tsx's "Expand board" toggle, used once the player status sidebar is hidden and there's more room to fill). Default false — the normal 70vh cap. */
   expanded?: boolean
+  /**
+   * Covers the board with an "Analyzing legal placement…" overlay — shown
+   * while the rule-4 room-check search (see BoardSetupView's
+   * TilePlacementPanel, canPlaceRemainingTilesDetailed in
+   * ../engine/boardGeneration.ts) is running. That search is a bounded but
+   * potentially slow synchronous computation that would otherwise block the
+   * UI with no feedback (issue #205) — this covers the board for that
+   * stretch instead of leaving it looking frozen.
+   */
+  analyzing?: boolean
 }) {
   const size = props.size ?? 22
 
@@ -631,11 +641,12 @@ export function HexBoard(props: {
   }
 
   return (
-    <svg
-      viewBox={`${minX} ${minY} ${maxX - minX} ${maxY - minY}`}
-      style={{ overflow: 'visible' }}
-      className={`w-full rounded-md border border-neutral-800 bg-neutral-950 ${props.expanded ? 'max-h-[92vh]' : 'max-h-[70vh]'}`}
-    >
+    <div className="relative">
+      <svg
+        viewBox={`${minX} ${minY} ${maxX - minX} ${maxY - minY}`}
+        style={{ overflow: 'visible' }}
+        className={`w-full rounded-md border border-neutral-800 bg-neutral-950 ${props.expanded ? 'max-h-[92vh]' : 'max-h-[70vh]'}`}
+      >
       {pixels.map(({ coord, x, y }) => {
         const tile = props.board.tiles[coordKey(coord)]
         const selected = props.selectedCoord?.q === coord.q && props.selectedCoord?.r === coord.r
@@ -884,6 +895,14 @@ export function HexBoard(props: {
           </div>
         </foreignObject>
       )}
-    </svg>
+      </svg>
+      {props.analyzing && (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-md bg-neutral-950/70">
+          <span className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-sm font-medium text-neutral-200">
+            Analyzing legal placement…
+          </span>
+        </div>
+      )}
+    </div>
   )
 }
