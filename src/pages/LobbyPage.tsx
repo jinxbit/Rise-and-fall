@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useDisplayName } from '../hooks/useDisplayName'
 import { useIsAdmin } from '../hooks/useIsAdmin'
@@ -368,13 +368,18 @@ export function LobbyPage() {
             <h1 className="text-2xl font-semibold">{game.name}</h1>
             <p className="text-sm text-neutral-500">Room {game.room_code}</p>
           </div>
-          <button
-            type="button"
-            onClick={() => void handleCopyRoomLink()}
-            className="shrink-0 rounded-md border border-neutral-700 px-3 py-2 text-sm font-medium text-neutral-300 hover:border-indigo-400 hover:text-indigo-300"
-          >
-            {linkCopied ? 'Link copied!' : 'Copy room link'}
-          </button>
+          <div className="flex shrink-0 flex-col items-end gap-2">
+            <Link to="/" className="text-sm underline hover:text-neutral-200">
+              Home
+            </Link>
+            <button
+              type="button"
+              onClick={() => void handleCopyRoomLink()}
+              className="rounded-md border border-neutral-700 px-3 py-2 text-sm font-medium text-neutral-300 hover:border-indigo-400 hover:text-indigo-300"
+            >
+              {linkCopied ? 'Link copied!' : 'Copy room link'}
+            </button>
+          </div>
         </div>
         <div className="flex flex-col gap-1">
           <p className="text-neutral-400">
