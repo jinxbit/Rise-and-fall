@@ -46,11 +46,19 @@ export const UNIT_ICONS: Record<string, IconShape[]> = {
     { kind: 'rect', x: 5.4, y: 15.6, width: 2.6, height: 6.2 },
     { kind: 'polygon', points: '4.5,11.5 2.3,14 4.3,16.5 5,15.5 4,14 4.8,12.5' },
   ],
-  // A drawstring coin bag — the only rounded, organic silhouette.
+  // A balance scale — echoes the trade scale the Merchant already holds in
+  // its card art (public/cards/merchant.svg). Fully symmetric beam-and-pans
+  // silhouette, unlike every other icon in the set, and reads as
+  // "trade/fairness" rather than just "money."
   merchant: [
-    { kind: 'path', d: 'M8.5,20 Q5,20 5,15.4 Q5,10.6 9,9.6 L15,9.6 Q19,10.6 19,15.4 Q19,20 15.5,20 Z' },
-    { kind: 'rect', x: 10, y: 6.3, width: 4, height: 3.5, rx: 0.8 },
-    { kind: 'circle', cx: 12, cy: 6, r: 1 },
+    { kind: 'rect', x: 11.3, y: 7, width: 1.4, height: 12 },
+    { kind: 'rect', x: 8, y: 19, width: 8, height: 1.6, rx: 0.5 },
+    { kind: 'circle', cx: 12, cy: 5.5, r: 1.4 },
+    { kind: 'rect', x: 4.5, y: 6.8, width: 15, height: 1.3, rx: 0.5 },
+    { kind: 'rect', x: 6.1, y: 8.1, width: 0.7, height: 3.4 },
+    { kind: 'rect', x: 17.2, y: 8.1, width: 0.7, height: 3.4 },
+    { kind: 'path', d: 'M4,11.5 Q6.45,15 8.9,11.5 Z' },
+    { kind: 'path', d: 'M15.1,11.5 Q17.55,15 20,11.5 Z' },
   ],
   // Twin jagged peaks with a summit flag — zigzag reads instantly against every smooth shape.
   mountaineer: [
