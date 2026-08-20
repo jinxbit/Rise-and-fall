@@ -11,8 +11,15 @@ import {
   isMyTurn,
   pendingActorIds,
   publicRoomBucket,
+  type PublicRoomBucket,
   type PublicRoomEntry,
 } from '../lib/publicRoomsView'
+
+const PHASE_LABEL: Record<PublicRoomBucket, string> = {
+  notStarted: 'Not started',
+  inProgress: 'In progress',
+  finished: 'Finished',
+}
 
 /**
  * The Public Rooms discovery screen (issue #40 section 5): every room whose
@@ -93,7 +100,7 @@ export function PublicRoomsPage() {
           userId={session.user.id}
           onOpen={(entry) => navigate(`/game/${entry.game.room_code}`)}
           renderAction={(entry) =>
-            entry.players.some((p) => p.user_id === session.user.id) ? 'Continue' : 'Observe'
+            entry.players.some((p) => p.user_id === session.user.id) ? undefined : 'Observe'
           }
         />
       )}
@@ -122,7 +129,7 @@ function RoomSection({
   entries: PublicRoomEntry[]
   userId: string
   onOpen: (entry: PublicRoomEntry) => void
-  renderAction: (entry: PublicRoomEntry) => string
+  renderAction: (entry: PublicRoomEntry) => string | undefined
 }) {
   return (
     <section className="flex flex-col gap-3">
@@ -132,12 +139,13 @@ function RoomSection({
           <GameOverviewCard
             key={entry.game.id}
             name={entry.game.name}
-            roomCode={entry.game.room_code}
             description={`${entry.game.play_mode} · ${entry.players.length}/${entry.game.max_players} players`}
+            phase={PHASE_LABEL[publicRoomBucket(entry)]}
             players={entry.players}
             pendingPlayerIds={pendingActorIds(entry)}
             isMyTurn={isMyTurn(entry, userId)}
             isFinished={publicRoomBucket(entry) === 'finished'}
+            isJoinable={isJoinable(entry)}
             updatedAt={formatUpdatedAt(entry.game.updated_at)}
             action={renderAction(entry)}
             onOpen={() => onOpen(entry)}
