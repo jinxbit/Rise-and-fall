@@ -30,8 +30,11 @@ export function turnNotificationMessage(params: {
   gameUrl: string | null
 }): string {
   const roundText = params.round === null ? '' : ` (Round ${params.round})`
-  const location = params.gameUrl ?? `Room \`${params.roomCode}\``
-  return `**Rise & Fall** — **${params.displayName}**, it's your turn to **${params.phase}** in **${params.roomName}**${roundText}.\n${location}`
+  // With a game link, the room name itself becomes the link instead of pasting
+  // the raw URL below — without one, fall back to the room code on its own line.
+  const roomName = params.gameUrl ? `[${params.roomName}](${params.gameUrl})` : params.roomName
+  const fallback = params.gameUrl ? '' : `\nRoom \`${params.roomCode}\``
+  return `**Rise & Fall** — **${params.displayName}**, it's your turn to **${params.phase}** in **${roomName}**${roundText}.${fallback}`
 }
 
 /**
