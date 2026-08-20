@@ -289,7 +289,7 @@ function PublicGameRow({
     <GameOverviewCard
       name={entry.game.name}
       roomCode={entry.game.room_code}
-      description={`${entry.game.play_mode} · ${entry.players.length}/${entry.game.max_players} players`}
+      description={`${entry.players.length}/${entry.game.max_players} players`}
       players={entry.players}
       pendingPlayerIds={pendingActorIdsInPublicRoom(entry)}
       isMyTurn={isMyTurnInPublicRoom(entry, userId)}

@@ -133,7 +133,7 @@ function RoomSection({
             key={entry.game.id}
             name={entry.game.name}
             roomCode={entry.game.room_code}
-            description={`${entry.game.play_mode} · ${entry.players.length}/${entry.game.max_players} players`}
+            description={`${entry.players.length}/${entry.game.max_players} players`}
             players={entry.players}
             pendingPlayerIds={pendingActorIds(entry)}
             isMyTurn={isMyTurn(entry, userId)}
