@@ -1,6 +1,7 @@
+import type { User } from '@supabase/supabase-js'
 import { useEffect, useState } from 'react'
 import { getDiscordWebhookUrl, saveDiscordWebhookUrl } from '../lib/gameApi'
-import { isDiscordWebhookUrl, sendDiscordNotification, turnNotificationMessage } from '../lib/discordNotify'
+import { discordUserIdFromIdentities, isDiscordWebhookUrl, sendDiscordNotification, turnNotificationMessage } from '../lib/discordNotify'
 
 /**
  * Account-level (not per-game) settings for async "your turn" Discord
@@ -9,7 +10,8 @@ import { isDiscordWebhookUrl, sendDiscordNotification, turnNotificationMessage }
  * server-side by the notify-discord-turn Edge Function (see
  * supabase/functions/notify-discord-turn), not by any player's browser.
  */
-export function DiscordWebhookSettings({ userId }: { userId: string }) {
+export function DiscordWebhookSettings({ user }: { user: User }) {
+  const userId = user.id
   const [webhookUrl, setWebhookUrl] = useState('')
   const [saved, setSaved] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -57,6 +59,7 @@ export function DiscordWebhookSettings({ userId }: { userId: string }) {
         saved,
         turnNotificationMessage({
           displayName: 'Test Player',
+          discordUserId: discordUserIdFromIdentities(user.identities),
           roomName: 'Test Room',
           roomCode: 'TEST',
           phase: 'take a test turn',
