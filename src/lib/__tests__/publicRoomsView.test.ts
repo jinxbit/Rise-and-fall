@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { buildGenesisState } from '../gameGenesis'
-import { groupPublicRooms, isJoinable, isObservable, publicRoomBucket, type PublicRoomEntry } from '../publicRoomsView'
+import {
+  groupPublicRooms,
+  isJoinable,
+  isMyTurn,
+  isObservable,
+  pendingActorIds,
+  publicRoomBucket,
+  type PublicRoomEntry,
+} from '../publicRoomsView'
 import type { GameRow, GameSettings, PlayerRow } from '../dbTypes'
 import type { GameState as EngineGameState } from '../../engine/types'
 
@@ -95,6 +103,38 @@ describe('isObservable', () => {
 
   it('is false for a finished room', () => {
     expect(isObservable(makeEntry({ gameState: makeActiveState({ status: 'completed' }) }))).toBe(false)
+  })
+})
+
+describe('pendingActorIds', () => {
+  it('is empty with no game_state row yet (lobby)', () => {
+    expect(pendingActorIds(makeEntry({ gameState: null }))).toEqual([])
+  })
+
+  it('returns the active player when one player is up', () => {
+    expect(pendingActorIds(makeEntry({ gameState: makeActiveState({ activePlayerId: 'p2' }) }))).toEqual(['p2'])
+  })
+
+  it('is empty once the room is finished', () => {
+    expect(pendingActorIds(makeEntry({ gameState: makeActiveState({ status: 'completed' }) }))).toEqual([])
+  })
+})
+
+describe('isMyTurn', () => {
+  it('is true when the given user seats the active player', () => {
+    expect(isMyTurn(makeEntry({ gameState: makeActiveState({ activePlayerId: 'p1' }) }), 'auth_1')).toBe(true)
+  })
+
+  it('is false when the given user is not seated in this room', () => {
+    expect(isMyTurn(makeEntry({ gameState: makeActiveState({ activePlayerId: 'p1' }) }), 'auth_9')).toBe(false)
+  })
+
+  it('is false when the given user is seated but a different player is active', () => {
+    expect(isMyTurn(makeEntry({ gameState: makeActiveState({ activePlayerId: 'p2' }) }), 'auth_1')).toBe(false)
+  })
+
+  it('is false with no game_state row yet (lobby)', () => {
+    expect(isMyTurn(makeEntry({ gameState: null }), 'auth_1')).toBe(false)
   })
 })
 

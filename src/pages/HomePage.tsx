@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { DiscordSignIn } from '../components/DiscordSignIn'
+import { GameOverviewCard } from '../components/GameOverviewCard'
 import { GuestSignIn } from '../components/GuestSignIn'
 import { Pagination } from '../components/Pagination'
 import { useAuth } from '../hooks/useAuth'
@@ -9,8 +10,23 @@ import { useIsAdmin } from '../hooks/useIsAdmin'
 import { getGameByRoomCode, listMyGames, listPublicRooms } from '../lib/gameApi'
 import { signOut } from '../lib/auth'
 import { paginate } from '../lib/pagination'
-import { groupMyGames, isMyTurn, myGameStatus, type MyGameEntry, type MyGameStatus } from '../lib/myGamesView'
-import { groupPublicRooms, isJoinable, type PublicRoomEntry } from '../lib/publicRoomsView'
+import {
+  formatUpdatedAt,
+  groupMyGames,
+  isMyTurn,
+  myGameStatus,
+  pendingActorIds,
+  type MyGameEntry,
+  type MyGameStatus,
+} from '../lib/myGamesView'
+import {
+  groupPublicRooms,
+  isJoinable,
+  isMyTurn as isMyTurnInPublicRoom,
+  pendingActorIds as pendingActorIdsInPublicRoom,
+  publicRoomBucket,
+  type PublicRoomEntry,
+} from '../lib/publicRoomsView'
 
 const PAGE_SIZE = 10
 
@@ -203,6 +219,7 @@ export function HomePage() {
                 <PublicGameRow
                   key={entry.game.id}
                   entry={entry}
+                  userId={session.user.id}
                   action="Join"
                   onOpen={() => navigate(`/lobby/${entry.game.room_code}`)}
                 />
@@ -224,6 +241,7 @@ export function HomePage() {
                 <PublicGameRow
                   key={entry.game.id}
                   entry={entry}
+                  userId={session.user.id}
                   action={entry.players.some((p) => p.user_id === session.user.id) ? 'Continue' : 'Observe'}
                   onOpen={() => navigate(`/game/${entry.game.room_code}`)}
                 />
@@ -238,43 +256,46 @@ export function HomePage() {
 }
 
 function MyGameRow({ entry, onOpen }: { entry: MyGameEntry; onOpen: () => void }) {
-  const myTurn = isMyTurn(entry)
   const status = myGameStatus(entry)
 
   return (
-    <li>
-      <button
-        onClick={onOpen}
-        className="flex w-full items-center justify-between gap-3 rounded-md border border-neutral-800 bg-neutral-900 px-4 py-3 text-left hover:border-neutral-600"
-      >
-        <div className="flex flex-col gap-1">
-          <span className="font-medium">{entry.game.name}</span>
-          <span className="text-sm text-neutral-400">
-            Room {entry.game.room_code} · {STATUS_LABEL[status]} · {entry.players.map((p) => p.display_name).join(', ')}
-          </span>
-        </div>
-        {myTurn && <span className="shrink-0 rounded-full bg-indigo-600 px-3 py-1 text-xs font-medium text-white">Your turn</span>}
-      </button>
-    </li>
+    <GameOverviewCard
+      name={entry.game.name}
+      roomCode={entry.game.room_code}
+      description={STATUS_LABEL[status]}
+      players={entry.players}
+      pendingPlayerIds={pendingActorIds(entry)}
+      isMyTurn={isMyTurn(entry)}
+      isFinished={status === 'completed'}
+      updatedAt={formatUpdatedAt(entry.game.updated_at)}
+      onOpen={onOpen}
+    />
   )
 }
 
-function PublicGameRow({ entry, action, onOpen }: { entry: PublicRoomEntry; action: string; onOpen: () => void }) {
+function PublicGameRow({
+  entry,
+  userId,
+  action,
+  onOpen,
+}: {
+  entry: PublicRoomEntry
+  userId: string
+  action: string
+  onOpen: () => void
+}) {
   return (
-    <li>
-      <button
-        onClick={onOpen}
-        className="flex w-full items-center justify-between gap-3 rounded-md border border-neutral-800 bg-neutral-900 px-4 py-3 text-left hover:border-neutral-600"
-      >
-        <div className="flex flex-col gap-1">
-          <span className="font-medium">{entry.game.name}</span>
-          <span className="text-sm text-neutral-400">
-            Room {entry.game.room_code} · {entry.game.play_mode} · {entry.players.length}/{entry.game.max_players} players ·{' '}
-            {entry.players.map((p) => p.display_name).join(', ') || 'no players yet'}
-          </span>
-        </div>
-        <span className="shrink-0 rounded-full bg-indigo-600 px-3 py-1 text-xs font-medium text-white">{action}</span>
-      </button>
-    </li>
+    <GameOverviewCard
+      name={entry.game.name}
+      roomCode={entry.game.room_code}
+      description={`${entry.game.play_mode} · ${entry.players.length}/${entry.game.max_players} players`}
+      players={entry.players}
+      pendingPlayerIds={pendingActorIdsInPublicRoom(entry)}
+      isMyTurn={isMyTurnInPublicRoom(entry, userId)}
+      isFinished={publicRoomBucket(entry) === 'finished'}
+      updatedAt={formatUpdatedAt(entry.game.updated_at)}
+      action={action}
+      onOpen={onOpen}
+    />
   )
 }

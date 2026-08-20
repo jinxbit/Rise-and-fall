@@ -3,9 +3,11 @@
 // import time, same reason as seatIndex.ts) so turn/finished classification
 // and sorting can be unit tested without a real project config.
 
-import { pendingActorIds } from '../engine/turnOrder'
 import type { GameState as EngineGameState } from '../engine/types'
 import type { GameRow, PlayerRow } from './dbTypes'
+import { isMyTurnFor, pendingActorIdsFor } from './gameCardView'
+
+export { formatUpdatedAt } from './gameCardView'
 
 /**
  * One game the current user is seated in, plus everything the list/detail
@@ -45,11 +47,14 @@ export function isCanceled(entry: MyGameEntry): boolean {
   return myGameStatus(entry) === 'canceled'
 }
 
+/** The seated players who must act next, or `[]` if nobody's turn is pending (lobby/completed). */
+export function pendingActorIds(entry: MyGameEntry): string[] {
+  return pendingActorIdsFor(entry.gameState)
+}
+
 /** True if any of the current user's seats is one of the players pendingActorIds() says must act next. */
 export function isMyTurn(entry: MyGameEntry): boolean {
-  if (!entry.gameState) return false
-  const pending = pendingActorIds(entry.gameState)
-  return entry.myPlayerIds.some((id) => pending.includes(id))
+  return isMyTurnFor(entry.gameState, entry.myPlayerIds)
 }
 
 /**
