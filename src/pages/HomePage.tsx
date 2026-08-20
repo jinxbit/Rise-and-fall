@@ -159,7 +159,7 @@ export function HomePage() {
               Saved maps
             </Link>
           )}
-          <Link to="/profile" className="flex items-center gap-2 hover:text-neutral-200">
+          <Link to="/profile" className="flex flex-col items-center gap-1 hover:text-neutral-200">
             {avatarUrl && <img src={avatarUrl} alt="" className="h-8 w-8 rounded-full" />}
             <span>{displayName}</span>
           </Link>
