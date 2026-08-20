@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { getTile } from '../engine/board'
 import { placedShapeCells, rotateShape, shapeCenterCell } from '../engine/boardGeneration'
 import type { RoomCheckDiagnostics } from '../engine/boardGeneration'
 import type { BoardGenerationContent } from '../engine/boardGenerationContent'
 import { checkTilePlacementLegalityDetailed, currentTilePlacerId, currentUnitPlacerId, isLegalStartingUnitPlacement } from '../engine/boardSetup'
+import type { TilePlacementLegalityResult } from '../engine/boardSetup'
 import type { Board, Coordinate, GameState } from '../engine/types'
 import type { PlayerRow } from '../lib/dbTypes'
 import type { GhostCell, PlacementControls } from './HexBoard'
@@ -50,20 +51,26 @@ function playerName(players: PlayerRow[], playerId: string | null): string {
  * `roomCheck === undefined` means no hex is currently selected; `null`
  * means the pending placement didn't reach the search at all (either it's
  * already illegal for some other reason, or it's the last tile of its
- * tier, so nothing remains to check room for).
+ * tier, so nothing remains to check room for). While `analyzing` (the
+ * search is still running — see TilePlacementPanel), `roomCheck` is
+ * whatever the *previous* pending placement left behind, so it's ignored
+ * in favor of a plain "still analyzing" line (issue #205).
  */
-function RoomCheckPanel({ roomCheck }: { roomCheck: RoomCheckDiagnostics | null | undefined }) {
+function RoomCheckPanel({ roomCheck, analyzing }: { roomCheck: RoomCheckDiagnostics | null | undefined; analyzing: boolean }) {
   if (roomCheck === undefined) return null
 
   return (
     <div className="rounded-md border border-neutral-800 bg-neutral-900/50 p-3 text-xs text-neutral-400">
-      <p className="font-medium text-neutral-300">Rule-4 room check (current placement)</p>
-      {roomCheck === null || !roomCheck.ran ? (
+      <p className="font-medium text-neutral-300">Legal placement analysis (current placement)</p>
+      {analyzing ? (
+        <p className="mt-1">Analyzing…</p>
+      ) : roomCheck === null || !roomCheck.ran ? (
         <p className="mt-1">Not run — either the placement is already illegal for another reason, or it&apos;s the last tile of its tier, so there&apos;s nothing left to check room for.</p>
       ) : (
         <ul className="mt-1 list-disc space-y-0.5 pl-4">
-          <li>{roomCheck.budgetReached ? `Hit the ${roomCheck.stepBudget.toLocaleString()}-iteration cap` : `Finished before the ${roomCheck.stepBudget.toLocaleString()}-iteration cap`}</li>
-          <li>{roomCheck.stepsUsed.toLocaleString()} iterations evaluated</li>
+          <li>
+            {roomCheck.stepsUsed.toLocaleString()} placement combinations checked{roomCheck.budgetReached ? ' (cap hit)' : ''}
+          </li>
           <li>{roomCheck.elapsedMs < 1 ? '<1 ms' : `${Math.round(roomCheck.elapsedMs)} ms`} elapsed</li>
           <li>Result: {roomCheck.legal ? 'a legal placement of every remaining tile was found' : 'no legal placement of every remaining tile was found'}</li>
         </ul>
@@ -102,37 +109,58 @@ function TilePlacementPanel(props: {
   }, [boardSetup.tilePlacerIndex, boardSetup.tileTierQueue.length])
 
   // Computed even when `tierContent` is missing (the early return just
-  // below handles that) so every hook here — including the useMemo below —
+  // below handles that) so every hook here — including the effect below —
   // still runs unconditionally, in the same order, on every render (rules
   // of hooks).
   const rotatedCenterOffset = tierContent ? rotateShape([shapeCenterCell(tierContent.shapeCells)], rotation)[0] : null
   const anchor = center && rotatedCenterOffset ? { q: center.q - rotatedCenterOffset.q, r: center.r - rotatedCenterOffset.r } : null
 
-  // checkTilePlacementLegalityDetailed is the expensive part of this render (it can
-  // run a bounded combinatorial backtracking search — see
-  // canPlaceRemainingTiles/findDisjointCombos in ../engine/boardGeneration.ts
-  // — over every legal placement of the board's current size), so it's
-  // memoized on its actual inputs rather than recomputed on every render:
-  // this component re-renders on every gameState update from Supabase
-  // realtime (e.g. another player's placement, or even an unrelated parent
-  // re-render like the top menu opening), not just when the player changes
-  // their own pending anchor/rotation. Keyed on `state`/`boardGenerationContent`
-  // by reference (both are only ever replaced, never mutated in place — see
-  // GameState's own event-sourcing model) plus the anchor/rotation's actual
-  // (primitive) values, since `anchor` itself is a fresh object every render.
-  const legalityResult = useMemo(
-    () => (anchor ? checkTilePlacementLegalityDetailed(state, anchor, rotation, boardGenerationContent) : null),
+  // checkTilePlacementLegalityDetailed is the expensive part of this render
+  // (it can run a bounded combinatorial backtracking search — see
+  // canPlaceRemainingTiles/findDisjointCombos in
+  // ../engine/boardGeneration.ts — over every legal placement of the
+  // board's current size). Running it straight from render, synchronously,
+  // blocked the whole tab for however long the search took with no
+  // feedback (issue #205) — deferred into a macrotask instead (setTimeout
+  // 0) so React commits and the browser paints the `analyzing` state below
+  // (which HexBoard shows as an "Analyzing legal placement…" overlay)
+  // *before* the actual, blocking search starts. Keyed on
+  // `state`/`boardGenerationContent` by reference (both are only ever
+  // replaced, never mutated in place — see GameState's own event-sourcing
+  // model) plus the anchor/rotation's actual (primitive) values, since
+  // `anchor` itself is a fresh object every render — this only re-runs when
+  // one of those actually changes, not on every unrelated re-render (e.g.
+  // another player's placement arriving over Supabase realtime, or even an
+  // unrelated parent re-render like the top menu opening).
+  const [legalityResult, setLegalityResult] = useState<TilePlacementLegalityResult | null>(null)
+  const [analyzing, setAnalyzing] = useState(false)
+
+  useEffect(() => {
+    if (!anchor) {
+      setLegalityResult(null)
+      setAnalyzing(false)
+      return
+    }
+    setAnalyzing(true)
+    const timer = setTimeout(() => {
+      setLegalityResult(checkTilePlacementLegalityDetailed(state, anchor, rotation, boardGenerationContent))
+      setAnalyzing(false)
+    }, 0)
+    return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state, boardGenerationContent, anchor?.q, anchor?.r, rotation],
-  )
-  const legalityError = legalityResult?.error ?? null
+  }, [state, boardGenerationContent, anchor?.q, anchor?.r, rotation])
+
+  // Stale (previous placement's) legalityResult is ignored while analyzing
+  // — otherwise the ghost/Confirm/error text would flash the old
+  // placement's verdict for a moment before the new one lands.
+  const legalityError = analyzing ? null : (legalityResult?.error ?? null)
 
   if (!tierContent) {
     return <p className="text-red-400">No board-generation content for tier &apos;{tier}&apos;.</p>
   }
 
   const placedCells = anchor ? placedShapeCells(tierContent.shapeCells, anchor, rotation) : []
-  const legal = anchor !== null && legalityError === null
+  const legal = anchor !== null && !analyzing && legalityError === null
   const ghostCells: GhostCell[] = placedCells.map((coord) => ({ coord, legal }))
   const extraCoords = paddedEmptyCoords(state.board, 4)
 
@@ -201,9 +229,10 @@ function TilePlacementPanel(props: {
         placementControls={placementControls}
         interactive={isMyTurn}
         onHexClick={handleHexClick}
+        analyzing={analyzing}
       />
 
-      <RoomCheckPanel roomCheck={legalityResult?.roomCheck} />
+      <RoomCheckPanel roomCheck={legalityResult?.roomCheck} analyzing={analyzing} />
     </div>
   )
 }
