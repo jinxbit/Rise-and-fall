@@ -10,6 +10,7 @@ import { useAuth } from '../hooks/useAuth'
 import { useDisplayName } from '../hooks/useDisplayName'
 import { useIsAdmin } from '../hooks/useIsAdmin'
 import { getGameByRoomCode, listMyGames, listPublicRooms } from '../lib/gameApi'
+import { buildGameCardSummary } from '../lib/gameCardView'
 import { paginate } from '../lib/pagination'
 import { consumePendingRedirect } from '../lib/pendingRedirect'
 import {
@@ -292,6 +293,7 @@ function MyGameRow({ entry, onOpen }: { entry: MyGameEntry; onOpen: () => void }
       isMyTurn={isMyTurn(entry)}
       isFinished={status === 'completed'}
       updatedAt={formatUpdatedAt(entry.game.updated_at)}
+      summary={buildGameCardSummary(entry.game, entry.gameState, entry.players)}
       onOpen={onOpen}
     />
   )
@@ -321,6 +323,7 @@ function PublicGameRow({
       isJoinable={isJoinable(entry)}
       updatedAt={formatUpdatedAt(entry.game.updated_at)}
       action={action}
+      summary={buildGameCardSummary(entry.game, entry.gameState, entry.players)}
       onOpen={onOpen}
     />
   )

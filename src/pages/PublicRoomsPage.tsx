@@ -4,7 +4,7 @@ import { ErrorBanner } from '../components/ErrorBanner'
 import { GameOverviewCard } from '../components/GameOverviewCard'
 import { useAuth } from '../hooks/useAuth'
 import { listPublicRooms } from '../lib/gameApi'
-import { formatUpdatedAt } from '../lib/gameCardView'
+import { buildGameCardSummary, formatUpdatedAt } from '../lib/gameCardView'
 import {
   groupPublicRooms,
   isJoinable,
@@ -148,6 +148,7 @@ function RoomSection({
             isJoinable={isJoinable(entry)}
             updatedAt={formatUpdatedAt(entry.game.updated_at)}
             action={renderAction(entry)}
+            summary={buildGameCardSummary(entry.game, entry.gameState, entry.players)}
             onOpen={() => onOpen(entry)}
           />
         ))}

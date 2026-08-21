@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { GameOverviewCard } from '../GameOverviewCard'
 import type { PlayerRow } from '../../lib/dbTypes'
+import type { GameCardSummary } from '../../lib/gameCardView'
 
 function makePlayer(id: string, displayName: string): PlayerRow {
   return {
@@ -177,5 +178,123 @@ describe('GameOverviewCard', () => {
     )
 
     expect(screen.getByText('Join')).toBeInTheDocument()
+  })
+
+  function emptySummary(): GameCardSummary {
+    return { playerRange: null, mapBuildStyle: null, moduleNames: [], roundNumber: null, scores: null, winnerNames: [] }
+  }
+
+  it('shows the player range and map build style on a joinable card', () => {
+    render(
+      <ul>
+        <GameOverviewCard
+          name="Test room"
+          phase="Not started"
+          players={[]}
+          pendingPlayerIds={[]}
+          isMyTurn={false}
+          isFinished={false}
+          isJoinable
+          updatedAt="Updated just now"
+          summary={{ ...emptySummary(), playerRange: '2–4 players', mapBuildStyle: 'Interactive (built together)' }}
+          onOpen={() => {}}
+        />
+      </ul>,
+    )
+
+    expect(screen.getByText('2–4 players · Interactive (built together)')).toBeInTheDocument()
+  })
+
+  it('shows the modules (active Tales) whenever any are set', () => {
+    render(
+      <ul>
+        <GameOverviewCard
+          name="Test room"
+          phase="In progress"
+          players={[]}
+          pendingPlayerIds={[]}
+          isMyTurn={false}
+          isFinished={false}
+          updatedAt="Updated just now"
+          summary={{ ...emptySummary(), moduleNames: ['The Capital', 'The Ports'] }}
+          onOpen={() => {}}
+        />
+      </ul>,
+    )
+
+    expect(screen.getByText('Modules: The Capital, The Ports')).toBeInTheDocument()
+  })
+
+  it('shows the round number and player scores on an in-progress card', () => {
+    render(
+      <ul>
+        <GameOverviewCard
+          name="Test room"
+          phase="In progress"
+          players={[]}
+          pendingPlayerIds={[]}
+          isMyTurn={false}
+          isFinished={false}
+          updatedAt="Updated just now"
+          summary={{
+            ...emptySummary(),
+            roundNumber: 3,
+            scores: [
+              { playerId: 'p1', name: 'Alice', color: '#ef4444', score: 12 },
+              { playerId: 'p2', name: 'Bob', color: '#3b82f6', score: 7 },
+            ],
+          }}
+          onOpen={() => {}}
+        />
+      </ul>,
+    )
+
+    expect(screen.getByText('Round 3')).toBeInTheDocument()
+    expect(screen.getByText((_, el) => el?.textContent === 'Alice: 12, Bob: 7')).toBeInTheDocument()
+  })
+
+  it('shows the winner with a crown and the final scores on a finished card, but no round number', () => {
+    render(
+      <ul>
+        <GameOverviewCard
+          name="Test room"
+          phase="Finished"
+          players={[]}
+          pendingPlayerIds={[]}
+          isMyTurn={false}
+          isFinished
+          updatedAt="Updated 2d ago"
+          summary={{
+            ...emptySummary(),
+            roundNumber: 8,
+            winnerNames: ['Alice'],
+            scores: [{ playerId: 'p1', name: 'Alice', color: '#ef4444', score: 20 }],
+          }}
+          onOpen={() => {}}
+        />
+      </ul>,
+    )
+
+    expect(screen.getByText('👑 Alice')).toBeInTheDocument()
+    expect(screen.queryByText('Round 8')).not.toBeInTheDocument()
+  })
+
+  it('renders no summary section when omitted', () => {
+    render(
+      <ul>
+        <GameOverviewCard
+          name="Test room"
+          phase="Not started"
+          players={[]}
+          pendingPlayerIds={[]}
+          isMyTurn={false}
+          isFinished={false}
+          updatedAt="Updated just now"
+          onOpen={() => {}}
+        />
+      </ul>,
+    )
+
+    expect(screen.queryByText(/Modules:/)).not.toBeInTheDocument()
   })
 })
