@@ -679,12 +679,20 @@ interface BulkActionGroup {
  * action that never needed a target hex in the first place. Each group's
  * `outcome` is the aggregated resource preview across its units (see
  * computeActionOutcomePreview), shown on the button alongside the count.
+ *
+ * Self-targeted transforms (e.g. Nomad/Mountaineer's Transform to City or
+ * Temple) are excluded even though they need no target: they permanently
+ * destroy the acting unit and turn it into a different, immobile kind, so
+ * batching every remaining unit into one irreversible click would be far
+ * too easy to trigger by accident (issue #201) — unlike Produce Resource or
+ * a trade action, which the player would happily repeat unit-by-unit anyway.
  */
 function computeBulkActionGroups(state: GameState, unitContent: UnitContent, playerId: string, remaining: Unit[]): BulkActionGroup[] {
   const groups = new Map<string, BulkActionGroup>()
   for (const unit of remaining) {
     for (const action of unitContent.actionsByKind[unit.kind] ?? []) {
       if (actionNeedsTargeting(action.effect)) continue
+      if (action.effect.actionType === 'transform' && action.effect.destroySelf) continue
       if (!isActionAvailableForUnit(state, playerId, unit, action, unitContent)) continue
       const key = `${unit.kind}:${action.id}`
       let group = groups.get(key)
