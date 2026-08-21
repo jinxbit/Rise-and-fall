@@ -11,25 +11,39 @@ export interface MapPoolChoice {
   playerCount: number
 }
 
-export type MapMode = 'build' | 'select' | 'blind'
+export type MapMode = 'buildAlone' | 'build' | 'select' | 'blind'
+
+/** GameSettings.soloBuilderSelection — see its own doc comment. */
+export type SoloBuilderSelection = 'owner' | 'random'
+/** GameSettings.soloBuilderUnitOrder — see its own doc comment. */
+export type SoloBuilderUnitOrder = 'last' | 'random'
 
 const MODES: Array<{ value: MapMode; title: string; description: string }> = [
-  { value: 'build', title: 'Build on game start', description: 'Build the map together interactively once the game starts.' },
-  { value: 'select', title: 'Select map', description: 'Pick a specific saved map now — locks the room to that map’s player count.' },
-  { value: 'blind', title: 'Blindly select map', description: 'A random saved map matching the final seated player count is picked automatically when the game starts.' },
+  { value: 'buildAlone', title: 'Build alone', description: 'One player builds the map by themselves, interactively, once the game starts — everyone else just waits for them to finish. Starting units are still placed by each player individually, same as always.' },
+  { value: 'build', title: 'Build together', description: 'Build the map together interactively once the game starts.' },
+  { value: 'select', title: 'Prebuilt', description: 'Pick a specific saved map now — locks the room to that map’s player count.' },
+  { value: 'blind', title: 'Blind', description: 'A random saved map matching the final seated player count is picked automatically when the game starts.' },
 ]
 
 const PLAYER_COUNTS = Array.from({ length: MAX_PLAYERS - 1 }, (_, i) => i + 2)
 
 /**
- * How a room's map is sourced (issue #168) — one of three mutually
- * exclusive modes, replacing the old separate "Pre set map" toggle and
- * "Random saved map" checkbox (whose "checked" state depended on an async
- * pool fetch resolving, which could silently fail to check the box). Mode
- * selection here is synchronous and doesn't depend on that fetch succeeding.
+ * How a room's map is sourced (issue #168, extended by issue #243) — one of
+ * four mutually exclusive modes, replacing the old separate "Pre set map"
+ * toggle and "Random saved map" checkbox (whose "checked" state depended on
+ * an async pool fetch resolving, which could silently fail to check the
+ * box). Mode selection here is synchronous and doesn't depend on that fetch
+ * succeeding.
  *
- * - "build": the default — no board is picked; the usual interactive setup
- *   runs when the game starts.
+ * - "buildAlone" (GameSettings.soloBuildMap): the default — no board is
+ *   picked; one player builds the map's tiles alone, interactively, when
+ *   the game starts, instead of every seated player taking turns. Starting
+ *   *unit* placement is unaffected — every player still places their own,
+ *   same as "build" mode (see soloBuilderSelection/soloBuilderUnitOrder
+ *   below for this mode's own sub-options).
+ * - "build": no board is picked; the usual interactive setup, with every
+ *   seated player taking turns for both tiles and units, runs when the
+ *   game starts.
  * - "select": resolves and previews a concrete saved board immediately, for
  *   an exact player count chosen via the buttons below. The parent locks
  *   the room's min/max players to that count.
@@ -45,8 +59,24 @@ export function MapModeSelector(props: {
   onMapChoiceChange: (choice: MapPoolChoice | null) => void
   /** Seeds the "Player count" buttons the first time this switches into "select" mode. */
   initialPlayerCount?: number
+  /** GameSettings.soloBuilderSelection — who builds when mode is "buildAlone". Only read/shown while mode === 'buildAlone'. */
+  soloBuilderSelection: SoloBuilderSelection
+  onSoloBuilderSelectionChange: (value: SoloBuilderSelection) => void
+  /** GameSettings.soloBuilderUnitOrder — where the builder's own starting-unit-placement turn falls. Only read/shown while mode === 'buildAlone'. */
+  soloBuilderUnitOrder: SoloBuilderUnitOrder
+  onSoloBuilderUnitOrderChange: (value: SoloBuilderUnitOrder) => void
 }) {
-  const { mode, onModeChange, mapChoice, onMapChoiceChange, initialPlayerCount } = props
+  const {
+    mode,
+    onModeChange,
+    mapChoice,
+    onMapChoiceChange,
+    initialPlayerCount,
+    soloBuilderSelection,
+    onSoloBuilderSelectionChange,
+    soloBuilderUnitOrder,
+    onSoloBuilderUnitOrderChange,
+  } = props
   const [playerCount, setPlayerCount] = useState(() =>
     Math.min(MAX_PLAYERS, Math.max(2, mapChoice?.playerCount ?? initialPlayerCount ?? 2)),
   )
@@ -127,6 +157,56 @@ export function MapModeSelector(props: {
           </label>
         ))}
       </div>
+
+      {mode === 'buildAlone' && (
+        <div className="flex flex-col gap-4 pl-6">
+          <div>
+            <p className="mb-1.5 text-sm text-neutral-400">Who builds</p>
+            <div className="flex flex-col gap-1.5">
+              {(
+                [
+                  { value: 'owner', label: 'Room creator' },
+                  { value: 'random', label: 'A random seated player' },
+                ] as const
+              ).map((option) => (
+                <label key={option.value} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name="solo-builder-selection"
+                    checked={soloBuilderSelection === option.value}
+                    onChange={() => onSoloBuilderSelectionChange(option.value)}
+                    className="h-4 w-4 border-neutral-700 bg-neutral-900"
+                  />
+                  {option.label}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p className="mb-1.5 text-sm text-neutral-400">Builder&apos;s starting-unit placement turn</p>
+            <div className="flex flex-col gap-1.5">
+              {(
+                [
+                  { value: 'last', label: 'Goes last' },
+                  { value: 'random', label: 'Random, same as everyone else' },
+                ] as const
+              ).map((option) => (
+                <label key={option.value} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name="solo-builder-unit-order"
+                    checked={soloBuilderUnitOrder === option.value}
+                    onChange={() => onSoloBuilderUnitOrderChange(option.value)}
+                    className="h-4 w-4 border-neutral-700 bg-neutral-900"
+                  />
+                  {option.label}
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {mode === 'select' && (
         <div className="flex flex-col gap-3 pl-6">

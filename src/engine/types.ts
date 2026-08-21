@@ -264,6 +264,20 @@ export interface BoardSetupState {
   tilePlacerIndex: number
   unitsRemainingByPlayerId: Record<string, string[]>
   unitPlacerIndex: number
+  /**
+   * "Build alone" map mode (GameSettings.soloBuildMap): the one player who
+   * places every tile during the interactive tile-placement sub-phase
+   * above, instead of the usual turnOrder-based tilePlacerIndex rotation —
+   * everyone else just watches (see currentTilePlacerId). Doesn't affect
+   * starting *unit* placement at all — that always follows the normal
+   * per-player turnOrder rotation via unitPlacerIndex, each player placing
+   * their own, same as "build together" mode (GameSettings.
+   * soloBuilderUnitOrder instead controls where the builder's own turn
+   * falls *within* that normal rotation — see gameGenesis.ts). Optional
+   * and treated as null when absent, so existing callers/fixtures that
+   * don't care about "build alone" don't need to set it.
+   */
+  builderId?: string | null
 }
 
 /**

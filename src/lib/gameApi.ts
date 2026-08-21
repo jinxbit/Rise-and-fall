@@ -83,6 +83,12 @@ export async function createGame(params: {
   mapPoolMapId?: string | null
   /** "Truly random" map mode — pick a saved map at actual game start instead of now (see GameSettings.mapPoolRandomAtStart). Mutually exclusive with mapTemplateId/mapPoolBoard in the UI. Defaults to false when omitted. */
   mapPoolRandomAtStart?: boolean
+  /** "Build alone" map mode — one player places every tile interactively when the game starts (see GameSettings.soloBuildMap). Mutually exclusive with mapTemplateId/mapPoolBoard/mapPoolRandomAtStart in the UI. Defaults to false when omitted. */
+  soloBuildMap?: boolean
+  /** Who builds when soloBuildMap is on (see GameSettings.soloBuilderSelection). Defaults to 'owner' when omitted. */
+  soloBuilderSelection?: GameSettings['soloBuilderSelection']
+  /** Where the builder's own unit-placement turn falls (see GameSettings.soloBuilderUnitOrder). Defaults to 'last' when omitted. */
+  soloBuilderUnitOrder?: GameSettings['soloBuilderUnitOrder']
   /** Hotseat only: skip the "pass the device" confirmation gate between local players' turns (see GamePage.tsx). Ignored for live/async. Defaults to false (gate shown) when omitted; CreateGamePage.tsx's checkbox defaults to checked (true). */
   skipHotseatPassGate?: boolean
   /** Content ids of active Tales (src/content/tales.json) for the Tales variant, or omitted/empty for none. */
@@ -103,6 +109,11 @@ export async function createGame(params: {
     mapPoolBoard: params.mapPoolBoard ?? null,
     mapPoolMapId: params.mapPoolMapId ?? null,
     mapPoolRandomAtStart: params.mapPoolRandomAtStart ?? false,
+    soloBuildMap: params.soloBuildMap ?? false,
+    soloBuilderSelection: params.soloBuilderSelection ?? 'owner',
+    soloBuilderId: null,
+    soloBuilderUnitOrder: params.soloBuilderUnitOrder ?? 'last',
+    soloBuilderTurnOrder: null,
     skipHotseatPassGate: params.skipHotseatPassGate ?? false,
     activeTaleIds: params.activeTaleIds ?? [],
     gameLength: params.gameLength ?? 4,

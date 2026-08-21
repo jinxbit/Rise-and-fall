@@ -46,6 +46,54 @@ export interface GameSettings {
    * already happened).
    */
   mapPoolRandomAtStart: boolean
+  /**
+   * "Build alone" map mode (issue #243): one player places every tile
+   * interactively when the game starts, instead of every seated player
+   * taking turns — see engine/types.ts's BoardSetupState.builderId.
+   * Starting *unit* placement still always follows the normal per-player
+   * turnOrder rotation either way — soloBuilderUnitOrder below only
+   * controls where the builder's own turn falls *within* that rotation,
+   * it doesn't hand unit placement to the builder. Mutually exclusive with
+   * mapTemplateId/mapPoolBoard/mapPoolRandomAtStart in the UI, same as the
+   * other map-source modes.
+   */
+  soloBuildMap: boolean
+  /**
+   * Who builds when soloBuildMap is on: the room creator ('owner', the
+   * default), or a random seated player ('random'). 'random' needs real
+   * randomness that buildGenesisState can't perform itself and stay a
+   * deterministic function of the game row (see its own doc comment) —
+   * LobbyPage.tsx's handleStart() resolves it once via gameGenesis.ts's
+   * resolveSoloBuildMap and persists the result into soloBuilderId below,
+   * mirroring mapPoolRandomAtStart's resolve-then-persist pattern.
+   */
+  soloBuilderSelection: 'owner' | 'random'
+  /**
+   * Resolved once by resolveSoloBuildMap when soloBuilderSelection is
+   * 'random' (see its own doc comment) — the actual player id who builds.
+   * Null until resolved, and always ignored when soloBuilderSelection is
+   * 'owner' (buildGenesisState resolves the creator's id directly and
+   * deterministically in that case instead, no persistence needed).
+   */
+  soloBuilderId: string | null
+  /**
+   * Where the builder's own starting-unit-placement turn falls within the
+   * normal per-player rotation once tile-building is done: forced to go
+   * last ('last', the default), or left to fall wherever a randomized turn
+   * order happens to put it ('random') — see soloBuilderTurnOrder below
+   * for the latter's same resolve-once-and-persist reasoning as
+   * soloBuilderId.
+   */
+  soloBuilderUnitOrder: 'last' | 'random'
+  /**
+   * Resolved once by resolveSoloBuildMap when soloBuilderUnitOrder is
+   * 'random' — the actual turn order (a shuffled permutation of every
+   * seated player's id) that GameState.turnOrder is seeded with. Null
+   * until resolved, and always ignored when soloBuilderUnitOrder is 'last'
+   * (buildGenesisState computes that ordering deterministically itself:
+   * seat order with the builder moved to the end).
+   */
+  soloBuilderTurnOrder: string[] | null
   /** Hotseat only: skip GamePage.tsx's "pass the device" confirmation gate between local players' turns. Irrelevant for live/async. */
   skipHotseatPassGate: boolean
   /** Content ids of active Tales (src/content/tales.json). Empty = Tales variant off. */

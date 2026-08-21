@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { applyAction } from '../../engine/applyAction'
 import { replayActions } from '../../engine/replay'
-import { buildGenesisState, resolveMapPoolRandomAtStart } from '../gameGenesis'
+import { buildGenesisState, resolveMapPoolRandomAtStart, resolveSoloBuildMap } from '../gameGenesis'
 import type { GameRow, GameSettings, MapPoolRow, PlayerRow } from '../dbTypes'
 
 function makeGame(overrides: Partial<GameRow> = {}, settingsOverrides: Partial<GameSettings> = {}): GameRow {
@@ -16,7 +16,21 @@ function makeGame(overrides: Partial<GameRow> = {}, settingsOverrides: Partial<G
     created_by: 'auth_1',
     created_at: '',
     updated_at: '',
-    settings: { mapTemplateId: null, mapPoolBoard: null, mapPoolMapId: null, mapPoolRandomAtStart: false, skipHotseatPassGate: false, activeTaleIds: [], gameLength: 4, ...settingsOverrides },
+    settings: {
+      mapTemplateId: null,
+      mapPoolBoard: null,
+      mapPoolMapId: null,
+      mapPoolRandomAtStart: false,
+      soloBuildMap: false,
+      soloBuilderSelection: 'owner',
+      soloBuilderId: null,
+      soloBuilderUnitOrder: 'last',
+      soloBuilderTurnOrder: null,
+      skipHotseatPassGate: false,
+      activeTaleIds: [],
+      gameLength: 4,
+      ...settingsOverrides,
+    },
     config_version: 0,
     visibility: 'private',
     ...overrides,
@@ -31,7 +45,21 @@ function makePlayers(): PlayerRow[] {
 }
 
 function makeSettings(overrides: Partial<GameSettings> = {}): GameSettings {
-  return { mapTemplateId: null, mapPoolBoard: null, mapPoolMapId: null, mapPoolRandomAtStart: false, skipHotseatPassGate: false, activeTaleIds: [], gameLength: 4, ...overrides }
+  return {
+    mapTemplateId: null,
+    mapPoolBoard: null,
+    mapPoolMapId: null,
+    mapPoolRandomAtStart: false,
+    soloBuildMap: false,
+    soloBuilderSelection: 'owner',
+    soloBuilderId: null,
+    soloBuilderUnitOrder: 'last',
+    soloBuilderTurnOrder: null,
+    skipHotseatPassGate: false,
+    activeTaleIds: [],
+    gameLength: 4,
+    ...overrides,
+  }
 }
 
 function makePoolRow(overrides: Partial<MapPoolRow> = {}): MapPoolRow {
@@ -122,6 +150,53 @@ describe('buildGenesisState', () => {
     expect(undone.actionHistory).toEqual([])
     expect(undone.board).toEqual(rebuiltGenesis.board)
   })
+
+  describe('"build alone" mode (soloBuildMap, issue #243)', () => {
+    it("resolves the room creator's player id as builder by default (soloBuilderSelection: 'owner')", () => {
+      const genesis = buildGenesisState(makeGame({ created_by: 'auth_2' }, { soloBuildMap: true }), makePlayers())
+      expect(genesis.boardSetup?.builderId).toBe('p2')
+    })
+
+    it("uses the persisted soloBuilderId when soloBuilderSelection is 'random' — never re-rolls it itself", () => {
+      const genesis = buildGenesisState(
+        makeGame({ created_by: 'auth_1' }, { soloBuildMap: true, soloBuilderSelection: 'random', soloBuilderId: 'p2' }),
+        makePlayers(),
+      )
+      expect(genesis.boardSetup?.builderId).toBe('p2')
+    })
+
+    it("moves the builder to the end of turnOrder when soloBuilderUnitOrder is 'last' (the default) — starting-unit placement still starts with whoever's now first", () => {
+      const genesis = buildGenesisState(makeGame({ created_by: 'auth_1' }, { soloBuildMap: true }), makePlayers())
+      expect(genesis.turnOrder).toEqual(['p2', 'p1'])
+    })
+
+    it("uses the persisted soloBuilderTurnOrder verbatim when soloBuilderUnitOrder is 'random'", () => {
+      const genesis = buildGenesisState(
+        makeGame({ created_by: 'auth_1' }, { soloBuildMap: true, soloBuilderUnitOrder: 'random', soloBuilderTurnOrder: ['p2', 'p1'] }),
+        makePlayers(),
+      )
+      expect(genesis.turnOrder).toEqual(['p2', 'p1'])
+    })
+
+    it('leaves tile placement to the builder alone — everyone else is rejected', () => {
+      const genesis = buildGenesisState(makeGame({ created_by: 'auth_1' }, { soloBuildMap: true }), makePlayers())
+      expect(genesis.boardSetup?.tileTierQueue.length).toBeGreaterThan(0)
+
+      const fromBuilder = applyAction(genesis, { type: 'PLACE_TILE', playerId: 'p1', anchor: { q: 100, r: 100 }, rotationSteps: 0 })
+      const fromOther = applyAction(genesis, { type: 'PLACE_TILE', playerId: 'p2', anchor: { q: 100, r: 100 }, rotationSteps: 0 })
+      // Both are far off-board (illegal placements either way), but only
+      // the builder even gets past the turn-order check to reach that error.
+      if (fromBuilder.ok || fromOther.ok) throw new Error('expected both to fail (off-board anchor)')
+      expect(fromBuilder.error).not.toContain("not this player's turn")
+      expect(fromOther.error).toContain("not this player's turn")
+    })
+
+    it('is a no-op (normal "build together" behavior) when soloBuildMap is off', () => {
+      const genesis = buildGenesisState(makeGame({ created_by: 'auth_1' }, { soloBuildMap: false }), makePlayers())
+      expect(genesis.boardSetup?.builderId ?? null).toBeNull()
+      expect(genesis.turnOrder).toEqual(['p1', 'p2'])
+    })
+  })
 })
 
 describe('resolveMapPoolRandomAtStart', () => {
@@ -156,5 +231,46 @@ describe('resolveMapPoolRandomAtStart', () => {
     const resolved = resolveMapPoolRandomAtStart(settings, makePoolRow({ id: 'pool_2' }))
     expect(resolved).toBe(settings)
     expect(resolved.mapPoolMapId).toBe('pool_1')
+  })
+})
+
+describe('resolveSoloBuildMap', () => {
+  it("picks a builder among the seated players when soloBuilderSelection is 'random' and none is locked in yet", () => {
+    const settings = makeSettings({ soloBuildMap: true, soloBuilderSelection: 'random' })
+    const resolved = resolveSoloBuildMap(settings, makePlayers())
+    expect(['p1', 'p2']).toContain(resolved.soloBuilderId)
+  })
+
+  it("rolls a full turn order among the seated players when soloBuilderUnitOrder is 'random' and none is locked in yet", () => {
+    const settings = makeSettings({ soloBuildMap: true, soloBuilderUnitOrder: 'random' })
+    const resolved = resolveSoloBuildMap(settings, makePlayers())
+    expect(resolved.soloBuilderTurnOrder).not.toBeNull()
+    expect([...(resolved.soloBuilderTurnOrder ?? [])].sort()).toEqual(['p1', 'p2'])
+  })
+
+  it("is a no-op when soloBuildMap is off, even if selection/order are 'random'", () => {
+    const settings = makeSettings({ soloBuildMap: false, soloBuilderSelection: 'random', soloBuilderUnitOrder: 'random' })
+    const resolved = resolveSoloBuildMap(settings, makePlayers())
+    expect(resolved).toBe(settings)
+  })
+
+  it("is a no-op when soloBuilderSelection/soloBuilderUnitOrder are 'owner'/'last' — those resolve deterministically inside buildGenesisState instead", () => {
+    const settings = makeSettings({ soloBuildMap: true, soloBuilderSelection: 'owner', soloBuilderUnitOrder: 'last' })
+    const resolved = resolveSoloBuildMap(settings, makePlayers())
+    expect(resolved).toBe(settings)
+  })
+
+  it('is a no-op when a builder is already locked in (e.g. a second call after the first already resolved it)', () => {
+    const settings = makeSettings({ soloBuildMap: true, soloBuilderSelection: 'random', soloBuilderId: 'p1' })
+    const resolved = resolveSoloBuildMap(settings, makePlayers())
+    expect(resolved).toBe(settings)
+    expect(resolved.soloBuilderId).toBe('p1')
+  })
+
+  it('is a no-op when a turn order is already locked in (e.g. a second call after the first already resolved it)', () => {
+    const settings = makeSettings({ soloBuildMap: true, soloBuilderUnitOrder: 'random', soloBuilderTurnOrder: ['p2', 'p1'] })
+    const resolved = resolveSoloBuildMap(settings, makePlayers())
+    expect(resolved).toBe(settings)
+    expect(resolved.soloBuilderTurnOrder).toEqual(['p2', 'p1'])
   })
 })

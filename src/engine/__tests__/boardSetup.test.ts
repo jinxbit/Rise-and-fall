@@ -136,6 +136,14 @@ describe('beginBoardSetup', () => {
     expect(next.boardSetup?.tileTierQueue).toEqual([])
     expect(next.boardSetup?.unitsRemainingByPlayerId).toEqual({ p1: ['city', 'nomad', 'ship'], p2: ['city', 'nomad', 'ship'] })
   })
+
+  it('threads a given builderId into boardSetup ("build alone" mode), defaulting to null when omitted', () => {
+    const content: BoardGenerationContent = { startingWaterShapeCells: domino, tiers: [tier('plain', ['water'], 3)] }
+    const base = makeSetupState({ status: 'lobby', boardSetup: null })
+
+    expect(beginBoardSetup(base, content).boardSetup?.builderId).toBeNull()
+    expect(beginBoardSetup(base, content, 'p2').boardSetup?.builderId).toBe('p2')
+  })
 })
 
 describe('beginBoardSetupWithPresetBoard', () => {
@@ -393,6 +401,65 @@ describe('placeTile', () => {
 
       expect(validated.ok).toBe(true)
       expect(trusted).toEqual(validated)
+    })
+  })
+
+  describe('builderId ("build alone" mode, issue #243)', () => {
+    const content: BoardGenerationContent = { startingWaterShapeCells: domino, tiers: [tier('plain', ['water'], 3)] }
+
+    it('currentTilePlacerId always returns the builder, ignoring tilePlacerIndex/turnOrder', () => {
+      const state = makeSetupState({
+        boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 3, tilePlacerIndex: 1, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0, builderId: 'p2' },
+      })
+      expect(currentTilePlacerId(state)).toBe('p2')
+    })
+
+    it('rejects a tile placement from anyone other than the builder, even the player tilePlacerIndex would otherwise pick', () => {
+      const state = makeSetupState({
+        board: boardOf([[0, 0, 'water'], [1, 0, 'water']]),
+        boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 3, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0, builderId: 'p2' },
+      })
+      const result = placeTile(state, 'p1', { q: 0, r: 0 }, 0, content)
+      expect(result.ok).toBe(false)
+    })
+
+    it('lets the builder place every tile of the tier consecutively, with no rotation between placers', () => {
+      let state = makeSetupState({
+        board: boardOf([
+          [0, 0, 'water'], [1, 0, 'water'],
+          [10, 0, 'water'], [11, 0, 'water'],
+          [20, 0, 'water'], [21, 0, 'water'],
+        ]),
+        boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 3, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0, builderId: 'p2' },
+      })
+
+      for (const anchor of [{ q: 0, r: 0 }, { q: 10, r: 0 }, { q: 20, r: 0 }]) {
+        expect(currentTilePlacerId(state)).toBe('p2')
+        const result = placeTile(state, 'p2', anchor, 0, content)
+        if (!result.ok) throw new Error(`setup failed: ${result.error}`)
+        state = result.state
+      }
+
+      expect(state.boardSetup?.tileTierQueue).toEqual([])
+    })
+
+    it("doesn't affect starting-unit placement — that always follows the normal per-player turnOrder rotation, builder included", () => {
+      let state = makeSetupState({
+        board: boardOf([[0, 0, 'water'], [1, 0, 'water']]),
+        boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 1, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0, builderId: 'p2' },
+      })
+
+      // The builder (p2) places the lone tile, finishing tile placement...
+      const tileResult = placeTile(state, 'p2', { q: 0, r: 0 }, 0, content)
+      if (!tileResult.ok) throw new Error(`setup failed: ${tileResult.error}`)
+      state = tileResult.state
+      expect(state.boardSetup?.tileTierQueue).toEqual([])
+
+      // ...but unit placement still starts with p1 (turnOrder[0]), not the
+      // builder — placing units is never handed to the builder.
+      expect(currentUnitPlacerId(state)).toBe('p1')
+      const unitResult = placeUnit(state, 'p2', 'city', { q: 0, r: 0 }, emptyUnitContent)
+      expect(unitResult.ok).toBe(false)
     })
   })
 })
