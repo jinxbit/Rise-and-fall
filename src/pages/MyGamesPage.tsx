@@ -4,6 +4,7 @@ import { ErrorBanner } from '../components/ErrorBanner'
 import { GameOverviewCard } from '../components/GameOverviewCard'
 import { useAuth } from '../hooks/useAuth'
 import { listMyGames } from '../lib/gameApi'
+import { buildGameCardSummary } from '../lib/gameCardView'
 import {
   formatUpdatedAt,
   groupMyGames,
@@ -136,6 +137,7 @@ function GameRowItem({ entry, onOpen }: { entry: MyGameEntry; onOpen: () => void
       isMyTurn={isMyTurn(entry)}
       isFinished={status === 'completed'}
       updatedAt={formatUpdatedAt(entry.game.updated_at)}
+      summary={buildGameCardSummary(entry.game, entry.gameState, entry.players)}
       onOpen={onOpen}
     />
   )

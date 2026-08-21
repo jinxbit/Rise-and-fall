@@ -1,0 +1,166 @@
+import { describe, expect, it } from 'vitest'
+import { resolveAchievementContent, resolveTaleContent } from '../../content/resolveContent'
+import { createEmptyBoard } from '../../engine/board'
+import { createNewGame } from '../../engine/createGame'
+import { calculateVPBreakdown } from '../../engine/victoryPoints'
+import type { GameState as EngineGameState } from '../../engine/types'
+import { buildGameCardSummary } from '../gameCardView'
+import type { GameRow, GameSettings, PlayerRow } from '../dbTypes'
+
+function makeSettings(overrides: Partial<GameSettings> = {}): GameSettings {
+  return {
+    mapTemplateId: null,
+    mapPoolBoard: null,
+    mapPoolMapId: null,
+    mapPoolRandomAtStart: false,
+    soloBuildMap: false,
+    soloBuilderSelection: 'owner',
+    soloBuilderId: null,
+    soloBuilderUnitOrder: 'last',
+    soloBuilderTurnOrder: null,
+    skipHotseatPassGate: false,
+    activeTaleIds: [],
+    gameLength: 4,
+    ...overrides,
+  }
+}
+
+function makeGame(overrides: Partial<GameRow> = {}, settingsOverrides: Partial<GameSettings> = {}): GameRow {
+  return {
+    id: 'game_1',
+    room_code: 'ABCDE',
+    name: 'Test room',
+    play_mode: 'live',
+    status: 'lobby',
+    min_players: 2,
+    max_players: 4,
+    created_by: 'auth_1',
+    created_at: '',
+    updated_at: '2026-01-01T00:00:00Z',
+    settings: makeSettings(settingsOverrides),
+    config_version: 0,
+    visibility: 'private',
+    ...overrides,
+  }
+}
+
+function makePlayerRow(id: string, displayName: string, color = '#ef4444'): PlayerRow {
+  return {
+    id,
+    game_id: 'game_1',
+    user_id: id,
+    display_name: displayName,
+    avatar_url: null,
+    seat_index: 0,
+    color,
+    is_active: true,
+    joined_at: '',
+    ready_for_version: 0,
+  }
+}
+
+function makeGameState(overrides: Partial<EngineGameState> = {}): EngineGameState {
+  const state = createNewGame({
+    gameId: 'game_1',
+    playMode: 'live',
+    board: createEmptyBoard('hex'),
+    players: [
+      { id: 'p1', authUserId: 'p1', displayName: 'Alice', color: '#ef4444' },
+      { id: 'p2', authUserId: 'p2', displayName: 'Bob', color: '#3b82f6' },
+    ],
+  })
+  return { ...state, status: 'active', ...overrides }
+}
+
+describe('buildGameCardSummary', () => {
+  it('shows pregame info (player range, map build style) and no scores/round while the game has not started', () => {
+    const game = makeGame({ min_players: 2, max_players: 4 })
+    const summary = buildGameCardSummary(game, null, [])
+
+    expect(summary.playerRange).toBe('2–4 players')
+    expect(summary.mapBuildStyle).toBe('Interactive (built together)')
+    expect(summary.roundNumber).toBeNull()
+    expect(summary.scores).toBeNull()
+    expect(summary.winnerNames).toEqual([])
+  })
+
+  it('clears pregame info once a GameState exists, and reports the round number instead', () => {
+    const game = makeGame()
+    const state = makeGameState({ turn: 3 })
+    const summary = buildGameCardSummary(game, state, [])
+
+    expect(summary.playerRange).toBeNull()
+    expect(summary.mapBuildStyle).toBeNull()
+    expect(summary.roundNumber).toBe(3)
+  })
+
+  it('resolves active Tale ids to their names, falling back to the id for an unknown one', () => {
+    const game = makeGame({}, { activeTaleIds: ['the-capital', 'not-a-real-tale'] })
+    const summary = buildGameCardSummary(game, null, [])
+
+    expect(summary.moduleNames).toEqual(['The Capital', 'not-a-real-tale'])
+  })
+
+  describe('mapBuildStyle', () => {
+    it('names a map template when one is chosen', () => {
+      const game = makeGame({}, { mapTemplateId: 'classic' })
+      expect(buildGameCardSummary(game, null, []).mapBuildStyle).not.toBe('Interactive (built together)')
+    })
+
+    it('labels a saved-pool board as a random saved map', () => {
+      const game = makeGame({}, { mapPoolBoard: createEmptyBoard('hex') })
+      expect(buildGameCardSummary(game, null, []).mapBuildStyle).toBe('Random saved map')
+    })
+
+    it('labels random-at-start mode', () => {
+      const game = makeGame({}, { mapPoolRandomAtStart: true })
+      expect(buildGameCardSummary(game, null, []).mapBuildStyle).toBe('Random saved map (picked at start)')
+    })
+
+    it('labels solo-build mode by the owner', () => {
+      const game = makeGame({}, { soloBuildMap: true, soloBuilderSelection: 'owner' })
+      expect(buildGameCardSummary(game, null, []).mapBuildStyle).toBe('Interactive (built alone by the host)')
+    })
+
+    it('labels solo-build mode by a random player', () => {
+      const game = makeGame({}, { soloBuildMap: true, soloBuilderSelection: 'random' })
+      expect(buildGameCardSummary(game, null, []).mapBuildStyle).toBe('Interactive (built alone by a random player)')
+    })
+  })
+
+  it('computes each seated player\'s current total VP once a GameState exists, joined with their PlayerRow name/color', () => {
+    const game = makeGame()
+    const base = makeGameState()
+    const state = { ...base, players: [{ ...base.players[0], resources: { gold: 5, wood: 0, stone: 0 } }, base.players[1]] }
+    const players = [makePlayerRow('p1', 'Alice Row', '#ef4444'), makePlayerRow('p2', 'Bob Row', '#3b82f6')]
+    const summary = buildGameCardSummary(game, state, players)
+
+    const achievementContent = resolveAchievementContent(state.gameLength)
+    const taleContent = resolveTaleContent(state.activeTaleIds, state.players.length)
+    const expectedBreakdown = calculateVPBreakdown(state, achievementContent, taleContent)
+
+    expect(summary.scores).toEqual([
+      { playerId: 'p1', name: 'Alice Row', color: '#ef4444', score: expectedBreakdown.p1.total },
+      { playerId: 'p2', name: 'Bob Row', color: '#3b82f6', score: expectedBreakdown.p2.total },
+    ])
+  })
+
+  it('falls back to the engine player\'s own displayName/color when no matching PlayerRow is given', () => {
+    const game = makeGame()
+    const state = makeGameState()
+    const summary = buildGameCardSummary(game, state, [])
+
+    expect(summary.scores?.map((s) => s.name)).toEqual(['Alice', 'Bob'])
+  })
+
+  it('lists winner names once the game has finished, and leaves them empty otherwise', () => {
+    const game = makeGame()
+    const players = [makePlayerRow('p1', 'Alice Row'), makePlayerRow('p2', 'Bob Row')]
+
+    const inProgress = makeGameState({ winnerPlayerIds: [] })
+    expect(buildGameCardSummary(game, inProgress, players).winnerNames).toEqual([])
+
+    const finished = makeGameState({ status: 'completed', winnerPlayerIds: ['p2'] })
+    expect(buildGameCardSummary(game, finished, players).winnerNames).toEqual(['Bob Row'])
+  })
+})

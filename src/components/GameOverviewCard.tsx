@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import type { PlayerRow } from '../lib/dbTypes'
+import type { GameCardSummary } from '../lib/gameCardView'
 
 /**
  * The card used everywhere a game/room is listed (MyGamesPage.tsx,
@@ -19,6 +20,8 @@ export interface GameOverviewCardProps {
   isJoinable?: boolean
   updatedAt: string
   action?: ReactNode
+  /** Config/score summary (issue #204) — see gameCardView.ts's buildGameCardSummary. Omitted entirely skips this section. */
+  summary?: GameCardSummary
   onOpen: () => void
 }
 
@@ -33,6 +36,7 @@ export function GameOverviewCard({
   isJoinable = false,
   updatedAt,
   action,
+  summary,
   onOpen,
 }: GameOverviewCardProps) {
   const dimText = isFinished ? 'text-yellow-600' : 'text-neutral-500'
@@ -68,11 +72,52 @@ export function GameOverviewCard({
                 </span>
               ))}
         </span>
+        {summary && <GameCardSummaryLines summary={summary} isFinished={isFinished} />}
         <div className="flex flex-col items-end text-right">
           <span className={`text-xs ${dimText}`}>{phase}</span>
           <span className={`text-xs ${dimText}`}>{updatedAt}</span>
         </div>
       </button>
     </li>
+  )
+}
+
+/**
+ * Renders whichever fields of `summary` apply to the game's current phase
+ * (see GameCardSummary's doc comment for which fields are populated when) —
+ * issue #204's per-phase config/score summary.
+ */
+function GameCardSummaryLines({ summary, isFinished }: { summary: GameCardSummary; isFinished: boolean }) {
+  const hasPregameInfo = summary.playerRange !== null || summary.mapBuildStyle !== null
+  const scores = summary.scores ?? []
+  const hasScores = scores.length > 0
+
+  if (!hasPregameInfo && summary.moduleNames.length === 0 && summary.roundNumber === null && !hasScores && summary.winnerNames.length === 0) {
+    return null
+  }
+
+  return (
+    <div className="flex flex-col gap-0.5 text-xs text-neutral-500">
+      {hasPregameInfo && (
+        <span>
+          {summary.playerRange}
+          {summary.playerRange && summary.mapBuildStyle && ' · '}
+          {summary.mapBuildStyle}
+        </span>
+      )}
+      {summary.moduleNames.length > 0 && <span>Modules: {summary.moduleNames.join(', ')}</span>}
+      {!isFinished && summary.roundNumber !== null && <span>Round {summary.roundNumber}</span>}
+      {isFinished && summary.winnerNames.length > 0 && <span>👑 {summary.winnerNames.join(', ')}</span>}
+      {hasScores && (
+        <span>
+          {scores.map((s, i) => (
+            <span key={s.playerId}>
+              {i > 0 && ', '}
+              {s.name}: {s.score}
+            </span>
+          ))}
+        </span>
+      )}
+    </div>
   )
 }
