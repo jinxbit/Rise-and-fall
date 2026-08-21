@@ -11,25 +11,30 @@ export interface MapPoolChoice {
   playerCount: number
 }
 
-export type MapMode = 'build' | 'select' | 'blind'
+export type MapMode = 'buildAlone' | 'build' | 'select' | 'blind'
 
 const MODES: Array<{ value: MapMode; title: string; description: string }> = [
-  { value: 'build', title: 'Build on game start', description: 'Build the map together interactively once the game starts.' },
-  { value: 'select', title: 'Select map', description: 'Pick a specific saved map now — locks the room to that map’s player count.' },
-  { value: 'blind', title: 'Blindly select map', description: 'A random saved map matching the final seated player count is picked automatically when the game starts.' },
+  { value: 'buildAlone', title: 'Build alone', description: 'You build the map by yourself, interactively, once the game starts — everyone else just waits for you to finish.' },
+  { value: 'build', title: 'Build together', description: 'Build the map together interactively once the game starts.' },
+  { value: 'select', title: 'Prebuilt', description: 'Pick a specific saved map now — locks the room to that map’s player count.' },
+  { value: 'blind', title: 'Blind', description: 'A random saved map matching the final seated player count is picked automatically when the game starts.' },
 ]
 
 const PLAYER_COUNTS = Array.from({ length: MAX_PLAYERS - 1 }, (_, i) => i + 2)
 
 /**
- * How a room's map is sourced (issue #168) — one of three mutually
- * exclusive modes, replacing the old separate "Pre set map" toggle and
- * "Random saved map" checkbox (whose "checked" state depended on an async
- * pool fetch resolving, which could silently fail to check the box). Mode
- * selection here is synchronous and doesn't depend on that fetch succeeding.
+ * How a room's map is sourced (issue #168, extended by issue #243) — one of
+ * four mutually exclusive modes, replacing the old separate "Pre set map"
+ * toggle and "Random saved map" checkbox (whose "checked" state depended on
+ * an async pool fetch resolving, which could silently fail to check the
+ * box). Mode selection here is synchronous and doesn't depend on that fetch
+ * succeeding.
  *
- * - "build": the default — no board is picked; the usual interactive setup
- *   runs when the game starts.
+ * - "buildAlone" (GameSettings.soloBuildMap): the default — no board is
+ *   picked; the room creator alone builds the map interactively when the
+ *   game starts, instead of every seated player taking turns.
+ * - "build": no board is picked; the usual interactive setup, with every
+ *   seated player taking turns, runs when the game starts.
  * - "select": resolves and previews a concrete saved board immediately, for
  *   an exact player count chosen via the buttons below. The parent locks
  *   the room's min/max players to that count.

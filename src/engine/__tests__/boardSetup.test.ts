@@ -6,6 +6,7 @@ import {
   beginBoardSetupWithPresetBoard,
   checkTilePlacementLegality,
   currentTilePlacerId,
+  currentUnitActorId,
   currentUnitPlacerId,
   placeTile,
   placeUnit,
@@ -73,7 +74,7 @@ function makeSetupState(overrides: Partial<GameState> = {}): GameState {
     winnerPlayerIds: [],
     claimedByAchievementId: {},
     achievementsClaimedThisRound: 0,
-    boardSetup: { tileTierQueue: [], tilesRemainingInTier: 0, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+    boardSetup: { tileTierQueue: [], tilesRemainingInTier: 0, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0, builderId: null },
     idSequence: 0,
     actionHistory: [],
     ...overrides,
@@ -190,7 +191,7 @@ describe('placeTile', () => {
   it("rejects when it isn't this player's turn", () => {
     const state = makeSetupState({
       board: boardOf([[0, 0, 'water'], [1, 0, 'water']]),
-      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 3, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 3, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0, builderId: null },
     })
 
     const result = placeTile(state, 'p2', { q: 0, r: 0 }, 0, content)
@@ -201,7 +202,7 @@ describe('placeTile', () => {
   it('rejects an illegal placement (target hexes are not the required lower tier)', () => {
     const state = makeSetupState({
       board: boardOf([[0, 0, 'forest'], [1, 0, 'forest']]),
-      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 3, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 3, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0, builderId: null },
     })
 
     const result = placeTile(state, 'p1', { q: 0, r: 0 }, 0, content)
@@ -221,7 +222,7 @@ describe('placeTile', () => {
         [10, 0, 'water'], [11, 0, 'water'],
         [20, 0, 'water'], [21, 0, 'water'],
       ]),
-      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 3, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 3, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0, builderId: null },
     })
 
     const result = placeTile(state, 'p1', { q: 0, r: 0 }, 0, content)
@@ -241,7 +242,7 @@ describe('placeTile', () => {
         [2, 0, 'water'], [3, 0, 'water'],
         [4, 0, 'water'], [5, 0, 'water'],
       ]),
-      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 3, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 3, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0, builderId: null },
     })
 
     expect(currentTilePlacerId(state)).toBe('p1')
@@ -271,7 +272,7 @@ describe('placeTile', () => {
     }
     const state = makeSetupState({
       board: boardOf([[0, 0, 'water'], [1, 0, 'water']]),
-      boardSetup: { tileTierQueue: ['plain', 'forest'], tilesRemainingInTier: 1, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+      boardSetup: { tileTierQueue: ['plain', 'forest'], tilesRemainingInTier: 1, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0, builderId: null },
     })
 
     const result = placeTile(state, 'p1', { q: 0, r: 0 }, 0, twoTierContent)
@@ -285,7 +286,7 @@ describe('placeTile', () => {
   it('transitions to unit placement once the last tier is exhausted', () => {
     const state = makeSetupState({
       board: boardOf([[0, 0, 'water'], [1, 0, 'water']]),
-      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 1, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 1, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0, builderId: null },
     })
 
     const result = placeTile(state, 'p1', { q: 0, r: 0 }, 0, content)
@@ -303,7 +304,7 @@ describe('placeTile', () => {
       // (0,0)-(1,0) pair — once that pair is claimed, the domino shape has
       // nowhere left to land for the 2nd of 2 required tiles.
       board: boardOf([[0, 0, 'water'], [1, 0, 'water'], [5, 5, 'water'], [8, 8, 'water']]),
-      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 2, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 2, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0, builderId: null },
     })
 
     const result = placeTile(state, 'p1', { q: 0, r: 0 }, 0, content)
@@ -316,7 +317,7 @@ describe('placeTile', () => {
   it('allows the same placement once a legal spot remains for the rest of the tier', () => {
     const state = makeSetupState({
       board: boardOf([[0, 0, 'water'], [1, 0, 'water'], [5, 5, 'water'], [6, 5, 'water']]),
-      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 2, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 2, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0, builderId: null },
     })
 
     const result = placeTile(state, 'p1', { q: 0, r: 0 }, 0, content)
@@ -334,7 +335,7 @@ describe('placeTile', () => {
       // bug it misses is that room runs out one tile short of the two still
       // owed.
       board: boardOf([[0, 0, 'water'], [1, 0, 'water'], [5, 5, 'water'], [6, 5, 'water'], [7, 5, 'water']]),
-      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 3, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 3, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0, builderId: null },
     })
 
     const result = placeTile(state, 'p1', { q: 0, r: 0 }, 0, content)
@@ -353,7 +354,7 @@ describe('placeTile', () => {
     it('still enforces turn order even when skipping the legality check', () => {
       const state = makeSetupState({
         board: boardOf([[0, 0, 'water'], [1, 0, 'water']]),
-        boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 3, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+        boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 3, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0, builderId: null },
       })
 
       const result = placeTile(state, 'p2', { q: 0, r: 0 }, 0, content, true)
@@ -368,7 +369,7 @@ describe('placeTile', () => {
       // proving the flag actually reaches (and skips) checkTilePlacementLegality.
       const state = makeSetupState({
         board: boardOf([[0, 0, 'water'], [1, 0, 'water'], [5, 5, 'water'], [8, 8, 'water']]),
-        boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 2, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+        boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 2, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0, builderId: null },
       })
 
       const result = placeTile(state, 'p1', { q: 0, r: 0 }, 0, content, true)
@@ -385,7 +386,7 @@ describe('placeTile', () => {
           [10, 0, 'water'], [11, 0, 'water'],
           [20, 0, 'water'], [21, 0, 'water'],
         ]),
-        boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 3, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+        boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 3, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0, builderId: null },
       })
 
       const validated = placeTile(state, 'p1', { q: 0, r: 0 }, 0, content)
@@ -403,7 +404,7 @@ describe('placeTile — water-expansion-only extra rules (placesOn: null)', () =
   it('rejects a Sea placement that touches fewer than 2 existing Sea tiles', () => {
     const state = makeSetupState({
       board: boardOf([[0, 0, 'water']]),
-      boardSetup: { tileTierQueue: ['water'], tilesRemainingInTier: 5, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+      boardSetup: { tileTierQueue: ['water'], tilesRemainingInTier: 5, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0, builderId: null },
     })
 
     // (1,0)-(2,0): only (1,0) touches the lone existing water hex at (0,0).
@@ -417,7 +418,7 @@ describe('placeTile — water-expansion-only extra rules (placesOn: null)', () =
   it('allows a Sea placement that touches 2 existing Sea tiles and encloses nothing', () => {
     const state = makeSetupState({
       board: boardOf([[0, 0, 'water'], [1, -1, 'water']]),
-      boardSetup: { tileTierQueue: ['water'], tilesRemainingInTier: 5, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+      boardSetup: { tileTierQueue: ['water'], tilesRemainingInTier: 5, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0, builderId: null },
     })
 
     // (1,0)-(2,0): both (0,0) and (1,-1) neighbor (1,0).
@@ -434,7 +435,7 @@ describe('placeTile — water-expansion-only extra rules (placesOn: null)', () =
       board: boardOf([
         [1, 0, 'water'], [1, -1, 'water'], [0, -1, 'water'], [-1, 0, 'water'], [-1, 1, 'water'],
       ]),
-      boardSetup: { tileTierQueue: ['water'], tilesRemainingInTier: 5, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+      boardSetup: { tileTierQueue: ['water'], tilesRemainingInTier: 5, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0, builderId: null },
     })
 
     const result = placeTile(state, 'p1', { q: 0, r: 1 }, 0, waterContent)
@@ -452,7 +453,7 @@ describe('placeTile — water-expansion-only extra rules (placesOn: null)', () =
     // placement's cells, so they can't contribute to it.
     let state = makeSetupState({
       board: boardOf([[0, 1, 'water'], [1, 1, 'water']]),
-      boardSetup: { tileTierQueue: ['water'], tilesRemainingInTier: 5, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+      boardSetup: { tileTierQueue: ['water'], tilesRemainingInTier: 5, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0, builderId: null },
     })
 
     // The first tile: domino at (0,0)-(1,0), touching both dummy tiles above.
@@ -483,7 +484,7 @@ describe('checkTilePlacementLegality', () => {
   it('returns null for a legal placement', () => {
     const state = makeSetupState({
       board: boardOf([[0, 0, 'water'], [1, 0, 'water']]),
-      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 1, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 1, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0, builderId: null },
     })
     expect(checkTilePlacementLegality(state, { q: 0, r: 0 }, 0, content)).toBeNull()
   })
@@ -491,7 +492,7 @@ describe('checkTilePlacementLegality', () => {
   it('flags an illegal covering placement', () => {
     const state = makeSetupState({
       board: boardOf([[0, 0, 'forest'], [1, 0, 'forest']]),
-      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 1, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 1, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0, builderId: null },
     })
     expect(checkTilePlacementLegality(state, { q: 0, r: 0 }, 0, content)).toContain('Illegal')
   })
@@ -499,7 +500,7 @@ describe('checkTilePlacementLegality', () => {
   it("flags a placement that would leave nowhere legal for the tier's remaining tiles (rule 4)", () => {
     const state = makeSetupState({
       board: boardOf([[0, 0, 'water'], [1, 0, 'water'], [5, 5, 'water'], [8, 8, 'water']]),
-      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 2, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 2, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0, builderId: null },
     })
     expect(checkTilePlacementLegality(state, { q: 0, r: 0 }, 0, content)).toContain('no legal spot')
   })
@@ -507,7 +508,7 @@ describe('checkTilePlacementLegality', () => {
   it('flags a Sea placement touching fewer than 2 existing Sea tiles — the reported bug (ghost shown legal/green when it was not)', () => {
     const state = makeSetupState({
       board: boardOf([[0, 0, 'water']]),
-      boardSetup: { tileTierQueue: ['water'], tilesRemainingInTier: 5, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+      boardSetup: { tileTierQueue: ['water'], tilesRemainingInTier: 5, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0, builderId: null },
     })
     const waterContent: BoardGenerationContent = { startingWaterShapeCells: domino, tiers: [tier('water', null, 5)] }
     expect(checkTilePlacementLegality(state, { q: 1, r: 0 }, 0, waterContent)).toContain('at least 2 Sea tiles')
@@ -518,7 +519,7 @@ describe('checkTilePlacementLegality', () => {
       board: boardOf([
         [1, 0, 'water'], [1, -1, 'water'], [0, -1, 'water'], [-1, 0, 'water'], [-1, 1, 'water'],
       ]),
-      boardSetup: { tileTierQueue: ['water'], tilesRemainingInTier: 5, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+      boardSetup: { tileTierQueue: ['water'], tilesRemainingInTier: 5, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0, builderId: null },
     })
     const waterContent: BoardGenerationContent = { startingWaterShapeCells: domino, tiers: [tier('water', null, 5)] }
     expect(checkTilePlacementLegality(state, { q: 0, r: 1 }, 0, waterContent)).toContain('seal off')
@@ -527,7 +528,7 @@ describe('checkTilePlacementLegality', () => {
   it("doesn't depend on whose turn it is — only whether the placement itself would be legal", () => {
     const state = makeSetupState({
       board: boardOf([[0, 0, 'water'], [1, 0, 'water']]),
-      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 1, tilePlacerIndex: 1, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 1, tilePlacerIndex: 1, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0, builderId: null },
     })
     // It's p2's turn (tilePlacerIndex 1), but the preview still evaluates
     // the placement itself, since the UI needs this before a player acts.
@@ -545,6 +546,7 @@ describe('placeUnit', () => {
         tilePlacerIndex: 0,
         unitsRemainingByPlayerId: { p1: ['city', 'nomad', 'ship'], p2: ['city', 'nomad', 'ship'] },
         unitPlacerIndex: 0,
+        builderId: null,
       },
       ...overrides,
     })
@@ -638,6 +640,7 @@ describe('placeUnit', () => {
         tilePlacerIndex: 0,
         unitsRemainingByPlayerId: { p1: ['ship'], p2: [] },
         unitPlacerIndex: 0,
+        builderId: null,
       },
     })
 
@@ -652,7 +655,7 @@ describe('placeUnit', () => {
 
   it('is rejected while tiles are still being placed', () => {
     const state = unitPlacementState({
-      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 2, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 2, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0, builderId: null },
     })
     const result = placeUnit(state, 'p1', 'city', { q: 0, r: 0 }, emptyUnitContent)
     expect(result.ok).toBe(false)
@@ -767,5 +770,93 @@ describe('against real content/terrain.json', () => {
 
     expect(state.boardSetup?.tileTierQueue).toEqual(['plain', 'forest', 'mountain', 'glacier'])
     expect(state.boardSetup?.tilesRemainingInTier).toBe(8)
+  })
+})
+
+describe('"build alone" mode (BoardSetupState.builderId, issue #243)', () => {
+  const content: BoardGenerationContent = { startingWaterShapeCells: domino, tiers: [tier('plain', ['water'], 3)] }
+
+  it('beginBoardSetup makes the given builder the sole tile placer, ignoring turn order', () => {
+    const base = makeSetupState({ status: 'lobby', boardSetup: null })
+
+    const state = beginBoardSetup(base, content, 'p2')
+
+    expect(state.boardSetup?.builderId).toBe('p2')
+    expect(currentTilePlacerId(state)).toBe('p2')
+  })
+
+  it('placeTile rejects anyone but the builder, even the player turnOrder would otherwise pick', () => {
+    // Three disjoint water pairs — enough room for all 3 owed plain tiles
+    // (see rule 4's canPlaceRemainingTiles), so the accepted placement below
+    // doesn't get rejected for stranding the other two.
+    const state = makeSetupState({
+      board: boardOf([
+        [0, 0, 'water'], [1, 0, 'water'],
+        [10, 0, 'water'], [11, 0, 'water'],
+        [20, 0, 'water'], [21, 0, 'water'],
+      ]),
+      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 3, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0, builderId: 'p2' },
+    })
+
+    // Normal turn order (tilePlacerIndex 0) would have p1 go first — but the builder is p2.
+    const rejected = placeTile(state, 'p1', { q: 0, r: 0 }, 0, content)
+    expect(rejected.ok).toBe(false)
+
+    const accepted = placeTile(state, 'p2', { q: 0, r: 0 }, 0, content)
+    expect(accepted.ok).toBe(true)
+  })
+
+  it('the builder keeps placing every tile — currentTilePlacerId never rotates to anyone else', () => {
+    let state = makeSetupState({
+      board: boardOf([
+        [0, 0, 'water'], [1, 0, 'water'],
+        [2, 0, 'water'], [3, 0, 'water'],
+      ]),
+      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 2, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0, builderId: 'p1' },
+    })
+
+    let result = placeTile(state, 'p1', { q: 0, r: 0 }, 0, content)
+    if (!result.ok) throw new Error(`setup failed: ${result.error}`)
+    state = result.state
+    expect(currentTilePlacerId(state)).toBe('p1')
+
+    result = placeTile(state, 'p1', { q: 2, r: 0 }, 0, content)
+    if (!result.ok) throw new Error(`setup failed: ${result.error}`)
+    state = result.state
+    expect(currentTilePlacerId(state)).toBeNull() // tier exhausted
+  })
+
+  it("unit placement: ownership rotation is untouched, but only the builder may submit — units still end up owned by the right player", () => {
+    const state = makeSetupState({
+      board: boardOf([[0, 0, 'plain'], [1, 0, 'water'], [3, 0, 'plain'], [4, 0, 'water']]),
+      boardSetup: {
+        tileTierQueue: [],
+        tilesRemainingInTier: 0,
+        tilePlacerIndex: 0,
+        unitsRemainingByPlayerId: { p1: ['city', 'nomad', 'ship'], p2: ['city', 'nomad', 'ship'] },
+        unitPlacerIndex: 0,
+        builderId: 'p1',
+      },
+    })
+
+    // Owner rotation says p1's unit is up first; the builder (also p1 here) may act.
+    expect(currentUnitPlacerId(state)).toBe('p1')
+    expect(currentUnitActorId(state)).toBe('p1')
+
+    const first = placeUnit(state, 'p1', 'city', { q: 0, r: 0 }, emptyUnitContent)
+    if (!first.ok) throw new Error(`setup failed: ${first.error}`)
+
+    // Now it's p2's unit that's up — but the sole builder (p1) is still the only one allowed to place it.
+    expect(currentUnitPlacerId(first.state)).toBe('p2')
+    expect(currentUnitActorId(first.state)).toBe('p1')
+
+    const rejected = placeUnit(first.state, 'p2', 'city', { q: 3, r: 0 }, emptyUnitContent)
+    expect(rejected.ok).toBe(false)
+
+    const second = placeUnit(first.state, 'p1', 'city', { q: 3, r: 0 }, emptyUnitContent)
+    expect(second.ok).toBe(true)
+    if (!second.ok) return
+    const placedForP2 = second.state.units.find((u) => u.coord.q === 3 && u.coord.r === 0)
+    expect(placedForP2?.ownerId).toBe('p2')
   })
 })

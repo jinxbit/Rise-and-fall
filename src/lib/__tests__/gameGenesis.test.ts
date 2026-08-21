@@ -16,7 +16,7 @@ function makeGame(overrides: Partial<GameRow> = {}, settingsOverrides: Partial<G
     created_by: 'auth_1',
     created_at: '',
     updated_at: '',
-    settings: { mapTemplateId: null, mapPoolBoard: null, mapPoolMapId: null, mapPoolRandomAtStart: false, skipHotseatPassGate: false, activeTaleIds: [], gameLength: 4, ...settingsOverrides },
+    settings: { mapTemplateId: null, mapPoolBoard: null, mapPoolMapId: null, mapPoolRandomAtStart: false, soloBuildMap: false, skipHotseatPassGate: false, activeTaleIds: [], gameLength: 4, ...settingsOverrides },
     config_version: 0,
     visibility: 'private',
     ...overrides,
@@ -31,7 +31,7 @@ function makePlayers(): PlayerRow[] {
 }
 
 function makeSettings(overrides: Partial<GameSettings> = {}): GameSettings {
-  return { mapTemplateId: null, mapPoolBoard: null, mapPoolMapId: null, mapPoolRandomAtStart: false, skipHotseatPassGate: false, activeTaleIds: [], gameLength: 4, ...overrides }
+  return { mapTemplateId: null, mapPoolBoard: null, mapPoolMapId: null, mapPoolRandomAtStart: false, soloBuildMap: false, skipHotseatPassGate: false, activeTaleIds: [], gameLength: 4, ...overrides }
 }
 
 function makePoolRow(overrides: Partial<MapPoolRow> = {}): MapPoolRow {
@@ -104,6 +104,21 @@ describe('buildGenesisState', () => {
     const genesis = buildGenesisState(makeGame({}, { activeTaleIds: ['the-ports'], gameLength: 6 }), makePlayers())
     expect(genesis.activeTaleIds).toEqual(['the-ports'])
     expect(genesis.gameLength).toBe(6)
+  })
+
+  it('with soloBuildMap on, resolves the creator (by their auth user id, not player row id) as the sole tile builder', () => {
+    const game = makeGame({ created_by: 'auth_2' }, { soloBuildMap: true })
+    const genesis = buildGenesisState(game, makePlayers())
+
+    // makePlayers(): p1's user_id is 'auth_1', p2's is 'auth_2' — the
+    // creator here is auth_2, so p2 (not turn-order-first p1) must be the
+    // builder.
+    expect(genesis.boardSetup?.builderId).toBe('p2')
+  })
+
+  it('without soloBuildMap, no builder is set — the usual "build together" turn-order rotation applies', () => {
+    const genesis = buildGenesisState(makeGame({ created_by: 'auth_1' }, { soloBuildMap: false }), makePlayers())
+    expect(genesis.boardSetup?.builderId).toBeNull()
   })
 
   it('undo mechanism: replaying genesis + history.slice(0, -1) reconstructs the pre-action state', () => {

@@ -37,7 +37,7 @@ describe('currentActorId', () => {
   it('returns the tile placer during boardSetup tile placement', () => {
     const state = makeState({
       status: 'boardSetup',
-      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 2, tilePlacerIndex: 1, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 2, tilePlacerIndex: 1, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0, builderId: null },
     })
     expect(currentActorId(state)).toBe('p2')
   })
@@ -51,6 +51,7 @@ describe('currentActorId', () => {
         tilePlacerIndex: 0,
         unitsRemainingByPlayerId: { p1: ['city'], p2: ['city', 'nomad', 'ship'] },
         unitPlacerIndex: 1,
+        builderId: null,
       },
     })
     expect(currentActorId(state)).toBe('p2')

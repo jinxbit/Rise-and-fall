@@ -49,7 +49,7 @@ export function LobbyPage() {
   const [draftSettings, setDraftSettings] = useState<GameSettings | null>(null)
   const [draftMinPlayersInput, setDraftMinPlayersInput] = useState('2')
   const [draftMaxPlayersInput, setDraftMaxPlayersInput] = useState('4')
-  const [draftMapMode, setDraftMapMode] = useState<MapMode>('build')
+  const [draftMapMode, setDraftMapMode] = useState<MapMode>('buildAlone')
 
   const load = useCallback(async () => {
     if (!roomCode) return
@@ -134,7 +134,15 @@ export function LobbyPage() {
     setDraftSettings(game.settings)
     setDraftMinPlayersInput(String(game.min_players))
     setDraftMaxPlayersInput(String(game.max_players))
-    setDraftMapMode(game.settings.mapPoolBoard ? 'select' : game.settings.mapPoolRandomAtStart ? 'blind' : 'build')
+    setDraftMapMode(
+      game.settings.mapPoolBoard
+        ? 'select'
+        : game.settings.mapPoolRandomAtStart
+          ? 'blind'
+          : game.settings.soloBuildMap
+            ? 'buildAlone'
+            : 'build',
+    )
     setConfigOpen(true)
   }
 
@@ -390,7 +398,9 @@ export function LobbyPage() {
                 ? 'random saved map'
                 : game.settings.mapPoolRandomAtStart
                   ? 'random saved map (picked when the game starts)'
-                  : 'interactive map'}
+                  : game.settings.soloBuildMap
+                    ? 'interactive map (built alone by the host)'
+                    : 'interactive map'}
           </p>
           {game.settings.activeTaleIds.length > 0 && (
             <p className="text-sm text-neutral-500">
@@ -491,7 +501,9 @@ export function LobbyPage() {
                 mode={draftMapMode}
                 onModeChange={(mode) => {
                   setDraftMapMode(mode)
-                  setDraftSettings((prev) => prev && { ...prev, mapPoolRandomAtStart: mode === 'blind', mapTemplateId: null })
+                  setDraftSettings(
+                    (prev) => prev && { ...prev, mapPoolRandomAtStart: mode === 'blind', soloBuildMap: mode === 'buildAlone', mapTemplateId: null },
+                  )
                 }}
                 initialPlayerCount={draftMaxPlayersValid ? draftMaxPlayers : 4}
                 mapChoice={draftMapChoice}

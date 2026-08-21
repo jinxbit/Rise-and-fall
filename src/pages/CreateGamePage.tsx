@@ -18,7 +18,7 @@ export function CreateGamePage() {
 
   const [name, setName] = useState(() => randomRoomName())
   const [playMode, setPlayMode] = useState<PlayMode>('async')
-  const [mapMode, setMapMode] = useState<MapMode>('build')
+  const [mapMode, setMapMode] = useState<MapMode>('buildAlone')
   const [mapChoice, setMapChoice] = useState<MapPoolChoice | null>(null)
   const [skipHotseatPassGate, setSkipHotseatPassGate] = useState(true)
   const [activeTaleIds, setActiveTaleIds] = useState<string[]>([])
@@ -77,6 +77,7 @@ export function CreateGamePage() {
         mapPoolBoard: mapChoice?.board ?? null,
         mapPoolMapId: mapChoice?.mapId ?? null,
         mapPoolRandomAtStart: mapMode === 'blind',
+        soloBuildMap: mapMode === 'buildAlone',
         skipHotseatPassGate,
         activeTaleIds,
         gameLength,

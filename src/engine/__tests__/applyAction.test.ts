@@ -848,7 +848,7 @@ describe('applyAction — PLACE_TILE/PLACE_UNIT dispatch during boardSetup', () 
     return {
       ...lobby,
       status: 'boardSetup',
-      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 1, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 1, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0, builderId: null },
     }
   }
 
@@ -931,7 +931,7 @@ describe('applyActionAndFastForwardTiles', () => {
     return {
       ...lobby,
       status: 'boardSetup',
-      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 3, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 3, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0, builderId: null },
     }
   }
 
@@ -990,7 +990,7 @@ describe('applyActionAndFastForwardTiles', () => {
     const state: GameState = {
       ...lobby,
       status: 'boardSetup',
-      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 3, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 3, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0, builderId: null },
     }
     const content: BoardGenerationContent = { startingWaterShapeCells: [], tiers: [{ terrain: 'plain', shapeCells: domino, placesOn: ['water'], poolSize: 3 }] }
 

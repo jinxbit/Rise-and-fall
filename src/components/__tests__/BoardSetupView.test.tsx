@@ -51,7 +51,7 @@ function makeWaterPlacementState(board: GameState['board']): GameState {
     winnerPlayerIds: [],
     claimedByAchievementId: {},
     achievementsClaimedThisRound: 0,
-    boardSetup: { tileTierQueue: ['water'], tilesRemainingInTier: 5, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+    boardSetup: { tileTierQueue: ['water'], tilesRemainingInTier: 5, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0, builderId: null },
     idSequence: 0,
     actionHistory: [],
   }

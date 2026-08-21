@@ -96,12 +96,15 @@ export function createNewGame(params: {
  * cycle only begins once every player has placed all three starting units
  * (see PROJECT_PLAN.md section 2 / todo.md #7 for what board setup covers
  * and what's still open, namely the no-space/move-tiles rule).
+ *
+ * `builderId` is GameSettings.soloBuildMap's resolved player id ("build
+ * alone" mode) — omit/null for the usual "build together" mode.
  */
-export function startGame(state: GameState, boardGenerationContent: BoardGenerationContent): GameState {
+export function startGame(state: GameState, boardGenerationContent: BoardGenerationContent, builderId: string | null = null): GameState {
   if (state.status !== 'lobby') {
     throw new Error(`Cannot start a game with status ${state.status}`)
   }
-  return beginBoardSetup(state, boardGenerationContent)
+  return beginBoardSetup(state, boardGenerationContent, builderId)
 }
 
 /**

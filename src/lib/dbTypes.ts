@@ -46,6 +46,18 @@ export interface GameSettings {
    * already happened).
    */
   mapPoolRandomAtStart: boolean
+  /**
+   * "Build alone" map mode (issue #243): the room creator alone places
+   * every tile and every player's starting units once the game starts,
+   * instead of the usual "build together" turn-order rotation across all
+   * seated players — see BoardSetupState.builderId and
+   * gameGenesis.ts's buildGenesisState, which resolves this into the
+   * creator's player id before calling engine startGame(). Mutually
+   * exclusive with mapTemplateId/mapPoolBoard/mapPoolRandomAtStart in the
+   * UI (there's no interactive tile placement to build alone through once
+   * a map's already picked).
+   */
+  soloBuildMap: boolean
   /** Hotseat only: skip GamePage.tsx's "pass the device" confirmation gate between local players' turns. Irrelevant for live/async. */
   skipHotseatPassGate: boolean
   /** Content ids of active Tales (src/content/tales.json). Empty = Tales variant off. */

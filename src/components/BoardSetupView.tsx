@@ -3,7 +3,13 @@ import { getTile } from '../engine/board'
 import { placedShapeCells, rotateShape, shapeCenterCell } from '../engine/boardGeneration'
 import type { RoomCheckDiagnostics } from '../engine/boardGeneration'
 import type { BoardGenerationContent } from '../engine/boardGenerationContent'
-import { checkTilePlacementLegalityDetailed, currentTilePlacerId, currentUnitPlacerId, isLegalStartingUnitPlacement } from '../engine/boardSetup'
+import {
+  checkTilePlacementLegalityDetailed,
+  currentTilePlacerId,
+  currentUnitActorId,
+  currentUnitPlacerId,
+  isLegalStartingUnitPlacement,
+} from '../engine/boardSetup'
 import type { TilePlacementLegalityResult } from '../engine/boardSetup'
 import type { Board, Coordinate, GameState } from '../engine/types'
 import type { PlayerRow } from '../lib/dbTypes'
@@ -245,9 +251,14 @@ function UnitPlacementPanel(props: {
 }) {
   const { state, players, myPlayerId, onPlaceUnit } = props
   const boardSetup = state.boardSetup!
-  const placerId = currentUnitPlacerId(state)
-  const isMyTurn = placerId !== null && placerId === myPlayerId
-  const remaining = boardSetup.unitsRemainingByPlayerId[placerId ?? ''] ?? []
+  // ownerId: whose unit is being placed next. actorId: who's authorized to
+  // click for it — the same player, except in "build alone" mode (see
+  // BoardSetupState.builderId), where the sole builder acts on everyone's
+  // behalf.
+  const ownerId = currentUnitPlacerId(state)
+  const actorId = currentUnitActorId(state)
+  const isMyTurn = actorId !== null && actorId === myPlayerId
+  const remaining = boardSetup.unitsRemainingByPlayerId[ownerId ?? ''] ?? []
 
   const [selectedKind, setSelectedKind] = useState<string | null>(remaining[0] ?? null)
 
@@ -276,11 +287,24 @@ function UnitPlacementPanel(props: {
   return (
     <div className="flex flex-col gap-3">
       <p className="text-sm text-neutral-300">
-        Placing starting units.{' '}
-        {isMyTurn ? (
-          <span className="font-medium text-indigo-400">Your turn.</span>
+        {ownerId !== actorId ? (
+          <>
+            Placing <span className="font-medium">{playerName(players, ownerId)}</span>&apos;s starting units.{' '}
+            {isMyTurn ? (
+              <span className="font-medium text-indigo-400">Your turn — placing on their behalf.</span>
+            ) : (
+              <span>Waiting for {playerName(players, actorId)}.</span>
+            )}
+          </>
         ) : (
-          <span>Waiting for {playerName(players, placerId)}.</span>
+          <>
+            Placing starting units.{' '}
+            {isMyTurn ? (
+              <span className="font-medium text-indigo-400">Your turn.</span>
+            ) : (
+              <span>Waiting for {playerName(players, actorId)}.</span>
+            )}
+          </>
         )}
       </p>
 

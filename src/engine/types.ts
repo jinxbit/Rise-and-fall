@@ -264,6 +264,18 @@ export interface BoardSetupState {
   tilePlacerIndex: number
   unitsRemainingByPlayerId: Record<string, string[]>
   unitPlacerIndex: number
+  /**
+   * "Build alone" map mode (GameSettings.soloBuildMap): the one player who
+   * gets to act during tile/unit placement, instead of the usual
+   * turnOrder-based rotation — everyone else just watches. Tiles have no
+   * owner either way, so this is simply who currentTilePlacerId returns.
+   * Units still get placed *for* the correct owner (see
+   * unitsRemainingByPlayerId's own rotation, exposed as
+   * currentUnitPlacerId) — this only changes who's authorized to submit
+   * the placement (currentUnitActorId), not who ends up owning the unit.
+   * `null` for the normal "everyone places their own" build-together mode.
+   */
+  builderId: string | null
 }
 
 /**

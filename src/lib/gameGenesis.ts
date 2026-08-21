@@ -39,7 +39,11 @@ export function buildGenesisState(game: GameRow, players: PlayerRow[]): GameStat
   if (game.settings.mapPoolBoard) {
     return startGameWithPresetBoard(lobbyState, game.settings.mapPoolBoard)
   }
-  return startGame(lobbyState, resolveBoardGenerationContent(players.length))
+  // "Build alone" (GameSettings.soloBuildMap, issue #243): resolve the
+  // creator's *player* row id (not their auth user id) to hand to
+  // startGame() as the sole builder — see BoardSetupState.builderId.
+  const builderId = game.settings.soloBuildMap ? (players.find((p) => p.user_id === game.created_by)?.id ?? null) : null
+  return startGame(lobbyState, resolveBoardGenerationContent(players.length), builderId)
 }
 
 /**

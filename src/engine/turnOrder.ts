@@ -1,4 +1,4 @@
-import { currentTilePlacerId, currentUnitPlacerId } from './boardSetup'
+import { currentTilePlacerId, currentUnitActorId } from './boardSetup'
 import type { GameState } from './types'
 
 /**
@@ -14,7 +14,10 @@ import type { GameState } from './types'
  */
 export function pendingActorIds(state: GameState): string[] {
   if (state.status === 'boardSetup') {
-    const id = currentTilePlacerId(state) ?? currentUnitPlacerId(state)
+    // currentUnitActorId (not currentUnitPlacerId) — in "build alone" mode
+    // the builder is who must actually act, even while a placement being
+    // made is for a different player's unit (see BoardSetupState.builderId).
+    const id = currentTilePlacerId(state) ?? currentUnitActorId(state)
     return id ? [id] : []
   }
   if (state.status === 'active') {

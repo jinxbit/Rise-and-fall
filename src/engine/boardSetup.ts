@@ -52,8 +52,13 @@ function beginUnitPlacementIfTilesDone(state: GameState, turnOrder: string[]): G
  * (see seedStartingWaterTiles in ./boardGeneration.ts — fully automatic,
  * no player choice involved) and begins the interactive tile-placement
  * queue at its first non-empty tier.
+ *
+ * `builderId` is GameSettings.soloBuildMap's resolved player id ("build
+ * alone" mode) — pass null (the default) for the usual "build together"
+ * mode, where every seated player takes turns per the normal turnOrder
+ * rotation (see BoardSetupState.builderId's own doc comment).
  */
-export function beginBoardSetup(state: GameState, content: BoardGenerationContent): GameState {
+export function beginBoardSetup(state: GameState, content: BoardGenerationContent, builderId: string | null = null): GameState {
   const board = seedStartingWaterTiles(state.turnOrder.length, content.startingWaterShapeCells)
   const initialQueue = content.tiers.map((t) => t.terrain)
   const boardSetup = skipExhaustedTiers(
@@ -63,6 +68,7 @@ export function beginBoardSetup(state: GameState, content: BoardGenerationConten
       tilePlacerIndex: 0,
       unitsRemainingByPlayerId: {},
       unitPlacerIndex: 0,
+      builderId,
     },
     content,
   )
@@ -77,7 +83,10 @@ export function beginBoardSetup(state: GameState, content: BoardGenerationConten
  * content/resolveContent.ts): skips the interactive tile-placement
  * sub-phase entirely — `board` is used exactly as given, with an empty
  * `tileTierQueue` — and goes straight into starting-unit placement, which
- * proceeds exactly as normal from there (see placeUnit below).
+ * proceeds exactly as normal from there (see placeUnit below). "Build
+ * alone" mode is mutually exclusive with a preset board in the UI, so
+ * there's no builderId to thread through here — every player always
+ * places their own starting units.
  */
 export function beginBoardSetupWithPresetBoard(state: GameState, board: Board): GameState {
   const boardSetup: BoardSetupState = {
@@ -86,26 +95,35 @@ export function beginBoardSetupWithPresetBoard(state: GameState, board: Board): 
     tilePlacerIndex: 0,
     unitsRemainingByPlayerId: {},
     unitPlacerIndex: 0,
+    builderId: null,
   }
   const nextState: GameState = { ...state, status: 'boardSetup', board, boardSetup }
   return beginUnitPlacementIfTilesDone(nextState, state.turnOrder)
 }
 
-/** Whose turn it is to place the next tile, or null if tile placement isn't currently active. */
+/** Whose turn it is to place the next tile — always builderId once "build alone" mode set one (see BoardSetupState.builderId) — or null if tile placement isn't currently active. */
 export function currentTilePlacerId(state: GameState): string | null {
   const boardSetup = state.boardSetup
   if (state.status !== 'boardSetup' || !boardSetup || boardSetup.tileTierQueue.length === 0) return null
+  if (boardSetup.builderId) return boardSetup.builderId
   if (state.turnOrder.length === 0) return null
   return state.turnOrder[boardSetup.tilePlacerIndex % state.turnOrder.length]
 }
 
-/** Whose turn it is to place the next starting unit, or null if unit placement isn't currently active. */
+/** Whose *own* starting unit is next up to be placed (i.e. who it'll belong to), or null if unit placement isn't currently active. In "build alone" mode this can differ from who's actually authorized to submit the placement — see currentUnitActorId. */
 export function currentUnitPlacerId(state: GameState): string | null {
   const boardSetup = state.boardSetup
   if (state.status !== 'boardSetup' || !boardSetup || boardSetup.tileTierQueue.length > 0) return null
   if (Object.keys(boardSetup.unitsRemainingByPlayerId).length === 0) return null
   if (state.turnOrder.length === 0) return null
   return state.turnOrder[boardSetup.unitPlacerIndex % state.turnOrder.length]
+}
+
+/** Who's authorized to submit the next starting-unit placement — the builder in "build alone" mode (see BoardSetupState.builderId), otherwise whoever the unit's actually for (currentUnitPlacerId). */
+export function currentUnitActorId(state: GameState): string | null {
+  const boardSetup = state.boardSetup
+  if (boardSetup?.builderId) return boardSetup.builderId
+  return currentUnitPlacerId(state)
 }
 
 /**
@@ -273,7 +291,14 @@ export function isLegalStartingUnitPlacement(board: GameState['board'], units: U
   return tile.terrain !== 'glacier' && tile.terrain !== 'water'
 }
 
-/** PLACE_UNIT: places one of the player's three starting units (see PlaceUnitAction in ./actions.ts). */
+/**
+ * PLACE_UNIT: places one of a player's three starting units (see
+ * PlaceUnitAction in ./actions.ts). `playerId` is who's *submitting* the
+ * action — normally the same as the unit's eventual owner, except in
+ * "build alone" mode, where the sole builder submits every placement but
+ * ownership still follows the normal per-player rotation (see
+ * currentUnitPlacerId vs. currentUnitActorId).
+ */
 export function placeUnit(state: GameState, playerId: string, unitKind: string, coord: Coordinate, unitContent: UnitContent): ActionResult {
   if (state.status !== 'boardSetup') {
     return { ok: false, error: `Not currently placing units (status: ${state.status})` }
@@ -282,12 +307,13 @@ export function placeUnit(state: GameState, playerId: string, unitKind: string, 
   if (!boardSetup || boardSetup.tileTierQueue.length > 0) {
     return { ok: false, error: 'Tile placement must finish before units can be placed' }
   }
-  const placerId = currentUnitPlacerId(state)
-  if (placerId !== playerId) {
+  const ownerId = currentUnitPlacerId(state)
+  const actorId = currentUnitActorId(state)
+  if (actorId !== playerId || !ownerId) {
     return { ok: false, error: "It is not this player's turn to place a unit" }
   }
 
-  const remaining = boardSetup.unitsRemainingByPlayerId[playerId] ?? []
+  const remaining = boardSetup.unitsRemainingByPlayerId[ownerId] ?? []
   if (!remaining.includes(unitKind)) {
     return { ok: false, error: `Player has no starting ${unitKind} left to place` }
   }
@@ -298,7 +324,7 @@ export function placeUnit(state: GameState, playerId: string, unitKind: string, 
   const { id, idSequence } = nextSequenceId(state, 'starting_unit')
   const newUnit: Unit = {
     id,
-    ownerId: playerId,
+    ownerId,
     kind: unitKind,
     coord,
     movement: unitContent.movementByKind[unitKind] ?? { isMobile: false, terrains: [], canCrossCliffs: false },
@@ -307,7 +333,7 @@ export function placeUnit(state: GameState, playerId: string, unitKind: string, 
   const units = [...state.units, newUnit]
   const unitsRemainingByPlayerId = {
     ...boardSetup.unitsRemainingByPlayerId,
-    [playerId]: remaining.filter((k) => k !== unitKind),
+    [ownerId]: remaining.filter((k) => k !== unitKind),
   }
   const nextBoardSetup: BoardSetupState = { ...boardSetup, unitsRemainingByPlayerId, unitPlacerIndex: boardSetup.unitPlacerIndex + 1 }
 
