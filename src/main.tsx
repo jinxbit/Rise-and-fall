@@ -12,7 +12,11 @@ import('./App.tsx')
     // A successful load means the current build is usable — clear the
     // reload-once guard from index.html so a future stale-asset error (after
     // the *next* deploy) can trigger a fresh auto-reload again.
-    sessionStorage.removeItem('rf:reload-on-stale-asset')
+    try {
+      sessionStorage.removeItem('rf:reload-on-stale-asset')
+    } catch {
+      // storage access blocked (e.g. sandboxed iframe, strict privacy mode) — not fatal
+    }
     root.render(
       <StrictMode>
         <App />
