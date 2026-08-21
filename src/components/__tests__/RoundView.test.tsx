@@ -1233,6 +1233,45 @@ describe('RoundView — bulk actions on idle units (issue #61)', () => {
     // Resource in the tests above.
     expect(screen.queryByRole('button', { name: /Transform to Ship/ })).not.toBeInTheDocument()
   })
+
+  it("shows no bulk-action button for a self-targeted transform (e.g. Nomad's Transform to City/Temple), even though it needs no target hex (issue #201)", () => {
+    const content = buildRealUnitContent()
+    const board = setTile(setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'plain'), { q: 1, r: 0 }, 'plain')
+    const nomadA: Unit = { id: 'nomadA', ownerId: 'p1', kind: 'nomad', coord: { q: 0, r: 0 }, movement: content.movementByKind.nomad, traits: [] }
+    const nomadB: Unit = { id: 'nomadB', ownerId: 'p1', kind: 'nomad', coord: { q: 1, r: 0 }, movement: content.movementByKind.nomad, traits: [] }
+    let state = beginActionsForUnits(content, board, [nomadA, nomadB], 'nomad')
+    state = { ...state, players: state.players.map((p) => (p.id === 'p1' ? { ...p, resources: { gold: 5, wood: 5, stone: 5 } } : p)) }
+
+    render(
+      <RoundView
+        state={state}
+        players={BULK_TEST_PLAYERS}
+        myPlayerId="p1"
+        unitContent={content}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
+        turnReview={null}
+        showHistory={false}
+        onToggleHistory={() => {}}
+        gameLog={[]}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+
+    // Both Nomads sit on Plain with enough resources for either transform —
+    // Transform to City/Temple's targetHex is 'self', so actionNeedsTargeting
+    // treats it as no-target, but it destroys the unit and permanently turns
+    // it into a City/Temple, so it must stay off the "act on everyone" bar.
+    expect(screen.queryByRole('button', { name: /Transform to City/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Transform to Temple/ })).not.toBeInTheDocument()
+  })
 })
 
 describe("RoundView — City's Convert to Merchant/Mountaineer (bug report: \"no follow up selection of which unit to transform\")", () => {
