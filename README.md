@@ -74,6 +74,31 @@ Supabase setup below.
    API) into `.env.local` as `VITE_SUPABASE_URL` and
    `VITE_SUPABASE_ANON_KEY`.
 
+## Deploying Supabase changes (optional)
+
+Migrations and Edge Functions can be applied by hand (SQL editor / `supabase`
+CLI, as described throughout this doc) or automatically on every push to
+`main` via [`.github/workflows/deploy-supabase.yml`](.github/workflows/deploy-supabase.yml).
+That workflow runs whenever a file under `supabase/migrations/` or
+`supabase/functions/` changes (or on manual trigger from the Actions tab),
+links the CLI to your project, runs `supabase db push` to apply any new
+migrations, and `supabase functions deploy` to redeploy all Edge Functions.
+
+To enable it, add these repository secrets (**Settings → Secrets and
+variables → Actions**):
+
+- `SUPABASE_ACCESS_TOKEN` — a personal access token from your [Supabase
+  account settings](https://supabase.com/dashboard/account/tokens).
+- `SUPABASE_PROJECT_ID` — your project's ref, the subdomain in its API URL
+  (`https://<project-ref>.supabase.co`).
+- `SUPABASE_DB_PASSWORD` — the database password you set when creating the
+  project (Settings → Database, or reset it there if forgotten).
+
+Function-specific secrets (`DISCORD_NOTIFY_WEBHOOK_SECRET`, VAPID keys, etc.)
+still need to be set once per project with `supabase secrets set`, as
+described in each function's setup section below — the workflow only
+deploys code, not secrets.
+
 ## Discord OAuth setup (do this yourself)
 
 This uses Supabase Auth's built-in Discord provider, so a player's Discord
