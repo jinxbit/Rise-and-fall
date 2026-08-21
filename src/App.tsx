@@ -8,11 +8,16 @@ import { MapBuilderPage } from './pages/MapBuilderPage'
 import { MyGamesPage } from './pages/MyGamesPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { PublicRoomsPage } from './pages/PublicRoomsPage'
+import { UpdateBanner } from './components/UpdateBanner'
+import { useAppUpdateAvailable } from './hooks/useAppUpdateAvailable'
 
 function App() {
+  const updateAvailable = useAppUpdateAvailable()
+
   return (
     <BrowserRouter>
       <div className="min-h-screen bg-neutral-950 text-neutral-100">
+        {updateAvailable && <UpdateBanner onReload={() => window.location.reload()} />}
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/create" element={<CreateGamePage />} />

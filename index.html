@@ -5,6 +5,25 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>rise-and-fall</title>
+    <script>
+      // A deploy removes the previous build's hashed JS/CSS files. A tab that
+      // still has an old index.html cached (or was already open) will 404 on
+      // those files instead of rendering, so reload once automatically
+      // rather than leaving the player stuck on a blank/broken page (issue #247).
+      window.addEventListener(
+        'error',
+        function (event) {
+          var target = event.target
+          if (!(target instanceof HTMLElement)) return
+          if (target.tagName !== 'SCRIPT' && target.tagName !== 'LINK') return
+          var key = 'rf:reload-on-stale-asset'
+          if (sessionStorage.getItem(key)) return
+          sessionStorage.setItem(key, '1')
+          location.reload()
+        },
+        true,
+      )
+    </script>
   </head>
   <body>
     <div id="root"></div>
