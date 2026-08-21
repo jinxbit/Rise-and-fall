@@ -1,6 +1,6 @@
 import { supabase } from './supabase'
 import { nextSeatIndex } from './seatIndex'
-import type { GameRow, GameSettings, GameStateRow, ObserverRow, PlayerRow } from './dbTypes'
+import type { GameRow, GameSettings, GameStateRow, ObserverRow, PlayerRow, PushSubscriptionRow } from './dbTypes'
 import type { MyGameEntry } from './myGamesView'
 import type { PublicRoomEntry } from './publicRoomsView'
 import type { Board, GameState as EngineGameState, PlayMode } from '../engine/types'
@@ -20,6 +20,38 @@ export async function getDiscordWebhookUrl(userId: string): Promise<string | nul
 
 export async function saveDiscordWebhookUrl(userId: string, webhookUrl: string | null): Promise<void> {
   const { error } = await supabase.from('profiles').upsert({ user_id: userId, discord_webhook_url: webhookUrl })
+  if (error) throw error
+}
+
+/**
+ * Web Push subscriptions saved for this user (0020_push_subscriptions.sql) —
+ * used by src/lib/pushNotify.ts to know whether the *current* browser
+ * already has one, so PushNotificationSettings.tsx can show on/off state.
+ */
+export async function getPushSubscriptions(userId: string): Promise<PushSubscriptionRow[]> {
+  const { data, error } = await supabase.from('push_subscriptions').select('*').eq('user_id', userId)
+  if (error) throw error
+  return data ?? []
+}
+
+export async function savePushSubscription(userId: string, subscription: PushSubscriptionJSON): Promise<void> {
+  if (!subscription.endpoint || !subscription.keys?.p256dh || !subscription.keys.auth) {
+    throw new Error('Incomplete push subscription')
+  }
+  const { error } = await supabase.from('push_subscriptions').upsert(
+    {
+      user_id: userId,
+      endpoint: subscription.endpoint,
+      p256dh: subscription.keys.p256dh,
+      auth: subscription.keys.auth,
+    },
+    { onConflict: 'endpoint' },
+  )
+  if (error) throw error
+}
+
+export async function deletePushSubscription(endpoint: string): Promise<void> {
+  const { error } = await supabase.from('push_subscriptions').delete().eq('endpoint', endpoint)
   if (error) throw error
 }
 

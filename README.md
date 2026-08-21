@@ -177,6 +177,59 @@ readable by anyone but the backend.
 See `supabase/functions/notify-discord-turn/index.ts`'s doc comment for how
 the function decides who to ping.
 
+## Push notifications (optional, per player)
+
+The app is installable as a PWA (Add to Home Screen / Install app) and can
+send a system notification when it becomes your turn in an async game — no
+Discord setup needed, just a browser permission prompt. Same design as
+Discord turn notifications above: a Supabase Edge Function
+(`supabase/functions/notify-web-push`) sends the push server-side, so it
+still fires even if every tab is closed.
+
+1. On the Rise & Fall home page (once the backend below is set up), open
+   **Profile → Push notifications** and hit **Turn on**, then allow the
+   browser's permission prompt.
+   - **iOS Safari**: only works after the app has been installed to the
+     Home Screen (Share → Add to Home Screen) — Safari doesn't support Web
+     Push for regular browser tabs, only for installed PWAs, and needs
+     iOS/iPadOS 16.4+.
+   - **Android (Chrome and most others)**: works either installed or as a
+     regular browser tab.
+
+**Backend setup** (do this once per Supabase project):
+
+1. Run `supabase/migrations/0020_push_subscriptions.sql` (after `0001`) to
+   add the table subscriptions are stored in.
+2. Generate a VAPID keypair (identifies your server to push services —
+   nothing to sign up for):
+   ```bash
+   npx web-push generate-vapid-keys
+   ```
+3. Set `VITE_VAPID_PUBLIC_KEY` in your `.env` (see `.env.example`) to the
+   public key — this is what enables the opt-in UI at all; leaving it unset
+   hides it. Rebuild/redeploy the frontend after setting it.
+4. Deploy the Edge Function and set its secrets:
+   ```bash
+   supabase functions deploy notify-web-push
+   supabase secrets set VAPID_PUBLIC_KEY=<the public key from step 2>
+   supabase secrets set VAPID_PRIVATE_KEY=<the private key from step 2>
+   supabase secrets set PUSH_NOTIFY_WEBHOOK_SECRET=$(openssl rand -hex 32)
+   ```
+   `VAPID_CONTACT` is optional (`supabase secrets set
+   VAPID_CONTACT=mailto:you@example.com`) — some push services use it to
+   reach you if your server is misbehaving; defaults to a placeholder.
+   `SITE_URL` (see the Discord section above) is reused here too, so the
+   notification can deep-link straight to the game.
+5. In the Supabase dashboard: **Database → Webhooks**, and either add a
+   second target to the same hook created for Discord above, or create a
+   new one — Table: `game_state`, Events: `Update`, Type: **Supabase Edge
+   Functions**, targeting `notify-web-push`, with an HTTP header
+   `x-webhook-secret` set to `PUSH_NOTIFY_WEBHOOK_SECRET` from step 4.
+
+See `supabase/functions/notify-web-push/index.ts`'s doc comment for how the
+function decides who to ping — it's the same turn-detection logic as the
+Discord function, just a different delivery channel.
+
 ## Testing without Discord OAuth set up
 
 Set `VITE_ALLOW_GUEST_AUTH=true` (see `.env.example`) to show a "Continue

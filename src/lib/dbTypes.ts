@@ -182,6 +182,16 @@ export interface MapPoolRow {
   created_at: string
 }
 
+/** A browser/device's Web Push subscription (0020_push_subscriptions.sql) — see src/lib/pushNotify.ts. */
+export interface PushSubscriptionRow {
+  id: string
+  user_id: string
+  endpoint: string
+  p256dh: string
+  auth: string
+  created_at: string
+}
+
 /** Per-account settings — see supabase/migrations/0005_discord_webhooks.sql. */
 export interface ProfileRow {
   user_id: string
