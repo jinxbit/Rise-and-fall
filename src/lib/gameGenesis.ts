@@ -39,7 +39,75 @@ export function buildGenesisState(game: GameRow, players: PlayerRow[]): GameStat
   if (game.settings.mapPoolBoard) {
     return startGameWithPresetBoard(lobbyState, game.settings.mapPoolBoard)
   }
-  return startGame(lobbyState, resolveBoardGenerationContent(players.length))
+  if (!game.settings.soloBuildMap) {
+    return startGame(lobbyState, resolveBoardGenerationContent(players.length))
+  }
+
+  // "Build alone" (GameSettings.soloBuildMap, issue #243): resolve the
+  // builder's *player* row id (not their auth user id) to hand to
+  // startGame() as the sole tile-builder (see BoardSetupState.builderId).
+  // 'owner' resolves deterministically right here (a pure function of
+  // game.created_by); 'random' was already resolved once, before this game
+  // ever reached this function, by resolveSoloBuildMap below (see its own
+  // doc comment for why the randomness can't live here).
+  const builderId =
+    game.settings.soloBuilderSelection === 'random'
+      ? game.settings.soloBuilderId
+      : (players.find((p) => p.user_id === game.created_by)?.id ?? null)
+
+  // Starting *unit* placement always follows the normal turnOrder rotation
+  // regardless of who builds (see BoardSetupState.builderId's doc comment)
+  // — soloBuilderUnitOrder only chooses what that rotation's order *is*:
+  // 'last' deterministically moves the (now-resolved) builder to the end
+  // of the normal seat order; 'random' reuses the turn order
+  // resolveSoloBuildMap already rolled and persisted, for the same
+  // determinism reason as builderId above.
+  const seatOrder = lobbyState.turnOrder
+  const turnOrder =
+    game.settings.soloBuilderUnitOrder === 'random'
+      ? (game.settings.soloBuilderTurnOrder ?? seatOrder)
+      : builderId
+        ? [...seatOrder.filter((id) => id !== builderId), builderId]
+        : seatOrder
+  const orderedLobbyState = turnOrder === seatOrder ? lobbyState : { ...lobbyState, turnOrder, pendingPlayerIds: [...turnOrder] }
+
+  return startGame(orderedLobbyState, resolveBoardGenerationContent(players.length), builderId)
+}
+
+/** Fisher-Yates shuffle — used only by resolveSoloBuildMap below, which is the one place in this file allowed to use real randomness (see its doc comment). */
+function shuffled<T>(items: T[]): T[] {
+  const result = [...items]
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[result[i], result[j]] = [result[j], result[i]]
+  }
+  return result
+}
+
+/**
+ * Resolves GameSettings.soloBuilderSelection/soloBuilderUnitOrder's
+ * 'random' options (issue #243) against the actual seated `players` —
+ * into an updated GameSettings with soloBuilderId/soloBuilderTurnOrder
+ * locked in — or `settings` unchanged if soloBuildMap is off, both
+ * options are 'owner'/'last' (resolved deterministically inline by
+ * buildGenesisState instead, no persistence needed), or everything
+ * relevant is already resolved (e.g. a second call after the first
+ * already resolved it). Uses real randomness (Math.random, via shuffled
+ * above), so — like resolveMapPoolRandomAtStart — this can't live inside
+ * buildGenesisState itself, which must stay a synchronous, deterministic
+ * function of the game row alone; LobbyPage.tsx's handleStart() calls
+ * this once and persists the result before building genesis.
+ */
+export function resolveSoloBuildMap(settings: GameSettings, players: PlayerRow[]): GameSettings {
+  if (!settings.soloBuildMap) return settings
+  let next = settings
+  if (next.soloBuilderSelection === 'random' && next.soloBuilderId === null) {
+    next = { ...next, soloBuilderId: players[Math.floor(Math.random() * players.length)].id }
+  }
+  if (next.soloBuilderUnitOrder === 'random' && next.soloBuilderTurnOrder === null) {
+    next = { ...next, soloBuilderTurnOrder: shuffled(players.map((p) => p.id)) }
+  }
+  return next
 }
 
 /**

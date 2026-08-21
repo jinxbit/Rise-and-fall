@@ -8,7 +8,7 @@ import { GameLengthSelector } from '../components/GameLengthSelector'
 import { MapModeSelector, type MapMode, type MapPoolChoice } from '../components/MapModeSelector'
 import { TaleSelector } from '../components/TaleSelector'
 import { listMapTemplates, listTales } from '../content/resolveContent'
-import { buildGenesisState, resolveMapPoolRandomAtStart } from '../lib/gameGenesis'
+import { buildGenesisState, resolveMapPoolRandomAtStart, resolveSoloBuildMap } from '../lib/gameGenesis'
 import { pickRandomMapFromPool } from '../lib/mapPoolApi'
 import { setPendingRedirect } from '../lib/pendingRedirect'
 import {
@@ -49,7 +49,7 @@ export function LobbyPage() {
   const [draftSettings, setDraftSettings] = useState<GameSettings | null>(null)
   const [draftMinPlayersInput, setDraftMinPlayersInput] = useState('2')
   const [draftMaxPlayersInput, setDraftMaxPlayersInput] = useState('4')
-  const [draftMapMode, setDraftMapMode] = useState<MapMode>('build')
+  const [draftMapMode, setDraftMapMode] = useState<MapMode>('buildAlone')
 
   const load = useCallback(async () => {
     if (!roomCode) return
@@ -134,7 +134,15 @@ export function LobbyPage() {
     setDraftSettings(game.settings)
     setDraftMinPlayersInput(String(game.min_players))
     setDraftMaxPlayersInput(String(game.max_players))
-    setDraftMapMode(game.settings.mapPoolBoard ? 'select' : game.settings.mapPoolRandomAtStart ? 'blind' : 'build')
+    setDraftMapMode(
+      game.settings.mapPoolBoard
+        ? 'select'
+        : game.settings.mapPoolRandomAtStart
+          ? 'blind'
+          : game.settings.soloBuildMap
+            ? 'buildAlone'
+            : 'build',
+    )
     setConfigOpen(true)
   }
 
@@ -226,6 +234,18 @@ export function LobbyPage() {
         if (settings !== game.settings) {
           await updateGameSettings(game.id, { settings, minPlayers: game.min_players, maxPlayers: game.max_players })
           startingGame = { ...game, settings }
+        }
+      }
+
+      // "Build alone" (issue #243): same resolve-then-persist reasoning as
+      // above — a random builder/unit-placement-order pick has to be rolled
+      // and locked in once, here, before buildGenesisState can use it (see
+      // resolveSoloBuildMap's own doc comment).
+      if (startingGame.settings.soloBuildMap) {
+        const settings = resolveSoloBuildMap(startingGame.settings, players)
+        if (settings !== startingGame.settings) {
+          await updateGameSettings(startingGame.id, { settings, minPlayers: startingGame.min_players, maxPlayers: startingGame.max_players })
+          startingGame = { ...startingGame, settings }
         }
       }
 
@@ -390,7 +410,9 @@ export function LobbyPage() {
                 ? 'random saved map'
                 : game.settings.mapPoolRandomAtStart
                   ? 'random saved map (picked when the game starts)'
-                  : 'interactive map'}
+                  : game.settings.soloBuildMap
+                    ? `interactive map (built alone by ${game.settings.soloBuilderSelection === 'random' ? 'a random player' : 'the host'})`
+                    : 'interactive map (built together)'}
           </p>
           {game.settings.activeTaleIds.length > 0 && (
             <p className="text-sm text-neutral-500">
@@ -491,7 +513,7 @@ export function LobbyPage() {
                 mode={draftMapMode}
                 onModeChange={(mode) => {
                   setDraftMapMode(mode)
-                  setDraftSettings((prev) => prev && { ...prev, mapPoolRandomAtStart: mode === 'blind', mapTemplateId: null })
+                  setDraftSettings((prev) => prev && { ...prev, mapPoolRandomAtStart: mode === 'blind', soloBuildMap: mode === 'buildAlone', mapTemplateId: null })
                 }}
                 initialPlayerCount={draftMaxPlayersValid ? draftMaxPlayers : 4}
                 mapChoice={draftMapChoice}
@@ -508,6 +530,14 @@ export function LobbyPage() {
                     setDraftMaxPlayersInput(String(choice.playerCount))
                   }
                 }}
+                soloBuilderSelection={draftSettings.soloBuilderSelection}
+                onSoloBuilderSelectionChange={(soloBuilderSelection) =>
+                  setDraftSettings((prev) => prev && { ...prev, soloBuilderSelection })
+                }
+                soloBuilderUnitOrder={draftSettings.soloBuilderUnitOrder}
+                onSoloBuilderUnitOrderChange={(soloBuilderUnitOrder) =>
+                  setDraftSettings((prev) => prev && { ...prev, soloBuilderUnitOrder })
+                }
               />
               <details>
                 <summary className="cursor-pointer text-sm font-medium text-neutral-400">Tales</summary>

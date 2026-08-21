@@ -52,8 +52,13 @@ function beginUnitPlacementIfTilesDone(state: GameState, turnOrder: string[]): G
  * (see seedStartingWaterTiles in ./boardGeneration.ts — fully automatic,
  * no player choice involved) and begins the interactive tile-placement
  * queue at its first non-empty tier.
+ *
+ * `builderId` is GameSettings.soloBuildMap's resolved player id ("build
+ * alone" mode, see BoardSetupState.builderId's doc comment) — pass null
+ * (the default) for the usual "build together" mode, where every seated
+ * player takes turns placing tiles per the normal turnOrder rotation.
  */
-export function beginBoardSetup(state: GameState, content: BoardGenerationContent): GameState {
+export function beginBoardSetup(state: GameState, content: BoardGenerationContent, builderId: string | null = null): GameState {
   const board = seedStartingWaterTiles(state.turnOrder.length, content.startingWaterShapeCells)
   const initialQueue = content.tiers.map((t) => t.terrain)
   const boardSetup = skipExhaustedTiers(
@@ -63,6 +68,7 @@ export function beginBoardSetup(state: GameState, content: BoardGenerationConten
       tilePlacerIndex: 0,
       unitsRemainingByPlayerId: {},
       unitPlacerIndex: 0,
+      builderId,
     },
     content,
   )
@@ -91,10 +97,11 @@ export function beginBoardSetupWithPresetBoard(state: GameState, board: Board): 
   return beginUnitPlacementIfTilesDone(nextState, state.turnOrder)
 }
 
-/** Whose turn it is to place the next tile, or null if tile placement isn't currently active. */
+/** Whose turn it is to place the next tile — always the sole builder once "build alone" mode set one (see BoardSetupState.builderId) — or null if tile placement isn't currently active. */
 export function currentTilePlacerId(state: GameState): string | null {
   const boardSetup = state.boardSetup
   if (state.status !== 'boardSetup' || !boardSetup || boardSetup.tileTierQueue.length === 0) return null
+  if (boardSetup.builderId) return boardSetup.builderId
   if (state.turnOrder.length === 0) return null
   return state.turnOrder[boardSetup.tilePlacerIndex % state.turnOrder.length]
 }

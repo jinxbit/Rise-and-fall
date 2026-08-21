@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { GameLengthSelector } from '../components/GameLengthSelector'
-import { MapModeSelector, type MapMode, type MapPoolChoice } from '../components/MapModeSelector'
+import { MapModeSelector, type MapMode, type MapPoolChoice, type SoloBuilderSelection, type SoloBuilderUnitOrder } from '../components/MapModeSelector'
 import { PlayModeSelector } from '../components/PlayModeSelector'
 import { TaleSelector } from '../components/TaleSelector'
 import { useAuth } from '../hooks/useAuth'
@@ -18,8 +18,10 @@ export function CreateGamePage() {
 
   const [name, setName] = useState(() => randomRoomName())
   const [playMode, setPlayMode] = useState<PlayMode>('async')
-  const [mapMode, setMapMode] = useState<MapMode>('build')
+  const [mapMode, setMapMode] = useState<MapMode>('buildAlone')
   const [mapChoice, setMapChoice] = useState<MapPoolChoice | null>(null)
+  const [soloBuilderSelection, setSoloBuilderSelection] = useState<SoloBuilderSelection>('owner')
+  const [soloBuilderUnitOrder, setSoloBuilderUnitOrder] = useState<SoloBuilderUnitOrder>('last')
   const [skipHotseatPassGate, setSkipHotseatPassGate] = useState(true)
   const [activeTaleIds, setActiveTaleIds] = useState<string[]>([])
   const [gameLength, setGameLength] = useState(4)
@@ -77,6 +79,9 @@ export function CreateGamePage() {
         mapPoolBoard: mapChoice?.board ?? null,
         mapPoolMapId: mapChoice?.mapId ?? null,
         mapPoolRandomAtStart: mapMode === 'blind',
+        soloBuildMap: mapMode === 'buildAlone',
+        soloBuilderSelection,
+        soloBuilderUnitOrder,
         skipHotseatPassGate,
         activeTaleIds,
         gameLength,
@@ -170,6 +175,10 @@ export function CreateGamePage() {
             mapChoice={mapChoice}
             onMapChoiceChange={setMapChoice}
             initialPlayerCount={playerCountValid ? minPlayers : 2}
+            soloBuilderSelection={soloBuilderSelection}
+            onSoloBuilderSelectionChange={setSoloBuilderSelection}
+            soloBuilderUnitOrder={soloBuilderUnitOrder}
+            onSoloBuilderUnitOrderChange={setSoloBuilderUnitOrder}
           />
           <details>
             <summary className="cursor-pointer text-sm font-medium text-neutral-400">Tales</summary>
