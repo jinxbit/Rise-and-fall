@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { DiscordWebhookSettings } from '../components/DiscordWebhookSettings'
 import { DisplayNameSettings } from '../components/DisplayNameSettings'
+import { PushNotificationSettings } from '../components/PushNotificationSettings'
 import { useAuth } from '../hooks/useAuth'
 import { useDisplayName } from '../hooks/useDisplayName'
 import { signOut } from '../lib/auth'
@@ -56,6 +57,8 @@ export function ProfilePage() {
       />
 
       <DiscordWebhookSettings user={user} />
+
+      <PushNotificationSettings user={user} />
     </div>
   )
 }
