@@ -9,6 +9,10 @@ const root = createRoot(document.getElementById('root')!)
 // blank white screen with only a console error.
 import('./App.tsx')
   .then(({ default: App }) => {
+    // A successful load means the current build is usable — clear the
+    // reload-once guard from index.html so a future stale-asset error (after
+    // the *next* deploy) can trigger a fresh auto-reload again.
+    sessionStorage.removeItem('rf:reload-on-stale-asset')
     root.render(
       <StrictMode>
         <App />
