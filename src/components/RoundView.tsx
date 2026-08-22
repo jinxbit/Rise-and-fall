@@ -1066,9 +1066,9 @@ export function RoundView(props: {
       // unrelated to the current pick — only the teal supportCandidate ring
       // below should show, so units outside the support pool don't look
       // pickable too (see issue #150).
-      highlighted: isMyActionTurn && mode.kind !== 'supporting' && availableUnitIds.has(u.id),
-      supportCandidate: mode.kind === 'supporting' && supportCandidateUnitIds.has(u.id),
-      supportSelected: mode.kind === 'supporting' && supportingSelectedIds.includes(u.id),
+      highlighted: !showHistory && isMyActionTurn && mode.kind !== 'supporting' && availableUnitIds.has(u.id),
+      supportCandidate: !showHistory && mode.kind === 'supporting' && supportCandidateUnitIds.has(u.id),
+      supportSelected: !showHistory && mode.kind === 'supporting' && supportingSelectedIds.includes(u.id),
       historyHalos: history?.halos,
       historyLabel: history && Object.keys(history.resourceDelta).length > 0 ? formatResourceDelta(history.resourceDelta) : undefined,
       connectedNeighborCoords: u.connectedNeighborCoords,
