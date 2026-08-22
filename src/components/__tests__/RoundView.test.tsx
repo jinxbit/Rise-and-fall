@@ -1801,6 +1801,46 @@ describe('RoundView — history review toggle', () => {
     expect(screen.queryByText('+2 Wood')).not.toBeInTheDocument()
   })
 
+  it('drops the yellow "could act" ring from own units while reviewing history, even though it is still the action phase underneath', () => {
+    const content = buildRealUnitContent()
+    const board = setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'plain')
+    const unit: Unit = { id: 'nomad_a', ownerId: 'p1', kind: 'nomad', coord: { q: 0, r: 0 }, movement: content.movementByKind.nomad, traits: [] }
+    const state = beginActionsForUnits(content, board, [unit], 'nomad')
+    const players: PlayerRow[] = [makePlayerRow('p1', 'Alice', '#ef4444'), makePlayerRow('p2', 'Bob', '#3b82f6')]
+    const turnReview: TurnReview = { events: [], resourceDeltaByPlayerId: {} }
+
+    const doRender = (showHistory: boolean) =>
+      render(
+        <RoundView
+          state={state}
+          players={players}
+          myPlayerId="p1"
+          unitContent={content}
+          achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+          taleContent={EMPTY_TALE_CONTENT}
+          turnReview={turnReview}
+          showHistory={showHistory}
+          onToggleHistory={() => {}}
+          gameLog={[]}
+          onChooseCard={() => {}}
+          onResolveUnit={() => {}}
+          onResolveBulkAction={() => {}}
+          onResolveSupportedAction={() => {}}
+          onPassActions={() => {}}
+          onMoveToDecline={() => {}}
+          onPurchaseCard={() => {}}
+          onPassPurchase={() => {}}
+        />,
+      )
+
+    const before = doRender(false)
+    expect(before.container.querySelectorAll('circle[stroke="#fbbf24"]')).toHaveLength(1)
+    before.unmount()
+
+    const after = doRender(true)
+    expect(after.container.querySelectorAll('circle[stroke="#fbbf24"]')).toHaveLength(0)
+  })
+
   it("shows a resource delta suffix in the player's status once toggled on", () => {
     const turnReview: TurnReview = {
       events: [],
