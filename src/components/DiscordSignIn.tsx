@@ -1,11 +1,12 @@
 import { signInWithDiscord } from '../lib/auth'
+import { toAppError, type AppError } from '../lib/errors'
 
-export function DiscordSignIn({ onError }: { onError?: (message: string) => void }) {
+export function DiscordSignIn({ onError }: { onError?: (error: AppError) => void }) {
   async function handleClick() {
     try {
       await signInWithDiscord()
     } catch (err) {
-      onError?.(err instanceof Error ? err.message : 'Failed to sign in with Discord')
+      onError?.(toAppError(err, 'Failed to sign in with Discord'))
     }
   }
 

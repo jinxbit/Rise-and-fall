@@ -9,6 +9,7 @@ import { useAuth } from '../hooks/useAuth'
 import { useDisplayName } from '../hooks/useDisplayName'
 import { createGame, MAX_PLAYERS } from '../lib/gameApi'
 import { randomRoomName } from '../lib/randomRoomName'
+import { toAppError, type AppError } from '../lib/errors'
 import type { PlayMode } from '../engine/types'
 
 export function CreateGamePage() {
@@ -28,7 +29,7 @@ export function CreateGamePage() {
   const [minPlayersInput, setMinPlayersInput] = useState('2')
   const [maxPlayersInput, setMaxPlayersInput] = useState('8')
   const [visibility, setVisibility] = useState<'public' | 'private'>('public')
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<AppError | null>(null)
   const [busy, setBusy] = useState(false)
 
   // A selected saved map is built for one exact player count, not a
@@ -91,7 +92,7 @@ export function CreateGamePage() {
       })
       navigate(`/lobby/${game.room_code}`)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create game')
+      setError(toAppError(err, 'Failed to create game'))
     } finally {
       setBusy(false)
     }
@@ -106,7 +107,7 @@ export function CreateGamePage() {
         </Link>
       </header>
 
-      {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
+      {error && <ErrorBanner message={error.message} details={error.details} onDismiss={() => setError(null)} />}
 
       <section className="flex flex-col gap-3">
         <label className="flex flex-col gap-1 text-sm text-neutral-400">

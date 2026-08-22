@@ -13,6 +13,7 @@ import { getGameByRoomCode, listMyGames, listPublicRooms } from '../lib/gameApi'
 import { buildGameCardSummary } from '../lib/gameCardView'
 import { paginate } from '../lib/pagination'
 import { consumePendingRedirect } from '../lib/pendingRedirect'
+import { simpleError, toAppError, type AppError } from '../lib/errors'
 import {
   formatUpdatedAt,
   groupMyGames,
@@ -60,12 +61,12 @@ export function HomePage() {
   const navigate = useNavigate()
 
   const [roomCodeInput, setRoomCodeInput] = useState('')
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<AppError | null>(null)
   const [busy, setBusy] = useState(false)
 
   const [myEntries, setMyEntries] = useState<MyGameEntry[] | null>(null)
   const [publicEntries, setPublicEntries] = useState<PublicRoomEntry[] | null>(null)
-  const [loadError, setLoadError] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState<AppError | null>(null)
 
   const [myGamesPage, setMyGamesPage] = useState(0)
   const [joinablePage, setJoinablePage] = useState(0)
@@ -89,7 +90,7 @@ export function HomePage() {
         setPublicEntries(publicRooms)
       })
       .catch((err: unknown) => {
-        if (!cancelled) setLoadError(err instanceof Error ? err.message : 'Failed to load games')
+        if (!cancelled) setLoadError(toAppError(err, 'Failed to load games'))
       })
     return () => {
       cancelled = true
@@ -108,7 +109,7 @@ export function HomePage() {
         <p className="max-w-sm text-neutral-400">
           Sign in with Discord to create or join a game with your friends.
         </p>
-        {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
+        {error && <ErrorBanner message={error.message} details={error.details} onDismiss={() => setError(null)} />}
         <div className="flex flex-col items-center gap-3">
           <DiscordSignIn onError={setError} />
           {import.meta.env.VITE_ALLOW_GUEST_AUTH === 'true' && <GuestSignIn onError={setError} />}
@@ -126,12 +127,12 @@ export function HomePage() {
     try {
       const game = await getGameByRoomCode(roomCodeInput.trim())
       if (!game) {
-        setError('No game found with that room code.')
+        setError(simpleError('No game found with that room code.'))
         return
       }
       navigate(`/lobby/${game.room_code}`)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to join game')
+      setError(toAppError(err, 'Failed to join game'))
     } finally {
       setBusy(false)
     }
@@ -176,8 +177,8 @@ export function HomePage() {
 
       <SupportBanner />
 
-      {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
-      {loadError && <ErrorBanner message={loadError} onDismiss={() => setLoadError(null)} />}
+      {error && <ErrorBanner message={error.message} details={error.details} onDismiss={() => setError(null)} />}
+      {loadError && <ErrorBanner message={loadError.message} details={loadError.details} onDismiss={() => setLoadError(null)} />}
 
       <section className="flex flex-col gap-3">
         <Link

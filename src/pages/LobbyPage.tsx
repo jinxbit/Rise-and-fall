@@ -29,6 +29,7 @@ import {
   updateGameSettings,
 } from '../lib/gameApi'
 import { allPlayersReady, canStartGame, isPlayerReady } from '../lib/roomReadiness'
+import { toAppError, type AppError } from '../lib/errors'
 import type { GameRow, GameSettings, PlayerRow } from '../lib/dbTypes'
 
 export function LobbyPage() {
@@ -40,7 +41,7 @@ export function LobbyPage() {
 
   const [game, setGame] = useState<GameRow | null>(null)
   const [players, setPlayers] = useState<PlayerRow[]>([])
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<AppError | null>(null)
   const [busy, setBusy] = useState(false)
   const [newPlayerName, setNewPlayerName] = useState('')
   const [linkCopied, setLinkCopied] = useState(false)
@@ -164,7 +165,7 @@ export function LobbyPage() {
       })
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to join')
+      setError(toAppError(err, 'Failed to join'))
     } finally {
       setBusy(false)
     }
@@ -182,7 +183,7 @@ export function LobbyPage() {
       setNewPlayerName('')
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add player')
+      setError(toAppError(err, 'Failed to add player'))
     } finally {
       setBusy(false)
     }
@@ -195,7 +196,7 @@ export function LobbyPage() {
       await removePlayer(playerId)
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to remove player')
+      setError(toAppError(err, 'Failed to remove player'))
     } finally {
       setBusy(false)
     }
@@ -210,7 +211,7 @@ export function LobbyPage() {
       await removePlayer(me.id)
       navigate('/')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to leave game')
+      setError(toAppError(err, 'Failed to leave game'))
       setBusy(false)
     }
   }
@@ -262,7 +263,7 @@ export function LobbyPage() {
       }
       await setGameStatus(game.id, 'active')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to start game')
+      setError(toAppError(err, 'Failed to start game'))
     } finally {
       setBusy(false)
     }
@@ -303,7 +304,7 @@ export function LobbyPage() {
       await deleteGame(game.id)
       navigate('/')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete room')
+      setError(toAppError(err, 'Failed to delete room'))
       setBusy(false)
     }
   }
@@ -316,7 +317,7 @@ export function LobbyPage() {
       await setGameVisibility(game.id, game.visibility === 'public' ? 'private' : 'public')
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update visibility')
+      setError(toAppError(err, 'Failed to update visibility'))
     } finally {
       setBusy(false)
     }
@@ -331,7 +332,7 @@ export function LobbyPage() {
       closeConfigEditor()
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update configuration')
+      setError(toAppError(err, 'Failed to update configuration'))
     } finally {
       setBusy(false)
     }
@@ -345,7 +346,7 @@ export function LobbyPage() {
       await markReady(me.id, game.config_version)
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to mark ready')
+      setError(toAppError(err, 'Failed to mark ready'))
     } finally {
       setBusy(false)
     }
@@ -447,7 +448,7 @@ export function LobbyPage() {
         </div>
       </header>
 
-      {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
+      {error && <ErrorBanner message={error.message} details={error.details} onDismiss={() => setError(null)} />}
 
       {game.status === 'canceled' && (
         <div className="rounded-md bg-neutral-800/60 p-3 text-sm text-neutral-300">

@@ -30,4 +30,14 @@ describe('ErrorBanner', () => {
     expect(writeText).toHaveBeenCalledWith('Something went wrong')
     expect(await screen.findByRole('button', { name: 'Copied!' })).toBeInTheDocument()
   })
+
+  it('copies details instead of the message when details are provided', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.assign(navigator, { clipboard: { writeText } })
+
+    render(<ErrorBanner message="Failed to load games" details={'PostgrestError: timeout\ncode: 57014'} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Copy details' }))
+
+    expect(writeText).toHaveBeenCalledWith('PostgrestError: timeout\ncode: 57014')
+  })
 })

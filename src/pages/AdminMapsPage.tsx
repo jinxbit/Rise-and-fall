@@ -13,6 +13,7 @@ import { useAuth } from '../hooks/useAuth'
 import { useIsAdmin } from '../hooks/useIsAdmin'
 import { deleteMapFromPool, listAllMapPool } from '../lib/mapPoolApi'
 import { paginate } from '../lib/pagination'
+import { toAppError, type AppError } from '../lib/errors'
 import type { MapPoolRow } from '../lib/dbTypes'
 
 const PAGE_SIZE = 12
@@ -23,7 +24,7 @@ export function AdminMapsPage() {
   const isAdmin = useIsAdmin(session?.user ?? null)
 
   const [maps, setMaps] = useState<MapPoolRow[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<AppError | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [page, setPage] = useState(0)
 
@@ -35,7 +36,7 @@ export function AdminMapsPage() {
         if (!cancelled) setMaps(result)
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load maps')
+        if (!cancelled) setError(toAppError(err, 'Failed to load maps'))
       })
     return () => {
       cancelled = true
@@ -49,7 +50,7 @@ export function AdminMapsPage() {
       await deleteMapFromPool(mapId)
       setMaps((prev) => prev?.filter((m) => m.id !== mapId) ?? prev)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete map')
+      setError(toAppError(err, 'Failed to delete map'))
     } finally {
       setDeletingId(null)
     }
@@ -79,7 +80,7 @@ export function AdminMapsPage() {
         </Link>
       </header>
 
-      {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
+      {error && <ErrorBanner message={error.message} details={error.details} onDismiss={() => setError(null)} />}
 
       {maps === null && !error && <div className="text-neutral-400">Loading…</div>}
 

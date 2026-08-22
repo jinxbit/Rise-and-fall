@@ -19,6 +19,7 @@ import { useAuth } from '../hooks/useAuth'
 import { useDisplayName } from '../hooks/useDisplayName'
 import { useIsAdmin } from '../hooks/useIsAdmin'
 import type { GameRow, ObserverRow, PlayerRow } from '../lib/dbTypes'
+import { simpleError, toAppError, type AppError } from '../lib/errors'
 import { buildGenesisState } from '../lib/gameGenesis'
 import {
   cancelGame,
@@ -72,17 +73,17 @@ export function GamePage() {
   const [players, setPlayers] = useState<PlayerRow[]>([])
   const [gameState, setGameState] = useState<EngineGameState | null>(null)
   const [version, setVersion] = useState<number | null>(null)
-  const [actionError, setActionError] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<AppError | null>(null)
   const [showStateJson, setShowStateJson] = useState(false)
   /** The top-left hamburger menu (Main menu, Show/Hide game state JSON) — see the click-outside/Escape effect below. */
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const [copiedStateJson, setCopiedStateJson] = useState(false)
   const [copiedStateExport, setCopiedStateExport] = useState(false)
-  const [stateExportError, setStateExportError] = useState<string | null>(null)
+  const [stateExportError, setStateExportError] = useState<AppError | null>(null)
   const [savingMap, setSavingMap] = useState(false)
   const [mapSaved, setMapSaved] = useState(false)
-  const [mapSaveError, setMapSaveError] = useState<string | null>(null)
+  const [mapSaveError, setMapSaveError] = useState<AppError | null>(null)
   const [undoing, setUndoing] = useState(false)
   const [redoing, setRedoing] = useState(false)
   /**
@@ -119,10 +120,10 @@ export function GamePage() {
    */
   const [hotseatActivePlayerId, setHotseatActivePlayerId] = useState<string | null>(null)
   const [lifecycleBusy, setLifecycleBusy] = useState(false)
-  const [lifecycleError, setLifecycleError] = useState<string | null>(null)
+  const [lifecycleError, setLifecycleError] = useState<AppError | null>(null)
   const [observers, setObservers] = useState<ObserverRow[]>([])
   const [observerBusy, setObserverBusy] = useState(false)
-  const [observerError, setObserverError] = useState<string | null>(null)
+  const [observerError, setObserverError] = useState<AppError | null>(null)
   /**
    * Guards against re-running the auto-join-as-observer / auto-enter-review
    * effects below more than once per room load (issue #105) — without these,
@@ -640,7 +641,7 @@ export function GamePage() {
   async function submitAction(action: Action) {
     const result = await writeWithRetry((state) => applyActionAndFastForwardTiles(state, action, unitContent, achievementContent, boardGenerationContent, taleContent))
     if (result.ok) setRedoStack([])
-    setActionError(result.ok ? null : result.error)
+    setActionError(result.ok ? null : simpleError(result.error))
   }
 
   /**
@@ -741,7 +742,7 @@ export function GamePage() {
       if (result.ok && undoneActions.length > 0) {
         setRedoStack((stack) => [...stack, ...undoneActions])
       }
-      setActionError(result.ok ? null : result.error)
+      setActionError(result.ok ? null : simpleError(result.error))
     } catch (err) {
       // replayActions (./gameGenesis.ts's buildGenesisState + ../engine/
       // replay.ts) throws "Replay failed at action ...: <reason>" if some
@@ -753,9 +754,13 @@ export function GamePage() {
       // instead and keep the raw detail in the console for a bug report.
       if (err instanceof Error && err.message.startsWith('Replay failed')) {
         console.error('Undo: history no longer replays cleanly', err)
-        setActionError("Can't undo: this game's history no longer replays under the current rules, so Undo isn't available for this game.")
+        setActionError(
+          simpleError(
+            "Can't undo: this game's history no longer replays under the current rules, so Undo isn't available for this game.",
+          ),
+        )
       } else {
-        setActionError(err instanceof Error ? err.message : 'Failed to undo')
+        setActionError(toAppError(err, 'Failed to undo'))
       }
     } finally {
       setUndoing(false)
@@ -777,9 +782,9 @@ export function GamePage() {
     setRedoStack((stack) => stack.slice(0, -1))
     try {
       const result = await writeWithRetry((state) => applyActionAndFastForwardTiles(state, action, unitContent, achievementContent, boardGenerationContent, taleContent))
-      setActionError(result.ok ? null : result.error)
+      setActionError(result.ok ? null : simpleError(result.error))
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Failed to redo')
+      setActionError(toAppError(err, 'Failed to redo'))
     } finally {
       setRedoing(false)
     }
@@ -808,7 +813,7 @@ export function GamePage() {
       setCopiedStateExport(true)
       setTimeout(() => setCopiedStateExport(false), 1500)
     } catch (err) {
-      setStateExportError(err instanceof Error ? err.message : 'Failed to copy game state export')
+      setStateExportError(toAppError(err, 'Failed to copy game state export'))
     }
   }
 
@@ -830,7 +835,7 @@ export function GamePage() {
       setMapSaved(true)
       setTimeout(() => setMapSaved(false), 1500)
     } catch (err) {
-      setMapSaveError(err instanceof Error ? err.message : 'Failed to save map')
+      setMapSaveError(toAppError(err, 'Failed to save map'))
     } finally {
       setSavingMap(false)
     }
@@ -844,7 +849,7 @@ export function GamePage() {
     try {
       await cancelGame(game.id)
     } catch (err) {
-      setLifecycleError(err instanceof Error ? err.message : 'Failed to cancel room')
+      setLifecycleError(toAppError(err, 'Failed to cancel room'))
     } finally {
       setLifecycleBusy(false)
     }
@@ -857,7 +862,7 @@ export function GamePage() {
     try {
       await setGameVisibility(game.id, game.visibility === 'public' ? 'private' : 'public')
     } catch (err) {
-      setLifecycleError(err instanceof Error ? err.message : 'Failed to update visibility')
+      setLifecycleError(toAppError(err, 'Failed to update visibility'))
     } finally {
       setLifecycleBusy(false)
     }
@@ -871,7 +876,7 @@ export function GamePage() {
       await deleteGame(game.id)
       navigate('/')
     } catch (err) {
-      setLifecycleError(err instanceof Error ? err.message : 'Failed to delete room')
+      setLifecycleError(toAppError(err, 'Failed to delete room'))
       setLifecycleBusy(false)
     }
   }
@@ -879,7 +884,7 @@ export function GamePage() {
   async function handleObserve() {
     if (!game || !session) return
     if (isSeatedPlayer) {
-      setObserverError('You are already a player in this game.')
+      setObserverError(simpleError('You are already a player in this game.'))
       return
     }
     setObserverBusy(true)
@@ -902,7 +907,7 @@ export function GamePage() {
         setVersion(snapshot.version)
       }
     } catch (err) {
-      setObserverError(err instanceof Error ? err.message : 'Failed to start observing')
+      setObserverError(toAppError(err, 'Failed to start observing'))
     } finally {
       setObserverBusy(false)
     }
@@ -916,7 +921,7 @@ export function GamePage() {
       await leaveAsObserver(game.id, session.user.id)
       setObservers(await listObservers(game.id))
     } catch (err) {
-      setObserverError(err instanceof Error ? err.message : 'Failed to stop observing')
+      setObserverError(toAppError(err, 'Failed to stop observing'))
     } finally {
       setObserverBusy(false)
     }
@@ -1167,19 +1172,25 @@ export function GamePage() {
         </div>
       )}
 
-      {stateExportError && <ErrorBanner message={stateExportError} onDismiss={() => setStateExportError(null)} />}
+      {stateExportError && (
+        <ErrorBanner message={stateExportError.message} details={stateExportError.details} onDismiss={() => setStateExportError(null)} />
+      )}
 
       {copiedStateExport && !showStateJson && (
         <div className="rounded-md bg-emerald-500/10 p-3 text-sm text-emerald-400">Game export copied to clipboard!</div>
       )}
 
-      {mapSaveError && <ErrorBanner message={mapSaveError} onDismiss={() => setMapSaveError(null)} />}
+      {mapSaveError && <ErrorBanner message={mapSaveError.message} details={mapSaveError.details} onDismiss={() => setMapSaveError(null)} />}
 
       {mapSaved && <div className="rounded-md bg-emerald-500/10 p-3 text-sm text-emerald-400">Map saved to the pool!</div>}
 
-      {lifecycleError && <ErrorBanner message={lifecycleError} onDismiss={() => setLifecycleError(null)} />}
+      {lifecycleError && (
+        <ErrorBanner message={lifecycleError.message} details={lifecycleError.details} onDismiss={() => setLifecycleError(null)} />
+      )}
 
-      {observerError && <ErrorBanner message={observerError} onDismiss={() => setObserverError(null)} />}
+      {observerError && (
+        <ErrorBanner message={observerError.message} details={observerError.details} onDismiss={() => setObserverError(null)} />
+      )}
 
       {game.status === 'canceled' && (
         <div className="rounded-md bg-neutral-800/60 p-3 text-sm text-neutral-300">
@@ -1213,7 +1224,7 @@ export function GamePage() {
         </div>
       )}
 
-      {actionError && <ErrorBanner message={actionError} onDismiss={() => setActionError(null)} />}
+      {actionError && <ErrorBanner message={actionError.message} details={actionError.details} onDismiss={() => setActionError(null)} />}
 
       {!gameState && canObserve && (
         <div className="flex flex-col items-center gap-4 rounded-md border border-neutral-800 p-12 text-center">
