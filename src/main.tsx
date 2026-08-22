@@ -24,6 +24,29 @@ import('./App.tsx')
     )
   })
   .catch((error: unknown) => {
+    // A dynamic import() rejection here is usually a stale-chunk 404 (e.g.
+    // right after clicking the update banner's Reload button while a deploy
+    // is still propagating) rather than a real configuration problem, but it
+    // doesn't fire the <script>/<link> "error" event index.html's stale-asset
+    // handler listens for (issue #247). Reuse that same guard to retry once
+    // before dead-ending the user on this error screen.
+    const reloadedOnce = (() => {
+      try {
+        const key = 'rf:reload-on-stale-asset'
+        if (sessionStorage.getItem(key)) return true
+        sessionStorage.setItem(key, '1')
+        return false
+      } catch {
+        // storage access blocked — fall through to the error screen below
+        return true
+      }
+    })()
+
+    if (!reloadedOnce) {
+      window.location.reload()
+      return
+    }
+
     root.render(
       <div className="mx-auto max-w-lg p-8 text-neutral-100">
         <h1 className="text-xl font-semibold text-red-400">Configuration error</h1>
