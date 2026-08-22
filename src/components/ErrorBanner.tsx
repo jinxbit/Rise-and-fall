@@ -2,16 +2,18 @@ import { useState } from 'react'
 
 interface ErrorBannerProps {
   message: string
+  /** Full debugging detail (stack trace, Postgrest code/details/hint, …) copied by "Copy details" instead of `message` when present. */
+  details?: string
   onDismiss?: () => void
 }
 
 /** Standard error display used across the app: red banner with a copy-details and dismiss action. */
-export function ErrorBanner({ message, onDismiss }: ErrorBannerProps) {
+export function ErrorBanner({ message, details, onDismiss }: ErrorBannerProps) {
   const [copied, setCopied] = useState(false)
 
   async function handleCopy() {
     try {
-      await navigator.clipboard.writeText(message)
+      await navigator.clipboard.writeText(details ?? message)
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
     } catch {

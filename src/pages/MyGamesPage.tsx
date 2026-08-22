@@ -5,6 +5,7 @@ import { GameOverviewCard } from '../components/GameOverviewCard'
 import { useAuth } from '../hooks/useAuth'
 import { listMyGames } from '../lib/gameApi'
 import { buildGameCardSummary } from '../lib/gameCardView'
+import { toAppError, type AppError } from '../lib/errors'
 import {
   formatUpdatedAt,
   groupMyGames,
@@ -39,7 +40,7 @@ export function MyGamesPage() {
   const navigate = useNavigate()
 
   const [entries, setEntries] = useState<MyGameEntry[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<AppError | null>(null)
 
   useEffect(() => {
     if (!session) return
@@ -51,7 +52,7 @@ export function MyGamesPage() {
         if (!cancelled) setEntries(result)
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load games')
+        if (!cancelled) setError(toAppError(err, 'Failed to load games'))
       })
     return () => {
       cancelled = true
@@ -81,7 +82,7 @@ export function MyGamesPage() {
         </Link>
       </header>
 
-      {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
+      {error && <ErrorBanner message={error.message} details={error.details} onDismiss={() => setError(null)} />}
 
       {entries === null && !error && <div className="text-neutral-400">Loading…</div>}
 

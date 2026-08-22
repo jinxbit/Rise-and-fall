@@ -1,12 +1,13 @@
 import { signInAsGuest } from '../lib/auth'
+import { toAppError, type AppError } from '../lib/errors'
 
 /** Only render when VITE_ALLOW_GUEST_AUTH is set — see src/lib/auth.ts. */
-export function GuestSignIn({ onError }: { onError?: (message: string) => void }) {
+export function GuestSignIn({ onError }: { onError?: (error: AppError) => void }) {
   async function handleClick() {
     try {
       await signInAsGuest()
     } catch (err) {
-      onError?.(err instanceof Error ? err.message : 'Failed to sign in as guest')
+      onError?.(toAppError(err, 'Failed to sign in as guest'))
     }
   }
 

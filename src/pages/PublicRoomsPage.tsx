@@ -5,6 +5,7 @@ import { GameOverviewCard } from '../components/GameOverviewCard'
 import { useAuth } from '../hooks/useAuth'
 import { listPublicRooms } from '../lib/gameApi'
 import { buildGameCardSummary, formatUpdatedAt } from '../lib/gameCardView'
+import { toAppError, type AppError } from '../lib/errors'
 import {
   groupPublicRooms,
   isJoinable,
@@ -33,7 +34,7 @@ export function PublicRoomsPage() {
   const navigate = useNavigate()
 
   const [entries, setEntries] = useState<PublicRoomEntry[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<AppError | null>(null)
 
   useEffect(() => {
     if (!session) return
@@ -45,7 +46,7 @@ export function PublicRoomsPage() {
         if (!cancelled) setEntries(result)
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load public rooms')
+        if (!cancelled) setError(toAppError(err, 'Failed to load public rooms'))
       })
     return () => {
       cancelled = true
@@ -75,7 +76,7 @@ export function PublicRoomsPage() {
         </Link>
       </header>
 
-      {error && <ErrorBanner message={error} onDismiss={() => setError(null)} />}
+      {error && <ErrorBanner message={error.message} details={error.details} onDismiss={() => setError(null)} />}
 
       {entries === null && !error && <div className="text-neutral-400">Loading…</div>}
 
