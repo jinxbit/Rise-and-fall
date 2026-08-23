@@ -106,10 +106,28 @@ function recordAssignmentEvents(
   const beforeById = new Map(before.units.map((u) => [u.id, u]))
   const afterById = new Map(after.units.map((u) => [u.id, u]))
 
+  // A destroySelf transform to an adjacent hex (e.g. Nomad -> Ship, Ship ->
+  // Nomad/Merchant, Merchant -> Ship) destroys the acting unit and creates a
+  // brand-new unit id at the target hex, so the loop below only ever sees
+  // the new id as 'created' — nothing links it back to where it came from.
+  // Surface that link as an extra 'moved' event (same as a plain move) so
+  // it renders as an arrow rather than vanishing/appearing with no trail.
+  // Same-hex transforms (e.g. Nomad -> City, targetHex.location 'self')
+  // don't qualify since there's no coordinate change to draw.
+  const actingUnitBefore = beforeById.get(actingUnitId)
+  const transformRelocated = actionType === 'transform' && !!actingUnitBefore && !afterById.has(actingUnitId)
+
   for (const [id, afterUnit] of afterById) {
     const beforeUnit = beforeById.get(id)
     if (!beforeUnit) {
       events.push({ unitId: id, playerId: afterUnit.ownerId, type: 'created', to: afterUnit.coord })
+      if (
+        transformRelocated &&
+        afterUnit.ownerId === actingUnitBefore!.ownerId &&
+        (afterUnit.coord.q !== actingUnitBefore!.coord.q || afterUnit.coord.r !== actingUnitBefore!.coord.r)
+      ) {
+        events.push({ unitId: id, playerId: afterUnit.ownerId, type: 'moved', from: actingUnitBefore!.coord, to: afterUnit.coord })
+      }
       continue
     }
     if (beforeUnit.coord.q !== afterUnit.coord.q || beforeUnit.coord.r !== afterUnit.coord.r) {

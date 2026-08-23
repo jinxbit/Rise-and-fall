@@ -50,6 +50,12 @@ const NOMAD_ACTIONS: UnitAction[] = [
     description: '',
     effect: { actionType: 'transform', targetUnit: 'city', targetHex: { terrainType: ['plain'], location: 'self' }, destroySelf: true, cost: {} },
   },
+  {
+    id: 'transform-to-ship',
+    name: 'Transform to Ship',
+    description: '',
+    effect: { actionType: 'transform', targetUnit: 'ship', targetHex: { terrainType: ['water'], location: 'adj' }, destroySelf: true, cost: {} },
+  },
 ]
 const TEMPLE_ACTIONS: UnitAction[] = [
   { id: 'convert-enemy-unit', name: 'Convert Enemy Unit', description: '', effect: { actionType: 'convert', targetHex: { location: 'adj' }, targetOwner: 'enemy', targetMobileOnly: false, cost: {} } },
@@ -220,6 +226,26 @@ describe('buildTurnReview', () => {
     const newCityId = state.units.find((u) => u.kind === 'city')!.id
     expect(review.events).toContainEqual({ unitId: newCityId, playerId: 'p1', type: 'created', to: { q: 0, r: 0 } })
     // No event references the old id — it's gone, not "converted" or "moved".
+    expect(review.events.some((e) => e.unitId === 'nomad_a')).toBe(false)
+  })
+
+  it('records an adjacent-hex transform (e.g. Nomad -> Ship) as BOTH a "created" event and a "moved" event, so history draws an arrow from the source hex', () => {
+    const board = boardOf([
+      [0, 0, 'plain'],
+      [1, 0, 'water'],
+    ])
+    const nomad: Unit = { id: 'nomad_a', ownerId: 'p1', kind: 'nomad', coord: { q: 0, r: 0 }, movement: content.movementByKind.nomad, traits: [] }
+    const genesis = makeGenesis([nomad], board)
+    const state = drive(genesis, [
+      { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'nomad') },
+      { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [{ unitId: 'nomad_a', actionId: 'transform-to-ship', target: { q: 1, r: 0 } }] },
+    ])
+
+    const review = buildTurnReview(genesis, state.actionHistory, content)
+    const newShipId = state.units.find((u) => u.kind === 'ship')!.id
+    expect(review.events).toContainEqual({ unitId: newShipId, playerId: 'p1', type: 'created', to: { q: 1, r: 0 } })
+    expect(review.events).toContainEqual({ unitId: newShipId, playerId: 'p1', type: 'moved', from: { q: 0, r: 0 }, to: { q: 1, r: 0 } })
+    // No event references the old id — it's gone, same as the self-transform case above.
     expect(review.events.some((e) => e.unitId === 'nomad_a')).toBe(false)
   })
 
