@@ -154,7 +154,8 @@ interface UnitHistorySummary {
  * type contributes a halo (deduped — a unit that produced twice still gets
  * one red ring, not two) and, if it carries one, folds its resourceDelta
  * into a single running total per unit (so two produce events in the same
- * window show one combined label, e.g. "+4 Wood" rather than two tags).
+ * window show one combined badge per resource, e.g. a wood icon with "+4",
+ * rather than two separate tags).
  */
 function summarizeUnitHistory(events: UnitReviewEvent[]): Map<string, UnitHistorySummary> {
   const byUnit = new Map<string, UnitHistorySummary>()
@@ -186,15 +187,6 @@ const RESOURCE_LABELS: [keyof Resources, string][] = [
   ['wood', 'Wood'],
   ['stone', 'Stone'],
 ]
-
-function formatResourceDelta(delta: Partial<Resources>): string {
-  return RESOURCE_LABELS.map(([key, label]) => {
-    const amount = delta[key]
-    return amount ? `${amount > 0 ? '+' : ''}${amount} ${label}` : null
-  })
-    .filter((s): s is string => s !== null)
-    .join(', ')
-}
 
 /**
  * The icon+colour rendering of a resource outcome (see resourceIcons.ts's
@@ -1081,7 +1073,7 @@ export function RoundView(props: {
       supportCandidate: !showHistory && mode.kind === 'supporting' && supportCandidateUnitIds.has(u.id),
       supportSelected: !showHistory && mode.kind === 'supporting' && supportingSelectedIds.includes(u.id),
       historyHalos: history?.halos,
-      historyLabel: history && Object.keys(history.resourceDelta).length > 0 ? formatResourceDelta(history.resourceDelta) : undefined,
+      historyDelta: history && Object.keys(history.resourceDelta).length > 0 ? history.resourceDelta : undefined,
       connectedNeighborCoords: u.connectedNeighborCoords,
     }
   })

@@ -1702,7 +1702,7 @@ describe('RoundView — history review overlay', () => {
     )
   }
 
-  it('overlays a halo ring on a unit with a reviewed event, and shows its resource-delta label', () => {
+  it('overlays a halo ring on a unit with a reviewed event, and shows its resource-delta as an icon+amount badge', () => {
     const turnReview: TurnReview = {
       events: [{ unitId: 'nomad_a', playerId: 'p1', type: 'produced', to: { q: 0, r: 0 }, resourceDelta: { wood: 2 } }],
       resourceDeltaByPlayerId: { p1: { gold: 0, wood: 2, stone: 0 } },
@@ -1711,7 +1711,10 @@ describe('RoundView — history review overlay', () => {
 
     // 'produced' halo colour (red, see HISTORY_HALO_COLOR in HexBoard.tsx).
     expect(container.querySelectorAll('circle[stroke="#ef4444"]')).toHaveLength(1)
-    expect(screen.getByText('+2 Wood')).toBeInTheDocument()
+    const label = container.querySelector('foreignObject')
+    expect(label).not.toBeNull()
+    expect(label!.querySelector('svg title')?.textContent).toBe('Wood')
+    expect(label!.textContent).toContain('+2')
   })
 
   it('does not show halos, labels, or resource deltas when showHistory is off, even with a non-empty review', () => {
@@ -1722,7 +1725,7 @@ describe('RoundView — history review overlay', () => {
     const { container } = renderWithReview(turnReview, false)
 
     expect(container.querySelectorAll('circle[stroke="#ef4444"]')).toHaveLength(0)
-    expect(screen.queryByText('+2 Wood')).not.toBeInTheDocument()
+    expect(container.querySelector('foreignObject')).toBeNull()
   })
 
   it('drops the yellow "could act" ring from own units while reviewing history, even though it is still the action phase underneath', () => {
