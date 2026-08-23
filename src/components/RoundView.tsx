@@ -902,6 +902,23 @@ export function RoundView(props: {
   turnReview: TurnReview | null
   showHistory: boolean
   onToggleHistory: () => void
+  /**
+   * Turn-by-turn navigation for the "Show history" bar (issue #261) —
+   * GamePage.tsx computes these from `findTurnStops`/`sliceTurnReview`
+   * (engine/turnReview.ts) since only it has the full actionHistory plus
+   * genesis/content needed to replay per-turn boundaries. All optional and
+   * default to "no bar" so callers that only care about the plain
+   * whole-window toggle (e.g. existing tests) don't need to pass them.
+   * `historyTurnCount` is the number of turns since the reviewer's own last
+   * one; `historyTurnPos` (0..historyTurnCount) is which one `turnReview` is
+   * currently showing — 0 means "right after my last turn", nothing shown
+   * yet. `historyTurnLabel` is who acted during the turn at the current
+   * position (null at position 0).
+   */
+  historyTurnCount?: number
+  historyTurnPos?: number
+  historyTurnLabel?: string | null
+  onHistoryTurnPosChange?: (pos: number) => void
   /** The running narration log — derived from actionHistory, see engine/gameLog.ts's buildGameLog. */
   gameLog: GameEvent[]
   onChooseCard: (cardId: string) => void
@@ -922,7 +939,7 @@ export function RoundView(props: {
   onPurchaseCard: (cardId: string) => void
   onPassPurchase: () => void
 }) {
-  const { state, players, myPlayerId, unitContent, achievementContent, taleContent, turnReview, showHistory } = props
+  const { state, players, myPlayerId, unitContent, achievementContent, taleContent, turnReview, showHistory, historyTurnCount = 0, historyTurnPos = 0, historyTurnLabel = null, onHistoryTurnPosChange = () => {} } = props
   const [mode, setMode] = useState<ActionUiMode>({ kind: 'idle' })
   /** Hides the full player roster + achievements sidebar so the board can grow into the freed space — see the "Expand board" toggle below. */
   const [sidebarHidden, setSidebarHidden] = useState(false)
@@ -1111,14 +1128,45 @@ export function RoundView(props: {
           <BankResources state={state} />
         </div>
         <div className="flex items-center gap-2">
-          {showHistory && turnReview && turnReview.events.length === 0 && (
+          {showHistory && historyTurnCount === 0 && turnReview && turnReview.events.length === 0 && (
             <span className="text-xs text-neutral-500">Nothing since your last turn.</span>
+          )}
+          {showHistory && historyTurnCount > 0 && (
+            <div className="flex items-center gap-2 text-xs text-neutral-400">
+              <button
+                type="button"
+                disabled={historyTurnPos === 0}
+                onClick={() => onHistoryTurnPosChange(Math.max(0, historyTurnPos - 1))}
+                title="Step back one turn."
+                className="rounded-md border border-neutral-700 px-2 py-0.5 hover:border-neutral-500 disabled:opacity-40"
+              >
+                ← Prev
+              </button>
+              <input
+                type="range"
+                min={0}
+                max={historyTurnCount}
+                value={historyTurnPos}
+                onChange={(e) => onHistoryTurnPosChange(Number(e.target.value))}
+                className="w-28"
+              />
+              <button
+                type="button"
+                disabled={historyTurnPos === historyTurnCount}
+                onClick={() => onHistoryTurnPosChange(Math.min(historyTurnCount, historyTurnPos + 1))}
+                title="Step forward one turn."
+                className="rounded-md border border-neutral-700 px-2 py-0.5 hover:border-neutral-500 disabled:opacity-40"
+              >
+                Next →
+              </button>
+              <span>{historyTurnPos === 0 ? 'Right after your last turn' : `${historyTurnLabel ?? 'Unknown'}'s turn (${historyTurnPos} of ${historyTurnCount})`}</span>
+            </div>
           )}
           <button
             type="button"
             onClick={props.onToggleHistory}
             disabled={!turnReview}
-            title="Review what happened on the board since your last turn — movement, new units, resources gathered, income, trades, and conversions."
+            title="Step turn by turn through what happened on the board since your last turn — movement, new units, resources gathered, income, trades, and conversions."
             className="rounded-md border border-neutral-700 px-3 py-1 text-xs hover:border-neutral-500 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {showHistory ? 'Hide history' : 'Show history'}
