@@ -367,17 +367,18 @@ export function GamePage() {
    * action, not on every other player's action in between, so it's split
    * into its own memo keyed on `windowStart` (not on the ever-growing
    * actionHistory) to skip that replay entirely on the far more common case
-   * of "someone else acted since I last looked." `null` (rather than 0)
-   * when there's no `me` to review for (e.g. an observer) — 0 would be a
-   * real window start (review the whole game), which is exactly what this
-   * must NOT silently become for a viewer turnReview was never meant to
-   * cover.
+   * of "someone else acted since I last looked." `null` only while
+   * `gameState` itself hasn't loaded yet. With no `me` to anchor to (an
+   * observer — issue: enable Show history for observers) there's no "own
+   * last turn" to start from, so the window covers the whole game (0)
+   * instead — RoundView's Show history bar then pages through every turn
+   * anyone has taken.
    */
-  const windowStart = useMemo(
-    () => (gameState && me ? findReviewWindowStart(gameState.actionHistory, me.id) : null),
+  const windowStart = useMemo(() => {
+    if (!gameState) return null
+    return me ? findReviewWindowStart(gameState.actionHistory, me.id) : 0
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [gameState?.actionHistory, me?.id],
-  )
+  }, [gameState?.actionHistory, me?.id])
   const stateAtWindowStart = useMemo(() => {
     if (!genesis || !gameState || windowStart === null) return null
     try {
@@ -1340,12 +1341,17 @@ export function GamePage() {
           unitContent={unitContent}
           achievementContent={achievementContent}
           taleContent={taleContent}
-          turnReview={isReviewingHistory ? null : displayedTurnReview}
+          /* Only a seated player's manual "Review history" click (isReviewingHistory
+             with a `me`) suppresses the turn-by-turn bar in favor of that
+             action-by-action one — an observer has no `me` and no such
+             alternative, so their `isReviewingHistory` (always on — see
+             amObserving's auto-review effect above) leaves the turn bar alone. */
+          turnReview={isReviewingHistory && me ? null : displayedTurnReview}
           showHistory={isReviewingHistory || showHistory}
           onToggleHistory={() => setShowHistory((v) => !v)}
-          historyTurnCount={isReviewingHistory ? 0 : historyTurnCount}
-          historyTurnPos={isReviewingHistory ? 0 : clampedHistoryTurnPos}
-          historyTurnLabel={isReviewingHistory ? null : historyTurnLabel}
+          historyTurnCount={isReviewingHistory && me ? 0 : historyTurnCount}
+          historyTurnPos={isReviewingHistory && me ? 0 : clampedHistoryTurnPos}
+          historyTurnLabel={isReviewingHistory && me ? null : historyTurnLabel}
           onHistoryTurnPosChange={setHistoryTurnPos}
           gameLog={isReviewingHistory ? reviewGameLog : gameLog}
           onChooseCard={(cardId) => {

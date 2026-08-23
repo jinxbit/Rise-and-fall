@@ -1129,7 +1129,7 @@ export function RoundView(props: {
         </div>
         <div className="flex items-center gap-2">
           {showHistory && historyTurnCount === 0 && turnReview && turnReview.events.length === 0 && (
-            <span className="text-xs text-neutral-500">Nothing since your last turn.</span>
+            <span className="text-xs text-neutral-500">{myPlayerId === null ? 'Nothing has happened yet.' : 'Nothing since your last turn.'}</span>
           )}
           {showHistory && historyTurnCount > 0 && (
             <div className="flex items-center gap-2 text-xs text-neutral-400">
@@ -1159,14 +1159,24 @@ export function RoundView(props: {
               >
                 Next →
               </button>
-              <span>{historyTurnPos === 0 ? 'Right after your last turn' : `${historyTurnLabel ?? 'Unknown'}'s turn (${historyTurnPos} of ${historyTurnCount})`}</span>
+              <span>
+                {historyTurnPos === 0
+                  ? myPlayerId === null
+                    ? 'Start of the game'
+                    : 'Right after your last turn'
+                  : `${historyTurnLabel ?? 'Unknown'}'s turn (${historyTurnPos} of ${historyTurnCount})`}
+              </span>
             </div>
           )}
           <button
             type="button"
             onClick={props.onToggleHistory}
             disabled={!turnReview}
-            title="Step turn by turn through what happened on the board since your last turn — movement, new units, resources gathered, income, trades, and conversions."
+            title={
+              myPlayerId === null
+                ? 'Step turn by turn through what has happened on the board — movement, new units, resources gathered, income, trades, and conversions.'
+                : 'Step turn by turn through what happened on the board since your last turn — movement, new units, resources gathered, income, trades, and conversions.'
+            }
             className="rounded-md border border-neutral-700 px-3 py-1 text-xs hover:border-neutral-500 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {showHistory ? 'Hide history' : 'Show history'}

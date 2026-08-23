@@ -1936,4 +1936,74 @@ describe('RoundView — history review toggle', () => {
     expect(screen.getByText('(+5)')).toBeInTheDocument()
     expect(screen.getByText('(-1)')).toBeInTheDocument()
   })
+
+  it('uses observer-appropriate copy (no "your last turn") when myPlayerId is null', () => {
+    // An observer has no turn of their own to anchor "since my last turn"
+    // to (see GamePage.tsx's windowStart, which starts observers at the
+    // whole game instead) — the bar's copy shouldn't claim they have one.
+    const state = makeState()
+    state.board = setTile(state.board, { q: 0, r: 0 }, 'plain')
+    state.units = [
+      { id: 'nomad_a', ownerId: 'p1', kind: 'nomad', coord: { q: 0, r: 0 }, movement: { isMobile: true, terrains: [], canCrossCliffs: false }, traits: [] },
+    ]
+    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
+    render(
+      <RoundView
+        state={state}
+        players={players}
+        myPlayerId={null}
+        unitContent={EMPTY_UNIT_CONTENT}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
+        turnReview={{ events: [], resourceDeltaByPlayerId: {} }}
+        showHistory={true}
+        onToggleHistory={() => {}}
+        historyTurnCount={2}
+        historyTurnPos={0}
+        historyTurnLabel={null}
+        onHistoryTurnPosChange={() => {}}
+        gameLog={[]}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+    expect(screen.getByText('Start of the game')).toBeInTheDocument()
+    expect(screen.queryByText('Right after your last turn')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Hide history' })).not.toBeDisabled()
+  })
+
+  it('shows "Nothing has happened yet." (not "your last turn") for an observer\'s empty review', () => {
+    const state = makeState()
+    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
+    render(
+      <RoundView
+        state={state}
+        players={players}
+        myPlayerId={null}
+        unitContent={EMPTY_UNIT_CONTENT}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
+        turnReview={{ events: [], resourceDeltaByPlayerId: {} }}
+        showHistory={true}
+        onToggleHistory={() => {}}
+        gameLog={[]}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+    expect(screen.getByText('Nothing has happened yet.')).toBeInTheDocument()
+    expect(screen.queryByText('Nothing since your last turn.')).not.toBeInTheDocument()
+  })
 })
