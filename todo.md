@@ -3383,3 +3383,83 @@ its Prev/Next call `onHistoryTurnPosChange` correctly, and the label
 reads "Right after your last turn" at position 0 vs. "so-and-so's turn
 (N of total)" elsewhere. 837 tests total (was 827); `tsc -b`/`oxlint`/
 `vitest run`/`npm run build` all clean.
+
+## 69. Fixed: "Show history" bar off-screen on mobile, couldn't reach past turns, and didn't actually show the board (issue #261 follow-up)
+
+Three bugs reported against #68's turn-by-turn bar: (1) on a narrow
+screen the bar rendered squeezed next to the toggle button inside
+RoundView's header row and overflowed off the right edge of the screen,
+unlike "Review history"'s own bar which is a full-width block below
+GamePage's header; (2) Prev couldn't go past `windowStart` — "Show
+history" could only ever page through "since my last turn", never
+earlier turns, even though the whole game's history exists; (3) the bar
+overlaid halos/arrows onto the *live* board (`state.units`, current
+positions), not the board as it actually looked at the reviewed turn —
+so a unit that had since moved again, been destroyed, or converted drew
+wrong or missing overlays, and for an observer the overlay was drift
+entirely: it always summarized the *whole game* while the Prev/Next/
+slider bar (which for observers was actually driving `reviewIndex`, the
+same mechanism "Review history" uses) scrubbed through individual
+actions — two unrelated position trackers passed off as one feature.
+
+Root cause: "Show history" was its own bolted-on mechanism (a windowed
+`buildTurnReview`/`sliceTurnReview` overlay drawn on top of the live
+`gameState`), entirely separate from "Review history"'s `reviewIndex` +
+`reviewState` replay cache, which already reconstructs the *real*
+historical board at any point and already renders as a proper full-width
+banner. Fix: unify them. Both buttons now drive the same `reviewIndex`;
+a new `historyStepMode` ('action' | 'turn') state picks the step size —
+"Review history" steps by one `actionHistory` entry, "Show history" by
+one whole turn, via a new `fullTurnStops = findTurnStops(actionHistory,
+0)` (covering the *entire* game, not just a window) whose entries are
+themselves valid `reviewIndex` values. RoundView is handed the real
+replayed board (`reviewState`) either way, so the snapshot is always
+accurate — bug 3 fixed for free. Bug 2 is fixed by `fullTurnStops`
+spanning the whole game: Prev now walks all the way back to genesis;
+"Show history" still *defaults* to `defaultTurnHistoryIndex` (right
+after the reviewer's own last turn, via `findReviewWindowStart`, same as
+before) so forward-paging still reveals each opponent's turn first. Bug
+1 is fixed by construction: the bar is now literally GamePage's existing
+amber banner (branching its label/Prev/Next/slider behavior on
+`historyStepMode`), not a separate row inside RoundView, so it gets the
+same full-width, wrapping layout "Review history" already had.
+
+The "what changed this turn" halo overlay (issue #261's original ask —
+movement/created/produced/income/traded/converted rings and resource
+labels) is kept, but now computed from the same replay cache: a small,
+single-turn `buildTurnReview(cache.states[prevTurnStop],
+actionHistory.slice(prevTurnStop, reviewIndex), ...)` diffing two
+already-replayed historical states, not a live-vs-window overlay —
+returned as `turnHalos` alongside `reviewState`/`reviewGameLog` from the
+same memo, and only computed in turn mode past the default entry point
+(no halo for "my own last turn" at the default position, matching the
+original "starts empty, Next reveals the first opponent turn" UX).
+
+Since the board snapshot no longer needs the whole-window
+`buildTurnReview`/`sliceTurnReview` machinery (each turn's halos are now
+a fresh small `buildTurnReview` call against cached states),
+`sliceTurnReview` and `TurnReview`'s `eventCountAfterAction`/
+`resourcesByPlayerIdAfterAction` bookkeeping fields were removed —
+dead code once nothing built a whole-window review to slice from.
+RoundView's own toggle button, Prev/Next/slider bar, and
+`historyTurnCount`/`historyTurnPos`/`historyTurnLabel`/
+`onHistoryTurnPosChange`/`onToggleHistory` props are gone too — both
+history buttons and their shared banner now live entirely in
+GamePage.tsx, next to "Review history"; RoundView keeps only
+`turnReview`/`showHistory` for the halo overlay and hiding
+interactive panels while reviewing.
+
+Removed the now-obsolete `sliceTurnReview` tests and the RoundView bar
+tests (button/bar/position-label behavior, now GamePage-owned and
+GamePage has no test file, same as before this issue); added 2 new
+`findTurnStops` tests covering `windowStart: 0` (the whole-game case
+"Show history" now relies on) and an empty history. Kept RoundView's
+existing halo/resource-delta rendering tests, since that part of its
+contract (`turnReview`/`showHistory` props) didn't change. 830 tests
+total (was 837 after #68; net fewer since the bar/button tests moved out
+of unit-test scope, not because coverage of the *fixed* behavior is
+missing — the fix itself is in GamePage.tsx, which isn't unit tested
+anywhere in this codebase); `tsc -b`/`oxlint`/`vitest run`/`npm run
+build` all clean. Not covered by an automated test: the mobile layout
+fix and full-game Prev/Next scrubbing, both GamePage-only — needs a
+manual check in a live game.

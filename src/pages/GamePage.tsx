@@ -13,7 +13,8 @@ import { replayActions } from '../engine/replay'
 import { calculateScoreHistory } from '../engine/scoreHistory'
 import { applyTaleAchievementModifiers, applyTaleModifiers } from '../engine/tales'
 import type { ActionResult, GameEvent, GameState as EngineGameState, Coordinate } from '../engine/types'
-import { buildTurnReview, findReviewWindowStart, findTurnStops, sliceTurnReview } from '../engine/turnReview'
+import { buildTurnReview, findReviewWindowStart, findTurnStops } from '../engine/turnReview'
+import type { TurnReview } from '../engine/turnReview'
 import { currentActorId } from '../engine/turnOrder'
 import { useAuth } from '../hooks/useAuth'
 import { useDisplayName } from '../hooks/useDisplayName'
@@ -99,16 +100,6 @@ export function GamePage() {
    * their browser's back button).
    */
   const [redoStack, setRedoStack] = useState<Action[]>([])
-  const [showHistory, setShowHistory] = useState(false)
-  /**
-   * Which turn (0..historyTurnCount, see the `turnStops`/`historyTurnCount`
-   * memo below) RoundView's "Show history" bar is currently showing — 0
-   * means "right after my last turn", nothing shown yet (issue #261's
-   * requested default). Reset to 0 whenever the bar is (re)opened, so
-   * re-toggling always starts from that same point rather than wherever it
-   * was left last time.
-   */
-  const [historyTurnPos, setHistoryTurnPos] = useState(0)
   /**
    * History review (issue #63): lets anyone step through past points in the
    * game — genesis plus every action since — without touching the live,
@@ -118,8 +109,25 @@ export function GamePage() {
    * Nth logged action), and `reviewState` below replays purely client-side
    * up to that point. Reset whenever a fresh room loads, same as
    * `hotseatActivePlayerId`.
+   *
+   * Both "Review history" (action-by-action) and "Show history"
+   * (turn-by-turn, issue #261) drive this same index — they're the same
+   * read-only replay feature, just with a different step size and default
+   * entry point (see `historyStepMode` below). Sharing one index means both
+   * buttons show the exact same reconstructed historical board (RoundView's
+   * `state` prop) — fixing a "Show history" bug where its own, separate
+   * overlay-on-the-live-board mechanism didn't actually reflect what the
+   * board looked like at the reviewed point.
    */
   const [reviewIndex, setReviewIndex] = useState<number | null>(null)
+  /**
+   * Which of the two history buttons is driving `reviewIndex` right now —
+   * 'action' steps by a single actionHistory entry at a time ("Review
+   * history"); 'turn' steps by a whole player's turn at a time ("Show
+   * history", see `fullTurnStops` below). Only meaningful while
+   * `reviewIndex !== null`.
+   */
+  const [historyStepMode, setHistoryStepMode] = useState<'action' | 'turn'>('action')
   /**
    * Hotseat pass-and-play: which seated player the shared device is
    * currently "handed to" — distinct from auth identity, since every
@@ -144,10 +152,6 @@ export function GamePage() {
   const autoReviewAppliedRef = useRef(false)
 
   useEffect(() => {
-    if (showHistory) setHistoryTurnPos(0)
-  }, [showHistory])
-
-  useEffect(() => {
     if (!menuOpen) return
     function handlePointerDown(event: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) setMenuOpen(false)
@@ -167,8 +171,7 @@ export function GamePage() {
     if (!roomCode) return
     setHotseatActivePlayerId(null)
     setReviewIndex(null)
-    setShowHistory(false)
-    setHistoryTurnPos(0)
+    setHistoryStepMode('action')
     setMapSaved(false)
     setMapSaveError(null)
     autoObserveAttemptedRef.current = false
@@ -309,6 +312,7 @@ export function GamePage() {
   useEffect(() => {
     if (autoReviewAppliedRef.current || !amObserving || !gameState) return
     autoReviewAppliedRef.current = true
+    setHistoryStepMode('action')
     setReviewIndex(gameState.actionHistory.length)
   }, [amObserving, gameState])
 
@@ -359,73 +363,33 @@ export function GamePage() {
   }, [game, players.length, playersSignature])
 
   /**
-   * "What happened since I last acted" (see engine/turnReview.ts) — reviewed
-   * on demand via RoundView's history toggle, not stored. Rebuilding it
-   * needs a replay from genesis up to the start of the review window before
-   * buildTurnReview can even begin — but that window start (see
-   * findReviewWindowStart) only moves forward when `me` themselves takes an
-   * action, not on every other player's action in between, so it's split
-   * into its own memo keyed on `windowStart` (not on the ever-growing
-   * actionHistory) to skip that replay entirely on the far more common case
-   * of "someone else acted since I last looked." `null` only while
-   * `gameState` itself hasn't loaded yet. With no `me` to anchor to (an
-   * observer — issue: enable Show history for observers) there's no "own
-   * last turn" to start from, so the window covers the whole game (0)
-   * instead — RoundView's Show history bar then pages through every turn
-   * anyone has taken.
+   * Turn boundaries across the ENTIRE actionHistory (issue #261 follow-up:
+   * "Show history" must be able to page all the way back through the whole
+   * game, not just what happened since the reviewer's own last turn) — see
+   * engine/turnReview.ts's findTurnStops. `fullTurnStops[0]` is always 0
+   * (genesis) and its last entry is always `gameState.actionHistory.length`
+   * (now); every entry in between is a point where the acting player
+   * changes. Each entry is itself a valid `reviewIndex` (see below), so
+   * "Show history"'s Prev/Next/slider just step across this array instead
+   * of the raw action-by-action `reviewIndex` "Review history" uses.
    */
-  const windowStart = useMemo(() => {
-    if (!gameState) return null
+  const fullTurnStops = useMemo(
+    () => (gameState ? findTurnStops(gameState.actionHistory, 0) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [gameState?.actionHistory],
+  )
+  /**
+   * Where "Show history" defaults to on entry — right after `me`'s own last
+   * turn, so paging forward reveals each opponent's turn in order, while
+   * Prev can still walk all the way back to genesis (issue #261). An
+   * observer has no turn of their own to anchor to, so they start at
+   * genesis (0) instead.
+   */
+  const defaultTurnHistoryIndex = useMemo(() => {
+    if (!gameState) return 0
     return me ? findReviewWindowStart(gameState.actionHistory, me.id) : 0
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameState?.actionHistory, me?.id])
-  const stateAtWindowStart = useMemo(() => {
-    if (!genesis || !gameState || windowStart === null) return null
-    try {
-      return replayActions(genesis, gameState.actionHistory.slice(0, windowStart), unitContent, achievementContent, boardGenerationContent, taleContent)
-    } catch {
-      // A genesis/content mismatch shouldn't be possible for a game this
-      // session is actually playing, but the review is a nice-to-have, not
-      // core gameplay — fail quiet (no review) rather than break the page.
-      return null
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [genesis, windowStart, unitContent, achievementContent, boardGenerationContent, taleContent])
-  const turnReview = useMemo(() => {
-    if (!stateAtWindowStart || !gameState || windowStart === null) return null
-    return buildTurnReview(stateAtWindowStart, gameState.actionHistory.slice(windowStart), unitContent, achievementContent, boardGenerationContent, taleContent)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stateAtWindowStart, gameState?.actionHistory, windowStart, unitContent, achievementContent, boardGenerationContent, taleContent])
-
-  /**
-   * Turn boundaries within `turnReview`'s window (see engine/turnReview.ts's
-   * findTurnStops), window-relative (subtracted from `windowStart`) so they
-   * index straight into `turnReview.eventCountAfterAction`/
-   * `resourcesByPlayerIdAfterAction` — what RoundView's "Show history" bar
-   * (issue #261) pages through turn by turn instead of the whole window at
-   * once. `historyTurnCount` is how many turns are in it; a fresh window
-   * (nothing since I last acted) is `[0]`, i.e. count 0.
-   */
-  const historyTurnStops = useMemo(
-    () => (gameState && windowStart !== null ? findTurnStops(gameState.actionHistory, windowStart).map((s) => s - windowStart) : null),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [gameState?.actionHistory, windowStart],
-  )
-  const historyTurnCount = historyTurnStops ? historyTurnStops.length - 1 : 0
-  const clampedHistoryTurnPos = Math.max(0, Math.min(historyTurnPos, historyTurnCount))
-  /** The player whose turn is shown at `clampedHistoryTurnPos` (absolute actionHistory index, since historyTurnStops is window-relative) — null at position 0. */
-  const historyTurnLabel = useMemo(() => {
-    if (clampedHistoryTurnPos === 0 || !historyTurnStops || windowStart === null || !gameState) return null
-    const actorIndex = historyTurnStops[clampedHistoryTurnPos - 1] + windowStart
-    const playerId = gameState.actionHistory[actorIndex]?.action.playerId
-    return players.find((p) => p.id === playerId)?.display_name ?? null
-  }, [clampedHistoryTurnPos, historyTurnStops, windowStart, gameState, players])
-  /** What RoundView actually overlays on the board while "Show history" is on — just the currently-selected turn's events, not the whole window (see historyTurnStops above). `null` only when `turnReview` itself couldn't be computed, so the button still disables correctly. */
-  const displayedTurnReview = useMemo(() => {
-    if (!turnReview) return null
-    if (clampedHistoryTurnPos === 0 || !historyTurnStops) return { events: [], resourceDeltaByPlayerId: {} }
-    return sliceTurnReview(turnReview, historyTurnStops[clampedHistoryTurnPos - 1], historyTurnStops[clampedHistoryTurnPos])
-  }, [turnReview, historyTurnStops, clampedHistoryTurnPos])
 
   /**
    * The running narration log (see engine/gameLog.ts) — nothing about it is
@@ -550,8 +514,8 @@ export function GamePage() {
     eventCountAtIndex: number[]
   } | null>(null)
 
-  const { reviewState, reviewGameLog } = useMemo((): { reviewState: EngineGameState | null; reviewGameLog: GameEvent[] } => {
-    if (reviewIndex === null || !game || !genesis || !gameState) return { reviewState: null, reviewGameLog: [] }
+  const { reviewState, reviewGameLog, turnHalos } = useMemo((): { reviewState: EngineGameState | null; reviewGameLog: GameEvent[]; turnHalos: TurnReview | null } => {
+    if (reviewIndex === null || !game || !genesis || !gameState) return { reviewState: null, reviewGameLog: [], turnHalos: null }
     const actionHistory = gameState.actionHistory
     let cache = reviewCacheRef.current
 
@@ -609,16 +573,68 @@ export function GamePage() {
       cache.actionHistory = actionHistory
       reviewCacheRef.current = cache
 
-      return { reviewState: cache.states[reviewIndex], reviewGameLog: cache.events.slice(0, cache.eventCountAtIndex[reviewIndex]) }
+      // "Show history" (turn mode) also highlights what happened during the
+      // single turn currently on screen — the diff between the previously
+      // replayed state just before this turn started and the one now shown
+      // (issue #261). Both ends are already in `cache.states` (dense up to
+      // `reviewIndex`), so this is a small, single-turn buildTurnReview
+      // call, not a fresh whole-game replay. Skipped at the default entry
+      // point (`defaultTurnHistoryIndex`) and at genesis (index 0) — there's
+      // no "just happened" turn to highlight at either (see
+      // `defaultTurnHistoryIndex`'s own doc comment: paging forward from
+      // there is what reveals each opponent's turn).
+      let turnHalos: TurnReview | null = null
+      if (historyStepMode === 'turn' && reviewIndex > 0 && reviewIndex !== defaultTurnHistoryIndex && fullTurnStops) {
+        const pos = fullTurnStops.indexOf(reviewIndex)
+        if (pos > 0) {
+          const prevStop = fullTurnStops[pos - 1]
+          turnHalos = buildTurnReview(cache.states[prevStop], actionHistory.slice(prevStop, reviewIndex), unitContent, achievementContent, boardGenerationContent, taleContent)
+        }
+      }
+
+      return { reviewState: cache.states[reviewIndex], reviewGameLog: cache.events.slice(0, cache.eventCountAtIndex[reviewIndex]), turnHalos }
     } catch {
       reviewCacheRef.current = null
-      return { reviewState: null, reviewGameLog: [] }
+      return { reviewState: null, reviewGameLog: [], turnHalos: null }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reviewIndex, game, genesis, gameState?.actionHistory, playersSignature, unitContent, achievementContent, boardGenerationContent, taleContent])
+  }, [
+    reviewIndex,
+    game,
+    genesis,
+    gameState?.actionHistory,
+    playersSignature,
+    unitContent,
+    achievementContent,
+    boardGenerationContent,
+    taleContent,
+    historyStepMode,
+    fullTurnStops,
+    defaultTurnHistoryIndex,
+  ])
 
   /** The action most recently applied as of `reviewIndex`, for the review banner's label — null at genesis (reviewIndex 0). */
   const reviewActionMeta = reviewIndex !== null && reviewIndex > 0 ? (gameState?.actionHistory[reviewIndex - 1] ?? null) : null
+
+  /** How many turns `fullTurnStops` covers — "Show history"'s slider/Prev/Next range. */
+  const turnPosCount = fullTurnStops ? fullTurnStops.length - 1 : 0
+  /** Where `reviewIndex` currently sits within `fullTurnStops`, for "Show history"'s slider — only meaningful (and always found) while `historyStepMode === 'turn'`, since that's the only mode that ever sets `reviewIndex` to one of `fullTurnStops`'s own values. */
+  const currentTurnPos = fullTurnStops && reviewIndex !== null ? fullTurnStops.indexOf(reviewIndex) : -1
+  /** The history banner's status text — branches on `historyStepMode` since "Review history" and "Show history" share the one banner but describe different units (actions vs. turns). */
+  const historyBannerLabel = (() => {
+    if (reviewIndex === null) return ''
+    if (historyStepMode !== 'turn') {
+      return reviewActionMeta ? `Turn ${reviewActionMeta.turn} — action ${reviewIndex} of ${reviewMaxIndex}` : 'Start of game (before any actions)'
+    }
+    if (reviewIndex === defaultTurnHistoryIndex && defaultTurnHistoryIndex === reviewMaxIndex) {
+      return me ? 'Nothing since your last turn.' : 'Nothing has happened yet.'
+    }
+    if (reviewIndex === 0) return 'Start of the game'
+    if (reviewIndex === defaultTurnHistoryIndex) return 'Right after your last turn'
+    const actorId = gameState?.actionHistory[reviewIndex - 1]?.action.playerId ?? null
+    const actorName = players.find((p) => p.id === actorId)?.display_name ?? 'Unknown'
+    return `${actorName}'s turn (${currentTurnPos} of ${turnPosCount})`
+  })()
 
   const displayState = isReviewingHistory ? reviewState : gameState
 
@@ -1163,26 +1179,63 @@ export function GamePage() {
           <button
             type="button"
             disabled={!gameState || reviewMaxIndex === 0}
-            onClick={() => setReviewIndex(isReviewingHistory ? null : reviewMaxIndex)}
-            title="Step through past points in the game — genesis plus every action since — without changing anything. Unlike Undo, this never touches the live game."
+            onClick={() => {
+              if (isReviewingHistory && historyStepMode === 'action') {
+                setReviewIndex(null)
+                return
+              }
+              setHistoryStepMode('action')
+              if (!isReviewingHistory) setReviewIndex(reviewMaxIndex)
+            }}
+            title="Step through past points in the game — genesis plus every action since — action by action, without changing anything. Unlike Undo, this never touches the live game."
             className={`rounded-md border px-3 py-1 text-sm hover:border-neutral-500 disabled:opacity-50 ${
-              isReviewingHistory ? 'border-amber-500 text-amber-400' : 'border-neutral-700'
+              isReviewingHistory && historyStepMode === 'action' ? 'border-amber-500 text-amber-400' : 'border-neutral-700'
             }`}
           >
-            {isReviewingHistory ? 'Exit review' : 'Review history'}
+            {isReviewingHistory && historyStepMode === 'action' ? 'Exit review' : 'Review history'}
+          </button>
+          <button
+            type="button"
+            disabled={!gameState || reviewMaxIndex === 0}
+            onClick={() => {
+              if (isReviewingHistory && historyStepMode === 'turn') {
+                setReviewIndex(null)
+                return
+              }
+              setHistoryStepMode('turn')
+              if (!isReviewingHistory) setReviewIndex(defaultTurnHistoryIndex)
+            }}
+            title={
+              me
+                ? 'Step turn by turn through the whole game — movement, new units, resources gathered, income, trades, and conversions — starting right after your own last turn so you can review what every opponent did since. Unlike Undo, this never touches the live game.'
+                : 'Step turn by turn through what has happened on the board — movement, new units, resources gathered, income, trades, and conversions. Unlike Undo, this never touches the live game.'
+            }
+            className={`rounded-md border px-3 py-1 text-sm hover:border-neutral-500 disabled:opacity-50 ${
+              isReviewingHistory && historyStepMode === 'turn' ? 'border-amber-500 text-amber-400' : 'border-neutral-700'
+            }`}
+          >
+            {isReviewingHistory && historyStepMode === 'turn' ? 'Hide history' : 'Show history'}
           </button>
         </div>
       </header>
 
       {isReviewingHistory && (
         <div className="flex flex-wrap items-center gap-3 rounded-md border border-amber-700/40 bg-amber-500/10 p-3 text-sm text-amber-200">
-          <span className="font-medium">Reviewing history — read-only, nothing here can be changed.</span>
+          <span className="font-medium">
+            {historyStepMode === 'turn' ? 'Show history — read-only, stepping turn by turn.' : 'Reviewing history — read-only, nothing here can be changed.'}
+          </span>
           <div className="flex items-center gap-2">
             <button
               type="button"
-              disabled={reviewIndex === 0}
-              onClick={() => setReviewIndex((i) => Math.max(0, (i ?? 0) - 1))}
-              title="Step back one action."
+              disabled={historyStepMode === 'turn' ? currentTurnPos <= 0 : reviewIndex === 0}
+              onClick={() => {
+                if (historyStepMode === 'turn') {
+                  if (fullTurnStops && currentTurnPos > 0) setReviewIndex(fullTurnStops[currentTurnPos - 1])
+                } else {
+                  setReviewIndex((i) => Math.max(0, (i ?? 0) - 1))
+                }
+              }}
+              title={historyStepMode === 'turn' ? 'Step back one turn.' : 'Step back one action.'}
               className="rounded-md border border-amber-700/60 px-2 py-0.5 hover:border-amber-400 disabled:opacity-40"
             >
               ← Prev
@@ -1190,24 +1243,35 @@ export function GamePage() {
             <input
               type="range"
               min={0}
-              max={reviewMaxIndex}
-              value={reviewIndex ?? 0}
-              onChange={(e) => setReviewIndex(Number(e.target.value))}
+              max={historyStepMode === 'turn' ? turnPosCount : reviewMaxIndex}
+              value={historyStepMode === 'turn' ? Math.max(0, currentTurnPos) : (reviewIndex ?? 0)}
+              onChange={(e) => {
+                const value = Number(e.target.value)
+                if (historyStepMode === 'turn') {
+                  if (fullTurnStops) setReviewIndex(fullTurnStops[value])
+                } else {
+                  setReviewIndex(value)
+                }
+              }}
               className="w-40"
             />
             <button
               type="button"
-              disabled={reviewIndex === reviewMaxIndex}
-              onClick={() => setReviewIndex((i) => Math.min(reviewMaxIndex, (i ?? 0) + 1))}
-              title="Step forward one action."
+              disabled={historyStepMode === 'turn' ? currentTurnPos < 0 || currentTurnPos >= turnPosCount : reviewIndex === reviewMaxIndex}
+              onClick={() => {
+                if (historyStepMode === 'turn') {
+                  if (fullTurnStops && currentTurnPos >= 0 && currentTurnPos < turnPosCount) setReviewIndex(fullTurnStops[currentTurnPos + 1])
+                } else {
+                  setReviewIndex((i) => Math.min(reviewMaxIndex, (i ?? 0) + 1))
+                }
+              }}
+              title={historyStepMode === 'turn' ? 'Step forward one turn.' : 'Step forward one action.'}
               className="rounded-md border border-amber-700/60 px-2 py-0.5 hover:border-amber-400 disabled:opacity-40"
             >
               Next →
             </button>
           </div>
-          <span>
-            {reviewActionMeta ? `Turn ${reviewActionMeta.turn} — action ${reviewIndex} of ${reviewMaxIndex}` : 'Start of game (before any actions)'}
-          </span>
+          <span>{historyBannerLabel}</span>
           <button
             type="button"
             onClick={() => setReviewIndex(null)}
@@ -1341,18 +1405,8 @@ export function GamePage() {
           unitContent={unitContent}
           achievementContent={achievementContent}
           taleContent={taleContent}
-          /* Only a seated player's manual "Review history" click (isReviewingHistory
-             with a `me`) suppresses the turn-by-turn bar in favor of that
-             action-by-action one — an observer has no `me` and no such
-             alternative, so their `isReviewingHistory` (always on — see
-             amObserving's auto-review effect above) leaves the turn bar alone. */
-          turnReview={isReviewingHistory && me ? null : displayedTurnReview}
-          showHistory={isReviewingHistory || showHistory}
-          onToggleHistory={() => setShowHistory((v) => !v)}
-          historyTurnCount={isReviewingHistory && me ? 0 : historyTurnCount}
-          historyTurnPos={isReviewingHistory && me ? 0 : clampedHistoryTurnPos}
-          historyTurnLabel={isReviewingHistory && me ? null : historyTurnLabel}
-          onHistoryTurnPosChange={setHistoryTurnPos}
+          turnReview={turnHalos}
+          showHistory={isReviewingHistory}
           gameLog={isReviewingHistory ? reviewGameLog : gameLog}
           onChooseCard={(cardId) => {
             if (!me) return

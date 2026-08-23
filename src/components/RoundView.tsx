@@ -894,31 +894,25 @@ export function RoundView(props: {
   /** Drives the achievements panel's "Tale bonuses" section and its contribution to each player's live score (see calculateVPBreakdown) — EMPTY_TALE_CONTENT for a game with no Tales active. */
   taleContent: TaleContent
   /**
-   * "What happened since I last acted" (see engine/turnReview.ts) —
-   * GamePage.tsx computes this from the full actionHistory, since it needs
-   * genesis + content to replay. Null while it hasn't loaded yet, or if
-   * there's nothing to review (e.g. the very start of the game).
+   * What happened during the single turn currently shown by GamePage's
+   * "Show history" bar (issue #261) — see engine/turnReview.ts's
+   * `buildTurnReview`. GamePage computes this fresh for whichever turn its
+   * bar is currently positioned on (it owns the Prev/Next/slider controls
+   * and the underlying historical-replay cache), diffing the real,
+   * previously-replayed board state from just before that turn against just
+   * after it — so the halos/arrows below always match the historical board
+   * actually shown in `state` (not the live board). Null while "Show
+   * history" isn't active, or while GamePage's own "Review history"
+   * (action-by-action) mode is active instead.
    */
   turnReview: TurnReview | null
-  showHistory: boolean
-  onToggleHistory: () => void
   /**
-   * Turn-by-turn navigation for the "Show history" bar (issue #261) —
-   * GamePage.tsx computes these from `findTurnStops`/`sliceTurnReview`
-   * (engine/turnReview.ts) since only it has the full actionHistory plus
-   * genesis/content needed to replay per-turn boundaries. All optional and
-   * default to "no bar" so callers that only care about the plain
-   * whole-window toggle (e.g. existing tests) don't need to pass them.
-   * `historyTurnCount` is the number of turns since the reviewer's own last
-   * one; `historyTurnPos` (0..historyTurnCount) is which one `turnReview` is
-   * currently showing — 0 means "right after my last turn", nothing shown
-   * yet. `historyTurnLabel` is who acted during the turn at the current
-   * position (null at position 0).
+   * True while GamePage is showing a replayed historical state instead of
+   * the live game — either via "Review history" (action-by-action) or "Show
+   * history" (turn-by-turn, with `turnReview` set). Hides every panel that
+   * would otherwise let the (non-existent, in review) `myPlayerId` act.
    */
-  historyTurnCount?: number
-  historyTurnPos?: number
-  historyTurnLabel?: string | null
-  onHistoryTurnPosChange?: (pos: number) => void
+  showHistory: boolean
   /** The running narration log — derived from actionHistory, see engine/gameLog.ts's buildGameLog. */
   gameLog: GameEvent[]
   onChooseCard: (cardId: string) => void
@@ -939,7 +933,7 @@ export function RoundView(props: {
   onPurchaseCard: (cardId: string) => void
   onPassPurchase: () => void
 }) {
-  const { state, players, myPlayerId, unitContent, achievementContent, taleContent, turnReview, showHistory, historyTurnCount = 0, historyTurnPos = 0, historyTurnLabel = null, onHistoryTurnPosChange = () => {} } = props
+  const { state, players, myPlayerId, unitContent, achievementContent, taleContent, turnReview, showHistory } = props
   const [mode, setMode] = useState<ActionUiMode>({ kind: 'idle' })
   /** Hides the full player roster + achievements sidebar so the board can grow into the freed space — see the "Expand board" toggle below. */
   const [sidebarHidden, setSidebarHidden] = useState(false)
@@ -1122,66 +1116,9 @@ export function RoundView(props: {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-4">
-          <PhaseBanner state={state} />
-          <BankResources state={state} />
-        </div>
-        <div className="flex items-center gap-2">
-          {showHistory && historyTurnCount === 0 && turnReview && turnReview.events.length === 0 && (
-            <span className="text-xs text-neutral-500">{myPlayerId === null ? 'Nothing has happened yet.' : 'Nothing since your last turn.'}</span>
-          )}
-          {showHistory && historyTurnCount > 0 && (
-            <div className="flex items-center gap-2 text-xs text-neutral-400">
-              <button
-                type="button"
-                disabled={historyTurnPos === 0}
-                onClick={() => onHistoryTurnPosChange(Math.max(0, historyTurnPos - 1))}
-                title="Step back one turn."
-                className="rounded-md border border-neutral-700 px-2 py-0.5 hover:border-neutral-500 disabled:opacity-40"
-              >
-                ← Prev
-              </button>
-              <input
-                type="range"
-                min={0}
-                max={historyTurnCount}
-                value={historyTurnPos}
-                onChange={(e) => onHistoryTurnPosChange(Number(e.target.value))}
-                className="w-28"
-              />
-              <button
-                type="button"
-                disabled={historyTurnPos === historyTurnCount}
-                onClick={() => onHistoryTurnPosChange(Math.min(historyTurnCount, historyTurnPos + 1))}
-                title="Step forward one turn."
-                className="rounded-md border border-neutral-700 px-2 py-0.5 hover:border-neutral-500 disabled:opacity-40"
-              >
-                Next →
-              </button>
-              <span>
-                {historyTurnPos === 0
-                  ? myPlayerId === null
-                    ? 'Start of the game'
-                    : 'Right after your last turn'
-                  : `${historyTurnLabel ?? 'Unknown'}'s turn (${historyTurnPos} of ${historyTurnCount})`}
-              </span>
-            </div>
-          )}
-          <button
-            type="button"
-            onClick={props.onToggleHistory}
-            disabled={!turnReview}
-            title={
-              myPlayerId === null
-                ? 'Step turn by turn through what has happened on the board — movement, new units, resources gathered, income, trades, and conversions.'
-                : 'Step turn by turn through what happened on the board since your last turn — movement, new units, resources gathered, income, trades, and conversions.'
-            }
-            className="rounded-md border border-neutral-700 px-3 py-1 text-xs hover:border-neutral-500 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {showHistory ? 'Hide history' : 'Show history'}
-          </button>
-        </div>
+      <div className="flex items-center gap-4">
+        <PhaseBanner state={state} />
+        <BankResources state={state} />
       </div>
       {/* Turn status panels ("Waiting for X…") re-render as other players act in real time; their
           height changes shift everything below them. Hidden while reviewing history so that view

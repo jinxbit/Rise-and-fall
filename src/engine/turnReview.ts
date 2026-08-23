@@ -35,17 +35,6 @@ export interface TurnReview {
   events: UnitReviewEvent[]
   /** Net resource change per player across the whole reviewed window. */
   resourceDeltaByPlayerId: Record<string, Resources>
-  /**
-   * `events.length` right after each of `actionsInWindow` was applied —
-   * index 0 is 0 (before any of them). Lets `sliceTurnReview` below carve
-   * this window down to a single turn (see `findTurnStops`) without
-   * re-deriving state for every step of RoundView's turn-by-turn bar.
-   * Optional so a hand-built `TurnReview` fixture (as in RoundView's tests)
-   * doesn't need to supply it — `sliceTurnReview` fails quiet without it.
-   */
-  eventCountAfterAction?: number[]
-  /** Same idea as `eventCountAfterAction` but each player's resources, snapshotted after each action (index 0 is `stateAtWindowStart`'s own) — what `sliceTurnReview` diffs to get a sub-range's `resourceDeltaByPlayerId`. */
-  resourcesByPlayerIdAfterAction?: Record<string, Resources>[]
 }
 
 /**
@@ -61,14 +50,14 @@ export function findReviewWindowStart(actionHistory: LoggedAction[], playerId: s
 }
 
 /**
- * Splits `actionHistory` from `windowStart` (see `findReviewWindowStart`) to
- * its end into per-player-turn segments, for RoundView's "Show history" bar
- * (issue #261) — each boundary is where the acting player changes. Always
- * starts with `windowStart` and ends with `actionHistory.length`; indices
- * are absolute (into the full `actionHistory`), not relative to the window
- * — subtract `windowStart` before indexing into a `TurnReview`'s
- * `eventCountAfterAction`/`resourcesByPlayerIdAfterAction`. A one-element
- * result means the window is empty (nothing since that player's last turn).
+ * Splits `actionHistory` from `windowStart` to its end into per-player-turn
+ * segments, for GamePage's "Show history" turn-by-turn stepping (issue
+ * #261) — each boundary is where the acting player changes. Always starts
+ * with `windowStart` and ends with `actionHistory.length`; indices are
+ * absolute positions into `actionHistory` (also valid `reviewIndex` values
+ * for GamePage's replay cache, since a turn boundary is just a particular
+ * point in the action list). Pass `windowStart: 0` to cover the whole game.
+ * A one-element result means nothing happened in `[windowStart, end]`.
  */
 export function findTurnStops(actionHistory: LoggedAction[], windowStart: number): number[] {
   const stops = [windowStart]
@@ -76,46 +65,6 @@ export function findTurnStops(actionHistory: LoggedAction[], windowStart: number
     if (i === actionHistory.length || actionHistory[i].action.playerId !== actionHistory[i - 1].action.playerId) stops.push(i)
   }
   return stops
-}
-
-/**
- * Slices a `TurnReview` already built across the whole "since my last turn"
- * window down to just `[fromIndex, toIndex)` — window-relative indices (a
- * `findTurnStops` result minus `windowStart`) — so paging RoundView's
- * turn-by-turn bar doesn't need a fresh replay per step; the whole-window
- * `buildTurnReview` call already walked every action once. Fails quiet
- * (empty) if `review` wasn't built with the optional bookkeeping fields
- * (e.g. a hand-built test fixture).
- */
-export function sliceTurnReview(review: TurnReview, fromIndex: number, toIndex: number): Pick<TurnReview, 'events' | 'resourceDeltaByPlayerId'> {
-  const eventCounts = review.eventCountAfterAction
-  const snapshots = review.resourcesByPlayerIdAfterAction
-  if (!eventCounts || !snapshots) return { events: [], resourceDeltaByPlayerId: {} }
-
-  const before = snapshots[fromIndex]
-  const after = snapshots[toIndex]
-  if (eventCounts[fromIndex] === undefined || eventCounts[toIndex] === undefined || !before || !after) {
-    return { events: [], resourceDeltaByPlayerId: {} }
-  }
-  const events = review.events.slice(eventCounts[fromIndex], eventCounts[toIndex])
-  const resourceDeltaByPlayerId: Record<string, Resources> = {}
-  for (const playerId of Object.keys(after)) {
-    const beforeResources = before[playerId]
-    if (!beforeResources) continue
-    const afterResources = after[playerId]
-    resourceDeltaByPlayerId[playerId] = {
-      gold: afterResources.gold - beforeResources.gold,
-      wood: afterResources.wood - beforeResources.wood,
-      stone: afterResources.stone - beforeResources.stone,
-    }
-  }
-  return { events, resourceDeltaByPlayerId }
-}
-
-function snapshotResources(state: GameState): Record<string, Resources> {
-  const snapshot: Record<string, Resources> = {}
-  for (const player of state.players) snapshot[player.id] = player.resources
-  return snapshot
 }
 
 function diffResources(before: Resources, after: Resources): Partial<Resources> {
@@ -204,8 +153,6 @@ export function buildTurnReview(
 ): TurnReview {
   const events: UnitReviewEvent[] = []
   let state = stateAtWindowStart
-  const eventCountAfterAction: number[] = [0]
-  const resourcesByPlayerIdAfterAction: Record<string, Resources>[] = [snapshotResources(stateAtWindowStart)]
 
   for (const { action } of actionsInWindow) {
     const beforeState = state
@@ -244,8 +191,6 @@ export function buildTurnReview(
     }
 
     state = afterState
-    eventCountAfterAction.push(events.length)
-    resourcesByPlayerIdAfterAction.push(snapshotResources(state))
   }
 
   const resourceDeltaByPlayerId: Record<string, Resources> = {}
@@ -259,5 +204,5 @@ export function buildTurnReview(
     }
   }
 
-  return { events, resourceDeltaByPlayerId, eventCountAfterAction, resourcesByPlayerIdAfterAction }
+  return { events, resourceDeltaByPlayerId }
 }
