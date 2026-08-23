@@ -3328,3 +3328,58 @@ better-ranked one fails, so every existing `canPlaceRemainingTiles`/
 board above, the ordered search now finds the full arrangement in ~33
 steps instead of exhausting the budget. 736 tests total (was 735);
 `tsc -b`/`oxlint`/`vitest run`/`npm run build` all clean.
+
+## 68. "Show history" steps turn by turn, like "Review history" steps action by action (issue #261)
+
+Requested: the "Show history" toggle (#31) always merged its whole
+"since my last turn" window into one overlay — every opponent move/
+produce/income/trade/convert since the reviewer last acted, all shown
+at once. "Review history" (#63) already has a Prev/Next/slider bar for
+scrubbing action by action through the *entire* game; this asked for
+the same kind of bar on "Show history", except stepping turn by turn
+through just the reviewed window, defaulting to right after the
+reviewer's own last turn so forward paging is what reveals each
+opponent's turn in order.
+
+`engine/turnReview.ts` gained `findTurnStops(actionHistory, windowStart)`,
+splitting the window into per-player-turn segments at each change of
+actor (absolute `actionHistory` indices, matching `findReviewWindowStart`'s
+own indexing), and `sliceTurnReview(review, fromIndex, toIndex)`, which
+carves a single turn's events/resourceDeltaByPlayerId out of an
+already-built whole-window `TurnReview` — window-relative indices, i.e.
+a `findTurnStops` result minus `windowStart`. Slicing needed the
+whole-window `buildTurnReview` call to track a bit more as it walks the
+window once: `eventCountAfterAction` (events.length after each action)
+and `resourcesByPlayerIdAfterAction` (each player's resources snapshotted
+after each action) — both new optional `TurnReview` fields (optional so
+existing hand-built fixtures in RoundView's tests didn't need updating;
+`sliceTurnReview` fails quiet without them). This avoids a fresh replay
+per Prev/Next click — the single existing whole-window pass already has
+everything a per-turn slice needs.
+
+GamePage.tsx computes `historyTurnStops`/`historyTurnCount` from
+`findTurnStops` and a new `historyTurnPos` state (0 by default, reset to
+0 by an effect whenever "Show history" is (re)toggled on — issue's
+"default to start from after the current player's last turn"), then
+passes RoundView the *sliced* single-turn review (via `sliceTurnReview`)
+instead of the old whole-window one, plus `historyTurnCount`/
+`historyTurnPos`/`historyTurnLabel` (whose turn is shown, from the
+segment's first action's `playerId`) and an `onHistoryTurnPosChange`
+setter. RoundView's existing halo/label/resourceDelta rendering is
+untouched — it already just draws whatever `turnReview` prop it's given;
+only a new Prev/Next/slider bar was added next to the toggle button
+(shown whenever `historyTurnCount > 0`), all four new props optional and
+defaulted so the ~40 unrelated existing RoundView tests (which never
+mention them) keep compiling and passing unchanged.
+
+7 new engine tests (`turnReview.test.ts`): `findTurnStops` boundary cases
+(empty window, one other player's turn, multiple players, a repeated
+actor across separate turns), `sliceTurnReview` carving a hand-built
+fixture and failing quiet without the optional arrays, and an
+integration test slicing a real two-action `buildTurnReview` window down
+to each action's own event/delta. 4 new `RoundView.test.tsx` tests: the
+bar stays hidden at the `historyTurnCount` default (0), it appears and
+its Prev/Next call `onHistoryTurnPosChange` correctly, and the label
+reads "Right after your last turn" at position 0 vs. "so-and-so's turn
+(N of total)" elsewhere. 837 tests total (was 827); `tsc -b`/`oxlint`/
+`vitest run`/`npm run build` all clean.

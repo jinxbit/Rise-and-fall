@@ -13,7 +13,7 @@ import { replayActions } from '../engine/replay'
 import { calculateScoreHistory } from '../engine/scoreHistory'
 import { applyTaleAchievementModifiers, applyTaleModifiers } from '../engine/tales'
 import type { ActionResult, GameEvent, GameState as EngineGameState, Coordinate } from '../engine/types'
-import { buildTurnReview, findReviewWindowStart } from '../engine/turnReview'
+import { buildTurnReview, findReviewWindowStart, findTurnStops, sliceTurnReview } from '../engine/turnReview'
 import { currentActorId } from '../engine/turnOrder'
 import { useAuth } from '../hooks/useAuth'
 import { useDisplayName } from '../hooks/useDisplayName'
@@ -101,6 +101,15 @@ export function GamePage() {
   const [redoStack, setRedoStack] = useState<Action[]>([])
   const [showHistory, setShowHistory] = useState(false)
   /**
+   * Which turn (0..historyTurnCount, see the `turnStops`/`historyTurnCount`
+   * memo below) RoundView's "Show history" bar is currently showing — 0
+   * means "right after my last turn", nothing shown yet (issue #261's
+   * requested default). Reset to 0 whenever the bar is (re)opened, so
+   * re-toggling always starts from that same point rather than wherever it
+   * was left last time.
+   */
+  const [historyTurnPos, setHistoryTurnPos] = useState(0)
+  /**
    * History review (issue #63): lets anyone step through past points in the
    * game — genesis plus every action since — without touching the live,
    * shared `game_state` row the way Undo does. `null` means "showing the
@@ -135,6 +144,10 @@ export function GamePage() {
   const autoReviewAppliedRef = useRef(false)
 
   useEffect(() => {
+    if (showHistory) setHistoryTurnPos(0)
+  }, [showHistory])
+
+  useEffect(() => {
     if (!menuOpen) return
     function handlePointerDown(event: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) setMenuOpen(false)
@@ -154,6 +167,8 @@ export function GamePage() {
     if (!roomCode) return
     setHotseatActivePlayerId(null)
     setReviewIndex(null)
+    setShowHistory(false)
+    setHistoryTurnPos(0)
     setMapSaved(false)
     setMapSaveError(null)
     autoObserveAttemptedRef.current = false
@@ -352,17 +367,18 @@ export function GamePage() {
    * action, not on every other player's action in between, so it's split
    * into its own memo keyed on `windowStart` (not on the ever-growing
    * actionHistory) to skip that replay entirely on the far more common case
-   * of "someone else acted since I last looked." `null` (rather than 0)
-   * when there's no `me` to review for (e.g. an observer) — 0 would be a
-   * real window start (review the whole game), which is exactly what this
-   * must NOT silently become for a viewer turnReview was never meant to
-   * cover.
+   * of "someone else acted since I last looked." `null` only while
+   * `gameState` itself hasn't loaded yet. With no `me` to anchor to (an
+   * observer — issue: enable Show history for observers) there's no "own
+   * last turn" to start from, so the window covers the whole game (0)
+   * instead — RoundView's Show history bar then pages through every turn
+   * anyone has taken.
    */
-  const windowStart = useMemo(
-    () => (gameState && me ? findReviewWindowStart(gameState.actionHistory, me.id) : null),
+  const windowStart = useMemo(() => {
+    if (!gameState) return null
+    return me ? findReviewWindowStart(gameState.actionHistory, me.id) : 0
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [gameState?.actionHistory, me?.id],
-  )
+  }, [gameState?.actionHistory, me?.id])
   const stateAtWindowStart = useMemo(() => {
     if (!genesis || !gameState || windowStart === null) return null
     try {
@@ -380,6 +396,36 @@ export function GamePage() {
     return buildTurnReview(stateAtWindowStart, gameState.actionHistory.slice(windowStart), unitContent, achievementContent, boardGenerationContent, taleContent)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stateAtWindowStart, gameState?.actionHistory, windowStart, unitContent, achievementContent, boardGenerationContent, taleContent])
+
+  /**
+   * Turn boundaries within `turnReview`'s window (see engine/turnReview.ts's
+   * findTurnStops), window-relative (subtracted from `windowStart`) so they
+   * index straight into `turnReview.eventCountAfterAction`/
+   * `resourcesByPlayerIdAfterAction` — what RoundView's "Show history" bar
+   * (issue #261) pages through turn by turn instead of the whole window at
+   * once. `historyTurnCount` is how many turns are in it; a fresh window
+   * (nothing since I last acted) is `[0]`, i.e. count 0.
+   */
+  const historyTurnStops = useMemo(
+    () => (gameState && windowStart !== null ? findTurnStops(gameState.actionHistory, windowStart).map((s) => s - windowStart) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [gameState?.actionHistory, windowStart],
+  )
+  const historyTurnCount = historyTurnStops ? historyTurnStops.length - 1 : 0
+  const clampedHistoryTurnPos = Math.max(0, Math.min(historyTurnPos, historyTurnCount))
+  /** The player whose turn is shown at `clampedHistoryTurnPos` (absolute actionHistory index, since historyTurnStops is window-relative) — null at position 0. */
+  const historyTurnLabel = useMemo(() => {
+    if (clampedHistoryTurnPos === 0 || !historyTurnStops || windowStart === null || !gameState) return null
+    const actorIndex = historyTurnStops[clampedHistoryTurnPos - 1] + windowStart
+    const playerId = gameState.actionHistory[actorIndex]?.action.playerId
+    return players.find((p) => p.id === playerId)?.display_name ?? null
+  }, [clampedHistoryTurnPos, historyTurnStops, windowStart, gameState, players])
+  /** What RoundView actually overlays on the board while "Show history" is on — just the currently-selected turn's events, not the whole window (see historyTurnStops above). `null` only when `turnReview` itself couldn't be computed, so the button still disables correctly. */
+  const displayedTurnReview = useMemo(() => {
+    if (!turnReview) return null
+    if (clampedHistoryTurnPos === 0 || !historyTurnStops) return { events: [], resourceDeltaByPlayerId: {} }
+    return sliceTurnReview(turnReview, historyTurnStops[clampedHistoryTurnPos - 1], historyTurnStops[clampedHistoryTurnPos])
+  }, [turnReview, historyTurnStops, clampedHistoryTurnPos])
 
   /**
    * The running narration log (see engine/gameLog.ts) — nothing about it is
@@ -1295,9 +1341,18 @@ export function GamePage() {
           unitContent={unitContent}
           achievementContent={achievementContent}
           taleContent={taleContent}
-          turnReview={isReviewingHistory ? null : turnReview}
+          /* Only a seated player's manual "Review history" click (isReviewingHistory
+             with a `me`) suppresses the turn-by-turn bar in favor of that
+             action-by-action one — an observer has no `me` and no such
+             alternative, so their `isReviewingHistory` (always on — see
+             amObserving's auto-review effect above) leaves the turn bar alone. */
+          turnReview={isReviewingHistory && me ? null : displayedTurnReview}
           showHistory={isReviewingHistory || showHistory}
           onToggleHistory={() => setShowHistory((v) => !v)}
+          historyTurnCount={isReviewingHistory && me ? 0 : historyTurnCount}
+          historyTurnPos={isReviewingHistory && me ? 0 : clampedHistoryTurnPos}
+          historyTurnLabel={isReviewingHistory && me ? null : historyTurnLabel}
+          onHistoryTurnPosChange={setHistoryTurnPos}
           gameLog={isReviewingHistory ? reviewGameLog : gameLog}
           onChooseCard={(cardId) => {
             if (!me) return
