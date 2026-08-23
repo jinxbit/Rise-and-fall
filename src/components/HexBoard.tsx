@@ -171,8 +171,8 @@ export interface UnitMarker {
   supportSelected?: boolean
   /** History-review overlay: one ring per applicable event type since the reviewed window began — concentric if more than one applies to the same unit. */
   historyHalos?: HistoryHaloType[]
-  /** History-review overlay: a small tag near the marker for an income/produce/trade amount, e.g. "+5 Gold" or "+1 Wood, -5 Gold". */
-  historyLabel?: string
+  /** History-review overlay: a small tag near the marker for an income/produce/trade amount, rendered as one icon+amount badge per affected resource (see RESOURCE_ICONS) rather than text, e.g. a coin icon next to "+5" instead of "+5 Gold". */
+  historyDelta?: Partial<Resources>
   /** Mirrors Unit.connectedNeighborCoords (see ../engine/types) — the two neighboring hexes this structure spans between, e.g. Bridge. Drawn as a marker on those two hex sides so it's visible which sides land units may cross onto/from. */
   connectedNeighborCoords?: [Coordinate, Coordinate]
 }
@@ -363,8 +363,8 @@ function computeActionMenuAngles(groups: ActionMenuGroup[]): Map<string, number>
 
 const ACTION_MENU_BOX_WIDTH_FACTOR = 3.4
 const ACTION_MENU_BOX_HEIGHT_FACTOR = 1.7
-/** Generous enough for the longest realistic history label, e.g. "+1 Wood, -5 Gold". */
-const HISTORY_LABEL_WIDTH_FACTOR = 3.4
+/** Generous enough for the longest realistic history label — up to 3 icon+amount badges, e.g. gold/wood/stone all changing in the same window. */
+const HISTORY_LABEL_WIDTH_FACTOR = 2.6
 const HISTORY_LABEL_HEIGHT_FACTOR = 0.62
 
 /** Wide enough for the "Confirm" button at PLACEMENT_CONTROLS's own font size, tall enough for one line of button text. Sized generously (issue #157) so the button is easy to hit, especially on touch. */
@@ -394,7 +394,7 @@ export interface PlacementControls {
 }
 
 /**
- * Top-left corner for each unit's history label (see UnitMarker.historyLabel),
+ * Top-left corner for each unit's history label (see UnitMarker.historyDelta),
  * keyed by that unit's index in `units` — normally just above-right of the
  * unit's own hex, but a label is wider than the gap between adjacent hexes,
  * so two nearby labeled units would otherwise draw right on top of each
@@ -414,7 +414,7 @@ function computeHistoryLabelPositions(units: UnitMarker[], size: number): Map<nu
   const claimed: { x: number; y: number }[] = []
 
   units.forEach((unit, i) => {
-    if (!unit.historyLabel) return
+    if (!unit.historyDelta || RESOURCE_ORDER.every((key) => !unit.historyDelta![key])) return
     const { x, y } = axialToPixel(unit.coord, size)
     const baseX = x + plateSize * 0.4
     const baseY = y - plateSize * 1.05
@@ -563,7 +563,7 @@ export function HexBoard(props: {
   const pixels = coords.map((coord) => ({ coord, ...axialToPixel(coord, size) }))
   const pad = size * 1.5
   const boundsPoints = pixels.filter((p) => boundsCoordKeys.has(coordKey(p.coord))).map((p) => ({ x: p.x, y: p.y }))
-  // A history-review label (see UnitMarker.historyLabel) sits well outside
+  // A history-review label (see UnitMarker.historyDelta) sits well outside
   // its own hex, and can get stacked further down still to dodge a nearby
   // label — extend the viewBox so neither can get clipped for a unit near
   // the board's edge.
@@ -809,7 +809,7 @@ export function HexBoard(props: {
               strokeWidth={0.75}
             />
             <UnitGlyph kind={unit.kind} x={x} y={y} size={glyphSize} />
-            {unit.historyLabel && historyLabelPositions.has(i) && (
+            {unit.historyDelta && historyLabelPositions.has(i) && (
               <foreignObject
                 x={historyLabelPositions.get(i)!.x}
                 y={historyLabelPositions.get(i)!.y}
@@ -825,9 +825,18 @@ export function HexBoard(props: {
                   // the box exactly instead and center within it, the same
                   // fixed-size approach the action-menu option boxes below
                   // already use safely.
-                  className="flex h-full w-full items-center justify-center whitespace-nowrap rounded-md border border-neutral-700 bg-neutral-900/95 px-1.5 font-medium text-neutral-100"
+                  className="flex h-full w-full items-center justify-center gap-1 whitespace-nowrap rounded-md border border-neutral-700 bg-neutral-900/95 px-1.5 font-medium text-neutral-100"
                 >
-                  {unit.historyLabel}
+                  {RESOURCE_ORDER.filter((key) => unit.historyDelta![key]).map((key) => {
+                    const amount = unit.historyDelta![key]!
+                    return (
+                      <span key={key} className={`inline-flex items-center gap-0.5 font-bold ${RESOURCE_COLOR_CLASS[key]}`}>
+                        <ResourceIcon resource={key} title={RESOURCE_LABEL[key]} className="h-[1em] w-[1em] shrink-0" />
+                        {amount > 0 ? '+' : ''}
+                        {amount}
+                      </span>
+                    )
+                  })}
                 </div>
               </foreignObject>
             )}

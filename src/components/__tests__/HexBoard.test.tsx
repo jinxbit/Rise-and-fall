@@ -278,8 +278,8 @@ describe('HexBoard — grouped action menu (more than one unit acting from the s
 describe('HexBoard — history-review labels', () => {
   it("staggers two nearby units' history labels instead of overlapping — the reported bug (adjacent units' production amounts overlapped)", () => {
     const units: UnitMarker[] = [
-      { coord: { q: 0, r: 0 }, color: '#ef4444', kind: 'nomad', historyLabel: '+1 Wood' },
-      { coord: { q: 1, r: 0 }, color: '#3b82f6', kind: 'nomad', historyLabel: '+1 Stone' },
+      { coord: { q: 0, r: 0 }, color: '#ef4444', kind: 'nomad', historyDelta: { wood: 1 } },
+      { coord: { q: 1, r: 0 }, color: '#3b82f6', kind: 'nomad', historyDelta: { stone: 1 } },
     ]
     const { container } = render(<HexBoard board={makeBoard()} units={units} />)
 
@@ -298,8 +298,8 @@ describe('HexBoard — history-review labels', () => {
 
   it("doesn't stagger two units' labels when they're far enough apart to never overlap", () => {
     const units: UnitMarker[] = [
-      { coord: { q: 0, r: 0 }, color: '#ef4444', kind: 'nomad', historyLabel: '+1 Wood' },
-      { coord: { q: 20, r: 0 }, color: '#3b82f6', kind: 'nomad', historyLabel: '+1 Stone' },
+      { coord: { q: 0, r: 0 }, color: '#ef4444', kind: 'nomad', historyDelta: { wood: 1 } },
+      { coord: { q: 20, r: 0 }, color: '#3b82f6', kind: 'nomad', historyDelta: { stone: 1 } },
     ]
     const { container } = render(<HexBoard board={makeBoard()} units={units} />)
 
@@ -309,7 +309,18 @@ describe('HexBoard — history-review labels', () => {
     expect(labels[0].getAttribute('y')).toBe(labels[1].getAttribute('y'))
   })
 
-  it('renders no label element for a unit with no historyLabel', () => {
+  it('renders one icon+amount badge per affected resource instead of text', () => {
+    const units: UnitMarker[] = [{ coord: { q: 0, r: 0 }, color: '#ef4444', kind: 'nomad', historyDelta: { wood: 1, gold: -5 } }]
+    const { container } = render(<HexBoard board={makeBoard()} units={units} />)
+
+    const label = container.querySelector('foreignObject')!
+    const icons = label.querySelectorAll('svg')
+    expect(icons).toHaveLength(2)
+    expect(label.textContent).toContain('+1')
+    expect(label.textContent).toContain('-5')
+  })
+
+  it('renders no label element for a unit with no historyDelta', () => {
     const units: UnitMarker[] = [{ coord: { q: 0, r: 0 }, color: '#ef4444', kind: 'nomad' }]
     const { container } = render(<HexBoard board={makeBoard()} units={units} />)
     expect(container.querySelectorAll('foreignObject')).toHaveLength(0)

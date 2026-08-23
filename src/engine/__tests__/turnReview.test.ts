@@ -4,7 +4,7 @@ import { createEmptyBoard, setTile } from '../board'
 import { cardIdFor, createPlayerCards, syncCardZonesWithBoard } from '../cards'
 import { createNewGame } from '../createGame'
 import { beginSelectCardsPhase } from '../round'
-import { buildTurnReview, findReviewWindowStart, findTurnStops, sliceTurnReview } from '../turnReview'
+import { buildTurnReview, findReviewWindowStart, findTurnStops } from '../turnReview'
 import type { LoggedAction } from '../actions'
 import type { Card, GameState, Player, Terrain, Unit } from '../types'
 import type { UnitAction, UnitContent } from '../unitContent'
@@ -161,32 +161,13 @@ describe('findTurnStops', () => {
   it('treats consecutive same-player actions across the whole window as one segment even if interrupted turns repeat that player later', () => {
     expect(findTurnStops(historyFor(['p1', 'p2', 'p3', 'p2']), 1)).toEqual([1, 2, 3, 4])
   })
-})
 
-describe('sliceTurnReview', () => {
-  it('carves a sub-range of events/resource deltas out of a whole-window TurnReview, using the bookkeeping arrays buildTurnReview populates', () => {
-    const review = {
-      events: [
-        { unitId: 'a', playerId: 'p1', type: 'produced' as const, resourceDelta: { wood: 2 } },
-        { unitId: 'b', playerId: 'p1', type: 'income' as const, resourceDelta: { gold: 3 } },
-      ],
-      resourceDeltaByPlayerId: { p1: { gold: 3, wood: 2, stone: 0 } },
-      eventCountAfterAction: [0, 1, 2],
-      resourcesByPlayerIdAfterAction: [
-        { p1: { gold: 0, wood: 0, stone: 0 } },
-        { p1: { gold: 0, wood: 2, stone: 0 } },
-        { p1: { gold: 3, wood: 2, stone: 0 } },
-      ],
-    }
-
-    expect(sliceTurnReview(review, 0, 1)).toEqual({ events: [review.events[0]], resourceDeltaByPlayerId: { p1: { gold: 0, wood: 2, stone: 0 } } })
-    expect(sliceTurnReview(review, 1, 2)).toEqual({ events: [review.events[1]], resourceDeltaByPlayerId: { p1: { gold: 3, wood: 0, stone: 0 } } })
-    expect(sliceTurnReview(review, 0, 2)).toEqual({ events: review.events, resourceDeltaByPlayerId: review.resourceDeltaByPlayerId })
+  it('covers the whole game (not just "since a player last acted") when passed windowStart 0 — GamePage.tsx\'s "Show history" bar (issue #261)', () => {
+    expect(findTurnStops(historyFor(['p1', 'p2', 'p2', 'p3', 'p1']), 0)).toEqual([0, 1, 3, 4, 5])
   })
 
-  it('fails quiet (empty) when the review lacks the optional bookkeeping arrays, e.g. a hand-built fixture', () => {
-    const review = { events: [{ unitId: 'a', playerId: 'p1', type: 'income' as const }], resourceDeltaByPlayerId: { p1: { gold: 3, wood: 0, stone: 0 } } }
-    expect(sliceTurnReview(review, 0, 1)).toEqual({ events: [], resourceDeltaByPlayerId: {} })
+  it('returns just [0] for an empty actionHistory', () => {
+    expect(findTurnStops([], 0)).toEqual([0])
   })
 })
 
@@ -384,38 +365,5 @@ describe('buildTurnReview', () => {
     const review = buildTurnReview(genesis, state.actionHistory, content)
     expect(review.resourceDeltaByPlayerId.p1).toEqual({ gold: 6, wood: 0, stone: 0 })
     expect(review.events.filter((e) => e.type === 'income')).toHaveLength(2)
-  })
-
-  it('populates eventCountAfterAction/resourcesByPlayerIdAfterAction so sliceTurnReview can isolate each individual action within the window', () => {
-    const board = boardOf([
-      [0, 0, 'plain'],
-      [1, 0, 'plain'],
-    ])
-    const cityA: Unit = { id: 'city_a', ownerId: 'p1', kind: 'city', coord: { q: 0, r: 0 }, movement: content.movementByKind.city, traits: [] }
-    const cityB: Unit = { id: 'city_b', ownerId: 'p1', kind: 'city', coord: { q: 1, r: 0 }, movement: content.movementByKind.city, traits: [] }
-    const genesis = makeGenesis([cityA, cityB], board)
-    const state = drive(genesis, [
-      { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') },
-      { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [{ unitId: 'city_a', actionId: 'generate-income' }] },
-      { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [{ unitId: 'city_b', actionId: 'generate-income' }] },
-    ])
-
-    const review = buildTurnReview(genesis, state.actionHistory, content)
-    // 3 actions in the window (CHOOSE_CARD, two RESOLVE_UNIT_ACTIONs) -> 4 boundary entries.
-    expect(review.eventCountAfterAction).toHaveLength(4)
-    expect(review.resourcesByPlayerIdAfterAction).toHaveLength(4)
-
-    // Slicing out just cityA's RESOLVE_UNIT_ACTION (index 1) recovers only its own event and delta.
-    const cityASlice = sliceTurnReview(review, 1, 2)
-    expect(cityASlice.events).toEqual([{ unitId: 'city_a', playerId: 'p1', type: 'income', to: { q: 0, r: 0 }, resourceDelta: { gold: 3 } }])
-    expect(cityASlice.resourceDeltaByPlayerId.p1).toEqual({ gold: 3, wood: 0, stone: 0 })
-
-    // Slicing out cityB's alone (index 2) recovers only its own event and delta, not cityA's.
-    const cityBSlice = sliceTurnReview(review, 2, 3)
-    expect(cityBSlice.events).toEqual([{ unitId: 'city_b', playerId: 'p1', type: 'income', to: { q: 1, r: 0 }, resourceDelta: { gold: 3 } }])
-    expect(cityBSlice.resourceDeltaByPlayerId.p1).toEqual({ gold: 3, wood: 0, stone: 0 })
-
-    // The full range reproduces the whole-window result.
-    expect(sliceTurnReview(review, 0, 3)).toEqual({ events: review.events, resourceDeltaByPlayerId: review.resourceDeltaByPlayerId })
   })
 })

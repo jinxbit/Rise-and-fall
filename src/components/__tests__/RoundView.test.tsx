@@ -87,7 +87,6 @@ describe('RoundView — player status summary and achievements panel', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
-        onToggleHistory={() => {}}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -127,7 +126,6 @@ describe('RoundView — player status summary and achievements panel', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
-        onToggleHistory={() => {}}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -168,7 +166,6 @@ describe('RoundView — player status summary and achievements panel', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
-        onToggleHistory={() => {}}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -201,7 +198,6 @@ describe('RoundView — player status summary and achievements panel', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
-        onToggleHistory={() => {}}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -252,7 +248,6 @@ describe('RoundView — player status summary and achievements panel', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
-        onToggleHistory={() => {}}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -286,7 +281,6 @@ describe('RoundView — player status summary and achievements panel', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
-        onToggleHistory={() => {}}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -314,7 +308,6 @@ describe('RoundView — player status summary and achievements panel', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
-        onToggleHistory={() => {}}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -344,7 +337,6 @@ describe('RoundView — player status summary and achievements panel', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
-        onToggleHistory={() => {}}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -385,7 +377,6 @@ describe('RoundView — player status summary and achievements panel', () => {
         taleContent={taleContent}
         turnReview={null}
         showHistory={false}
-        onToggleHistory={() => {}}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -417,7 +408,6 @@ describe('RoundView — player status summary and achievements panel', () => {
         taleContent={taleContent}
         turnReview={null}
         showHistory={false}
-        onToggleHistory={() => {}}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -447,7 +437,6 @@ describe('RoundView — player status summary and achievements panel', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
-        onToggleHistory={() => {}}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -477,7 +466,6 @@ describe('RoundView — player status summary and achievements panel', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
-        onToggleHistory={() => {}}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -508,7 +496,6 @@ describe('RoundView — player status summary and achievements panel', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
-        onToggleHistory={() => {}}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -551,7 +538,6 @@ describe('RoundView — player status summary and achievements panel', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
-        onToggleHistory={() => {}}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -588,7 +574,6 @@ describe('RoundView — player status summary and achievements panel', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
-        onToggleHistory={() => {}}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -631,7 +616,6 @@ describe('RoundView — player status summary and achievements panel', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
-        onToggleHistory={() => {}}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -668,7 +652,6 @@ describe('RoundView — player status summary and achievements panel', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
-        onToggleHistory={() => {}}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -701,7 +684,6 @@ describe('RoundView — player status summary and achievements panel', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
-        onToggleHistory={() => {}}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -741,7 +723,6 @@ describe('RoundView — select-cards phase auto-plays a single-card hand (issue 
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
-        onToggleHistory={() => {}}
         gameLog={[]}
         onChooseCard={onChooseCard}
         onResolveUnit={() => {}}
@@ -775,7 +756,6 @@ describe('RoundView — select-cards phase auto-plays a single-card hand (issue 
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
-        onToggleHistory={() => {}}
         gameLog={[]}
         onChooseCard={onChooseCard}
         onResolveUnit={() => {}}
@@ -808,7 +788,6 @@ describe('RoundView — select-cards phase auto-plays a single-card hand (issue 
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
-        onToggleHistory={() => {}}
         gameLog={[]}
         onChooseCard={onChooseCard}
         onResolveUnit={() => {}}
@@ -841,7 +820,6 @@ describe('RoundView — "Expand board" toggle', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
-        onToggleHistory={() => {}}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -895,7 +873,6 @@ describe('RoundView — player detail panel (click a player chip for more info)'
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
-        onToggleHistory={() => {}}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -955,7 +932,6 @@ describe('RoundView — player detail panel (click a player chip for more info)'
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
-        onToggleHistory={() => {}}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -999,7 +975,6 @@ describe('RoundView — player detail panel (click a player chip for more info)'
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
-        onToggleHistory={() => {}}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -1097,7 +1072,6 @@ describe('RoundView — bulk actions on idle units (issue #61)', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
-        onToggleHistory={() => {}}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -1136,7 +1110,6 @@ describe('RoundView — bulk actions on idle units (issue #61)', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
-        onToggleHistory={() => {}}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -1175,7 +1148,6 @@ describe('RoundView — bulk actions on idle units (issue #61)', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
-        onToggleHistory={() => {}}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -1215,7 +1187,6 @@ describe('RoundView — bulk actions on idle units (issue #61)', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
-        onToggleHistory={() => {}}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -1252,7 +1223,6 @@ describe('RoundView — bulk actions on idle units (issue #61)', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
-        onToggleHistory={() => {}}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -1326,7 +1296,6 @@ describe("RoundView — City's Convert to Merchant/Mountaineer (bug report: \"no
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
-        onToggleHistory={() => {}}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={onResolveUnit}
@@ -1431,7 +1400,6 @@ describe('RoundView — stacked units on one hex (Ship + Port, The Ports Tale)',
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
-        onToggleHistory={() => {}}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={onResolveUnit}
@@ -1512,7 +1480,6 @@ describe('RoundView — supporting actions (issue #147)', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
-        onToggleHistory={() => {}}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={onResolveUnit}
@@ -1659,7 +1626,6 @@ describe('RoundView — supporting actions (issue #147)', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
-        onToggleHistory={() => {}}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -1696,8 +1662,17 @@ describe('RoundView — supporting actions (issue #147)', () => {
   })
 })
 
-describe('RoundView — history review toggle', () => {
-  function renderWithReview(turnReview: TurnReview | null, showHistory: boolean, onToggleHistory: () => void = () => {}) {
+describe('RoundView — history review overlay', () => {
+  // The Prev/Next/slider bar and the "Review history"/"Show history"
+  // buttons themselves live in GamePage.tsx (issue #261 follow-up — the bar
+  // now reuses GamePage's own full-width, read-only-banner layout instead
+  // of a cramped row squeezed next to a button, and the button moved there
+  // with it). RoundView's own job is just: while `showHistory` is on, hide
+  // every panel that would let `myPlayerId` act, and overlay whatever
+  // `turnReview` events GamePage hands it onto the board it's given (which,
+  // for "Show history", is already the real historical board state at that
+  // point — see GamePage's `reviewState`/`turnHalos`).
+  function renderWithReview(turnReview: TurnReview | null, showHistory: boolean) {
     const state = makeState()
     state.board = setTile(state.board, { q: 0, r: 0 }, 'plain')
     state.units = [
@@ -1714,7 +1689,6 @@ describe('RoundView — history review toggle', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={turnReview}
         showHistory={showHistory}
-        onToggleHistory={onToggleHistory}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -1728,143 +1702,7 @@ describe('RoundView — history review toggle', () => {
     )
   }
 
-  it('disables the history button only when a review could not be computed at all — not merely because nothing happened (bug: whoever acted last in a round found the button disabled the moment the next round\'s choose-card phase began, since their own last action was the reviewed window\'s empty endpoint)', () => {
-    const { rerender } = renderWithReview(null, false)
-    expect(screen.getByRole('button', { name: 'Show history' })).toBeDisabled() // no review at all (e.g. genesis mismatch)
-
-    rerender(
-      <RoundView
-        state={makeState()}
-        players={[makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]}
-        myPlayerId="p1"
-        unitContent={EMPTY_UNIT_CONTENT}
-        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
-        taleContent={EMPTY_TALE_CONTENT}
-        turnReview={{ events: [], resourceDeltaByPlayerId: {} }}
-        showHistory={false}
-        onToggleHistory={() => {}}
-        gameLog={[]}
-        onChooseCard={() => {}}
-        onResolveUnit={() => {}}
-        onResolveBulkAction={() => {}}
-        onResolveSupportedAction={() => {}}
-        onPassActions={() => {}}
-        onMoveToDecline={() => {}}
-        onPurchaseCard={() => {}}
-        onPassPurchase={() => {}}
-      />,
-    )
-    // A real, empty review (nothing happened since I last acted) is still
-    // clickable — that's an honest "nothing to show," not "review broken."
-    expect(screen.getByRole('button', { name: 'Show history' })).not.toBeDisabled()
-  })
-
-  it('shows a "nothing since your last turn" hint once toggled on with an empty review, instead of silently doing nothing', () => {
-    renderWithReview({ events: [], resourceDeltaByPlayerId: {} }, true)
-    expect(screen.getByText('Nothing since your last turn.')).toBeInTheDocument()
-  })
-
-  it('calls onToggleHistory when clicked, and shows "Hide history" once toggled on', () => {
-    const onToggleHistory = vi.fn()
-    const turnReview: TurnReview = {
-      events: [{ unitId: 'nomad_a', playerId: 'p1', type: 'produced', to: { q: 0, r: 0 }, resourceDelta: { wood: 2 } }],
-      resourceDeltaByPlayerId: { p1: { gold: 0, wood: 2, stone: 0 } },
-    }
-    renderWithReview(turnReview, false, onToggleHistory)
-    fireEvent.click(screen.getByRole('button', { name: 'Show history' }))
-    expect(onToggleHistory).toHaveBeenCalledOnce()
-
-    renderWithReview(turnReview, true, onToggleHistory)
-    expect(screen.getByRole('button', { name: 'Hide history' })).toBeInTheDocument()
-  })
-
-  it('hides the turn-by-turn bar when historyTurnCount is 0 (the default), even while toggled on with a non-empty review', () => {
-    const turnReview: TurnReview = {
-      events: [{ unitId: 'nomad_a', playerId: 'p1', type: 'produced', to: { q: 0, r: 0 }, resourceDelta: { wood: 2 } }],
-      resourceDeltaByPlayerId: { p1: { gold: 0, wood: 2, stone: 0 } },
-    }
-    renderWithReview(turnReview, true)
-    expect(screen.queryByRole('button', { name: '← Prev' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Next →' })).not.toBeInTheDocument()
-  })
-
-  it('shows a Prev/Next/slider bar once historyTurnCount is set, defaulting its label to "Right after your last turn" at position 0, and steps via onHistoryTurnPosChange', () => {
-    const onHistoryTurnPosChange = vi.fn()
-    const state = makeState()
-    state.board = setTile(state.board, { q: 0, r: 0 }, 'plain')
-    state.units = [
-      { id: 'nomad_a', ownerId: 'p1', kind: 'nomad', coord: { q: 0, r: 0 }, movement: { isMobile: true, terrains: [], canCrossCliffs: false }, traits: [] },
-    ]
-    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
-    render(
-      <RoundView
-        state={state}
-        players={players}
-        myPlayerId="p1"
-        unitContent={EMPTY_UNIT_CONTENT}
-        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
-        taleContent={EMPTY_TALE_CONTENT}
-        turnReview={{ events: [], resourceDeltaByPlayerId: {} }}
-        showHistory={true}
-        onToggleHistory={() => {}}
-        historyTurnCount={2}
-        historyTurnPos={0}
-        historyTurnLabel={null}
-        onHistoryTurnPosChange={onHistoryTurnPosChange}
-        gameLog={[]}
-        onChooseCard={() => {}}
-        onResolveUnit={() => {}}
-        onResolveBulkAction={() => {}}
-        onResolveSupportedAction={() => {}}
-        onPassActions={() => {}}
-        onMoveToDecline={() => {}}
-        onPurchaseCard={() => {}}
-        onPassPurchase={() => {}}
-      />,
-    )
-    expect(screen.getByText('Right after your last turn')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '← Prev' })).toBeDisabled()
-    fireEvent.click(screen.getByRole('button', { name: 'Next →' }))
-    expect(onHistoryTurnPosChange).toHaveBeenCalledWith(1)
-  })
-
-  it('labels a non-zero position with whose turn it is and "N of total", and disables Next at the last position', () => {
-    const onHistoryTurnPosChange = vi.fn()
-    const state = makeState()
-    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
-    render(
-      <RoundView
-        state={state}
-        players={players}
-        myPlayerId="p1"
-        unitContent={EMPTY_UNIT_CONTENT}
-        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
-        taleContent={EMPTY_TALE_CONTENT}
-        turnReview={{ events: [], resourceDeltaByPlayerId: {} }}
-        showHistory={true}
-        onToggleHistory={() => {}}
-        historyTurnCount={2}
-        historyTurnPos={2}
-        historyTurnLabel="Bob"
-        onHistoryTurnPosChange={onHistoryTurnPosChange}
-        gameLog={[]}
-        onChooseCard={() => {}}
-        onResolveUnit={() => {}}
-        onResolveBulkAction={() => {}}
-        onResolveSupportedAction={() => {}}
-        onPassActions={() => {}}
-        onMoveToDecline={() => {}}
-        onPurchaseCard={() => {}}
-        onPassPurchase={() => {}}
-      />,
-    )
-    expect(screen.getByText("Bob's turn (2 of 2)")).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Next →' })).toBeDisabled()
-    fireEvent.click(screen.getByRole('button', { name: '← Prev' }))
-    expect(onHistoryTurnPosChange).toHaveBeenCalledWith(1)
-  })
-
-  it('overlays a halo ring on a unit with a reviewed event, and shows its resource-delta label', () => {
+  it('overlays a halo ring on a unit with a reviewed event, and shows its resource-delta as an icon+amount badge', () => {
     const turnReview: TurnReview = {
       events: [{ unitId: 'nomad_a', playerId: 'p1', type: 'produced', to: { q: 0, r: 0 }, resourceDelta: { wood: 2 } }],
       resourceDeltaByPlayerId: { p1: { gold: 0, wood: 2, stone: 0 } },
@@ -1873,7 +1711,10 @@ describe('RoundView — history review toggle', () => {
 
     // 'produced' halo colour (red, see HISTORY_HALO_COLOR in HexBoard.tsx).
     expect(container.querySelectorAll('circle[stroke="#ef4444"]')).toHaveLength(1)
-    expect(screen.getByText('+2 Wood')).toBeInTheDocument()
+    const label = container.querySelector('foreignObject')
+    expect(label).not.toBeNull()
+    expect(label!.querySelector('svg title')?.textContent).toBe('Wood')
+    expect(label!.textContent).toContain('+2')
   })
 
   it('does not show halos, labels, or resource deltas when showHistory is off, even with a non-empty review', () => {
@@ -1884,7 +1725,7 @@ describe('RoundView — history review toggle', () => {
     const { container } = renderWithReview(turnReview, false)
 
     expect(container.querySelectorAll('circle[stroke="#ef4444"]')).toHaveLength(0)
-    expect(screen.queryByText('+2 Wood')).not.toBeInTheDocument()
+    expect(container.querySelector('foreignObject')).toBeNull()
   })
 
   it('drops the yellow "could act" ring from own units while reviewing history, even though it is still the action phase underneath', () => {
@@ -1906,7 +1747,6 @@ describe('RoundView — history review toggle', () => {
           taleContent={EMPTY_TALE_CONTENT}
           turnReview={turnReview}
           showHistory={showHistory}
-          onToggleHistory={() => {}}
           gameLog={[]}
           onChooseCard={() => {}}
           onResolveUnit={() => {}}
@@ -1935,75 +1775,5 @@ describe('RoundView — history review toggle', () => {
     renderWithReview(turnReview, true)
     expect(screen.getByText('(+5)')).toBeInTheDocument()
     expect(screen.getByText('(-1)')).toBeInTheDocument()
-  })
-
-  it('uses observer-appropriate copy (no "your last turn") when myPlayerId is null', () => {
-    // An observer has no turn of their own to anchor "since my last turn"
-    // to (see GamePage.tsx's windowStart, which starts observers at the
-    // whole game instead) — the bar's copy shouldn't claim they have one.
-    const state = makeState()
-    state.board = setTile(state.board, { q: 0, r: 0 }, 'plain')
-    state.units = [
-      { id: 'nomad_a', ownerId: 'p1', kind: 'nomad', coord: { q: 0, r: 0 }, movement: { isMobile: true, terrains: [], canCrossCliffs: false }, traits: [] },
-    ]
-    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
-    render(
-      <RoundView
-        state={state}
-        players={players}
-        myPlayerId={null}
-        unitContent={EMPTY_UNIT_CONTENT}
-        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
-        taleContent={EMPTY_TALE_CONTENT}
-        turnReview={{ events: [], resourceDeltaByPlayerId: {} }}
-        showHistory={true}
-        onToggleHistory={() => {}}
-        historyTurnCount={2}
-        historyTurnPos={0}
-        historyTurnLabel={null}
-        onHistoryTurnPosChange={() => {}}
-        gameLog={[]}
-        onChooseCard={() => {}}
-        onResolveUnit={() => {}}
-        onResolveBulkAction={() => {}}
-        onResolveSupportedAction={() => {}}
-        onPassActions={() => {}}
-        onMoveToDecline={() => {}}
-        onPurchaseCard={() => {}}
-        onPassPurchase={() => {}}
-      />,
-    )
-    expect(screen.getByText('Start of the game')).toBeInTheDocument()
-    expect(screen.queryByText('Right after your last turn')).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Hide history' })).not.toBeDisabled()
-  })
-
-  it('shows "Nothing has happened yet." (not "your last turn") for an observer\'s empty review', () => {
-    const state = makeState()
-    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
-    render(
-      <RoundView
-        state={state}
-        players={players}
-        myPlayerId={null}
-        unitContent={EMPTY_UNIT_CONTENT}
-        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
-        taleContent={EMPTY_TALE_CONTENT}
-        turnReview={{ events: [], resourceDeltaByPlayerId: {} }}
-        showHistory={true}
-        onToggleHistory={() => {}}
-        gameLog={[]}
-        onChooseCard={() => {}}
-        onResolveUnit={() => {}}
-        onResolveBulkAction={() => {}}
-        onResolveSupportedAction={() => {}}
-        onPassActions={() => {}}
-        onMoveToDecline={() => {}}
-        onPurchaseCard={() => {}}
-        onPassPurchase={() => {}}
-      />,
-    )
-    expect(screen.getByText('Nothing has happened yet.')).toBeInTheDocument()
-    expect(screen.queryByText('Nothing since your last turn.')).not.toBeInTheDocument()
   })
 })
