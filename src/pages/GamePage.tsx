@@ -110,22 +110,23 @@ export function GamePage() {
    * up to that point. Reset whenever a fresh room loads, same as
    * `hotseatActivePlayerId`.
    *
-   * Both "Review history" (action-by-action) and "Show history"
-   * (turn-by-turn, issue #261) drive this same index — they're the same
-   * read-only replay feature, just with a different step size and default
-   * entry point (see `historyStepMode` below). Sharing one index means both
-   * buttons show the exact same reconstructed historical board (RoundView's
-   * `state` prop) — fixing a "Show history" bug where its own, separate
-   * overlay-on-the-live-board mechanism didn't actually reflect what the
-   * board looked like at the reviewed point.
+   * Both step sizes ("action by action", "turn by turn", issue #261) drive
+   * this same index — they're the same read-only replay feature, just with a
+   * different step size (see `historyStepMode` below). One "Review history"
+   * button opens this (issue #264) — the in-review "Step by turn"/"Step by
+   * action" toggle then switches `historyStepMode` without leaving review.
+   * Sharing one index means both step sizes show the exact same
+   * reconstructed historical board (RoundView's `state` prop).
    */
   const [reviewIndex, setReviewIndex] = useState<number | null>(null)
   /**
-   * Which of the two history buttons is driving `reviewIndex` right now —
-   * 'action' steps by a single actionHistory entry at a time ("Review
-   * history"); 'turn' steps by a whole player's turn at a time ("Show
-   * history", see `fullTurnStops` below). Only meaningful while
-   * `reviewIndex !== null`.
+   * Which step size is currently driving `reviewIndex` — 'action' steps by a
+   * single actionHistory entry at a time; 'turn' steps by a whole player's
+   * turn at a time (see `fullTurnStops` below). Switched via the in-review
+   * "Step by turn"/"Step by action" toggle (issue #264), which snaps
+   * `reviewIndex` onto the nearest turn boundary when switching into 'turn'
+   * mode so the switch keeps showing whichever turn was already being
+   * reviewed. Only meaningful while `reviewIndex !== null`.
    */
   const [historyStepMode, setHistoryStepMode] = useState<'action' | 'turn'>('action')
   /**
@@ -312,7 +313,7 @@ export function GamePage() {
   useEffect(() => {
     if (autoReviewAppliedRef.current || !amObserving || !gameState) return
     autoReviewAppliedRef.current = true
-    setHistoryStepMode('action')
+    setHistoryStepMode('turn')
     setReviewIndex(gameState.actionHistory.length)
   }, [amObserving, gameState])
 
@@ -1180,50 +1181,58 @@ export function GamePage() {
             type="button"
             disabled={!gameState || reviewMaxIndex === 0}
             onClick={() => {
-              if (isReviewingHistory && historyStepMode === 'action') {
-                setReviewIndex(null)
-                return
-              }
-              setHistoryStepMode('action')
-              if (!isReviewingHistory) setReviewIndex(reviewMaxIndex)
-            }}
-            title="Step through past points in the game — genesis plus every action since — action by action, without changing anything. Unlike Undo, this never touches the live game."
-            className={`rounded-md border px-3 py-1 text-sm hover:border-neutral-500 disabled:opacity-50 ${
-              isReviewingHistory && historyStepMode === 'action' ? 'border-amber-500 text-amber-400' : 'border-neutral-700'
-            }`}
-          >
-            {isReviewingHistory && historyStepMode === 'action' ? 'Exit review' : 'Review history'}
-          </button>
-          <button
-            type="button"
-            disabled={!gameState || reviewMaxIndex === 0}
-            onClick={() => {
-              if (isReviewingHistory && historyStepMode === 'turn') {
+              if (isReviewingHistory) {
                 setReviewIndex(null)
                 return
               }
               setHistoryStepMode('turn')
-              if (!isReviewingHistory) setReviewIndex(defaultTurnHistoryIndex)
+              setReviewIndex(defaultTurnHistoryIndex)
             }}
             title={
               me
-                ? 'Step turn by turn through the whole game — movement, new units, resources gathered, income, trades, and conversions — starting right after your own last turn so you can review what every opponent did since. Unlike Undo, this never touches the live game.'
-                : 'Step turn by turn through what has happened on the board — movement, new units, resources gathered, income, trades, and conversions. Unlike Undo, this never touches the live game.'
+                ? "Step through the game's history — turn by turn or action by action, switchable once open — starting right after your own last turn so you can review what every opponent did since. Unlike Undo, this never touches the live game."
+                : "Step through the game's history — turn by turn or action by action, switchable once open. Unlike Undo, this never touches the live game."
             }
             className={`rounded-md border px-3 py-1 text-sm hover:border-neutral-500 disabled:opacity-50 ${
-              isReviewingHistory && historyStepMode === 'turn' ? 'border-amber-500 text-amber-400' : 'border-neutral-700'
+              isReviewingHistory ? 'border-amber-500 text-amber-400' : 'border-neutral-700'
             }`}
           >
-            {isReviewingHistory && historyStepMode === 'turn' ? 'Hide history' : 'Show history'}
+            {isReviewingHistory ? 'Exit review' : 'Review history'}
           </button>
         </div>
       </header>
 
       {isReviewingHistory && (
         <div className="flex flex-wrap items-center gap-3 rounded-md border border-amber-700/40 bg-amber-500/10 p-3 text-sm text-amber-200">
-          <span className="font-medium">
-            {historyStepMode === 'turn' ? 'Show history — read-only, stepping turn by turn.' : 'Reviewing history — read-only, nothing here can be changed.'}
-          </span>
+          <span className="font-medium">Reviewing history</span>
+          <button
+            type="button"
+            onClick={() => {
+              if (historyStepMode === 'turn') {
+                setHistoryStepMode('action')
+                return
+              }
+              // Switching into turn mode must land on the turn stop that
+              // completes whichever turn `reviewIndex` currently sits inside
+              // (or the exact stop it's already on) — turn mode's Prev/Next
+              // and `turnHalos` both assume `reviewIndex` is one of
+              // `fullTurnStops`'s own values (see `currentTurnPos` above), and
+              // this keeps the switch showing the same turn just reviewed
+              // instead of jumping elsewhere in the game.
+              const current = reviewIndex ?? 0
+              const target = fullTurnStops ? (fullTurnStops.find((stop) => stop >= current) ?? fullTurnStops[fullTurnStops.length - 1]) : current
+              setHistoryStepMode('turn')
+              setReviewIndex(target)
+            }}
+            title={
+              historyStepMode === 'turn'
+                ? 'Switch to stepping action by action instead of turn by turn.'
+                : 'Switch to stepping turn by turn instead of action by action.'
+            }
+            className="rounded-md border border-amber-700/60 px-2 py-0.5 hover:border-amber-400"
+          >
+            {historyStepMode === 'turn' ? 'Step by action' : 'Step by turn'}
+          </button>
           <div className="flex items-center gap-2">
             <button
               type="button"
