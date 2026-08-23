@@ -313,7 +313,7 @@ export function GamePage() {
   useEffect(() => {
     if (autoReviewAppliedRef.current || !amObserving || !gameState) return
     autoReviewAppliedRef.current = true
-    setHistoryStepMode('action')
+    setHistoryStepMode('turn')
     setReviewIndex(gameState.actionHistory.length)
   }, [amObserving, gameState])
 
@@ -1204,9 +1204,7 @@ export function GamePage() {
 
       {isReviewingHistory && (
         <div className="flex flex-wrap items-center gap-3 rounded-md border border-amber-700/40 bg-amber-500/10 p-3 text-sm text-amber-200">
-          <span className="font-medium">
-            {historyStepMode === 'turn' ? 'Reviewing history — read-only, stepping turn by turn.' : 'Reviewing history — read-only, stepping action by action.'}
-          </span>
+          <span className="font-medium">Reviewing history</span>
           <button
             type="button"
             onClick={() => {
