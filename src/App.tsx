@@ -1,3 +1,4 @@
+import { Analytics } from '@vercel/analytics/react'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { AdminMapsPage } from './pages/AdminMapsPage'
 import { CreateGamePage } from './pages/CreateGamePage'
@@ -30,6 +31,7 @@ function App() {
           <Route path="/game/:roomCode" element={<GamePage />} />
         </Routes>
       </div>
+      <Analytics />
     </BrowserRouter>
   )
 }
