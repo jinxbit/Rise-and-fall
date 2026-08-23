@@ -3,6 +3,7 @@ import { listAchievements, listTerrainTypes } from '../content/resolveContent'
 import type { AchievementContent } from '../engine/achievementContent'
 import type { AchievementClaimEvent, ScoreSnapshot } from '../engine/scoreHistory'
 import type { TaleContent } from '../engine/taleContent'
+import { calculateTerritoryControlByHex } from '../engine/scoring'
 import { calculateVPBreakdown, calculateVPDetail } from '../engine/victoryPoints'
 import type { VPDetail } from '../engine/victoryPoints'
 import type { GameState } from '../engine/types'
@@ -200,6 +201,12 @@ export function EndGameView({
     kind: unit.kind,
     connectedNeighborCoords: unit.connectedNeighborCoords,
   }))
+
+  const territoryOwnerByHex = calculateTerritoryControlByHex(state.board, state.units, achievementContent.terrainScoresAs)
+  const territoryControl: Record<string, string> = {}
+  for (const [hexKey, ownerId] of Object.entries(territoryOwnerByHex)) {
+    territoryControl[hexKey] = players.find((p) => p.id === ownerId)?.color ?? '#a3a3a3'
+  }
 
   return (
     <div className="flex flex-col gap-6 rounded-md border border-amber-700/50 bg-amber-500/10 p-4">
@@ -443,7 +450,8 @@ export function EndGameView({
 
       <div>
         <p className="mb-2 text-sm font-medium text-neutral-200">Final board</p>
-        <HexBoard board={state.board} units={boardUnits} />
+        <p className="mb-2 text-xs text-neutral-500">Coloured hex borders show which player controls that territory (see the Terrain rows above).</p>
+        <HexBoard board={state.board} units={boardUnits} territoryControl={territoryControl} />
       </div>
     </div>
   )

@@ -104,6 +104,29 @@ export function calculateTerrainControlDetail(
   return result
 }
 
+/**
+ * The same terrain-region majority rule as calculateTerrainControlVP, but
+ * returned per-hex (coordKey -> controlling playerId) instead of summed into
+ * VP — every hex in a region maps to that region's majority owner, and a
+ * region with no majority owner (including an empty region) contributes no
+ * entries at all. Used to visualize territory control (e.g. EndGameView's
+ * final board) independent of whatever VP value a terrain happens to award.
+ */
+export function calculateTerritoryControlByHex(board: Board, units: Unit[], terrainScoresAs: Record<string, string> = {}): Record<string, string> {
+  const ownerByHexKey: Record<string, string> = {}
+
+  for (const region of findTerrainRegions(board, terrainScoresAs)) {
+    const majorityOwnerId = findMajorityOwner(region, units)
+    if (!majorityOwnerId) continue
+
+    for (const tile of region.tiles) {
+      ownerByHexKey[coordKey(tile.coord)] = majorityOwnerId
+    }
+  }
+
+  return ownerByHexKey
+}
+
 interface TerrainRegion {
   terrain: string
   tiles: Tile[]

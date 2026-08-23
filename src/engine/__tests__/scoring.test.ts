@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createEmptyBoard, setTile } from '../board'
-import { calculateTerrainControlDetail, calculateTerrainControlVP } from '../scoring'
+import { calculateTerrainControlDetail, calculateTerrainControlVP, calculateTerritoryControlByHex } from '../scoring'
 import type { Board, Coordinate, Terrain, Unit } from '../types'
 
 function boardOf(cells: Array<[number, number, Terrain]>): Board {
@@ -231,5 +231,42 @@ describe('calculateTerrainControlDetail', () => {
     const detail = calculateTerrainControlDetail(board, units, { mountain: 2 }, { glacier: 'mountain' })
 
     expect(detail).toEqual({ p1: [{ terrain: 'mountain', hexCount: 2, vp: 4 }] })
+  })
+})
+
+describe('calculateTerritoryControlByHex', () => {
+  it('maps every hex in a region to that region majority owner, regardless of any VP value', () => {
+    const board = boardOf([
+      [0, 0, 'water'],
+      [1, 0, 'water'],
+      [0, 1, 'water'],
+    ])
+    const units = [unitAt('p1', { q: 0, r: 0 }), unitAt('p1', { q: 1, r: 0 }), unitAt('p2', { q: 0, r: 1 })]
+
+    const control = calculateTerritoryControlByHex(board, units)
+
+    expect(control).toEqual({ '0,0': 'p1', '1,0': 'p1', '0,1': 'p1' })
+  })
+
+  it('omits hexes in a region with no clear majority owner', () => {
+    const board = boardOf([
+      [0, 0, 'mountain'],
+      [1, 0, 'mountain'],
+    ])
+    const units = [unitAt('p1', { q: 0, r: 0 }), unitAt('p2', { q: 1, r: 0 })]
+
+    expect(calculateTerritoryControlByHex(board, units)).toEqual({})
+  })
+
+  it('merges a glacier hex into an adjacent mountain region, same as calculateTerrainControlVP', () => {
+    const board = boardOf([
+      [0, 0, 'mountain'],
+      [1, 0, 'glacier'],
+    ])
+    const units = [unitAt('p1', { q: 0, r: 0 }), unitAt('p1', { q: 1, r: 0 })]
+
+    const control = calculateTerritoryControlByHex(board, units, { glacier: 'mountain' })
+
+    expect(control).toEqual({ '0,0': 'p1', '1,0': 'p1' })
   })
 })

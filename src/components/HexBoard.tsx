@@ -491,6 +491,15 @@ export function HexBoard(props: {
   board: Board
   extraCoords?: Coordinate[]
   ghostCells?: GhostCell[]
+  /**
+   * Which player controls each hex (coordKey -> that player's colour), from
+   * calculateTerritoryControlByHex (../engine/scoring.ts) — drawn as a
+   * colour ring inset within the hex rather than a fill, so it reads as a
+   * territory border without recolouring (and potentially blending into) the
+   * terrain underneath (issue #270). A hex missing from the map has no
+   * controlling player and gets no ring.
+   */
+  territoryControl?: Record<string, string>
   units?: UnitMarker[]
   /** History-review overlay (see RoundView.tsx's history toggle): one arrow per movement hop since the reviewed window began. */
   arrows?: HistoryArrow[]
@@ -705,6 +714,21 @@ export function HexBoard(props: {
           pointerEvents="none"
         />
       ))}
+      {pixels.map(({ coord, x, y }) => {
+        const owner = props.territoryControl?.[coordKey(coord)]
+        if (!owner) return null
+        // A dark halo behind the colour ring keeps it legible even when the
+        // owner's colour is close to the terrain's own (e.g. a blue player on
+        // Water) — the ring alone, with no fill change, is the whole point:
+        // recolouring the hex risks both blending with the player's colour
+        // and hiding the terrain it's supposed to still show (issue #270).
+        return (
+          <g key={`territory-${coordKey(coord)}`} pointerEvents="none">
+            <polygon points={hexPoints(x, y, size - 5)} fill="none" stroke="#000000" strokeOpacity={0.55} strokeWidth={5} />
+            <polygon points={hexPoints(x, y, size - 5)} fill="none" stroke={owner} strokeWidth={2.5} />
+          </g>
+        )
+      })}
       {pixels.map(({ coord, x, y }) => {
         const ghost = ghostByKey.get(coordKey(coord))
         if (!ghost) return null

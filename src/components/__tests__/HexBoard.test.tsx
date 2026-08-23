@@ -74,6 +74,28 @@ describe('HexBoard — unit markers', () => {
   })
 })
 
+describe('HexBoard — territory control', () => {
+  it("draws a colour ring for a controlled hex, in the owner's colour, without changing the hex's own fill", () => {
+    const board = makeBoard()
+    const { container } = render(<HexBoard board={board} territoryControl={{ '0,0': '#3b82f6' }} />)
+
+    const hexFill = container.querySelector('polygon[fill]:not([fill="none"])')!
+    expect(hexFill.getAttribute('fill')).not.toBe('#3b82f6')
+
+    const ring = container.querySelector('polygon[fill="none"][stroke="#3b82f6"]')
+    expect(ring).toBeTruthy()
+  })
+
+  it('draws no ring for a hex missing from territoryControl', () => {
+    const board = makeBoard()
+    const { container } = render(<HexBoard board={board} territoryControl={{ '0,0': '#3b82f6' }} />)
+
+    const rings = container.querySelectorAll('polygon[stroke="#3b82f6"]')
+    // Exactly one hex (0,0) is controlled, so exactly one colour ring exists.
+    expect(rings).toHaveLength(1)
+  })
+})
+
 describe('HexBoard — ghost cell placement preview', () => {
   it('does not resize or shift the viewBox as the ghost preview moves between hexes — bug report: "the whole map moves when moving the tile"', () => {
     const board = makeBoard()
