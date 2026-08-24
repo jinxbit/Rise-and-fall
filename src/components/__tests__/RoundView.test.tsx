@@ -87,6 +87,8 @@ describe('RoundView — player status summary and achievements panel', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -126,6 +128,8 @@ describe('RoundView — player status summary and achievements panel', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -166,6 +170,8 @@ describe('RoundView — player status summary and achievements panel', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -198,6 +204,8 @@ describe('RoundView — player status summary and achievements panel', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -248,6 +256,8 @@ describe('RoundView — player status summary and achievements panel', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -281,6 +291,8 @@ describe('RoundView — player status summary and achievements panel', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -308,6 +320,8 @@ describe('RoundView — player status summary and achievements panel', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -337,6 +351,8 @@ describe('RoundView — player status summary and achievements panel', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -377,6 +393,8 @@ describe('RoundView — player status summary and achievements panel', () => {
         taleContent={taleContent}
         turnReview={null}
         showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -408,6 +426,8 @@ describe('RoundView — player status summary and achievements panel', () => {
         taleContent={taleContent}
         turnReview={null}
         showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -437,6 +457,8 @@ describe('RoundView — player status summary and achievements panel', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -466,6 +488,8 @@ describe('RoundView — player status summary and achievements panel', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -496,6 +520,8 @@ describe('RoundView — player status summary and achievements panel', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -538,6 +564,8 @@ describe('RoundView — player status summary and achievements panel', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -574,6 +602,8 @@ describe('RoundView — player status summary and achievements panel', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -616,6 +646,8 @@ describe('RoundView — player status summary and achievements panel', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -652,6 +684,8 @@ describe('RoundView — player status summary and achievements panel', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -684,6 +718,8 @@ describe('RoundView — player status summary and achievements panel', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -723,6 +759,8 @@ describe('RoundView — select-cards phase auto-plays a single-card hand (issue 
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
         gameLog={[]}
         onChooseCard={onChooseCard}
         onResolveUnit={() => {}}
@@ -756,6 +794,8 @@ describe('RoundView — select-cards phase auto-plays a single-card hand (issue 
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
         gameLog={[]}
         onChooseCard={onChooseCard}
         onResolveUnit={() => {}}
@@ -788,6 +828,8 @@ describe('RoundView — select-cards phase auto-plays a single-card hand (issue 
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
         gameLog={[]}
         onChooseCard={onChooseCard}
         onResolveUnit={() => {}}
@@ -820,6 +862,8 @@ describe('RoundView — "Expand board" toggle', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -873,6 +917,8 @@ describe('RoundView — player detail panel (click a player chip for more info)'
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -932,6 +978,8 @@ describe('RoundView — player detail panel (click a player chip for more info)'
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -975,6 +1023,8 @@ describe('RoundView — player detail panel (click a player chip for more info)'
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -1072,6 +1122,8 @@ describe('RoundView — bulk actions on idle units (issue #61)', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -1110,6 +1162,8 @@ describe('RoundView — bulk actions on idle units (issue #61)', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -1148,6 +1202,8 @@ describe('RoundView — bulk actions on idle units (issue #61)', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -1187,6 +1243,8 @@ describe('RoundView — bulk actions on idle units (issue #61)', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -1223,6 +1281,8 @@ describe('RoundView — bulk actions on idle units (issue #61)', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -1296,6 +1356,8 @@ describe("RoundView — City's Convert to Merchant/Mountaineer (bug report: \"no
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={onResolveUnit}
@@ -1400,6 +1462,8 @@ describe('RoundView — stacked units on one hex (Ship + Port, The Ports Tale)',
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={onResolveUnit}
@@ -1480,6 +1544,8 @@ describe('RoundView — supporting actions (issue #147)', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={onResolveUnit}
@@ -1626,6 +1692,8 @@ describe('RoundView — supporting actions (issue #147)', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -1689,6 +1757,8 @@ describe('RoundView — history review overlay', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={turnReview}
         showHistory={showHistory}
+        territoryControlMode="off"
+        previousHistoryState={null}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -1747,6 +1817,8 @@ describe('RoundView — history review overlay', () => {
           taleContent={EMPTY_TALE_CONTENT}
           turnReview={turnReview}
           showHistory={showHistory}
+          territoryControlMode="off"
+          previousHistoryState={null}
           gameLog={[]}
           onChooseCard={() => {}}
           onResolveUnit={() => {}}
@@ -1775,5 +1847,137 @@ describe('RoundView — history review overlay', () => {
     renderWithReview(turnReview, true)
     expect(screen.getByText('(+5)')).toBeInTheDocument()
     expect(screen.getByText('(-1)')).toBeInTheDocument()
+  })
+})
+
+describe('RoundView — territory control overlay (issue #281)', () => {
+  const players = [makePlayerRow('p1', 'Alice', '#ef4444'), makePlayerRow('p2', 'Bob', '#3b82f6')]
+
+  function renderTerritory(
+    territoryControlMode: 'off' | 'on' | 'changes',
+    opts: { showHistory?: boolean; state?: GameState; previousHistoryState?: GameState | null; achievementContent?: typeof EMPTY_ACHIEVEMENT_CONTENT } = {},
+  ) {
+    const state = opts.state ?? makeState()
+    return render(
+      <RoundView
+        state={state}
+        players={players}
+        myPlayerId={null}
+        unitContent={EMPTY_UNIT_CONTENT}
+        achievementContent={opts.achievementContent ?? EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
+        turnReview={null}
+        showHistory={opts.showHistory ?? true}
+        territoryControlMode={territoryControlMode}
+        previousHistoryState={opts.previousHistoryState ?? null}
+        gameLog={[]}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+  }
+
+  function stateWithUnitAt(ownerId: string): GameState {
+    const state = makeState()
+    state.board = setTile(state.board, { q: 0, r: 0 }, 'plain')
+    state.units = [{ id: 'u1', ownerId, kind: 'nomad', coord: { q: 0, r: 0 }, movement: { isMobile: true, terrains: [], canCrossCliffs: false }, traits: [] }]
+    return state
+  }
+
+  it('renders no territory borders in "off" mode, even while reviewing history', () => {
+    const { container } = renderTerritory('off', { state: stateWithUnitAt('p1') })
+    expect(container.querySelectorAll('line[stroke="#ef4444"]')).toHaveLength(0)
+  })
+
+  it('renders no territory borders in any mode outside history review', () => {
+    const { container } = renderTerritory('on', { showHistory: false, state: stateWithUnitAt('p1') })
+    expect(container.querySelectorAll('line[stroke="#ef4444"]')).toHaveLength(0)
+  })
+
+  it('outlines every currently-controlled region in "on" mode, in its owner\'s colour', () => {
+    const { container } = renderTerritory('on', { state: stateWithUnitAt('p1') })
+    expect(container.querySelectorAll('line[stroke="#ef4444"]').length).toBeGreaterThan(0)
+  })
+
+  it('shows nothing in "changes" mode when there is no previous state to diff against', () => {
+    const { container } = renderTerritory('changes', { state: stateWithUnitAt('p1'), previousHistoryState: null })
+    expect(container.querySelectorAll('line[stroke="#ef4444"]')).toHaveLength(0)
+  })
+
+  it('outlines only a region whose owner actually changed in "changes" mode, in its new owner\'s colour', () => {
+    const previousHistoryState = stateWithUnitAt('p1')
+    const currentState = stateWithUnitAt('p2')
+    const { container } = renderTerritory('changes', { state: currentState, previousHistoryState })
+
+    expect(container.querySelectorAll('line[stroke="#3b82f6"]').length).toBeGreaterThan(0) // p2's colour, the new owner
+    expect(container.querySelectorAll('line[stroke="#ef4444"]')).toHaveLength(0) // p1 no longer controls it
+  })
+
+  it('outlines a region that turned neutral with black-and-white stripes, in "changes" mode', () => {
+    const previousHistoryState = stateWithUnitAt('p1')
+    const currentState = stateWithUnitAt('p1')
+    currentState.units = [] // the region has no units at all any more — no majority owner
+
+    const { container } = renderTerritory('changes', { state: currentState, previousHistoryState })
+
+    const stripedLines = container.querySelectorAll('line[data-striped="true"]')
+    expect(stripedLines.length).toBeGreaterThan(0)
+    expect(container.querySelectorAll('line[stroke="#ef4444"]')).toHaveLength(0)
+
+    // Every striped line's stroke points at a <pattern> (not a flat colour), and that pattern
+    // actually alternates black and white rather than being some other placeholder shape.
+    for (const line of stripedLines) {
+      const strokeUrl = line.getAttribute('stroke') ?? ''
+      expect(strokeUrl).toMatch(/^url\(#.+\)$/)
+      const patternId = strokeUrl.slice('url(#'.length, -1)
+      const pattern = container.querySelector(`pattern#${CSS.escape(patternId)}`)
+      expect(pattern).not.toBeNull()
+      const fills = [...(pattern?.querySelectorAll('rect') ?? [])].map((r) => r.getAttribute('fill'))
+      expect(fills).toEqual(expect.arrayContaining(['#000000', '#ffffff']))
+    }
+  })
+
+  it('shows nothing in "changes" mode for a region whose owner did not change', () => {
+    const previousHistoryState = stateWithUnitAt('p1')
+    const currentState = stateWithUnitAt('p1')
+    const { container } = renderTerritory('changes', { state: currentState, previousHistoryState })
+
+    expect(container.querySelectorAll('line[stroke="#ef4444"]')).toHaveLength(0)
+  })
+
+  it("scales a changed territory's border width against every territory on the board, not just the ones that changed", () => {
+    const achievementContent = { ...EMPTY_ACHIEVEMENT_CONTENT, terrainVictoryPoints: { plain: 1, mountain: 10 } }
+    const move = { isMobile: true, terrains: [], canCrossCliffs: false }
+
+    const previousHistoryState = makeState()
+    previousHistoryState.board = setTile(setTile(previousHistoryState.board, { q: 0, r: 0 }, 'plain'), { q: 5, r: 0 }, 'mountain')
+    previousHistoryState.units = [
+      { id: 'u1', ownerId: 'p1', kind: 'nomad', coord: { q: 0, r: 0 }, movement: move, traits: [] },
+      { id: 'u2', ownerId: 'p1', kind: 'nomad', coord: { q: 5, r: 0 }, movement: move, traits: [] },
+    ]
+
+    const currentState = makeState()
+    currentState.board = previousHistoryState.board
+    currentState.units = [
+      { id: 'u1', ownerId: 'p2', kind: 'nomad', coord: { q: 0, r: 0 }, movement: move, traits: [] }, // changed hands: p1 -> p2, worth 1pt
+      { id: 'u2', ownerId: 'p1', kind: 'nomad', coord: { q: 5, r: 0 }, movement: move, traits: [] }, // unchanged, but worth far more (10pt)
+    ]
+
+    const { container } = renderTerritory('changes', { state: currentState, previousHistoryState, achievementContent })
+
+    // The changed 1pt plain hex is the only entry in "changes" mode's own
+    // territoryControl — scaled only against itself it'd fall back to the
+    // fixed mid-range width. It should instead scale against the board's
+    // real 1..10 range (set by the untouched 10pt mountain region), landing
+    // at the thinnest end.
+    const width = Number(container.querySelector('line[stroke="#3b82f6"]')!.getAttribute('stroke-width')) // p2's colour
+    const size = 22 // HexBoard's default `size` prop
+    expect(width).toBeCloseTo(size * 0.05)
   })
 })

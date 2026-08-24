@@ -143,6 +143,63 @@ export function calculateTerritoryControlByHex(
   return result
 }
 
+export interface ChangedTerritoryHex {
+  coord: Coordinate
+  /** The hex's new majority owner, or null if it had one before but lost it (no majority any more) — the review screen's "highlight changes" mode (issue #281) renders that case in black-and-white stripes rather than any player's colour. */
+  ownerId: string | null
+  /** Effective terrain of the region this hex belongs to (post-terrainScoresAs merge) — see calculateTerritoryControlByHex. */
+  terrain: string
+  /** Total hex count of the region this hex belongs to — see calculateTerritoryControlByHex. */
+  regionSize: number
+}
+
+/**
+ * Diffs calculateTerritoryControlByHex between two unit snapshots of the same
+ * board — for the review screen's "highlight only territories that changed"
+ * mode (issue #281), which should outline just what actually flipped since
+ * the previously-reviewed point rather than the whole board like the plain
+ * "on" mode does. `board` is shared between both snapshots since the board
+ * itself never changes once `active` play begins — only which units sit
+ * where does — so a region's terrain/tiles are identical before and after;
+ * only its majority owner can differ.
+ *
+ * A hex is included when its majority owner differs between before/after,
+ * in either direction: gaining a majority owner it didn't have, losing the
+ * one it had (reported as `ownerId: null` — no unit-count majority remains,
+ * including the region simply emptying out), or flipping from one owner to
+ * another. Unchanged hexes are simply absent, same convention as
+ * calculateTerritoryControlByHex's "no majority = absent" rule.
+ */
+export function calculateChangedTerritoryHexes(
+  board: Board,
+  unitsBefore: Unit[],
+  unitsAfter: Unit[],
+  terrainScoresAs: Record<string, string> = {},
+): ChangedTerritoryHex[] {
+  const before = calculateTerritoryControlByHex(board, unitsBefore, terrainScoresAs)
+  const after = calculateTerritoryControlByHex(board, unitsAfter, terrainScoresAs)
+
+  const beforeByKey = new Map(before.map((hex) => [coordKey(hex.coord), hex]))
+  const result: ChangedTerritoryHex[] = []
+  const seenKeys = new Set<string>()
+
+  for (const afterHex of after) {
+    const key = coordKey(afterHex.coord)
+    seenKeys.add(key)
+    const beforeHex = beforeByKey.get(key)
+    if (beforeHex?.ownerId === afterHex.ownerId) continue
+    result.push({ coord: afterHex.coord, ownerId: afterHex.ownerId, terrain: afterHex.terrain, regionSize: afterHex.regionSize })
+  }
+
+  for (const beforeHex of before) {
+    const key = coordKey(beforeHex.coord)
+    if (seenKeys.has(key)) continue
+    result.push({ coord: beforeHex.coord, ownerId: null, terrain: beforeHex.terrain, regionSize: beforeHex.regionSize })
+  }
+
+  return result
+}
+
 interface TerrainRegion {
   terrain: string
   tiles: Tile[]

@@ -14,6 +14,7 @@ import {
 import { sortCardIdsForDisplay, UNIT_KINDS } from '../engine/cards'
 import { legalMoveDestinations } from '../engine/movement'
 import { calculatePurchaseCost } from '../engine/purchaseCost'
+import { calculateChangedTerritoryHexes, calculateTerritoryControlByHex } from '../engine/scoring'
 import type { TurnReview, UnitReviewEvent } from '../engine/turnReview'
 import { calculateVPBreakdown } from '../engine/victoryPoints'
 import type { VPBreakdown } from '../engine/victoryPoints'
@@ -905,6 +906,29 @@ export function RoundView(props: {
    * would otherwise let the (non-existent, in review) `myPlayerId` act.
    */
   showHistory: boolean
+  /**
+   * Which of the review screen's 3 territory-control display modes is active
+   * (issue #281, GamePage's review banner): 'off' shows nothing extra, 'on'
+   * outlines every currently-controlled region exactly like the victory
+   * screen (see EndGameView.tsx), and 'changes' outlines only the regions
+   * whose majority owner differs from `previousHistoryState` — including a
+   * region that lost its owner entirely, shown in black-and-white stripes
+   * rather than any player's colour (see calculateChangedTerritoryHexes).
+   * Ignored while
+   * `showHistory` is false — this is a history-review-only feature.
+   */
+  territoryControlMode: 'off' | 'on' | 'changes'
+  /**
+   * The state just before the currently-reviewed point, for
+   * territoryControlMode 'changes' to diff `state` against — GamePage's own
+   * replay cache already holds this (same "previous state" `turnReview`
+   * above is itself derived from), see its doc comment for how the boundary
+   * is chosen for each step mode. Null wherever there's nothing prior to
+   * compare against (genesis, or turn mode's default entry point) — 'changes'
+   * mode then simply has nothing to highlight. Ignored outside 'changes'
+   * mode.
+   */
+  previousHistoryState: GameState | null
   /** The running narration log — derived from actionHistory, see engine/gameLog.ts's buildGameLog. */
   gameLog: GameEvent[]
   onChooseCard: (cardId: string) => void
@@ -925,7 +949,7 @@ export function RoundView(props: {
   onPurchaseCard: (cardId: string) => void
   onPassPurchase: () => void
 }) {
-  const { state, players, myPlayerId, unitContent, achievementContent, taleContent, turnReview, showHistory } = props
+  const { state, players, myPlayerId, unitContent, achievementContent, taleContent, turnReview, showHistory, territoryControlMode, previousHistoryState } = props
   const [mode, setMode] = useState<ActionUiMode>({ kind: 'idle' })
   /** Hides the full player roster + achievements sidebar so the board can grow into the freed space — see the "Expand board" toggle below. */
   const [sidebarHidden, setSidebarHidden] = useState(false)
@@ -1079,6 +1103,46 @@ export function RoundView(props: {
   })
   const historyArrows: HistoryArrow[] = historyByUnit ? [...historyByUnit.values()].flatMap((h) => h.moves) : []
 
+  // Territory-control overlay (issue #281) — 'off'/live play passes no
+  // territoryControl at all to HexBoard (undefined, not []: see its own doc
+  // comment, supplying the prop at all switches HexBoard into
+  // victory-screen-style rendering, which 'off' shouldn't trigger).
+  const pointsForHex = (hex: { terrain: string; regionSize: number }) => (achievementContent.terrainVictoryPoints[hex.terrain] ?? 0) * hex.regionSize
+  let territoryControl: { coord: Coordinate; color: string; terrain: string; points: number }[] | undefined
+  let territoryValueRange: { min: number; max: number } | undefined
+  if (showHistory && territoryControlMode === 'on') {
+    territoryControl = calculateTerritoryControlByHex(state.board, state.units, achievementContent.terrainScoresAs).map((hex) => ({
+      coord: hex.coord,
+      color: players.find((p) => p.id === hex.ownerId)?.color ?? '#a3a3a3',
+      terrain: hex.terrain,
+      points: pointsForHex(hex),
+    }))
+  } else if (showHistory && territoryControlMode === 'changes') {
+    territoryControl = previousHistoryState
+      ? calculateChangedTerritoryHexes(state.board, previousHistoryState.units, state.units, achievementContent.terrainScoresAs).map((hex) => ({
+          coord: hex.coord,
+          color: hex.ownerId ? (players.find((p) => p.id === hex.ownerId)?.color ?? '#a3a3a3') : '#ffffff',
+          terrain: hex.terrain,
+          points: pointsForHex(hex),
+          striped: hex.ownerId === null,
+        }))
+      : []
+    // Scale border width against every territory before or after this step,
+    // not just the handful of hexes that actually changed hands — otherwise
+    // a small territory could render at max width just for being the
+    // biggest among a few tiny changes (see HexBoard's territoryValueRange
+    // doc comment).
+    if (previousHistoryState) {
+      const overallPoints = [
+        ...calculateTerritoryControlByHex(state.board, previousHistoryState.units, achievementContent.terrainScoresAs),
+        ...calculateTerritoryControlByHex(state.board, state.units, achievementContent.terrainScoresAs),
+      ].map(pointsForHex)
+      if (overallPoints.length > 0) {
+        territoryValueRange = { min: Math.min(...overallPoints), max: Math.max(...overallPoints) }
+      }
+    }
+  }
+
   const ghostCells: GhostCell[] =
     mode.kind === 'supporting' && supportingTarget ? [{ coord: supportingTarget, legal: true }] : legalTargets.map((coord) => ({ coord, legal: true }))
   const actionMenu =
@@ -1153,6 +1217,8 @@ export function RoundView(props: {
             arrows={historyArrows}
             ghostCells={ghostCells}
             actionMenu={actionMenu}
+            territoryControl={territoryControl}
+            territoryValueRange={territoryValueRange}
             interactive={isMyActionTurn}
             onHexClick={isMyActionTurn ? handleBoardClick : undefined}
             expanded={sidebarHidden}
