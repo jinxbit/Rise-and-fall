@@ -17,6 +17,19 @@ function makeBoard() {
   return board
 }
 
+/** Plain(level 1) next to Mountain(level 3) — a >1 level gap, so `isCliffEdge` marks the shared side a cliff (see ../../engine/cliffs.ts). */
+function makeCliffBoard() {
+  let board = createEmptyBoard('hex')
+  board = setTile(board, { q: 0, r: 0 }, 'plain')
+  board = setTile(board, { q: 1, r: 0 }, 'mountain')
+  return board
+}
+
+/** `<line>`s drawn with no `strokeOpacity` prop set — cliff-edge lines, unlike the halo lines under a territory border (which always set one), so this tells them apart even though both use the same black stroke colour. */
+function cliffLines(container: HTMLElement) {
+  return [...container.querySelectorAll('line[stroke="#000000"]')].filter((line) => line.getAttribute('stroke-opacity') === null)
+}
+
 const NEUTRAL_PLATE_COLOR = '#f2f2ef'
 
 describe('HexBoard — unit markers', () => {
@@ -325,4 +338,277 @@ describe('HexBoard — history-review labels', () => {
     const { container } = render(<HexBoard board={makeBoard()} units={units} />)
     expect(container.querySelectorAll('foreignObject')).toHaveLength(0)
   })
+})
+
+describe('HexBoard — territory control overlay', () => {
+  it('renders no border lines when territoryControl is omitted', () => {
+    const { container } = render(<HexBoard board={makeBoard()} />)
+    expect(container.querySelectorAll('line[stroke="#22c55e"]')).toHaveLength(0)
+  })
+
+  it('draws a border on every side of a single controlled hex (all 6 sides are outward-facing)', () => {
+    const { container } = render(
+      <HexBoard board={makeBoard()} territoryControl={[{ coord: { q: 0, r: 0 }, color: '#22c55e', terrain: 'plain', points: 1 }]} />,
+    )
+    expect(container.querySelectorAll('line[stroke="#22c55e"]')).toHaveLength(6)
+  })
+
+  it("doesn't draw a border between two of the same player's own adjacent controlled hexes of the same terrain — territory-based, not hex-based", () => {
+    const territoryControl = [
+      { coord: { q: 0, r: 0 }, color: '#22c55e', terrain: 'plain', points: 1 },
+      { coord: { q: 1, r: 0 }, color: '#22c55e', terrain: 'plain', points: 1 },
+    ]
+    const { container } = render(<HexBoard board={makeBoard()} territoryControl={territoryControl} />)
+
+    // Each hex has 6 sides; the one side where they touch each other is
+    // interior to the shared territory and gets no border on either side —
+    // 5 outward-facing sides per hex, 10 total, not the naive 12.
+    expect(container.querySelectorAll('line[stroke="#22c55e"]')).toHaveLength(10)
+  })
+
+  it("keeps the outline continuous where it crosses from one member hex to the next — bug report: \"line is broken when it crossed to a new hex\"", () => {
+    const territoryControl = [
+      { coord: { q: 0, r: 0 }, color: '#22c55e', terrain: 'plain', points: 1 },
+      { coord: { q: 1, r: 0 }, color: '#22c55e', terrain: 'plain', points: 1 },
+    ]
+    const { container } = render(<HexBoard board={makeBoard()} territoryControl={territoryControl} />)
+
+    // A closed, connected outline is a set of segments where every endpoint
+    // is shared by exactly two segments (the one ending there and the one
+    // starting there) — a broken outline instead leaves some endpoints
+    // touched by only one segment (a dangling end where the crossing failed
+    // to line up).
+    const lines = [...container.querySelectorAll('line[stroke="#22c55e"]')]
+    const endpointCounts = new Map<string, number>()
+    for (const line of lines) {
+      for (const [xAttr, yAttr] of [
+        ['x1', 'y1'],
+        ['x2', 'y2'],
+      ] as const) {
+        const key = `${Number(line.getAttribute(xAttr)).toFixed(2)},${Number(line.getAttribute(yAttr)).toFixed(2)}`
+        endpointCounts.set(key, (endpointCounts.get(key) ?? 0) + 1)
+      }
+    }
+    expect(endpointCounts.size).toBe(lines.length) // 10 segments, 10 distinct shared vertices
+    for (const count of endpointCounts.values()) expect(count).toBe(2)
+  })
+
+  it('draws a border on both sides of an edge shared by two different owners', () => {
+    const territoryControl = [
+      { coord: { q: 0, r: 0 }, color: '#22c55e', terrain: 'plain', points: 1 },
+      { coord: { q: 1, r: 0 }, color: '#3b82f6', terrain: 'plain', points: 1 },
+    ]
+    const { container } = render(<HexBoard board={makeBoard()} territoryControl={territoryControl} />)
+
+    // Both owners get a full 6-sided outline — the shared edge is
+    // outward-facing for each of them since the neighbor's a different owner.
+    expect(container.querySelectorAll('line[stroke="#22c55e"]')).toHaveLength(6)
+    expect(container.querySelectorAll('line[stroke="#3b82f6"]')).toHaveLength(6)
+  })
+
+  it('draws a border between two adjacent hexes of different terrain even when the same player controls both', () => {
+    const territoryControl = [
+      { coord: { q: 0, r: 0 }, color: '#22c55e', terrain: 'forest', points: 3 },
+      { coord: { q: 1, r: 0 }, color: '#22c55e', terrain: 'plain', points: 1 },
+    ]
+    const { container } = render(<HexBoard board={makeBoard()} territoryControl={territoryControl} />)
+
+    // Unlike the same-terrain case above, the shared edge is still
+    // outward-facing for both hexes since they belong to different
+    // territories — a full 6 sides per hex, 12 total.
+    expect(container.querySelectorAll('line[stroke="#22c55e"]')).toHaveLength(12)
+  })
+
+  it("renders a thicker border for the higher-point of two territories on the same board — 'points' is a whole territory's total value, scaled relative to every territory actually on this board, not an absolute point count", () => {
+    const territoryControl = [
+      { coord: { q: 0, r: 0 }, color: '#22c55e', terrain: 'plain', points: 1 },
+      { coord: { q: 3, r: 0 }, color: '#3b82f6', terrain: 'mountain', points: 12 },
+    ]
+    const { container } = render(<HexBoard board={makeBoard()} territoryControl={territoryControl} />)
+
+    const lowWidth = Number(container.querySelector('line[stroke="#22c55e"]')!.getAttribute('stroke-width'))
+    const highWidth = Number(container.querySelector('line[stroke="#3b82f6"]')!.getAttribute('stroke-width'))
+    expect(highWidth).toBeGreaterThan(lowWidth)
+  })
+
+  it('renders the same width for two territories worth the same total despite different terrain — bug report: "two territories, one mountain and one water, worth the same but have different width"', () => {
+    const territoryControl = [
+      { coord: { q: 0, r: 0 }, color: '#22c55e', terrain: 'mountain', points: 8 }, // e.g. 2 hexes at 4 VP each
+      { coord: { q: 3, r: 0 }, color: '#3b82f6', terrain: 'water', points: 8 }, // e.g. 4 hexes at 2 VP each
+    ]
+    const { container } = render(<HexBoard board={makeBoard()} territoryControl={territoryControl} />)
+
+    const mountainWidth = Number(container.querySelector('line[stroke="#22c55e"]')!.getAttribute('stroke-width'))
+    const waterWidth = Number(container.querySelector('line[stroke="#3b82f6"]')!.getAttribute('stroke-width'))
+    expect(mountainWidth).toBeCloseTo(waterWidth)
+  })
+
+  it('renders two same-terrain territories of different size at different widths — bug report: "two mountain territories with very different score value being the same width"', () => {
+    const territoryControl = [
+      { coord: { q: 0, r: 0 }, color: '#22c55e', terrain: 'mountain', points: 4 }, // 1 hex
+      { coord: { q: 3, r: 0 }, color: '#3b82f6', terrain: 'mountain', points: 16 }, // 4 hexes
+    ]
+    const { container } = render(<HexBoard board={makeBoard()} territoryControl={territoryControl} />)
+
+    const smallWidth = Number(container.querySelector('line[stroke="#22c55e"]')!.getAttribute('stroke-width'))
+    const bigWidth = Number(container.querySelector('line[stroke="#3b82f6"]')!.getAttribute('stroke-width'))
+    expect(bigWidth).toBeGreaterThan(smallWidth)
+  })
+
+  it('falls back to a fixed mid-range width when every territory on the board is worth the same — no real range to position within', () => {
+    const territoryControl = [{ coord: { q: 0, r: 0 }, color: '#22c55e', terrain: 'plain', points: 1 }]
+    const { container } = render(<HexBoard board={makeBoard()} territoryControl={territoryControl} />)
+
+    const width = Number(container.querySelector('line[stroke="#22c55e"]')!.getAttribute('stroke-width'))
+    const size = 22 // HexBoard's default `size` prop
+    expect(width).toBeCloseTo(size * ((0.05 + 0.2) / 2))
+  })
+
+  /** Every rendered `<line stroke={color}>`'s midpoint x — order-independent, unlike relying on which `<line>` a querySelector happens to match first. */
+  function borderMidXs(container: HTMLElement, color: string): number[] {
+    return [...container.querySelectorAll(`line[stroke="${color}"]`)].map(
+      (line) => (Number(line.getAttribute('x1')) + Number(line.getAttribute('x2'))) / 2,
+    )
+  }
+
+  it('draws a border facing an uncontrolled hex inset toward the controlled hex\'s own center, not sitting on the shared boundary', () => {
+    // A lone controlled hex with no competing territory on any side — its
+    // border should still be pulled in from the true hex-to-hex boundary
+    // (matching where a cliff edge/structure connector would render) by
+    // its own halo half-width, the same as every other side, so a whole
+    // outline reads at one consistent inset regardless of what's on the
+    // other side of each edge.
+    const { container } = render(
+      <HexBoard board={makeBoard()} territoryControl={[{ coord: { q: 0, r: 0 }, color: '#22c55e', terrain: 'plain', points: 1 }]} />,
+    )
+    // The hex at (0,0) is centered at x=0 with radius 21 (size 22 - 1); its
+    // rightmost side's true (un-inset) boundary sits near x=19.
+    const rightmostX = Math.max(...borderMidXs(container, '#22c55e'))
+    expect(rightmostX).toBeLessThan(19)
+    expect(rightmostX).toBeGreaterThan(10)
+  })
+
+  it('draws a competing edge as two fully separate, non-overlapping segments — one per owner, each inset into its own hex, never crossing the shared boundary', () => {
+    const territoryControl = [
+      { coord: { q: 0, r: 0 }, color: '#22c55e', terrain: 'plain', points: 1 },
+      { coord: { q: 1, r: 0 }, color: '#3b82f6', terrain: 'plain', points: 1 },
+    ]
+    const { container } = render(<HexBoard board={makeBoard()} territoryControl={territoryControl} />)
+
+    // The two hexes are centered at x=0 (q=0) and x≈38.1 (q=1); their
+    // shared true boundary sits at x≈19.05. Green's segment along that side
+    // should be inset toward its own center (x=0), i.e. strictly left of
+    // the boundary; blue's should be inset toward its own center (x≈38.1),
+    // i.e. strictly right of it — so neither crosses into the other's hex.
+    const sharedBoundaryX = 19.05
+    const greenSharedX = Math.max(...borderMidXs(container, '#22c55e'))
+    const blueSharedX = Math.min(...borderMidXs(container, '#3b82f6'))
+    expect(greenSharedX).toBeLessThan(sharedBoundaryX)
+    expect(blueSharedX).toBeGreaterThan(sharedBoundaryX)
+  })
+
+  it('renders each side of a competing edge symmetrically inset by its own width, even when the two territories\' widths differ a lot', () => {
+    const territoryControl = [
+      // A big point gap maximizes the width difference between the two
+      // territories, so an inset that scaled the wrong way (or not at all)
+      // would be large enough to fail this test outright rather than being
+      // lost in rounding.
+      { coord: { q: 0, r: 0 }, color: '#22c55e', terrain: 'plain', points: 12 },
+      { coord: { q: 1, r: 0 }, color: '#3b82f6', terrain: 'plain', points: 1 },
+    ]
+    const { container } = render(<HexBoard board={makeBoard()} territoryControl={territoryControl} />)
+
+    const greenLines = [...container.querySelectorAll('line[stroke="#22c55e"]')]
+    const blueLines = [...container.querySelectorAll('line[stroke="#3b82f6"]')]
+    expect(greenLines).toHaveLength(6)
+    expect(blueLines).toHaveLength(6)
+
+    const sharedBoundaryX = 19.05
+    const greenSharedX = Math.max(...borderMidXs(container, '#22c55e'))
+    const blueSharedX = Math.min(...borderMidXs(container, '#3b82f6'))
+    // The wider (higher-point) green territory is inset further from the
+    // boundary than the narrower blue one, but both stay strictly on their
+    // own side of it — no overlap regardless of the width gap.
+    expect(sharedBoundaryX - greenSharedX).toBeGreaterThan(blueSharedX - sharedBoundaryX)
+    expect(greenSharedX).toBeLessThan(sharedBoundaryX)
+    expect(blueSharedX).toBeGreaterThan(sharedBoundaryX)
+  })
+
+  it('draws cliff-edge lines when territoryControl is omitted', () => {
+    const { container } = render(<HexBoard board={makeCliffBoard()} />)
+    expect(cliffLines(container).length).toBeGreaterThan(0)
+  })
+
+  it("suppresses cliff-edge lines once territoryControl is supplied — cliffs aren't meaningful on the victory screen, and a border nudged off the true hex edge (facing a competing territory) could otherwise leave a cliff's own un-nudged line sitting visibly next to it", () => {
+    const territoryControl = [
+      { coord: { q: 0, r: 0 }, color: '#22c55e', terrain: 'plain', points: 1 },
+      { coord: { q: 1, r: 0 }, color: '#3b82f6', terrain: 'mountain', points: 4 },
+    ]
+    const { container } = render(<HexBoard board={makeCliffBoard()} territoryControl={territoryControl} />)
+    expect(cliffLines(container)).toHaveLength(0)
+  })
+
+  it('suppresses cliff-edge lines for an empty territoryControl array too — the prop being supplied at all signals victory-screen mode', () => {
+    const { container } = render(<HexBoard board={makeCliffBoard()} territoryControl={[]} />)
+    expect(cliffLines(container)).toHaveLength(0)
+  })
+
+  /** A rendered `<line>`'s two endpoints collapse to the same point — with `strokeLinecap="round"`, that paints as a dot instead of a segment. */
+  function degenerateLineCount(lines: Element[]): number {
+    return lines.filter((line) => {
+      const x1 = Number(line.getAttribute('x1'))
+      const y1 = Number(line.getAttribute('y1'))
+      const x2 = Number(line.getAttribute('x2'))
+      const y2 = Number(line.getAttribute('y2'))
+      return Math.hypot(x2 - x1, y2 - y1) < 0.01
+    }).length
+  }
+
+  it(
+    'draws a full 6-sided outline (no degenerate zero-length segments) for a lone controlled hex centered on the board\'s x=0 symmetry axis — ' +
+      'bug report: "only circles are drawn on most of the hexes." The hex-vertex angles this hex\'s own opposite sides compute round to +0/-0 ' +
+      'in floating point, which used to produce two different map keys for what should be the same shared vertex (see vertexKey), silently ' +
+      'breaking the outline into disconnected fragments that included zero-length segments (round line caps render those as dots, not lines).',
+    () => {
+      let board = createEmptyBoard('hex')
+      board = setTile(board, { q: 0, r: 0 }, 'plain')
+      const { container } = render(
+        <HexBoard board={board} territoryControl={[{ coord: { q: 0, r: 0 }, color: '#22c55e', terrain: 'plain', points: 1 }]} />,
+      )
+      const lines = [...container.querySelectorAll('line[stroke="#22c55e"]')]
+      expect(lines).toHaveLength(6)
+      expect(degenerateLineCount(lines)).toBe(0)
+    },
+  )
+
+  it(
+    'draws a continuous, degenerate-segment-free outline across a realistic multi-hex, multi-owner, multi-terrain board — ' +
+      'a broader regression net for the same "only circles" class of bug, including the case where a territory\'s "true" boundary vertex ' +
+      '(before insetting) was computed at the drawn hex polygon\'s own shrunk radius (size - 1) rather than the true circumradius implied by ' +
+      "the grid's center-to-center spacing (size), which left two adjacent hexes' independently-computed versions of their shared corner a " +
+      'pixel or more apart instead of exactly coincident.',
+    () => {
+      let board = createEmptyBoard('hex')
+      const radius = 3
+      const coords: { q: number; r: number }[] = []
+      for (let q = -radius; q <= radius; q++) {
+        for (let r = -radius; r <= radius; r++) {
+          if (Math.abs(q + r) <= radius) coords.push({ q, r })
+        }
+      }
+      const terrainFor = (c: { q: number; r: number }) => (['plain', 'forest', 'mountain'] as const)[((c.q + c.r * 2) % 3 + 3) % 3]
+      for (const c of coords) board = setTile(board, c, terrainFor(c))
+
+      const territoryControl = coords.map((c) => {
+        const terrain = terrainFor(c)
+        const color = (c.q + c.r) % 2 === 0 ? '#22c55e' : '#3b82f6'
+        return { coord: c, color, terrain, points: terrain === 'mountain' ? 12 : terrain === 'forest' ? 8 : 3 }
+      })
+
+      const { container } = render(<HexBoard board={board} territoryControl={territoryControl} />)
+      const territoryLines = [...container.querySelectorAll('line[stroke="#22c55e"], line[stroke="#3b82f6"]')]
+      expect(territoryLines.length).toBeGreaterThan(0)
+      expect(degenerateLineCount(territoryLines)).toBe(0)
+    },
+  )
 })

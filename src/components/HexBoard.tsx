@@ -1,3 +1,4 @@
+import { neighborCoords } from '../engine/board'
 import { isCliffEdge } from '../engine/cliffs'
 import type { Board, Coordinate, Resources, Terrain } from '../engine/types'
 import { coordKey } from '../engine/types'
@@ -54,6 +55,34 @@ const CLIFF_CHECK_DIRECTIONS: Coordinate[] = [
   { q: 0, r: -1 },
 ]
 
+/** The thinnest a territory border ever gets — the lowest-scoring territory actually on the board, not an absolute point count (see territoryBorderWidth below). */
+const TERRITORY_BORDER_MIN_WIDTH_FACTOR = 0.05
+/** The thickest a territory border ever gets — the highest-scoring territory actually on the board. */
+const TERRITORY_BORDER_MAX_WIDTH_FACTOR = 0.2
+/** The dark halo drawn under the border's own colour (see territoryBorderSegments below) is always this many times wider, same ratio as before this became variable. */
+const TERRITORY_BORDER_HALO_WIDTH_MULTIPLIER = 2
+
+/**
+ * A territory's outline stroke width, in pixels — scaled by where this
+ * territory's total point value (`points` on the `territoryControl` prop,
+ * i.e. hex count × terrain VP rate, not just the flat per-hex rate) falls
+ * between the lowest- and highest-scoring territory actually present on this
+ * board, so e.g. two same-terrain territories of different size render at
+ * different widths, and two different-terrain territories worth the same
+ * total render at the same width. `minPoints`/`maxPoints` come from scanning
+ * every entry in `territoryControl` once (see HexBoard below) — an absolute
+ * per-point scale doesn't work since one board's highest-value territory
+ * might be another board's lowest. A board where every territory happens to
+ * score the same (including just one territory total) has no real range to
+ * position within, so it falls back to the middle of the width range rather
+ * than arbitrarily picking the thinnest or thickest end.
+ */
+function territoryBorderWidth(size: number, points: number, minPoints: number, maxPoints: number): number {
+  const t = maxPoints > minPoints ? (points - minPoints) / (maxPoints - minPoints) : 0.5
+  const factor = TERRITORY_BORDER_MIN_WIDTH_FACTOR + t * (TERRITORY_BORDER_MAX_WIDTH_FACTOR - TERRITORY_BORDER_MIN_WIDTH_FACTOR)
+  return size * factor
+}
+
 const SQRT3 = Math.sqrt(3)
 
 function axialToPixel(coord: Coordinate, size: number): { x: number; y: number } {
@@ -83,6 +112,215 @@ function hexEdgeSegment(ax: number, ay: number, bx: number, by: number, radius: 
   const my = (ay + by) / 2
   const half = radius / 2
   return { x1: mx - px * half, y1: my - py * half, x2: mx + px * half, y2: my + py * half }
+}
+
+/**
+ * A territory border segment for hex (cx,cy)'s side facing neighbor
+ * (nx,ny) — this hex's own true edge (same two vertices `hexPoints` would
+ * place there, `radius` = size - 1), pulled inward toward this hex's own
+ * center by `insetDist` rather than sitting on the shared boundary. Used so
+ * two territories meeting at one physical edge each draw a fully separate,
+ * self-contained line on their own side of it instead of both centering a
+ * stroke on the same shared line — the earlier approach, which let a wide
+ * stroke bleed across the boundary into the neighbor and visually blend
+ * with (or get outweighted by) whatever the neighbor drew there too,
+ * whether that was a different color or the same color at a different
+ * width (bug report: "the colors coexist... should face inward and never
+ * overlap").
+ *
+ * A regular hexagon's edge, pulled inward by a constant perpendicular
+ * distance, is exactly that hexagon scaled toward its own center — so the
+ * inset edge's two endpoints sit at the same angles from center as this
+ * hex's own true vertices for that side (±30° from the direction to the
+ * neighbor), just at a smaller radius. Two adjacent sides of the same hex
+ * computed this way always share their common corner exactly (same center,
+ * same inset radius, same shared angle) — no separate corner-mitering step
+ * is needed, unlike the per-edge-translation approach an earlier version of
+ * this tried (which left adjacent sides' translated endpoints mismatched).
+ */
+function territoryInsetEdge(cx: number, cy: number, nx: number, ny: number, radius: number, insetDist: number): { x1: number; y1: number; x2: number; y2: number } {
+  const theta = Math.atan2(ny - cy, nx - cx)
+  const apothemPerUnitRadius = SQRT3 / 2
+  const insetRadius = Math.max(0, radius - insetDist / apothemPerUnitRadius)
+  const a1 = theta - Math.PI / 6
+  const a2 = theta + Math.PI / 6
+  return {
+    x1: cx + insetRadius * Math.cos(a1),
+    y1: cy + insetRadius * Math.sin(a1),
+    x2: cx + insetRadius * Math.cos(a2),
+    y2: cy + insetRadius * Math.sin(a2),
+  }
+}
+
+/** One outward-facing side of a territory's boundary, in true (un-inset) board coordinates — `v1`/`v2` are its two endpoints (see territoryInsetEdge, called with `insetDist: 0` to get them), `hexX`/`hexY` the center of whichever member hex this particular side belongs to (used to pick the inward direction when insetting, see edgeInwardNormal below). */
+interface TerritoryBoundaryEdge {
+  v1: { x: number; y: number }
+  v2: { x: number; y: number }
+  hexX: number
+  hexY: number
+}
+
+/** Rounds a coordinate to a fixed precision, normalizing -0 to 0 — `(-1e-15).toFixed(3)` is the string `'-0.000'`, distinct from `(1e-15).toFixed(3)`'s `'0.000'`, so without this two edges computing the same true vertex as tiny opposite-signed floating-point noise around zero would produce different map keys (see vertexKey below). */
+function roundCoord(n: number): number {
+  const rounded = Math.round(n * 1000) / 1000
+  return rounded === 0 ? 0 : rounded
+}
+
+/** Rounds a point to a fixed precision for use as a map key — two boundary edges computed independently from different (adjacent) hexes' own centers still land on the exact same true grid vertex, just with floating-point noise many orders of magnitude finer than this. */
+function vertexKey(x: number, y: number): string {
+  return `${roundCoord(x)},${roundCoord(y)}`
+}
+
+/** Where infinite line p1-p2 crosses infinite line p3-p4, or null if they're parallel (or nearly enough that the intersection would shoot off to an unreasonable distance). */
+function lineIntersection(
+  p1: { x: number; y: number },
+  p2: { x: number; y: number },
+  p3: { x: number; y: number },
+  p4: { x: number; y: number },
+): { x: number; y: number } | null {
+  const denom = (p1.x - p2.x) * (p3.y - p4.y) - (p1.y - p2.y) * (p3.x - p4.x)
+  if (Math.abs(denom) < 1e-9) return null
+  const t = ((p1.x - p3.x) * (p3.y - p4.y) - (p1.y - p3.y) * (p3.x - p4.x)) / denom
+  return { x: p1.x + t * (p2.x - p1.x), y: p1.y + t * (p2.y - p1.y) }
+}
+
+/** Groups territory-controlled hexes into one array per contiguous same-owner-same-terrain region — the unit a single connected outline needs to trace over (see territoryBoundaryLoops below), matching the same "same colour and terrain" test the per-side border check already used. */
+function groupTerritoryHexes<T extends { coord: Coordinate; color: string; terrain: string }>(board: Board, territoryByKey: Map<string, T>): T[][] {
+  const visited = new Set<string>()
+  const groups: T[][] = []
+  for (const [key, territory] of territoryByKey) {
+    if (visited.has(key)) continue
+    visited.add(key)
+    const group: T[] = []
+    const queue = [territory]
+    while (queue.length > 0) {
+      const current = queue.pop()!
+      group.push(current)
+      for (const neighborCoord of neighborCoords(board, current.coord)) {
+        const neighborKey = coordKey(neighborCoord)
+        if (visited.has(neighborKey)) continue
+        const neighborTerritory = territoryByKey.get(neighborKey)
+        if (!neighborTerritory || neighborTerritory.color !== territory.color || neighborTerritory.terrain !== territory.terrain) continue
+        visited.add(neighborKey)
+        queue.push(neighborTerritory)
+      }
+    }
+    groups.push(group)
+  }
+  return groups
+}
+
+/**
+ * Every outward-facing side of one territory region, knitted into one or
+ * more closed loops (normally one — a hole in a region, e.g. a player's
+ * territory fully surrounding an enemy hex, would trace as a second, inner
+ * loop). Each hex contributes its own outward sides as independent edges
+ * (same true endpoints two adjacent hexes' sides always agree on, since
+ * they're both reading off the same real hex-grid vertex); chaining them by
+ * shared endpoint is what turns a whole multi-hex region into one connected
+ * boundary instead of the disconnected per-hex sides `territoryInsetEdge`
+ * alone produces.
+ */
+function territoryBoundaryLoops(
+  board: Board,
+  group: { coord: Coordinate; color: string; terrain: string }[],
+  territoryByKey: Map<string, { coord: Coordinate; color: string; terrain: string }>,
+  size: number,
+): TerritoryBoundaryEdge[][] {
+  const edges: TerritoryBoundaryEdge[] = []
+  for (const territory of group) {
+    const { x, y } = axialToPixel(territory.coord, size)
+    for (const neighborCoord of neighborCoords(board, territory.coord)) {
+      const neighborTerritory = territoryByKey.get(coordKey(neighborCoord))
+      if (neighborTerritory && neighborTerritory.color === territory.color && neighborTerritory.terrain === territory.terrain) continue
+      const { x: nx, y: ny } = axialToPixel(neighborCoord, size)
+      // Deliberately `size`, not `size - 1` (the polygon's own drawn radius,
+      // shrunk by 1px for a visual gap between hexes — see hexPoints). Two
+      // adjacent hexes each compute this same shared grid vertex from their
+      // own center independently (see this function's doc comment above),
+      // and that only lands on the same point when the radius matches the
+      // true circumradius implied by axialToPixel's center-to-center
+      // spacing, which is `size`. Using `size - 1` left every such pair a
+      // pixel or more apart — nowhere near vertexKey's float-noise rounding
+      // tolerance — so the chain below broke apart into short, unclosed
+      // fragments almost everywhere a territory spanned more than one hex,
+      // and insetLoopVertices then produced degenerate zero-length segments
+      // from those fragments, rendering as dots (bug report: "only circles
+      // are drawn on most of the hexes").
+      const trueEdge = territoryInsetEdge(x, y, nx, ny, size, 0)
+      edges.push({ v1: { x: trueEdge.x1, y: trueEdge.y1 }, v2: { x: trueEdge.x2, y: trueEdge.y2 }, hexX: x, hexY: y })
+    }
+  }
+
+  const byStartKey = new Map(edges.map((e) => [vertexKey(e.v1.x, e.v1.y), e]))
+  const visited = new Set<TerritoryBoundaryEdge>()
+  const loops: TerritoryBoundaryEdge[][] = []
+  for (const start of edges) {
+    if (visited.has(start)) continue
+    const loop: TerritoryBoundaryEdge[] = []
+    let current: TerritoryBoundaryEdge | undefined = start
+    while (current && !visited.has(current)) {
+      visited.add(current)
+      loop.push(current)
+      current = byStartKey.get(vertexKey(current.v2.x, current.v2.y))
+    }
+    loops.push(loop)
+  }
+  return loops
+}
+
+/** How far a mitered corner is allowed to shoot out past its true vertex, as a multiple of the inset distance, before falling back to a plain bevel — guards a very sharp reflex notch in a region's shape from producing a wild spike. */
+const TERRITORY_BORDER_MITER_LIMIT = 4
+
+/** The perpendicular unit vector to `edge`, pointing toward whichever hex it belongs to (see TerritoryBoundaryEdge.hexX/hexY) rather than away from it — i.e. "inward." */
+function edgeInwardNormal(edge: TerritoryBoundaryEdge): { nx: number; ny: number } {
+  const dx = edge.v2.x - edge.v1.x
+  const dy = edge.v2.y - edge.v1.y
+  const dist = Math.hypot(dx, dy) || 1
+  let nx = -dy / dist
+  let ny = dx / dist
+  const midX = (edge.v1.x + edge.v2.x) / 2
+  const midY = (edge.v1.y + edge.v2.y) / 2
+  if (nx * (edge.hexX - midX) + ny * (edge.hexY - midY) < 0) {
+    nx = -nx
+    ny = -ny
+  }
+  return { nx, ny }
+}
+
+/**
+ * A closed boundary loop (see territoryBoundaryLoops), pulled inward by
+ * `insetDist` as a whole — each vertex becomes the intersection of its two
+ * neighboring sides, each independently offset toward its own owning hex
+ * (see edgeInwardNormal) — the standard mitered-polygon-offset construction.
+ * Unlike insetting each hex's sides independently (which leaves adjacent
+ * member hexes' segments pulled toward two different centers, and so not
+ * meeting where the outline crosses from one hex to the next — the "broken"
+ * line bug this replaces), every vertex here has exactly one inset position,
+ * so consecutive segments always share an endpoint.
+ */
+function insetLoopVertices(loop: TerritoryBoundaryEdge[], insetDist: number): { x: number; y: number }[] {
+  const n = loop.length
+  return loop.map((edge, i) => {
+    const prev = loop[(i - 1 + n) % n]
+    const normalPrev = edgeInwardNormal(prev)
+    const normalNext = edgeInwardNormal(edge)
+    const trueVertex = edge.v1
+    const bevel = {
+      x: trueVertex.x + ((normalPrev.nx + normalNext.nx) / 2) * insetDist,
+      y: trueVertex.y + ((normalPrev.ny + normalNext.ny) / 2) * insetDist,
+    }
+    const intersection = lineIntersection(
+      { x: prev.v1.x + normalPrev.nx * insetDist, y: prev.v1.y + normalPrev.ny * insetDist },
+      { x: prev.v2.x + normalPrev.nx * insetDist, y: prev.v2.y + normalPrev.ny * insetDist },
+      { x: edge.v1.x + normalNext.nx * insetDist, y: edge.v1.y + normalNext.ny * insetDist },
+      { x: edge.v2.x + normalNext.nx * insetDist, y: edge.v2.y + normalNext.ny * insetDist },
+    )
+    if (!intersection || Math.hypot(intersection.x - trueVertex.x, intersection.y - trueVertex.y) > insetDist * TERRITORY_BORDER_MITER_LIMIT) {
+      return bevel
+    }
+    return intersection
+  })
 }
 
 /** Pulls both ends of a line segment inward along its own direction — used to keep a history arrow (see HistoryArrow) from starting/ending right under a unit marker's plate. */
@@ -495,6 +733,50 @@ export function HexBoard(props: {
   /** History-review overlay (see RoundView.tsx's history toggle): one arrow per movement hop since the reviewed window began. */
   arrows?: HistoryArrow[]
   actionMenu?: ActionMenu
+  /**
+   * Victory-screen overlay (see EndGameView.tsx, calculateTerritoryControlByHex
+   * in ../engine/scoring.ts): one entry per hex the terrain-majority rule
+   * assigns to a player, in that player's colour. Rendered as an outline
+   * tracing the boundary of each player's whole contiguous controlled
+   * region rather than decorating each hex on its own — no line is drawn
+   * between two of that player's own adjacent hexes, only along a region's
+   * outer edge (the board's edge, an uncontrolled hex, another player's
+   * territory, or a same-owner hex of a different terrain — a player
+   * controlling both a Forest region and an adjacent Plains region still
+   * gets two separate outlines, since those are two separate territories
+   * per the underlying terrain-region rule even though one player holds
+   * both), so a multi-hex win reads as one shape instead of a repeated
+   * per-hex stamp. Deliberately an outline rather than a fill (issue #270):
+   * filling hexes with a player's colour can blend into a same-hued terrain
+   * (e.g. a blue player's water) and hides the terrain underneath either way.
+   *
+   * `points` is that hex's whole territory's total victory-point value
+   * (hex count × content/terrain.json's per-hex rate for its terrain, e.g. a
+   * 3-hex Mountain region at 4/hex is worth 12 here, not just 4) — the
+   * outline's stroke gets thicker the more a territory is worth relative to
+   * every other territory on this same board (see territoryBorderWidth
+   * below), so a glance at line weight hints at which regions mattered most
+   * for the final score. Deliberately the *territory's* total rather than
+   * its terrain's flat per-hex rate: two Mountain regions of very different
+   * size are worth very different amounts, and a small Mountain region can
+   * be worth less than a large Water one despite Water's lower per-hex rate.
+   *
+   * Every side is drawn inset toward its own hex's center (see
+   * territoryInsetEdge below) rather than centered on the shared boundary —
+   * so a territory's stroke (and its dark halo, see
+   * TERRITORY_BORDER_HALO_WIDTH_MULTIPLIER) always stays entirely within
+   * its own hex, touching the true edge but never crossing it. That keeps
+   * two territories meeting at one edge — different colours, or the same
+   * colour at different widths — from ever visually coexisting on the same
+   * line; where they meet, only their two dark halos touch, reading as one
+   * thin dividing seam.
+   *
+   * Supplying this (even an empty array) also suppresses cliff-edge lines
+   * for the whole board — cliffs aren't meaningful on the final board, and a
+   * cliff's own fixed-width black line could otherwise show through a
+   * territory border drawn on the same real hex edge.
+   */
+  territoryControl?: { coord: Coordinate; color: string; terrain: string; points: number }[]
   selectedCoord?: Coordinate | null
   /**
    * Draws a rotate-arrow glyph on this hex — the pending tile placement's
@@ -631,17 +913,27 @@ export function HexBoard(props: {
 
   const ghostByKey = new Map((props.ghostCells ?? []).map((g) => [coordKey(g.coord), g]))
 
+  // Cliff edges are skipped entirely once `territoryControl` is supplied
+  // (the victory-screen board, see HexBoard.territoryControl's doc comment)
+  // rather than drawn underneath the territory borders — every territory
+  // border segment sits exactly where a cliff edge would (see
+  // territoryBorderSegments below), so a cliff's own fixed-width black line
+  // would otherwise show through a thinner border drawn right on top of it.
+  // Cliffs aren't meaningful on the final board anyway, so this drops them
+  // there entirely instead of trying to reconcile the two.
   const cliffEdges: { x1: number; y1: number; x2: number; y2: number }[] = []
-  for (const { coord, x, y } of pixels) {
-    const tile = props.board.tiles[coordKey(coord)]
-    if (!tile) continue
-    for (const dir of CLIFF_CHECK_DIRECTIONS) {
-      const neighborCoord = { q: coord.q + dir.q, r: coord.r + dir.r }
-      const neighborTile = props.board.tiles[coordKey(neighborCoord)]
-      if (!neighborTile) continue
-      if (!isCliffEdge(TERRAIN_LEVEL[tile.terrain], TERRAIN_LEVEL[neighborTile.terrain])) continue
-      const { x: nx, y: ny } = axialToPixel(neighborCoord, size)
-      cliffEdges.push(hexEdgeSegment(x, y, nx, ny, size - 1))
+  if (!props.territoryControl) {
+    for (const { coord, x, y } of pixels) {
+      const tile = props.board.tiles[coordKey(coord)]
+      if (!tile) continue
+      for (const dir of CLIFF_CHECK_DIRECTIONS) {
+        const neighborCoord = { q: coord.q + dir.q, r: coord.r + dir.r }
+        const neighborTile = props.board.tiles[coordKey(neighborCoord)]
+        if (!neighborTile) continue
+        if (!isCliffEdge(TERRAIN_LEVEL[tile.terrain], TERRAIN_LEVEL[neighborTile.terrain])) continue
+        const { x: nx, y: ny } = axialToPixel(neighborCoord, size)
+        cliffEdges.push(hexEdgeSegment(x, y, nx, ny, size - 1))
+      }
     }
   }
 
@@ -652,6 +944,44 @@ export function HexBoard(props: {
     for (const neighborCoord of unit.connectedNeighborCoords) {
       const { x: nx, y: ny } = axialToPixel(neighborCoord, size)
       structureConnectorEdges.push(hexEdgeSegment(x, y, nx, ny, size - 1))
+    }
+  }
+
+  // Each territory (one contiguous same-owner-same-terrain region — see
+  // groupTerritoryHexes) traces as one or more closed boundary loops (see
+  // territoryBoundaryLoops), which are then inset inward as a whole (see
+  // insetLoopVertices) rather than one hex-side at a time: every vertex on
+  // the loop gets exactly one inset position, shared by the two segments on
+  // either side of it, so the outline stays connected as it crosses from one
+  // member hex to the next — insetting each hex's sides independently (an
+  // earlier version of this) instead pulled each hex's own sides toward its
+  // own center, which left the outline visibly broken at that same crossing
+  // (bug report: "line is broken when it crossed to a new hex").
+  //
+  // The loop is still inset by the halo's own half-width (not just the
+  // colour line's), so the stroke — halo included — always stays within its
+  // own territory, never crossing the real hex-to-hex edge into a
+  // neighboring territory's side of it (see TERRITORY_BORDER_HALO_WIDTH_MULTIPLIER).
+  const territoryByKey = new Map((props.territoryControl ?? []).map((t) => [coordKey(t.coord), t]))
+  const territoryBorderSegments: { x1: number; y1: number; x2: number; y2: number; color: string; strokeWidth: number }[] = []
+  if (territoryByKey.size > 0) {
+    const allPoints = [...territoryByKey.values()].map((t) => t.points)
+    const minPoints = Math.min(...allPoints)
+    const maxPoints = Math.max(...allPoints)
+
+    for (const group of groupTerritoryHexes(props.board, territoryByKey)) {
+      const { color, points } = group[0]
+      const strokeWidth = territoryBorderWidth(size, points, minPoints, maxPoints)
+      const insetDist = strokeWidth * (TERRITORY_BORDER_HALO_WIDTH_MULTIPLIER / 2)
+      for (const loop of territoryBoundaryLoops(props.board, group, territoryByKey, size)) {
+        const insetVertices = insetLoopVertices(loop, insetDist)
+        const n = insetVertices.length
+        for (let i = 0; i < n; i++) {
+          const a = insetVertices[i]
+          const b = insetVertices[(i + 1) % n]
+          territoryBorderSegments.push({ x1: a.x, y1: a.y, x2: b.x, y2: b.y, color, strokeWidth })
+        }
+      }
     }
   }
 
@@ -701,6 +1031,33 @@ export function HexBoard(props: {
           y2={edge.y2}
           stroke="#d6b98c"
           strokeWidth={4}
+          strokeLinecap="round"
+          pointerEvents="none"
+        />
+      ))}
+      {territoryBorderSegments.map((seg, i) => (
+        <line
+          key={`territory-halo-${i}`}
+          x1={seg.x1}
+          y1={seg.y1}
+          x2={seg.x2}
+          y2={seg.y2}
+          stroke="#000000"
+          strokeOpacity={0.6}
+          strokeWidth={seg.strokeWidth * TERRITORY_BORDER_HALO_WIDTH_MULTIPLIER}
+          strokeLinecap="round"
+          pointerEvents="none"
+        />
+      ))}
+      {territoryBorderSegments.map((seg, i) => (
+        <line
+          key={`territory-${i}`}
+          x1={seg.x1}
+          y1={seg.y1}
+          x2={seg.x2}
+          y2={seg.y2}
+          stroke={seg.color}
+          strokeWidth={seg.strokeWidth}
           strokeLinecap="round"
           pointerEvents="none"
         />

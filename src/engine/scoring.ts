@@ -1,5 +1,5 @@
 import { neighborCoords } from './board'
-import type { Board, Tile, Unit } from './types'
+import type { Board, Coordinate, Tile, Unit } from './types'
 import { coordKey } from './types'
 
 /**
@@ -101,6 +101,45 @@ export function calculateTerrainControlDetail(
   for (const [playerId, byTerrain] of Object.entries(detailByPlayerId)) {
     result[playerId] = [...byTerrain.values()]
   }
+  return result
+}
+
+export interface TerritoryControlHex {
+  coord: Coordinate
+  ownerId: string
+  /** Effective terrain of the region this hex belongs to (post-terrainScoresAs merge) — lets a renderer split two adjacent same-owner regions of different terrain apart instead of blending them into one shape (see HexBoard's territoryControl prop). */
+  terrain: string
+  /** Total hex count of the region this hex belongs to — lets a caller derive the region's full VP value (hexCount × terrainVictoryPoints[terrain]) without a second traversal, e.g. to scale a rendered border's weight by how much a territory was actually worth rather than just its per-hex rate (see HexBoard's territoryControl prop). */
+  regionSize: number
+}
+
+/**
+ * The same terrain-region majority-owner rule as calculateTerrainControlVP,
+ * exposed per-hex instead of summed into VP — for the victory screen's final
+ * board (see EndGameView.tsx), which highlights who controls which territory
+ * regardless of what that terrain happens to be worth. Deliberately takes no
+ * `terrainVictoryPoints` table: a region a player controls is still "theirs"
+ * to show on the map even if its terrain scores 0 (or isn't in the table at
+ * all), unlike the VP calculation, which drops those regions entirely.
+ * Regions with no majority owner (including empty ones) are simply absent
+ * from the result — every present entry has a real controlling player.
+ */
+export function calculateTerritoryControlByHex(
+  board: Board,
+  units: Unit[],
+  terrainScoresAs: Record<string, string> = {},
+): TerritoryControlHex[] {
+  const result: TerritoryControlHex[] = []
+
+  for (const region of findTerrainRegions(board, terrainScoresAs)) {
+    const majorityOwnerId = findMajorityOwner(region, units)
+    if (!majorityOwnerId) continue
+
+    for (const tile of region.tiles) {
+      result.push({ coord: tile.coord, ownerId: majorityOwnerId, terrain: region.terrain, regionSize: region.tiles.length })
+    }
+  }
+
   return result
 }
 
