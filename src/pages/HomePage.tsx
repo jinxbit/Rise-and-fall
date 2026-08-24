@@ -72,6 +72,7 @@ export function HomePage() {
   const [joinablePage, setJoinablePage] = useState(0)
   const [inProgressPage, setInProgressPage] = useState(0)
   const [finishedPage, setFinishedPage] = useState(0)
+  const [publicFinishedPage, setPublicFinishedPage] = useState(0)
 
   useEffect(() => {
     if (!session) return
@@ -139,7 +140,7 @@ export function HomePage() {
   }
 
   const { active: myGamesInProgress, finished: myFinishedGames } = groupMyGames(myEntries ?? [])
-  const { notStarted, inProgress: publicInProgress } = groupPublicRooms(publicEntries ?? [])
+  const { notStarted, inProgress: publicInProgress, finished: publicFinished } = groupPublicRooms(publicEntries ?? [])
   // "Latest" here means most-recently created — unlike the in-progress list
   // below, a fresh lobby's updated_at rarely differs from its created_at, but
   // created_at is the literal reading of "the latest 10 joinable games".
@@ -151,6 +152,7 @@ export function HomePage() {
   const joinablePageItems = paginate(joinablePublic, joinablePage, PAGE_SIZE)
   const inProgressPageItems = paginate(publicInProgress, inProgressPage, PAGE_SIZE)
   const finishedPageItems = paginate(myFinishedGames, finishedPage, PAGE_SIZE)
+  const publicFinishedPageItems = paginate(publicFinished, publicFinishedPage, PAGE_SIZE)
 
   return (
     <div className="mx-auto flex max-w-lg flex-col gap-8 p-8">
@@ -269,13 +271,35 @@ export function HomePage() {
 
       {myEntries !== null && myFinishedGames.length > 0 && (
         <section className="flex flex-col gap-3">
-          <h2 className="font-medium text-neutral-200">Finished games</h2>
+          <h2 className="font-medium text-neutral-200">Your finished games</h2>
           <ul className="flex flex-col gap-2">
             {finishedPageItems.map((entry) => (
               <MyGameRow key={entry.game.id} entry={entry} onOpen={() => navigate(gamePath(entry))} />
             ))}
           </ul>
           <Pagination page={finishedPage} pageSize={PAGE_SIZE} total={myFinishedGames.length} onChange={setFinishedPage} />
+        </section>
+      )}
+
+      {publicEntries !== null && (
+        <section className="flex flex-col gap-3">
+          <h2 className="font-medium text-neutral-200">Public games — finished</h2>
+          {publicFinished.length === 0 ? (
+            <p className="text-sm text-neutral-500">No finished public games yet.</p>
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {publicFinishedPageItems.map((entry) => (
+                <PublicGameRow
+                  key={entry.game.id}
+                  entry={entry}
+                  userId={session.user.id}
+                  action="View"
+                  onOpen={() => navigate(`/game/${entry.game.room_code}`)}
+                />
+              ))}
+            </ul>
+          )}
+          <Pagination page={publicFinishedPage} pageSize={PAGE_SIZE} total={publicFinished.length} onChange={setPublicFinishedPage} />
         </section>
       )}
     </div>
