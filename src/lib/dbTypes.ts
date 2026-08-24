@@ -149,20 +149,6 @@ export interface PlayerRow {
   ready_for_version: number
 }
 
-/**
- * An Observer watching a game — view-only, does not occupy a player seat
- * (0010_observers.sql, see issue #40 section 6). Deliberately not a
- * `PlayerRow`: not counted toward min/max players, not part of readiness.
- */
-export interface ObserverRow {
-  id: string
-  game_id: string
-  user_id: string
-  display_name: string
-  avatar_url: string | null
-  joined_at: string
-}
-
 export interface GameStateRow {
   game_id: string
   state: EngineGameState

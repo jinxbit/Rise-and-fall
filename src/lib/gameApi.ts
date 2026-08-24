@@ -1,6 +1,6 @@
 import { supabase } from './supabase'
 import { nextSeatIndex } from './seatIndex'
-import type { GameRow, GameSettings, GameStateRow, ObserverRow, PlayerRow, PushSubscriptionRow } from './dbTypes'
+import type { GameRow, GameSettings, GameStateRow, PlayerRow, PushSubscriptionRow } from './dbTypes'
 import type { MyGameEntry } from './myGamesView'
 import type { PublicRoomEntry } from './publicRoomsView'
 import type { Board, GameState as EngineGameState, PlayMode } from '../engine/types'
@@ -462,54 +462,6 @@ export async function cancelGame(gameId: string): Promise<void> {
 export async function deleteGame(gameId: string): Promise<void> {
   const { error } = await supabase.from('games').delete().eq('id', gameId)
   if (error) throw error
-}
-
-/**
- * A signed-in user starts observing a game (issue #40 section 6) — only
- * allowed while the room is 'active' (0010_observers.sql's RLS enforces
- * this server-side too). Idempotent: observing twice just returns the
- * existing row, same pattern as joinGame for a player who's already seated.
- */
-export async function joinAsObserver(params: {
-  gameId: string
-  userId: string
-  displayName: string
-  avatarUrl: string | null
-}): Promise<ObserverRow> {
-  const { data, error } = await supabase
-    .from('observers')
-    .upsert(
-      { game_id: params.gameId, user_id: params.userId, display_name: params.displayName, avatar_url: params.avatarUrl },
-      { onConflict: 'game_id,user_id' },
-    )
-    .select()
-    .single()
-
-  if (error) throw error
-  return data as ObserverRow
-}
-
-/** Stops observing — an observer can leave at any time (RLS only allows removing your own row). */
-export async function leaveAsObserver(gameId: string, userId: string): Promise<void> {
-  const { error } = await supabase.from('observers').delete().eq('game_id', gameId).eq('user_id', userId)
-  if (error) throw error
-}
-
-export async function listObservers(gameId: string): Promise<ObserverRow[]> {
-  const { data, error } = await supabase.from('observers').select().eq('game_id', gameId).order('joined_at', { ascending: true })
-  if (error) throw error
-  return data as ObserverRow[]
-}
-
-export function subscribeToObservers(gameId: string, onChange: () => void): () => void {
-  const channel = supabase
-    .channel(`observers:${gameId}`)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'observers', filter: `game_id=eq.${gameId}` }, onChange)
-    .subscribe()
-
-  return () => {
-    supabase.removeChannel(channel)
-  }
 }
 
 export function subscribeToPlayers(gameId: string, onChange: () => void): () => void {
