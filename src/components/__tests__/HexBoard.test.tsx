@@ -444,52 +444,48 @@ describe('HexBoard — territory control overlay', () => {
     )
   }
 
-  it("draws a border facing an uncontrolled hex directly on the shared edge, not nudged into the controlled hex's own interior", () => {
-    // A lone controlled hex with no competing territory on any side — every
-    // border segment should sit on the actual hex-to-hex boundary (matching
-    // where a cliff edge/structure connector would render) rather than
-    // being pulled toward this hex's own center, so a contiguous territory's
-    // outline stays continuous across hex-to-hex corners instead of
-    // fragmenting (or, with thicker borders, overlapping) at each one.
+  it('draws a border facing an uncontrolled hex inset toward the controlled hex\'s own center, not sitting on the shared boundary', () => {
+    // A lone controlled hex with no competing territory on any side — its
+    // border should still be pulled in from the true hex-to-hex boundary
+    // (matching where a cliff edge/structure connector would render) by
+    // its own halo half-width, the same as every other side, so a whole
+    // outline reads at one consistent inset regardless of what's on the
+    // other side of each edge.
     const { container } = render(
       <HexBoard board={makeBoard()} territoryControl={[{ coord: { q: 0, r: 0 }, color: '#22c55e', terrain: 'plain', points: 1 }]} />,
     )
     // The hex at (0,0) is centered at x=0 with radius 21 (size 22 - 1); its
-    // rightmost side's true (un-nudged) boundary sits near x=19. Nudging it
-    // toward the hex's own center would have pulled it noticeably short of
-    // that.
+    // rightmost side's true (un-inset) boundary sits near x=19.
     const rightmostX = Math.max(...borderMidXs(container, '#22c55e'))
-    expect(rightmostX).toBeGreaterThan(17)
+    expect(rightmostX).toBeLessThan(19)
+    expect(rightmostX).toBeGreaterThan(10)
   })
 
-  it('draws a border facing a competing territory as two half-segments split at the shared edge\'s true midpoint — never nudged off the real hex boundary', () => {
+  it('draws a competing edge as two fully separate, non-overlapping segments — one per owner, each inset into its own hex, never crossing the shared boundary', () => {
     const territoryControl = [
       { coord: { q: 0, r: 0 }, color: '#22c55e', terrain: 'plain', points: 1 },
       { coord: { q: 1, r: 0 }, color: '#3b82f6', terrain: 'plain', points: 1 },
     ]
     const { container } = render(<HexBoard board={makeBoard()} territoryControl={territoryControl} />)
 
-    // Both hexes are centered on the x axis (q=0 and q=1); their shared
-    // edge's true boundary sits at x≈19.05. The segment each side draws
-    // along that shared edge is the one whose midpoint x is closest to that
-    // boundary — unlike the old nudge-based rendering, both halves' own
-    // midpoints should land almost exactly on the true boundary (they're
-    // slices of the same real edge, not pulled apart from it), well short of
-    // where a nudge toward each hex's own center (x=0 or x≈38.1) would land.
+    // The two hexes are centered at x=0 (q=0) and x≈38.1 (q=1); their
+    // shared true boundary sits at x≈19.05. Green's segment along that side
+    // should be inset toward its own center (x=0), i.e. strictly left of
+    // the boundary; blue's should be inset toward its own center (x≈38.1),
+    // i.e. strictly right of it — so neither crosses into the other's hex.
     const sharedBoundaryX = 19.05
-    const closestTo = (xs: number[]) => xs.reduce((best, x) => (Math.abs(x - sharedBoundaryX) < Math.abs(best - sharedBoundaryX) ? x : best))
-    const greenSharedX = closestTo(borderMidXs(container, '#22c55e'))
-    const blueSharedX = closestTo(borderMidXs(container, '#3b82f6'))
-    expect(greenSharedX).toBeCloseTo(sharedBoundaryX, 0)
-    expect(blueSharedX).toBeCloseTo(sharedBoundaryX, 0)
+    const greenSharedX = Math.max(...borderMidXs(container, '#22c55e'))
+    const blueSharedX = Math.min(...borderMidXs(container, '#3b82f6'))
+    expect(greenSharedX).toBeLessThan(sharedBoundaryX)
+    expect(blueSharedX).toBeGreaterThan(sharedBoundaryX)
   })
 
-  it('splits a competing-territory edge into two half-segments that meet at exactly the same point — no gap and no overlap, regardless of how different the two territories\' border widths are', () => {
+  it('renders each side of a competing edge symmetrically inset by its own width, even when the two territories\' widths differ a lot', () => {
     const territoryControl = [
       // A big point gap maximizes the width difference between the two
-      // territories, so any mismatch between the two halves' meeting point
-      // is large enough to fail this test outright rather than being lost
-      // in rounding.
+      // territories, so an inset that scaled the wrong way (or not at all)
+      // would be large enough to fail this test outright rather than being
+      // lost in rounding.
       { coord: { q: 0, r: 0 }, color: '#22c55e', terrain: 'plain', points: 12 },
       { coord: { q: 1, r: 0 }, color: '#3b82f6', terrain: 'plain', points: 1 },
     ]
@@ -500,32 +496,15 @@ describe('HexBoard — territory control overlay', () => {
     expect(greenLines).toHaveLength(6)
     expect(blueLines).toHaveLength(6)
 
-    // The shared edge between (0,0) and (1,0) is vertical, at x≈19.05,
-    // running from y≈-10.5 to y≈10.5 — both its true vertices *and* its
-    // midpoint share that same x, so only y distinguishes them. The
-    // half-segment each colour draws along it is the one whose endpoints
-    // don't span the full edge; within that segment, the midpoint-side
-    // endpoint (shared with the other colour's half) is the one closer to
-    // y=0 than to either true vertex.
     const sharedBoundaryX = 19.05
-    const meetingPoint = (lines: Element[]) => {
-      const segments = lines.map((line) => ({
-        x1: Number(line.getAttribute('x1')),
-        y1: Number(line.getAttribute('y1')),
-        x2: Number(line.getAttribute('x2')),
-        y2: Number(line.getAttribute('y2')),
-      }))
-      const half = segments.find((s) => Math.abs(s.x1 - sharedBoundaryX) < 1 && Math.abs(s.x2 - sharedBoundaryX) < 1)!
-      const [p1, p2] = [
-        { x: half.x1, y: half.y1 },
-        { x: half.x2, y: half.y2 },
-      ]
-      return Math.abs(p1.y) < Math.abs(p2.y) ? p1 : p2
-    }
-    const greenMeetingPoint = meetingPoint(greenLines)
-    const blueMeetingPoint = meetingPoint(blueLines)
-    expect(greenMeetingPoint.x).toBeCloseTo(blueMeetingPoint.x, 5)
-    expect(greenMeetingPoint.y).toBeCloseTo(blueMeetingPoint.y, 5)
+    const greenSharedX = Math.max(...borderMidXs(container, '#22c55e'))
+    const blueSharedX = Math.min(...borderMidXs(container, '#3b82f6'))
+    // The wider (higher-point) green territory is inset further from the
+    // boundary than the narrower blue one, but both stay strictly on their
+    // own side of it — no overlap regardless of the width gap.
+    expect(sharedBoundaryX - greenSharedX).toBeGreaterThan(blueSharedX - sharedBoundaryX)
+    expect(greenSharedX).toBeLessThan(sharedBoundaryX)
+    expect(blueSharedX).toBeGreaterThan(sharedBoundaryX)
   })
 
   it('draws cliff-edge lines when territoryControl is omitted', () => {

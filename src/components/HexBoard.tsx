@@ -114,6 +114,44 @@ function hexEdgeSegment(ax: number, ay: number, bx: number, by: number, radius: 
   return { x1: mx - px * half, y1: my - py * half, x2: mx + px * half, y2: my + py * half }
 }
 
+/**
+ * A territory border segment for hex (cx,cy)'s side facing neighbor
+ * (nx,ny) — this hex's own true edge (same two vertices `hexPoints` would
+ * place there, `radius` = size - 1), pulled inward toward this hex's own
+ * center by `insetDist` rather than sitting on the shared boundary. Used so
+ * two territories meeting at one physical edge each draw a fully separate,
+ * self-contained line on their own side of it instead of both centering a
+ * stroke on the same shared line — the earlier approach, which let a wide
+ * stroke bleed across the boundary into the neighbor and visually blend
+ * with (or get outweighted by) whatever the neighbor drew there too,
+ * whether that was a different color or the same color at a different
+ * width (bug report: "the colors coexist... should face inward and never
+ * overlap").
+ *
+ * A regular hexagon's edge, pulled inward by a constant perpendicular
+ * distance, is exactly that hexagon scaled toward its own center — so the
+ * inset edge's two endpoints sit at the same angles from center as this
+ * hex's own true vertices for that side (±30° from the direction to the
+ * neighbor), just at a smaller radius. Two adjacent sides of the same hex
+ * computed this way always share their common corner exactly (same center,
+ * same inset radius, same shared angle) — no separate corner-mitering step
+ * is needed, unlike the per-edge-translation approach an earlier version of
+ * this tried (which left adjacent sides' translated endpoints mismatched).
+ */
+function territoryInsetEdge(cx: number, cy: number, nx: number, ny: number, radius: number, insetDist: number): { x1: number; y1: number; x2: number; y2: number } {
+  const theta = Math.atan2(ny - cy, nx - cx)
+  const apothemPerUnitRadius = SQRT3 / 2
+  const insetRadius = Math.max(0, radius - insetDist / apothemPerUnitRadius)
+  const a1 = theta - Math.PI / 6
+  const a2 = theta + Math.PI / 6
+  return {
+    x1: cx + insetRadius * Math.cos(a1),
+    y1: cy + insetRadius * Math.sin(a1),
+    x2: cx + insetRadius * Math.cos(a2),
+    y2: cy + insetRadius * Math.sin(a2),
+  }
+}
+
 /** Pulls both ends of a line segment inward along its own direction — used to keep a history arrow (see HistoryArrow) from starting/ending right under a unit marker's plate. */
 function insetSegment(x1: number, y1: number, x2: number, y2: number, startInset: number, endInset: number) {
   const dx = x2 - x1
@@ -552,10 +590,20 @@ export function HexBoard(props: {
    * size are worth very different amounts, and a small Mountain region can
    * be worth less than a large Water one despite Water's lower per-hex rate.
    *
+   * Every side is drawn inset toward its own hex's center (see
+   * territoryInsetEdge below) rather than centered on the shared boundary —
+   * so a territory's stroke (and its dark halo, see
+   * TERRITORY_BORDER_HALO_WIDTH_MULTIPLIER) always stays entirely within
+   * its own hex, touching the true edge but never crossing it. That keeps
+   * two territories meeting at one edge — different colours, or the same
+   * colour at different widths — from ever visually coexisting on the same
+   * line; where they meet, only their two dark halos touch, reading as one
+   * thin dividing seam.
+   *
    * Supplying this (even an empty array) also suppresses cliff-edge lines
    * for the whole board — cliffs aren't meaningful on the final board, and a
    * cliff's own fixed-width black line could otherwise show through a
-   * thinner territory border drawn on the same real hex edge.
+   * territory border drawn on the same real hex edge.
    */
   territoryControl?: { coord: Coordinate; color: string; terrain: string; points: number }[]
   selectedCoord?: Coordinate | null
@@ -736,61 +784,41 @@ export function HexBoard(props: {
   // one connected outline (see territoryControl above) — while a same-owner
   // hex of a different terrain still gets its own separate outline.
   //
-  // Every segment sits on the real hex-to-hex edge (via hexEdgeSegment, the
-  // same helper cliff edges/structure connectors above already use) rather
-  // than being nudged off it — an earlier version pulled a side toward its
-  // own hex's center whenever it faced a competing territory, but left
-  // untouched sides (facing an uncontrolled hex/the board edge) on the true
-  // edge; wherever those two kinds of sides met at a corner (common), the
-  // corner became the intersection of a pulled-in line and a not-pulled-in
-  // one — a visibly skewed, kinked corner instead of a clean one (bug
-  // report: "lines are pushed inwards creating weird shapes").
-  //
-  // A side facing a *competing* territory (the one case with two owners
-  // wanting to draw on the same physical edge) is instead split into two
-  // half-length segments meeting exactly at the edge's true midpoint, one
-  // per owner's colour — drawn once per shared edge (from whichever of the
-  // two hexes is "canonical" for that direction, `i < neighbors.length / 2`)
-  // so it isn't emitted twice. Both halves land on the real edge, so they
-  // never overlap and never leave a gap.
+  // Every segment is inset toward its own hex's center (via
+  // territoryInsetEdge above) by that hex's own halo half-width, so the
+  // stroke — halo included — always stays within this hex, never crossing
+  // the real hex-to-hex edge onto a neighbor's side. Both hexes on a
+  // competing edge independently draw their own fully-contained segment
+  // this way (unlike an earlier version, which centered one shared line on
+  // the boundary and let it bleed into whichever hex's stroke was wider —
+  // bug report: "the colors coexist... should face inward and never
+  // overlap"). Since the inset amount is the same for every side of one
+  // hex, adjacent drawn sides of that hex always meet at an exact shared
+  // corner with no separate mitering step needed (see territoryInsetEdge's
+  // doc comment).
   const territoryByKey = new Map((props.territoryControl ?? []).map((t) => [coordKey(t.coord), t]))
   const territoryBorderSegments: { x1: number; y1: number; x2: number; y2: number; color: string; strokeWidth: number }[] = []
   if (territoryByKey.size > 0) {
     const allPoints = [...territoryByKey.values()].map((t) => t.points)
     const minPoints = Math.min(...allPoints)
     const maxPoints = Math.max(...allPoints)
-    const widthOf = (t: { points: number }) => territoryBorderWidth(size, t.points, minPoints, maxPoints)
 
     for (const { coord, x, y } of pixels) {
       const territory = territoryByKey.get(coordKey(coord))
       if (!territory) continue
-      const strokeWidth = widthOf(territory)
-      const neighbors = neighborCoords(props.board, coord)
-      neighbors.forEach((neighborCoord, i) => {
+      const strokeWidth = territoryBorderWidth(size, territory.points, minPoints, maxPoints)
+      // Inset by the halo's own half-width (not just the color line's) so
+      // the halo's outer edge lands right on the true boundary instead of
+      // poking past it — see TERRITORY_BORDER_HALO_WIDTH_MULTIPLIER.
+      const insetDist = strokeWidth * (TERRITORY_BORDER_HALO_WIDTH_MULTIPLIER / 2)
+      for (const neighborCoord of neighborCoords(props.board, coord)) {
         const neighborTerritory = territoryByKey.get(coordKey(neighborCoord))
-        if (neighborTerritory && neighborTerritory.color === territory.color && neighborTerritory.terrain === territory.terrain) return
+        if (neighborTerritory && neighborTerritory.color === territory.color && neighborTerritory.terrain === territory.terrain) continue
 
         const { x: nx, y: ny } = axialToPixel(neighborCoord, size)
-        const edge = hexEdgeSegment(x, y, nx, ny, size - 1)
-
-        if (!neighborTerritory) {
-          territoryBorderSegments.push({ x1: edge.x1, y1: edge.y1, x2: edge.x2, y2: edge.y2, color: territory.color, strokeWidth })
-          return
-        }
-
-        if (i >= neighbors.length / 2) return // the paired direction from the neighbor already emits both halves
-        const midX = (edge.x1 + edge.x2) / 2
-        const midY = (edge.y1 + edge.y2) / 2
-        territoryBorderSegments.push({ x1: edge.x1, y1: edge.y1, x2: midX, y2: midY, color: territory.color, strokeWidth })
-        territoryBorderSegments.push({
-          x1: midX,
-          y1: midY,
-          x2: edge.x2,
-          y2: edge.y2,
-          color: neighborTerritory.color,
-          strokeWidth: widthOf(neighborTerritory),
-        })
-      })
+        const edge = territoryInsetEdge(x, y, nx, ny, size - 1, insetDist)
+        territoryBorderSegments.push({ x1: edge.x1, y1: edge.y1, x2: edge.x2, y2: edge.y2, color: territory.color, strokeWidth })
+      }
     }
   }
 
