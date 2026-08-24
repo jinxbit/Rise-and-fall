@@ -97,6 +97,8 @@ export function GamePage() {
   /** The top-left hamburger menu (Main menu, Show/Hide game state JSON) — see the click-outside/Escape effect below. */
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
+  /** The "Reviewing history" banner (Prev/Next/slider/Back to live, etc.) — see the page-wide click-to-exit handler below. */
+  const reviewBannerRef = useRef<HTMLDivElement>(null)
   const [copiedStateJson, setCopiedStateJson] = useState(false)
   const [copiedStateExport, setCopiedStateExport] = useState(false)
   const [stateExportError, setStateExportError] = useState<AppError | null>(null)
@@ -968,7 +970,19 @@ export function GamePage() {
   if (!game) return <div className="p-8 text-neutral-400">Looking for room {roomCode}…</div>
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 p-8 lg:max-w-6xl xl:max-w-7xl">
+    <div
+      className="mx-auto flex w-full max-w-4xl flex-col gap-6 p-8 lg:max-w-6xl xl:max-w-7xl"
+      onClick={(event) => {
+        // Reviewing history has no "save"/confirm step to protect — any
+        // click outside the review banner itself (the board, the sidebar,
+        // the header, anywhere) exits back to live play, the same as
+        // clicking "Back to live" (issue #285 follow-up: originally only
+        // the board's own hexes did this, via RoundView's onExitHistory).
+        if (!isReviewingHistory) return
+        if (reviewBannerRef.current?.contains(event.target as Node)) return
+        setReviewIndex(null)
+      }}
+    >
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap items-center gap-3">
           <div ref={menuRef} className="relative">
@@ -1161,7 +1175,10 @@ export function GamePage() {
       </header>
 
       {isReviewingHistory && (
-        <div className="flex flex-wrap items-center gap-3 rounded-md border border-amber-700/40 bg-amber-500/10 p-3 text-sm text-amber-200">
+        <div
+          ref={reviewBannerRef}
+          className="flex flex-wrap items-center gap-3 rounded-md border border-amber-700/40 bg-amber-500/10 p-3 text-sm text-amber-200"
+        >
           <span className="font-medium">Reviewing history</span>
           <button
             type="button"
