@@ -335,15 +335,15 @@ describe('HexBoard — territory control overlay', () => {
 
   it('draws a border on every side of a single controlled hex (all 6 sides are outward-facing)', () => {
     const { container } = render(
-      <HexBoard board={makeBoard()} territoryControl={[{ coord: { q: 0, r: 0 }, color: '#22c55e', terrain: 'plain' }]} />,
+      <HexBoard board={makeBoard()} territoryControl={[{ coord: { q: 0, r: 0 }, color: '#22c55e', terrain: 'plain', points: 1 }]} />,
     )
     expect(container.querySelectorAll('line[stroke="#22c55e"]')).toHaveLength(6)
   })
 
   it("doesn't draw a border between two of the same player's own adjacent controlled hexes of the same terrain — territory-based, not hex-based", () => {
     const territoryControl = [
-      { coord: { q: 0, r: 0 }, color: '#22c55e', terrain: 'plain' },
-      { coord: { q: 1, r: 0 }, color: '#22c55e', terrain: 'plain' },
+      { coord: { q: 0, r: 0 }, color: '#22c55e', terrain: 'plain', points: 1 },
+      { coord: { q: 1, r: 0 }, color: '#22c55e', terrain: 'plain', points: 1 },
     ]
     const { container } = render(<HexBoard board={makeBoard()} territoryControl={territoryControl} />)
 
@@ -355,8 +355,8 @@ describe('HexBoard — territory control overlay', () => {
 
   it('draws a border on both sides of an edge shared by two different owners', () => {
     const territoryControl = [
-      { coord: { q: 0, r: 0 }, color: '#22c55e', terrain: 'plain' },
-      { coord: { q: 1, r: 0 }, color: '#3b82f6', terrain: 'plain' },
+      { coord: { q: 0, r: 0 }, color: '#22c55e', terrain: 'plain', points: 1 },
+      { coord: { q: 1, r: 0 }, color: '#3b82f6', terrain: 'plain', points: 1 },
     ]
     const { container } = render(<HexBoard board={makeBoard()} territoryControl={territoryControl} />)
 
@@ -368,8 +368,8 @@ describe('HexBoard — territory control overlay', () => {
 
   it('draws a border between two adjacent hexes of different terrain even when the same player controls both', () => {
     const territoryControl = [
-      { coord: { q: 0, r: 0 }, color: '#22c55e', terrain: 'forest' },
-      { coord: { q: 1, r: 0 }, color: '#22c55e', terrain: 'plain' },
+      { coord: { q: 0, r: 0 }, color: '#22c55e', terrain: 'forest', points: 3 },
+      { coord: { q: 1, r: 0 }, color: '#22c55e', terrain: 'plain', points: 1 },
     ]
     const { container } = render(<HexBoard board={makeBoard()} territoryControl={territoryControl} />)
 
@@ -377,5 +377,65 @@ describe('HexBoard — territory control overlay', () => {
     // outward-facing for both hexes since they belong to different
     // territories — a full 6 sides per hex, 12 total.
     expect(container.querySelectorAll('line[stroke="#22c55e"]')).toHaveLength(12)
+  })
+
+  it('renders a wider border for a higher-point territory', () => {
+    const lowPoint = render(
+      <HexBoard board={makeBoard()} territoryControl={[{ coord: { q: 0, r: 0 }, color: '#22c55e', terrain: 'plain', points: 1 }]} />,
+    )
+    const highPoint = render(
+      <HexBoard board={makeBoard()} territoryControl={[{ coord: { q: 0, r: 0 }, color: '#22c55e', terrain: 'mountain', points: 4 }]} />,
+    )
+
+    const lowWidth = Number(lowPoint.container.querySelector('line[stroke="#22c55e"]')!.getAttribute('stroke-width'))
+    const highWidth = Number(highPoint.container.querySelector('line[stroke="#22c55e"]')!.getAttribute('stroke-width'))
+    expect(highWidth).toBeGreaterThan(lowWidth)
+  })
+
+  /** Every rendered `<line stroke={color}>`'s midpoint x — order-independent, unlike relying on which `<line>` a querySelector happens to match first. */
+  function borderMidXs(container: HTMLElement, color: string): number[] {
+    return [...container.querySelectorAll(`line[stroke="${color}"]`)].map(
+      (line) => (Number(line.getAttribute('x1')) + Number(line.getAttribute('x2'))) / 2,
+    )
+  }
+
+  it("draws a border facing an uncontrolled hex directly on the shared edge, not nudged into the controlled hex's own interior", () => {
+    // A lone controlled hex with no competing territory on any side — every
+    // border segment should sit on the actual hex-to-hex boundary (matching
+    // where a cliff edge/structure connector would render) rather than
+    // being pulled toward this hex's own center, so a contiguous territory's
+    // outline stays continuous across hex-to-hex corners instead of
+    // fragmenting (or, with thicker borders, overlapping) at each one.
+    const { container } = render(
+      <HexBoard board={makeBoard()} territoryControl={[{ coord: { q: 0, r: 0 }, color: '#22c55e', terrain: 'plain', points: 1 }]} />,
+    )
+    // The hex at (0,0) is centered at x=0 with radius 21 (size 22 - 1); its
+    // rightmost side's true (un-nudged) boundary sits near x=19. Nudging it
+    // toward the hex's own center would have pulled it noticeably short of
+    // that.
+    const rightmostX = Math.max(...borderMidXs(container, '#22c55e'))
+    expect(rightmostX).toBeGreaterThan(17)
+  })
+
+  it('draws a border facing a competing territory nudged off the shared edge, into each side', () => {
+    const territoryControl = [
+      { coord: { q: 0, r: 0 }, color: '#22c55e', terrain: 'plain', points: 1 },
+      { coord: { q: 1, r: 0 }, color: '#3b82f6', terrain: 'plain', points: 1 },
+    ]
+    const { container } = render(<HexBoard board={makeBoard()} territoryControl={territoryControl} />)
+
+    // Both hexes are centered on the x axis (q=0 and q=1); their shared
+    // edge's true (un-nudged) boundary sits at x≈19.05. The segment each
+    // side draws along that shared edge is the one whose midpoint x is
+    // closest to that boundary — green's should land left of it (nudged
+    // toward its own hex, at x=0) and blue's right of it (nudged toward its
+    // own hex, at x≈38.1), keeping the two territories' outlines visibly
+    // separate instead of overlapping on the same line.
+    const sharedBoundaryX = 19.05
+    const closestTo = (xs: number[]) => xs.reduce((best, x) => (Math.abs(x - sharedBoundaryX) < Math.abs(best - sharedBoundaryX) ? x : best))
+    const greenSharedX = closestTo(borderMidXs(container, '#22c55e'))
+    const blueSharedX = closestTo(borderMidXs(container, '#3b82f6'))
+    expect(greenSharedX).toBeLessThan(sharedBoundaryX)
+    expect(blueSharedX).toBeGreaterThan(sharedBoundaryX)
   })
 })

@@ -55,6 +55,20 @@ const CLIFF_CHECK_DIRECTIONS: Coordinate[] = [
   { q: 0, r: -1 },
 ]
 
+/** The thinnest a territory border ever gets (a 0-point/unlisted terrain), as a fraction of `size`. Matches what the border's width used to be unconditionally, so a 1-point terrain (e.g. Plain) renders the same as before this became variable. */
+const TERRITORY_BORDER_MIN_WIDTH_FACTOR = 0.08
+const TERRITORY_BORDER_WIDTH_PER_POINT_FACTOR = 0.04
+/** Caps how thick a border can get for an unusually high-value terrain (e.g. custom module content) so it can't swallow a small hex. */
+const TERRITORY_BORDER_MAX_WIDTH_FACTOR = 0.32
+/** The dark halo drawn under the border's own colour (see territoryBorderSegments below) is always this many times wider, same ratio as before this became variable. */
+const TERRITORY_BORDER_HALO_WIDTH_MULTIPLIER = 2
+
+/** A territory's outline stroke width, in pixels — thicker for a higher-scoring terrain (see the `points` field on the `territoryControl` prop). */
+function territoryBorderWidth(size: number, points: number): number {
+  const factor = TERRITORY_BORDER_MIN_WIDTH_FACTOR + Math.max(0, points) * TERRITORY_BORDER_WIDTH_PER_POINT_FACTOR
+  return size * Math.min(factor, TERRITORY_BORDER_MAX_WIDTH_FACTOR)
+}
+
 const SQRT3 = Math.sqrt(3)
 
 function axialToPixel(coord: Coordinate, size: number): { x: number; y: number } {
@@ -530,8 +544,14 @@ export function HexBoard(props: {
    * per-hex stamp. Deliberately an outline rather than a fill (issue #270):
    * filling hexes with a player's colour can blend into a same-hued terrain
    * (e.g. a blue player's water) and hides the terrain underneath either way.
+   *
+   * `points` is that hex's terrain's per-hex victory-point value (e.g.
+   * content/terrain.json's Mountain at 4 vs Plain at 1) — the outline's
+   * stroke gets thicker the more a territory is worth (see
+   * territoryBorderWidth below), so a glance at line weight hints at which
+   * regions mattered most for the final score.
    */
-  territoryControl?: { coord: Coordinate; color: string; terrain: string }[]
+  territoryControl?: { coord: Coordinate; color: string; terrain: string; points: number }[]
   selectedCoord?: Coordinate | null
   /**
    * Draws a rotate-arrow glyph on this hex — the pending tile placement's
@@ -699,18 +719,34 @@ export function HexBoard(props: {
   // adjacent hexes of the *same* terrain, and a whole territory traces as
   // one connected outline (see territoryControl above) — while a same-owner
   // hex of a different terrain still gets its own separate outline.
+  //
+  // Only a side facing *another controlled territory* gets nudged off the
+  // shared edge (each side pulled toward its own hex, so the two don't
+  // paint over each other) — that's the one case with a second, competing
+  // line drawn from the other side. A side facing an uncontrolled hex or
+  // the board's own edge has nothing to compete with, so it's drawn right
+  // on the shared boundary instead, the same place cliff edges/structure
+  // connectors above already draw. Previously *every* side was nudged
+  // inward regardless, which pulled each hex's contribution toward its own,
+  // separate center — fine for a single straight edge, but at a corner
+  // where a territory's outline bends across two different hexes, pulling
+  // each side toward a different point splits what should be one continuous
+  // corner into two visibly disjointed (and, with thicker borders, often
+  // overlapping) segments.
   const territoryByKey = new Map((props.territoryControl ?? []).map((t) => [coordKey(t.coord), t]))
-  const territoryBorderSegments: { x1: number; y1: number; x2: number; y2: number; color: string }[] = []
+  const territoryBorderSegments: { x1: number; y1: number; x2: number; y2: number; color: string; strokeWidth: number }[] = []
   if (territoryByKey.size > 0) {
     for (const { coord, x, y } of pixels) {
       const territory = territoryByKey.get(coordKey(coord))
       if (!territory) continue
+      const strokeWidth = territoryBorderWidth(size, territory.points)
       for (const neighborCoord of neighborCoords(props.board, coord)) {
         const neighborTerritory = territoryByKey.get(coordKey(neighborCoord))
         if (neighborTerritory && neighborTerritory.color === territory.color && neighborTerritory.terrain === territory.terrain) continue
         const { x: nx, y: ny } = axialToPixel(neighborCoord, size)
         const edge = hexEdgeSegment(x, y, nx, ny, size - 1)
-        territoryBorderSegments.push({ ...insetSegmentToward(edge, x, y, size * 0.16), color: territory.color })
+        const seg = neighborTerritory ? insetSegmentToward(edge, x, y, strokeWidth * 1.5) : edge
+        territoryBorderSegments.push({ ...seg, color: territory.color, strokeWidth })
       }
     }
   }
@@ -774,7 +810,7 @@ export function HexBoard(props: {
           y2={seg.y2}
           stroke="#000000"
           strokeOpacity={0.6}
-          strokeWidth={size * 0.24}
+          strokeWidth={seg.strokeWidth * TERRITORY_BORDER_HALO_WIDTH_MULTIPLIER}
           strokeLinecap="round"
           pointerEvents="none"
         />
@@ -787,7 +823,7 @@ export function HexBoard(props: {
           x2={seg.x2}
           y2={seg.y2}
           stroke={seg.color}
-          strokeWidth={size * 0.12}
+          strokeWidth={seg.strokeWidth}
           strokeLinecap="round"
           pointerEvents="none"
         />
