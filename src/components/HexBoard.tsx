@@ -606,8 +606,8 @@ function computeActionMenuAngles(groups: ActionMenuGroup[]): Map<string, number>
 const ACTION_MENU_BOX_WIDTH_FACTOR = 3.4
 const ACTION_MENU_BOX_HEIGHT_FACTOR = 1.7
 /** Generous enough for the longest realistic history label — up to 3 icon+amount badges, e.g. gold/wood/stone all changing in the same window. */
-const HISTORY_LABEL_WIDTH_FACTOR = 2.6
-const HISTORY_LABEL_HEIGHT_FACTOR = 0.62
+const HISTORY_LABEL_WIDTH_FACTOR = 1.9
+const HISTORY_LABEL_HEIGHT_FACTOR = 0.46
 
 /** Wide enough for the "Confirm" button at PLACEMENT_CONTROLS's own font size, tall enough for one line of button text. Sized generously (issue #157) so the button is easy to hit, especially on touch. */
 const PLACEMENT_CONTROLS_WIDTH_FACTOR = 4.6
@@ -637,7 +637,7 @@ export interface PlacementControls {
 
 /**
  * Top-left corner for each unit's history label (see UnitMarker.historyDelta),
- * keyed by that unit's index in `units` — normally just above-right of the
+ * keyed by that unit's index in `units` — normally centered just above the
  * unit's own hex, but a label is wider than the gap between adjacent hexes,
  * so two nearby labeled units would otherwise draw right on top of each
  * other. Each label greedily claims the first vertical "slot" (stacked
@@ -651,6 +651,9 @@ function computeHistoryLabelPositions(units: UnitMarker[], size: number): Map<nu
   const labelWidth = size * HISTORY_LABEL_WIDTH_FACTOR
   const labelHeight = size * HISTORY_LABEL_HEIGHT_FACTOR
   const stepY = labelHeight + size * 0.1
+  // Gap between the unit plate's top edge and the label's bottom edge, so the
+  // label clears the plate/glyph instead of sitting flush against it.
+  const plateGap = size * 0.18
 
   const positions = new Map<number, { x: number; y: number }>()
   const claimed: { x: number; y: number }[] = []
@@ -658,8 +661,10 @@ function computeHistoryLabelPositions(units: UnitMarker[], size: number): Map<nu
   units.forEach((unit, i) => {
     if (!unit.historyDelta || RESOURCE_ORDER.every((key) => !unit.historyDelta![key])) return
     const { x, y } = axialToPixel(unit.coord, size)
-    const baseX = x + plateSize * 0.4
-    const baseY = y - plateSize * 1.05
+    // Centered horizontally on the unit's own hex rather than offset to one
+    // side, so the label reads as belonging to that hex at a glance.
+    const baseX = x - labelWidth / 2
+    const baseY = y - plateSize / 2 - plateGap - labelHeight
 
     let level = 0
     while (claimed.some((box) => Math.abs(box.x - baseX) < labelWidth && Math.abs(box.y - (baseY + level * stepY)) < labelHeight)) {
@@ -1200,38 +1205,51 @@ export function HexBoard(props: {
               strokeWidth={0.75}
             />
             <UnitGlyph kind={unit.kind} x={x} y={y} size={glyphSize} />
-            {unit.historyDelta && historyLabelPositions.has(i) && (
-              <foreignObject
-                x={historyLabelPositions.get(i)!.x}
-                y={historyLabelPositions.get(i)!.y}
-                width={size * HISTORY_LABEL_WIDTH_FACTOR}
-                height={size * HISTORY_LABEL_HEIGHT_FACTOR}
-              >
-                <div
-                  style={{ fontSize: size * 0.28, lineHeight: 1.1 }}
-                  // `w-fit`/shrink-to-fit sizing doesn't reliably compute inside
-                  // an SVG foreignObject (observed in Chromium: the box instead
-                  // expands to fill the foreignObject's full declared width,
-                  // pushing the actually-narrow text mostly out of view) — fill
-                  // the box exactly instead and center within it, the same
-                  // fixed-size approach the action-menu option boxes below
-                  // already use safely.
-                  className="flex h-full w-full items-center justify-center gap-1 whitespace-nowrap rounded-md border border-neutral-700 bg-neutral-900/95 px-1.5 font-medium text-neutral-100"
-                >
-                  {RESOURCE_ORDER.filter((key) => unit.historyDelta![key]).map((key) => {
-                    const amount = unit.historyDelta![key]!
-                    return (
-                      <span key={key} className={`inline-flex items-center gap-0.5 font-bold ${RESOURCE_COLOR_CLASS[key]}`}>
-                        <ResourceIcon resource={key} title={RESOURCE_LABEL[key]} className="h-[1em] w-[1em] shrink-0" />
-                        {amount > 0 ? '+' : ''}
-                        {amount}
-                      </span>
-                    )
-                  })}
-                </div>
-              </foreignObject>
-            )}
           </g>
+        )
+      })}
+      {/*
+       * Rendered as its own pass after every unit, rather than inline in the
+       * loop above, so a label always sits on top of every unit plate —
+       * including a later-indexed unit whose own plate would otherwise be
+       * drawn after (and on top of) an earlier unit's label. Bug report:
+       * "label is sometimes not the top most element".
+       */}
+      {(props.units ?? []).map((unit, i) => {
+        if (!unit.historyDelta || !historyLabelPositions.has(i)) return null
+        const { x, y } = historyLabelPositions.get(i)!
+        return (
+          <foreignObject
+            key={`history-${i}`}
+            x={x}
+            y={y}
+            width={size * HISTORY_LABEL_WIDTH_FACTOR}
+            height={size * HISTORY_LABEL_HEIGHT_FACTOR}
+            pointerEvents="none"
+          >
+            <div
+              style={{ fontSize: size * 0.34, lineHeight: 1.1 }}
+              // `w-fit`/shrink-to-fit sizing doesn't reliably compute inside
+              // an SVG foreignObject (observed in Chromium: the box instead
+              // expands to fill the foreignObject's full declared width,
+              // pushing the actually-narrow text mostly out of view) — fill
+              // the box exactly instead and center within it, the same
+              // fixed-size approach the action-menu option boxes below
+              // already use safely.
+              className="flex h-full w-full items-center justify-center gap-1 whitespace-nowrap rounded-md border border-neutral-700 bg-neutral-900/95 px-1.5 font-medium text-neutral-100"
+            >
+              {RESOURCE_ORDER.filter((key) => unit.historyDelta![key]).map((key) => {
+                const amount = unit.historyDelta![key]!
+                return (
+                  <span key={key} className={`inline-flex items-center gap-0.5 font-bold ${RESOURCE_COLOR_CLASS[key]}`}>
+                    <ResourceIcon resource={key} title={RESOURCE_LABEL[key]} className="h-[1em] w-[1em] shrink-0" />
+                    {amount > 0 ? '+' : ''}
+                    {amount}
+                  </span>
+                )
+              })}
+            </div>
+          </foreignObject>
         )
       })}
       {props.actionMenu && actionMenuCenter && actionMenuLayout && (
