@@ -22,10 +22,23 @@
           var target = event.target
           if (!(target instanceof HTMLElement)) return
           if (target.tagName !== 'SCRIPT' && target.tagName !== 'LINK') return
-          var key = 'rf:reload-on-stale-asset'
-          if (sessionStorage.getItem(key)) return
-          sessionStorage.setItem(key, '1')
-          location.reload()
+          // The "rfr" URL param is a fallback guard for browsers/privacy modes
+          // where sessionStorage throws or doesn't persist across
+          // location.reload() — without it, a persistently failing asset
+          // retriggers this handler on every load, seen as an infinite
+          // refresh loop that only stops when the user hits the browser's
+          // Stop button (issue #288).
+          if (new URLSearchParams(location.search).has('rfr')) return
+          try {
+            var key = 'rf:reload-on-stale-asset'
+            if (sessionStorage.getItem(key)) return
+            sessionStorage.setItem(key, '1')
+          } catch {
+            // storage access blocked — the URL guard above still applies
+          }
+          var url = new URL(location.href)
+          url.searchParams.set('rfr', '1')
+          location.replace(url.toString())
         },
         true,
       )
