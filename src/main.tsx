@@ -10,12 +10,18 @@ const root = createRoot(document.getElementById('root')!)
 import('./App.tsx')
   .then(({ default: App }) => {
     // A successful load means the current build is usable — clear the
-    // reload-once guard from index.html so a future stale-asset error (after
-    // the *next* deploy) can trigger a fresh auto-reload again.
+    // reload-once guards (index.html's sessionStorage flag and its "rfr" URL
+    // fallback) so a future stale-asset error (after the *next* deploy) can
+    // trigger a fresh auto-reload again.
     try {
       sessionStorage.removeItem('rf:reload-on-stale-asset')
     } catch {
       // storage access blocked (e.g. sandboxed iframe, strict privacy mode) — not fatal
+    }
+    if (new URLSearchParams(location.search).has('rfr')) {
+      const url = new URL(location.href)
+      url.searchParams.delete('rfr')
+      window.history.replaceState(window.history.state, '', url.toString())
     }
     root.render(
       <StrictMode>
@@ -31,19 +37,25 @@ import('./App.tsx')
     // handler listens for (issue #247). Reuse that same guard to retry once
     // before dead-ending the user on this error screen.
     const reloadedOnce = (() => {
+      // The "rfr" URL param mirrors index.html's fallback guard — it
+      // survives location.reload() even when sessionStorage throws or
+      // doesn't persist across the reload in some browsers/privacy modes,
+      // preventing an infinite reload loop (issue #288).
+      if (new URLSearchParams(location.search).has('rfr')) return true
       try {
         const key = 'rf:reload-on-stale-asset'
         if (sessionStorage.getItem(key)) return true
         sessionStorage.setItem(key, '1')
-        return false
       } catch {
-        // storage access blocked — fall through to the error screen below
-        return true
+        // storage access blocked — the URL guard below still applies
       }
+      return false
     })()
 
     if (!reloadedOnce) {
-      window.location.reload()
+      const url = new URL(location.href)
+      url.searchParams.set('rfr', '1')
+      window.location.replace(url.toString())
       return
     }
 
