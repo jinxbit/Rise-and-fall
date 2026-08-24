@@ -1106,23 +1106,39 @@ export function RoundView(props: {
   // territoryControl at all to HexBoard (undefined, not []: see its own doc
   // comment, supplying the prop at all switches HexBoard into
   // victory-screen-style rendering, which 'off' shouldn't trigger).
+  const pointsForHex = (hex: { terrain: string; regionSize: number }) => (achievementContent.terrainVictoryPoints[hex.terrain] ?? 0) * hex.regionSize
   let territoryControl: { coord: Coordinate; color: string; terrain: string; points: number }[] | undefined
+  let territoryValueRange: { min: number; max: number } | undefined
   if (showHistory && territoryControlMode === 'on') {
     territoryControl = calculateTerritoryControlByHex(state.board, state.units, achievementContent.terrainScoresAs).map((hex) => ({
       coord: hex.coord,
       color: players.find((p) => p.id === hex.ownerId)?.color ?? '#a3a3a3',
       terrain: hex.terrain,
-      points: (achievementContent.terrainVictoryPoints[hex.terrain] ?? 0) * hex.regionSize,
+      points: pointsForHex(hex),
     }))
   } else if (showHistory && territoryControlMode === 'changes') {
     territoryControl = previousHistoryState
       ? calculateChangedTerritoryHexes(state.board, previousHistoryState.units, state.units, achievementContent.terrainScoresAs).map((hex) => ({
           coord: hex.coord,
-          color: hex.ownerId ? (players.find((p) => p.id === hex.ownerId)?.color ?? '#a3a3a3') : '#a3a3a3',
+          color: hex.ownerId ? (players.find((p) => p.id === hex.ownerId)?.color ?? '#a3a3a3') : '#ffffff',
           terrain: hex.terrain,
-          points: (achievementContent.terrainVictoryPoints[hex.terrain] ?? 0) * hex.regionSize,
+          points: pointsForHex(hex),
         }))
       : []
+    // Scale border width against every territory before or after this step,
+    // not just the handful of hexes that actually changed hands — otherwise
+    // a small territory could render at max width just for being the
+    // biggest among a few tiny changes (see HexBoard's territoryValueRange
+    // doc comment).
+    if (previousHistoryState) {
+      const overallPoints = [
+        ...calculateTerritoryControlByHex(state.board, previousHistoryState.units, achievementContent.terrainScoresAs),
+        ...calculateTerritoryControlByHex(state.board, state.units, achievementContent.terrainScoresAs),
+      ].map(pointsForHex)
+      if (overallPoints.length > 0) {
+        territoryValueRange = { min: Math.min(...overallPoints), max: Math.max(...overallPoints) }
+      }
+    }
   }
 
   const ghostCells: GhostCell[] =
@@ -1200,6 +1216,7 @@ export function RoundView(props: {
             ghostCells={ghostCells}
             actionMenu={actionMenu}
             territoryControl={territoryControl}
+            territoryValueRange={territoryValueRange}
             interactive={isMyActionTurn}
             onHexClick={isMyActionTurn ? handleBoardClick : undefined}
             expanded={sidebarHidden}

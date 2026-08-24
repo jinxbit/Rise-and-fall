@@ -1855,7 +1855,7 @@ describe('RoundView — territory control overlay (issue #281)', () => {
 
   function renderTerritory(
     territoryControlMode: 'off' | 'on' | 'changes',
-    opts: { showHistory?: boolean; state?: GameState; previousHistoryState?: GameState | null } = {},
+    opts: { showHistory?: boolean; state?: GameState; previousHistoryState?: GameState | null; achievementContent?: typeof EMPTY_ACHIEVEMENT_CONTENT } = {},
   ) {
     const state = opts.state ?? makeState()
     return render(
@@ -1864,7 +1864,7 @@ describe('RoundView — territory control overlay (issue #281)', () => {
         players={players}
         myPlayerId={null}
         unitContent={EMPTY_UNIT_CONTENT}
-        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        achievementContent={opts.achievementContent ?? EMPTY_ACHIEVEMENT_CONTENT}
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={null}
         showHistory={opts.showHistory ?? true}
@@ -1919,14 +1919,14 @@ describe('RoundView — territory control overlay (issue #281)', () => {
     expect(container.querySelectorAll('line[stroke="#ef4444"]')).toHaveLength(0) // p1 no longer controls it
   })
 
-  it('outlines a region that turned neutral in grey, in "changes" mode', () => {
+  it('outlines a region that turned neutral in white, in "changes" mode', () => {
     const previousHistoryState = stateWithUnitAt('p1')
     const currentState = stateWithUnitAt('p1')
     currentState.units = [] // the region has no units at all any more — no majority owner
 
     const { container } = renderTerritory('changes', { state: currentState, previousHistoryState })
 
-    expect(container.querySelectorAll('line[stroke="#a3a3a3"]').length).toBeGreaterThan(0)
+    expect(container.querySelectorAll('line[stroke="#ffffff"]').length).toBeGreaterThan(0)
     expect(container.querySelectorAll('line[stroke="#ef4444"]')).toHaveLength(0)
   })
 
@@ -1936,5 +1936,35 @@ describe('RoundView — territory control overlay (issue #281)', () => {
     const { container } = renderTerritory('changes', { state: currentState, previousHistoryState })
 
     expect(container.querySelectorAll('line[stroke="#ef4444"]')).toHaveLength(0)
+  })
+
+  it("scales a changed territory's border width against every territory on the board, not just the ones that changed", () => {
+    const achievementContent = { ...EMPTY_ACHIEVEMENT_CONTENT, terrainVictoryPoints: { plain: 1, mountain: 10 } }
+    const move = { isMobile: true, terrains: [], canCrossCliffs: false }
+
+    const previousHistoryState = makeState()
+    previousHistoryState.board = setTile(setTile(previousHistoryState.board, { q: 0, r: 0 }, 'plain'), { q: 5, r: 0 }, 'mountain')
+    previousHistoryState.units = [
+      { id: 'u1', ownerId: 'p1', kind: 'nomad', coord: { q: 0, r: 0 }, movement: move, traits: [] },
+      { id: 'u2', ownerId: 'p1', kind: 'nomad', coord: { q: 5, r: 0 }, movement: move, traits: [] },
+    ]
+
+    const currentState = makeState()
+    currentState.board = previousHistoryState.board
+    currentState.units = [
+      { id: 'u1', ownerId: 'p2', kind: 'nomad', coord: { q: 0, r: 0 }, movement: move, traits: [] }, // changed hands: p1 -> p2, worth 1pt
+      { id: 'u2', ownerId: 'p1', kind: 'nomad', coord: { q: 5, r: 0 }, movement: move, traits: [] }, // unchanged, but worth far more (10pt)
+    ]
+
+    const { container } = renderTerritory('changes', { state: currentState, previousHistoryState, achievementContent })
+
+    // The changed 1pt plain hex is the only entry in "changes" mode's own
+    // territoryControl — scaled only against itself it'd fall back to the
+    // fixed mid-range width. It should instead scale against the board's
+    // real 1..10 range (set by the untouched 10pt mountain region), landing
+    // at the thinnest end.
+    const width = Number(container.querySelector('line[stroke="#3b82f6"]')!.getAttribute('stroke-width')) // p2's colour
+    const size = 22 // HexBoard's default `size` prop
+    expect(width).toBeCloseTo(size * 0.05)
   })
 })

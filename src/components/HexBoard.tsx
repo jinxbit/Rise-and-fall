@@ -69,10 +69,13 @@ const TERRITORY_BORDER_HALO_WIDTH_MULTIPLIER = 2
  * between the lowest- and highest-scoring territory actually present on this
  * board, so e.g. two same-terrain territories of different size render at
  * different widths, and two different-terrain territories worth the same
- * total render at the same width. `minPoints`/`maxPoints` come from scanning
- * every entry in `territoryControl` once (see HexBoard below) — an absolute
- * per-point scale doesn't work since one board's highest-value territory
- * might be another board's lowest. A board where every territory happens to
+ * total render at the same width. `minPoints`/`maxPoints` normally come from
+ * scanning every entry in `territoryControl` once (see HexBoard below), or
+ * from the `territoryValueRange` prop when the caller supplies one (see its
+ * own doc comment) — an absolute per-point scale doesn't work since one
+ * board's highest-value territory might be another board's lowest. A board
+ * (or, with `territoryValueRange`, a caller-supplied range) where every
+ * territory happens to
  * score the same (including just one territory total) has no real range to
  * position within, so it falls back to the middle of the width range rather
  * than arbitrarily picking the thinnest or thickest end.
@@ -777,6 +780,17 @@ export function HexBoard(props: {
    * territory border drawn on the same real hex edge.
    */
   territoryControl?: { coord: Coordinate; color: string; terrain: string; points: number }[]
+  /**
+   * Overrides the min/max `points` this board's border widths (see
+   * territoryBorderWidth) scale against, instead of deriving that range from
+   * `territoryControl` itself. Needed by the review screen's "highlight only
+   * changes" mode (issue #281 follow-up): that mode only puts the handful of
+   * hexes that actually changed hands into `territoryControl`, so deriving
+   * the range from that subset would make e.g. a small territory render at
+   * max width just because it's the biggest among a few tiny changes, rather
+   * than sizing it against every territory actually on the board.
+   */
+  territoryValueRange?: { min: number; max: number }
   selectedCoord?: Coordinate | null
   /**
    * Draws a rotate-arrow glyph on this hex — the pending tile placement's
@@ -966,8 +980,8 @@ export function HexBoard(props: {
   const territoryBorderSegments: { x1: number; y1: number; x2: number; y2: number; color: string; strokeWidth: number }[] = []
   if (territoryByKey.size > 0) {
     const allPoints = [...territoryByKey.values()].map((t) => t.points)
-    const minPoints = Math.min(...allPoints)
-    const maxPoints = Math.max(...allPoints)
+    const minPoints = props.territoryValueRange?.min ?? Math.min(...allPoints)
+    const maxPoints = props.territoryValueRange?.max ?? Math.max(...allPoints)
 
     for (const group of groupTerritoryHexes(props.board, territoryByKey)) {
       const { color, points } = group[0]
