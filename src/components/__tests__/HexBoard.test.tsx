@@ -17,6 +17,19 @@ function makeBoard() {
   return board
 }
 
+/** Plain(level 1) next to Mountain(level 3) — a >1 level gap, so `isCliffEdge` marks the shared side a cliff (see ../../engine/cliffs.ts). */
+function makeCliffBoard() {
+  let board = createEmptyBoard('hex')
+  board = setTile(board, { q: 0, r: 0 }, 'plain')
+  board = setTile(board, { q: 1, r: 0 }, 'mountain')
+  return board
+}
+
+/** `<line>`s drawn with no `strokeOpacity` prop set — cliff-edge lines, unlike the halo lines under a territory border (which always set one), so this tells them apart even though both use the same black stroke colour. */
+function cliffLines(container: HTMLElement) {
+  return [...container.querySelectorAll('line[stroke="#000000"]')].filter((line) => line.getAttribute('stroke-opacity') === null)
+}
+
 const NEUTRAL_PLATE_COLOR = '#f2f2ef'
 
 describe('HexBoard — unit markers', () => {
@@ -493,5 +506,24 @@ describe('HexBoard — territory control overlay', () => {
     // leaves each segment's own, slightly different corner point, closer to
     // 12 distinct endpoints than 6.
     expect(new Set(endpoints).size).toBe(6)
+  })
+
+  it('draws cliff-edge lines when territoryControl is omitted', () => {
+    const { container } = render(<HexBoard board={makeCliffBoard()} />)
+    expect(cliffLines(container).length).toBeGreaterThan(0)
+  })
+
+  it("suppresses cliff-edge lines once territoryControl is supplied — cliffs aren't meaningful on the victory screen, and a border nudged off the true hex edge (facing a competing territory) could otherwise leave a cliff's own un-nudged line sitting visibly next to it", () => {
+    const territoryControl = [
+      { coord: { q: 0, r: 0 }, color: '#22c55e', terrain: 'plain', points: 1 },
+      { coord: { q: 1, r: 0 }, color: '#3b82f6', terrain: 'mountain', points: 4 },
+    ]
+    const { container } = render(<HexBoard board={makeCliffBoard()} territoryControl={territoryControl} />)
+    expect(cliffLines(container)).toHaveLength(0)
+  })
+
+  it('suppresses cliff-edge lines for an empty territoryControl array too — the prop being supplied at all signals victory-screen mode', () => {
+    const { container } = render(<HexBoard board={makeCliffBoard()} territoryControl={[]} />)
+    expect(cliffLines(container)).toHaveLength(0)
   })
 })

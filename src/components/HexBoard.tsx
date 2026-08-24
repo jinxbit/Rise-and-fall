@@ -589,6 +589,12 @@ export function HexBoard(props: {
    * its terrain's flat per-hex rate: two Mountain regions of very different
    * size are worth very different amounts, and a small Mountain region can
    * be worth less than a large Water one despite Water's lower per-hex rate.
+   *
+   * Supplying this (even an empty array) also suppresses cliff-edge lines
+   * for the whole board — cliffs aren't meaningful on the final board, and
+   * a territory border nudged off the true hex edge (see
+   * territoryBorderSegments below) could otherwise leave a cliff's own
+   * un-nudged line sitting visibly next to it instead of cleanly underneath.
    */
   territoryControl?: { coord: Coordinate; color: string; terrain: string; points: number }[]
   selectedCoord?: Coordinate | null
@@ -727,17 +733,31 @@ export function HexBoard(props: {
 
   const ghostByKey = new Map((props.ghostCells ?? []).map((g) => [coordKey(g.coord), g]))
 
+  // Cliff edges are skipped entirely once `territoryControl` is supplied
+  // (the victory-screen board, see HexBoard.territoryControl's doc comment)
+  // rather than drawn underneath the territory borders. A territory border
+  // is only nudged off the true hex edge where it faces a *competing*
+  // territory (see territoryBorderSegments below) — everywhere else
+  // (uncontrolled hex, board edge) it sits exactly where a cliff edge would.
+  // A cliff's own segment is fixed to the true edge regardless, so wherever
+  // a border got nudged away from it, the cliff's un-nudged black line stuck
+  // out next to the shifted, thicker border instead of sitting cleanly under
+  // it — visually reading as two overlapping/mismatched lines. Cliffs aren't
+  // meaningful on the final board anyway, so this drops them there instead
+  // of chasing every case where the two could disagree.
   const cliffEdges: { x1: number; y1: number; x2: number; y2: number }[] = []
-  for (const { coord, x, y } of pixels) {
-    const tile = props.board.tiles[coordKey(coord)]
-    if (!tile) continue
-    for (const dir of CLIFF_CHECK_DIRECTIONS) {
-      const neighborCoord = { q: coord.q + dir.q, r: coord.r + dir.r }
-      const neighborTile = props.board.tiles[coordKey(neighborCoord)]
-      if (!neighborTile) continue
-      if (!isCliffEdge(TERRAIN_LEVEL[tile.terrain], TERRAIN_LEVEL[neighborTile.terrain])) continue
-      const { x: nx, y: ny } = axialToPixel(neighborCoord, size)
-      cliffEdges.push(hexEdgeSegment(x, y, nx, ny, size - 1))
+  if (!props.territoryControl) {
+    for (const { coord, x, y } of pixels) {
+      const tile = props.board.tiles[coordKey(coord)]
+      if (!tile) continue
+      for (const dir of CLIFF_CHECK_DIRECTIONS) {
+        const neighborCoord = { q: coord.q + dir.q, r: coord.r + dir.r }
+        const neighborTile = props.board.tiles[coordKey(neighborCoord)]
+        if (!neighborTile) continue
+        if (!isCliffEdge(TERRAIN_LEVEL[tile.terrain], TERRAIN_LEVEL[neighborTile.terrain])) continue
+        const { x: nx, y: ny } = axialToPixel(neighborCoord, size)
+        cliffEdges.push(hexEdgeSegment(x, y, nx, ny, size - 1))
+      }
     }
   }
 
