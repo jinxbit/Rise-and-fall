@@ -55,18 +55,32 @@ const CLIFF_CHECK_DIRECTIONS: Coordinate[] = [
   { q: 0, r: -1 },
 ]
 
-/** The thinnest a territory border ever gets (a 0-point/unlisted terrain), as a fraction of `size`. Matches what the border's width used to be unconditionally, so a 1-point terrain (e.g. Plain) renders the same as before this became variable. */
+/** The thinnest a territory border ever gets — the lowest-scoring territory actually on the board, not an absolute point count (see territoryBorderWidth below). */
 const TERRITORY_BORDER_MIN_WIDTH_FACTOR = 0.08
-const TERRITORY_BORDER_WIDTH_PER_POINT_FACTOR = 0.04
-/** Caps how thick a border can get for an unusually high-value terrain (e.g. custom module content) so it can't swallow a small hex. */
+/** The thickest a territory border ever gets — the highest-scoring territory actually on the board. */
 const TERRITORY_BORDER_MAX_WIDTH_FACTOR = 0.32
 /** The dark halo drawn under the border's own colour (see territoryBorderSegments below) is always this many times wider, same ratio as before this became variable. */
 const TERRITORY_BORDER_HALO_WIDTH_MULTIPLIER = 2
 
-/** A territory's outline stroke width, in pixels — thicker for a higher-scoring terrain (see the `points` field on the `territoryControl` prop). */
-function territoryBorderWidth(size: number, points: number): number {
-  const factor = TERRITORY_BORDER_MIN_WIDTH_FACTOR + Math.max(0, points) * TERRITORY_BORDER_WIDTH_PER_POINT_FACTOR
-  return size * Math.min(factor, TERRITORY_BORDER_MAX_WIDTH_FACTOR)
+/**
+ * A territory's outline stroke width, in pixels — scaled by where this
+ * territory's total point value (`points` on the `territoryControl` prop,
+ * i.e. hex count × terrain VP rate, not just the flat per-hex rate) falls
+ * between the lowest- and highest-scoring territory actually present on this
+ * board, so e.g. two same-terrain territories of different size render at
+ * different widths, and two different-terrain territories worth the same
+ * total render at the same width. `minPoints`/`maxPoints` come from scanning
+ * every entry in `territoryControl` once (see HexBoard below) — an absolute
+ * per-point scale doesn't work since one board's highest-value territory
+ * might be another board's lowest. A board where every territory happens to
+ * score the same (including just one territory total) has no real range to
+ * position within, so it falls back to the middle of the width range rather
+ * than arbitrarily picking the thinnest or thickest end.
+ */
+function territoryBorderWidth(size: number, points: number, minPoints: number, maxPoints: number): number {
+  const t = maxPoints > minPoints ? (points - minPoints) / (maxPoints - minPoints) : 0.5
+  const factor = TERRITORY_BORDER_MIN_WIDTH_FACTOR + t * (TERRITORY_BORDER_MAX_WIDTH_FACTOR - TERRITORY_BORDER_MIN_WIDTH_FACTOR)
+  return size * factor
 }
 
 const SQRT3 = Math.sqrt(3)
@@ -110,22 +124,42 @@ function insetSegment(x1: number, y1: number, x2: number, y2: number, startInset
   return { x1: x1 + ux * startInset, y1: y1 + uy * startInset, x2: x2 - ux * endInset, y2: y2 - uy * endInset }
 }
 
+/** An infinite line as a point plus a unit direction vector — see territoryEdgeLine/lineIntersection below. */
+interface Line {
+  x: number
+  y: number
+  dx: number
+  dy: number
+}
+
 /**
- * Shifts a line segment bodily toward (tx, ty) by `amount`, keeping it the
- * same length and orientation — used to nudge a territory-border segment
- * (see the `territoryControl` prop) off the exact hex edge and into its own
- * hex, so a border shared between two different owners renders as two
- * distinct parallel lines instead of one hiding the other underneath it.
+ * The line carrying the edge between a hex centered at (x, y) and a neighbor
+ * centered at (nx, ny), shifted `amount` toward (x, y) — 0 keeps it on the
+ * true, un-nudged edge. Used (see territoryBorderSegments below) to nudge a
+ * territory border off the exact hex edge when it faces a competing
+ * territory, so the two owners' outlines render as distinct parallel lines
+ * instead of one hiding the other underneath it — as a full line rather than
+ * a fixed segment so two adjacent sides of the same hex, nudged by different
+ * amounts (or not nudged at all), can still be joined into one exact corner
+ * point via lineIntersection instead of leaving a gap between two
+ * independently-shifted floating segments (a gap that, under a thick,
+ * round-capped stroke, read as the two segments overlapping instead).
  */
-function insetSegmentToward(seg: { x1: number; y1: number; x2: number; y2: number }, tx: number, ty: number, amount: number) {
-  const mx = (seg.x1 + seg.x2) / 2
-  const my = (seg.y1 + seg.y2) / 2
-  const dx = tx - mx
-  const dy = ty - my
+function territoryEdgeLine(x: number, y: number, nx: number, ny: number, amount: number): Line {
+  const dx = nx - x
+  const dy = ny - y
   const dist = Math.hypot(dx, dy) || 1
-  const ox = (dx / dist) * amount
-  const oy = (dy / dist) * amount
-  return { x1: seg.x1 + ox, y1: seg.y1 + oy, x2: seg.x2 + ox, y2: seg.y2 + oy }
+  const ux = dx / dist
+  const uy = dy / dist
+  return { x: (x + nx) / 2 - ux * amount, y: (y + ny) / 2 - uy * amount, dx: -uy, dy: ux }
+}
+
+/** Where two lines cross — degenerates to `a`'s own point for (near-)parallel lines, which doesn't arise for genuinely adjacent hex sides (60° apart) but keeps this total instead of producing NaN/Infinity. */
+function lineIntersection(a: Line, b: Line): { x: number; y: number } {
+  const denom = a.dx * b.dy - a.dy * b.dx
+  if (Math.abs(denom) < 1e-9) return { x: a.x, y: a.y }
+  const t = ((b.x - a.x) * b.dy - (b.y - a.y) * b.dx) / denom
+  return { x: a.x + a.dx * t, y: a.y + a.dy * t }
 }
 
 /** A small filled triangle pointing along (x1,y1) -> (x2,y2), tip at (x2,y2) — the arrowhead on a history arrow. */
@@ -545,11 +579,16 @@ export function HexBoard(props: {
    * filling hexes with a player's colour can blend into a same-hued terrain
    * (e.g. a blue player's water) and hides the terrain underneath either way.
    *
-   * `points` is that hex's terrain's per-hex victory-point value (e.g.
-   * content/terrain.json's Mountain at 4 vs Plain at 1) — the outline's
-   * stroke gets thicker the more a territory is worth (see
-   * territoryBorderWidth below), so a glance at line weight hints at which
-   * regions mattered most for the final score.
+   * `points` is that hex's whole territory's total victory-point value
+   * (hex count × content/terrain.json's per-hex rate for its terrain, e.g. a
+   * 3-hex Mountain region at 4/hex is worth 12 here, not just 4) — the
+   * outline's stroke gets thicker the more a territory is worth relative to
+   * every other territory on this same board (see territoryBorderWidth
+   * below), so a glance at line weight hints at which regions mattered most
+   * for the final score. Deliberately the *territory's* total rather than
+   * its terrain's flat per-hex rate: two Mountain regions of very different
+   * size are worth very different amounts, and a small Mountain region can
+   * be worth less than a large Water one despite Water's lower per-hex rate.
    */
   territoryControl?: { coord: Coordinate; color: string; terrain: string; points: number }[]
   selectedCoord?: Coordinate | null
@@ -726,28 +765,44 @@ export function HexBoard(props: {
   // line drawn from the other side. A side facing an uncontrolled hex or
   // the board's own edge has nothing to compete with, so it's drawn right
   // on the shared boundary instead, the same place cliff edges/structure
-  // connectors above already draw. Previously *every* side was nudged
-  // inward regardless, which pulled each hex's contribution toward its own,
-  // separate center — fine for a single straight edge, but at a corner
-  // where a territory's outline bends across two different hexes, pulling
-  // each side toward a different point splits what should be one continuous
-  // corner into two visibly disjointed (and, with thicker borders, often
-  // overlapping) segments.
+  // connectors above already draw.
+  //
+  // Each hex's own outward sides are joined into corners via lineIntersection
+  // rather than drawn as independently-nudged floating segments — a hex
+  // whose sides face a mix of competing territories (nudged) and
+  // uncontrolled hexes/the board edge (not nudged) still needs its own
+  // corner, shared by both sides, to land in exactly one place; two
+  // separately-nudged segments left to find their own endpoints don't meet
+  // there; with thicker, round-capped borders that gap reads as the two
+  // segments overlapping instead of a clean corner (issue: overlapping
+  // border lines, worst right along cliffs, since a cliff is exactly where
+  // terrain — and often the competing-territory side of a border — changes).
   const territoryByKey = new Map((props.territoryControl ?? []).map((t) => [coordKey(t.coord), t]))
   const territoryBorderSegments: { x1: number; y1: number; x2: number; y2: number; color: string; strokeWidth: number }[] = []
   if (territoryByKey.size > 0) {
+    const allPoints = [...territoryByKey.values()].map((t) => t.points)
+    const minPoints = Math.min(...allPoints)
+    const maxPoints = Math.max(...allPoints)
+
     for (const { coord, x, y } of pixels) {
       const territory = territoryByKey.get(coordKey(coord))
       if (!territory) continue
-      const strokeWidth = territoryBorderWidth(size, territory.points)
-      for (const neighborCoord of neighborCoords(props.board, coord)) {
+      const strokeWidth = territoryBorderWidth(size, territory.points, minPoints, maxPoints)
+      const sides = neighborCoords(props.board, coord).map((neighborCoord) => {
         const neighborTerritory = territoryByKey.get(coordKey(neighborCoord))
-        if (neighborTerritory && neighborTerritory.color === territory.color && neighborTerritory.terrain === territory.terrain) continue
+        const competing = Boolean(neighborTerritory) && (neighborTerritory!.color !== territory.color || neighborTerritory!.terrain !== territory.terrain)
+        const outward = !neighborTerritory || competing
         const { x: nx, y: ny } = axialToPixel(neighborCoord, size)
-        const edge = hexEdgeSegment(x, y, nx, ny, size - 1)
-        const seg = neighborTerritory ? insetSegmentToward(edge, x, y, strokeWidth * 1.5) : edge
-        territoryBorderSegments.push({ ...seg, color: territory.color, strokeWidth })
-      }
+        return { outward, line: territoryEdgeLine(x, y, nx, ny, competing ? strokeWidth * 1.5 : 0) }
+      })
+      const sideCount = sides.length
+      const corners = sides.map((side, i) => lineIntersection(side.line, sides[(i + 1) % sideCount].line))
+      sides.forEach((side, i) => {
+        if (!side.outward) return
+        const start = corners[(i - 1 + sideCount) % sideCount]
+        const end = corners[i]
+        territoryBorderSegments.push({ x1: start.x, y1: start.y, x2: end.x, y2: end.y, color: territory.color, strokeWidth })
+      })
     }
   }
 

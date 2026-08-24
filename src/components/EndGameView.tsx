@@ -206,7 +206,7 @@ export function EndGameView({
     coord: hex.coord,
     color: players.find((p) => p.id === hex.ownerId)?.color ?? '#a3a3a3',
     terrain: hex.terrain,
-    points: achievementContent.terrainVictoryPoints[hex.terrain] ?? 0,
+    points: (achievementContent.terrainVictoryPoints[hex.terrain] ?? 0) * hex.regionSize,
   }))
 
   return (

@@ -235,7 +235,7 @@ describe('calculateTerrainControlDetail', () => {
 })
 
 /** Order-independent equality — calculateTerritoryControlByHex's result order follows region-then-tile iteration order, not something callers should depend on. */
-function sortedByCoord(hexes: { coord: Coordinate; ownerId: string; terrain: string }[]) {
+function sortedByCoord(hexes: { coord: Coordinate; ownerId: string; terrain: string; regionSize: number }[]) {
   return [...hexes].sort((a, b) => a.coord.q - b.coord.q || a.coord.r - b.coord.r)
 }
 
@@ -253,9 +253,9 @@ describe('calculateTerritoryControlByHex', () => {
     const result = calculateTerritoryControlByHex(board, units)
 
     expect(sortedByCoord(result)).toEqual([
-      { coord: { q: 0, r: 0 }, ownerId: 'p1', terrain: 'water' },
-      { coord: { q: 0, r: 1 }, ownerId: 'p1', terrain: 'water' },
-      { coord: { q: 1, r: 0 }, ownerId: 'p1', terrain: 'water' },
+      { coord: { q: 0, r: 0 }, ownerId: 'p1', terrain: 'water', regionSize: 3 },
+      { coord: { q: 0, r: 1 }, ownerId: 'p1', terrain: 'water', regionSize: 3 },
+      { coord: { q: 1, r: 0 }, ownerId: 'p1', terrain: 'water', regionSize: 3 },
     ])
   })
 
@@ -280,8 +280,8 @@ describe('calculateTerritoryControlByHex', () => {
     const result = calculateTerritoryControlByHex(board, units, { glacier: 'mountain' })
 
     expect(sortedByCoord(result)).toEqual([
-      { coord: { q: 0, r: 0 }, ownerId: 'p1', terrain: 'mountain' },
-      { coord: { q: 1, r: 0 }, ownerId: 'p1', terrain: 'mountain' },
+      { coord: { q: 0, r: 0 }, ownerId: 'p1', terrain: 'mountain', regionSize: 2 },
+      { coord: { q: 1, r: 0 }, ownerId: 'p1', terrain: 'mountain', regionSize: 2 },
     ])
   })
 
@@ -295,8 +295,21 @@ describe('calculateTerritoryControlByHex', () => {
     const result = calculateTerritoryControlByHex(board, units)
 
     expect(sortedByCoord(result)).toEqual([
-      { coord: { q: 0, r: 0 }, ownerId: 'p1', terrain: 'forest' },
-      { coord: { q: 1, r: 0 }, ownerId: 'p1', terrain: 'plain' },
+      { coord: { q: 0, r: 0 }, ownerId: 'p1', terrain: 'forest', regionSize: 1 },
+      { coord: { q: 1, r: 0 }, ownerId: 'p1', terrain: 'plain', regionSize: 1 },
     ])
+  })
+
+  it("reports each hex's full region size, not just 1, for a multi-hex region — lets a caller derive the region's total VP value (regionSize × terrainVictoryPoints[terrain]) to weigh how much a territory actually scored", () => {
+    const board = boardOf([
+      [0, 0, 'mountain'],
+      [1, 0, 'mountain'],
+      [2, 0, 'mountain'],
+    ])
+    const units = [unitAt('p1', { q: 0, r: 0 }), unitAt('p1', { q: 1, r: 0 }), unitAt('p1', { q: 2, r: 0 })]
+
+    const result = calculateTerritoryControlByHex(board, units)
+
+    expect(result.every((hex) => hex.regionSize === 3)).toBe(true)
   })
 })

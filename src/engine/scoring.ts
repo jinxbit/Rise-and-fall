@@ -109,6 +109,8 @@ export interface TerritoryControlHex {
   ownerId: string
   /** Effective terrain of the region this hex belongs to (post-terrainScoresAs merge) — lets a renderer split two adjacent same-owner regions of different terrain apart instead of blending them into one shape (see HexBoard's territoryControl prop). */
   terrain: string
+  /** Total hex count of the region this hex belongs to — lets a caller derive the region's full VP value (hexCount × terrainVictoryPoints[terrain]) without a second traversal, e.g. to scale a rendered border's weight by how much a territory was actually worth rather than just its per-hex rate (see HexBoard's territoryControl prop). */
+  regionSize: number
 }
 
 /**
@@ -134,7 +136,7 @@ export function calculateTerritoryControlByHex(
     if (!majorityOwnerId) continue
 
     for (const tile of region.tiles) {
-      result.push({ coord: tile.coord, ownerId: majorityOwnerId, terrain: region.terrain })
+      result.push({ coord: tile.coord, ownerId: majorityOwnerId, terrain: region.terrain, regionSize: region.tiles.length })
     }
   }
 
