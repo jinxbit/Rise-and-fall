@@ -334,14 +334,16 @@ describe('HexBoard — territory control overlay', () => {
   })
 
   it('draws a border on every side of a single controlled hex (all 6 sides are outward-facing)', () => {
-    const { container } = render(<HexBoard board={makeBoard()} territoryControl={[{ coord: { q: 0, r: 0 }, color: '#22c55e' }]} />)
+    const { container } = render(
+      <HexBoard board={makeBoard()} territoryControl={[{ coord: { q: 0, r: 0 }, color: '#22c55e', terrain: 'plain' }]} />,
+    )
     expect(container.querySelectorAll('line[stroke="#22c55e"]')).toHaveLength(6)
   })
 
-  it("doesn't draw a border between two of the same player's own adjacent controlled hexes — territory-based, not hex-based", () => {
+  it("doesn't draw a border between two of the same player's own adjacent controlled hexes of the same terrain — territory-based, not hex-based", () => {
     const territoryControl = [
-      { coord: { q: 0, r: 0 }, color: '#22c55e' },
-      { coord: { q: 1, r: 0 }, color: '#22c55e' },
+      { coord: { q: 0, r: 0 }, color: '#22c55e', terrain: 'plain' },
+      { coord: { q: 1, r: 0 }, color: '#22c55e', terrain: 'plain' },
     ]
     const { container } = render(<HexBoard board={makeBoard()} territoryControl={territoryControl} />)
 
@@ -353,8 +355,8 @@ describe('HexBoard — territory control overlay', () => {
 
   it('draws a border on both sides of an edge shared by two different owners', () => {
     const territoryControl = [
-      { coord: { q: 0, r: 0 }, color: '#22c55e' },
-      { coord: { q: 1, r: 0 }, color: '#3b82f6' },
+      { coord: { q: 0, r: 0 }, color: '#22c55e', terrain: 'plain' },
+      { coord: { q: 1, r: 0 }, color: '#3b82f6', terrain: 'plain' },
     ]
     const { container } = render(<HexBoard board={makeBoard()} territoryControl={territoryControl} />)
 
@@ -362,5 +364,18 @@ describe('HexBoard — territory control overlay', () => {
     // outward-facing for each of them since the neighbor's a different owner.
     expect(container.querySelectorAll('line[stroke="#22c55e"]')).toHaveLength(6)
     expect(container.querySelectorAll('line[stroke="#3b82f6"]')).toHaveLength(6)
+  })
+
+  it('draws a border between two adjacent hexes of different terrain even when the same player controls both', () => {
+    const territoryControl = [
+      { coord: { q: 0, r: 0 }, color: '#22c55e', terrain: 'forest' },
+      { coord: { q: 1, r: 0 }, color: '#22c55e', terrain: 'plain' },
+    ]
+    const { container } = render(<HexBoard board={makeBoard()} territoryControl={territoryControl} />)
+
+    // Unlike the same-terrain case above, the shared edge is still
+    // outward-facing for both hexes since they belong to different
+    // territories — a full 6 sides per hex, 12 total.
+    expect(container.querySelectorAll('line[stroke="#22c55e"]')).toHaveLength(12)
   })
 })

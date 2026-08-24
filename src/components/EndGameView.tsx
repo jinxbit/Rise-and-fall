@@ -205,6 +205,7 @@ export function EndGameView({
   const territoryControl = calculateTerritoryControlByHex(state.board, state.units, achievementContent.terrainScoresAs).map((hex) => ({
     coord: hex.coord,
     color: players.find((p) => p.id === hex.ownerId)?.color ?? '#a3a3a3',
+    terrain: hex.terrain,
   }))
 
   return (
@@ -449,7 +450,6 @@ export function EndGameView({
 
       <div>
         <p className="mb-2 text-sm font-medium text-neutral-200">Final board</p>
-        <p className="mb-2 text-xs text-neutral-500">Colored outlines trace each player's controlled territory.</p>
         <HexBoard board={state.board} units={boardUnits} territoryControl={territoryControl} />
       </div>
     </div>

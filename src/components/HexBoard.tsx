@@ -521,13 +521,17 @@ export function HexBoard(props: {
    * tracing the boundary of each player's whole contiguous controlled
    * region rather than decorating each hex on its own — no line is drawn
    * between two of that player's own adjacent hexes, only along a region's
-   * outer edge (the board's edge, an uncontrolled hex, or another player's
-   * territory), so a multi-hex win reads as one shape instead of a repeated
+   * outer edge (the board's edge, an uncontrolled hex, another player's
+   * territory, or a same-owner hex of a different terrain — a player
+   * controlling both a Forest region and an adjacent Plains region still
+   * gets two separate outlines, since those are two separate territories
+   * per the underlying terrain-region rule even though one player holds
+   * both), so a multi-hex win reads as one shape instead of a repeated
    * per-hex stamp. Deliberately an outline rather than a fill (issue #270):
    * filling hexes with a player's colour can blend into a same-hued terrain
    * (e.g. a blue player's water) and hides the terrain underneath either way.
    */
-  territoryControl?: { coord: Coordinate; color: string }[]
+  territoryControl?: { coord: Coordinate; color: string; terrain: string }[]
   selectedCoord?: Coordinate | null
   /**
    * Draws a rotate-arrow glyph on this hex — the pending tile placement's
@@ -689,21 +693,24 @@ export function HexBoard(props: {
   }
 
   // One border segment per outward-facing side of each controlled hex — a
-  // side is "outward-facing" when its neighbor isn't controlled by the same
-  // player (a different player, nobody, or off the board), so no segment is
-  // drawn between two of that player's own adjacent hexes and a whole
-  // territory traces as one connected outline (see territoryControl above).
-  const territoryColorByKey = new Map((props.territoryControl ?? []).map((t) => [coordKey(t.coord), t.color]))
+  // side is "outward-facing" when its neighbor isn't part of the same
+  // territory (a different owner, a different terrain, nobody, or off the
+  // board), so no segment is drawn between two of that player's own
+  // adjacent hexes of the *same* terrain, and a whole territory traces as
+  // one connected outline (see territoryControl above) — while a same-owner
+  // hex of a different terrain still gets its own separate outline.
+  const territoryByKey = new Map((props.territoryControl ?? []).map((t) => [coordKey(t.coord), t]))
   const territoryBorderSegments: { x1: number; y1: number; x2: number; y2: number; color: string }[] = []
-  if (territoryColorByKey.size > 0) {
+  if (territoryByKey.size > 0) {
     for (const { coord, x, y } of pixels) {
-      const color = territoryColorByKey.get(coordKey(coord))
-      if (!color) continue
+      const territory = territoryByKey.get(coordKey(coord))
+      if (!territory) continue
       for (const neighborCoord of neighborCoords(props.board, coord)) {
-        if (territoryColorByKey.get(coordKey(neighborCoord)) === color) continue
+        const neighborTerritory = territoryByKey.get(coordKey(neighborCoord))
+        if (neighborTerritory && neighborTerritory.color === territory.color && neighborTerritory.terrain === territory.terrain) continue
         const { x: nx, y: ny } = axialToPixel(neighborCoord, size)
         const edge = hexEdgeSegment(x, y, nx, ny, size - 1)
-        territoryBorderSegments.push({ ...insetSegmentToward(edge, x, y, size * 0.16), color })
+        territoryBorderSegments.push({ ...insetSegmentToward(edge, x, y, size * 0.16), color: territory.color })
       }
     }
   }

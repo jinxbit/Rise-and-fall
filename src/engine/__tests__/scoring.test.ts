@@ -235,7 +235,7 @@ describe('calculateTerrainControlDetail', () => {
 })
 
 /** Order-independent equality — calculateTerritoryControlByHex's result order follows region-then-tile iteration order, not something callers should depend on. */
-function sortedByCoord(hexes: { coord: Coordinate; ownerId: string }[]) {
+function sortedByCoord(hexes: { coord: Coordinate; ownerId: string; terrain: string }[]) {
   return [...hexes].sort((a, b) => a.coord.q - b.coord.q || a.coord.r - b.coord.r)
 }
 
@@ -253,9 +253,9 @@ describe('calculateTerritoryControlByHex', () => {
     const result = calculateTerritoryControlByHex(board, units)
 
     expect(sortedByCoord(result)).toEqual([
-      { coord: { q: 0, r: 0 }, ownerId: 'p1' },
-      { coord: { q: 0, r: 1 }, ownerId: 'p1' },
-      { coord: { q: 1, r: 0 }, ownerId: 'p1' },
+      { coord: { q: 0, r: 0 }, ownerId: 'p1', terrain: 'water' },
+      { coord: { q: 0, r: 1 }, ownerId: 'p1', terrain: 'water' },
+      { coord: { q: 1, r: 0 }, ownerId: 'p1', terrain: 'water' },
     ])
   })
 
@@ -280,8 +280,23 @@ describe('calculateTerritoryControlByHex', () => {
     const result = calculateTerritoryControlByHex(board, units, { glacier: 'mountain' })
 
     expect(sortedByCoord(result)).toEqual([
-      { coord: { q: 0, r: 0 }, ownerId: 'p1' },
-      { coord: { q: 1, r: 0 }, ownerId: 'p1' },
+      { coord: { q: 0, r: 0 }, ownerId: 'p1', terrain: 'mountain' },
+      { coord: { q: 1, r: 0 }, ownerId: 'p1', terrain: 'mountain' },
+    ])
+  })
+
+  it('keeps two adjacent regions of different terrain as separate entries even when the same player controls both', () => {
+    const board = boardOf([
+      [0, 0, 'forest'],
+      [1, 0, 'plain'],
+    ])
+    const units = [unitAt('p1', { q: 0, r: 0 }), unitAt('p1', { q: 1, r: 0 })]
+
+    const result = calculateTerritoryControlByHex(board, units)
+
+    expect(sortedByCoord(result)).toEqual([
+      { coord: { q: 0, r: 0 }, ownerId: 'p1', terrain: 'forest' },
+      { coord: { q: 1, r: 0 }, ownerId: 'p1', terrain: 'plain' },
     ])
   })
 })
