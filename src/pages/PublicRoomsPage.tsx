@@ -141,7 +141,7 @@ function RoomSection({
           <GameOverviewCard
             key={entry.game.id}
             name={entry.game.name}
-            description={`${entry.players.length}/${entry.game.max_players} players`}
+            description={publicRoomBucket(entry) === 'notStarted' ? `${entry.players.length}/${entry.game.max_players} players` : undefined}
             phase={describeGamePhase(entry.game, entry.gameState)}
             players={entry.players}
             pendingPlayerIds={pendingActorIds(entry)}

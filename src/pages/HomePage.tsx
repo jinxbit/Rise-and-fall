@@ -336,7 +336,7 @@ function PublicGameRow({
   return (
     <GameOverviewCard
       name={entry.game.name}
-      description={`${entry.players.length}/${entry.game.max_players} players`}
+      description={bucket === 'notStarted' ? `${entry.players.length}/${entry.game.max_players} players` : undefined}
       phase={describeGamePhase(entry.game, entry.gameState)}
       players={entry.players}
       pendingPlayerIds={pendingActorIdsInPublicRoom(entry)}
