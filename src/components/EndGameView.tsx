@@ -2,6 +2,7 @@ import { Fragment } from 'react'
 import { listAchievements, listTerrainTypes } from '../content/resolveContent'
 import type { AchievementContent } from '../engine/achievementContent'
 import type { AchievementClaimEvent, ScoreSnapshot } from '../engine/scoreHistory'
+import { calculateTerritoryControlByHex } from '../engine/scoring'
 import type { TaleContent } from '../engine/taleContent'
 import { calculateVPBreakdown, calculateVPDetail } from '../engine/victoryPoints'
 import type { VPDetail } from '../engine/victoryPoints'
@@ -199,6 +200,11 @@ export function EndGameView({
     color: players.find((p) => p.id === unit.ownerId)?.color ?? '#a3a3a3',
     kind: unit.kind,
     connectedNeighborCoords: unit.connectedNeighborCoords,
+  }))
+
+  const territoryControl = calculateTerritoryControlByHex(state.board, state.units, achievementContent.terrainScoresAs).map((hex) => ({
+    coord: hex.coord,
+    color: players.find((p) => p.id === hex.ownerId)?.color ?? '#a3a3a3',
   }))
 
   return (
@@ -443,7 +449,8 @@ export function EndGameView({
 
       <div>
         <p className="mb-2 text-sm font-medium text-neutral-200">Final board</p>
-        <HexBoard board={state.board} units={boardUnits} />
+        <p className="mb-2 text-xs text-neutral-500">Colored outlines trace each player's controlled territory.</p>
+        <HexBoard board={state.board} units={boardUnits} territoryControl={territoryControl} />
       </div>
     </div>
   )

@@ -1,3 +1,4 @@
+import { neighborCoords } from '../engine/board'
 import { isCliffEdge } from '../engine/cliffs'
 import type { Board, Coordinate, Resources, Terrain } from '../engine/types'
 import { coordKey } from '../engine/types'
@@ -93,6 +94,24 @@ function insetSegment(x1: number, y1: number, x2: number, y2: number, startInset
   const ux = dx / dist
   const uy = dy / dist
   return { x1: x1 + ux * startInset, y1: y1 + uy * startInset, x2: x2 - ux * endInset, y2: y2 - uy * endInset }
+}
+
+/**
+ * Shifts a line segment bodily toward (tx, ty) by `amount`, keeping it the
+ * same length and orientation — used to nudge a territory-border segment
+ * (see the `territoryControl` prop) off the exact hex edge and into its own
+ * hex, so a border shared between two different owners renders as two
+ * distinct parallel lines instead of one hiding the other underneath it.
+ */
+function insetSegmentToward(seg: { x1: number; y1: number; x2: number; y2: number }, tx: number, ty: number, amount: number) {
+  const mx = (seg.x1 + seg.x2) / 2
+  const my = (seg.y1 + seg.y2) / 2
+  const dx = tx - mx
+  const dy = ty - my
+  const dist = Math.hypot(dx, dy) || 1
+  const ox = (dx / dist) * amount
+  const oy = (dy / dist) * amount
+  return { x1: seg.x1 + ox, y1: seg.y1 + oy, x2: seg.x2 + ox, y2: seg.y2 + oy }
 }
 
 /** A small filled triangle pointing along (x1,y1) -> (x2,y2), tip at (x2,y2) — the arrowhead on a history arrow. */
@@ -495,6 +514,20 @@ export function HexBoard(props: {
   /** History-review overlay (see RoundView.tsx's history toggle): one arrow per movement hop since the reviewed window began. */
   arrows?: HistoryArrow[]
   actionMenu?: ActionMenu
+  /**
+   * Victory-screen overlay (see EndGameView.tsx, calculateTerritoryControlByHex
+   * in ../engine/scoring.ts): one entry per hex the terrain-majority rule
+   * assigns to a player, in that player's colour. Rendered as an outline
+   * tracing the boundary of each player's whole contiguous controlled
+   * region rather than decorating each hex on its own — no line is drawn
+   * between two of that player's own adjacent hexes, only along a region's
+   * outer edge (the board's edge, an uncontrolled hex, or another player's
+   * territory), so a multi-hex win reads as one shape instead of a repeated
+   * per-hex stamp. Deliberately an outline rather than a fill (issue #270):
+   * filling hexes with a player's colour can blend into a same-hued terrain
+   * (e.g. a blue player's water) and hides the terrain underneath either way.
+   */
+  territoryControl?: { coord: Coordinate; color: string }[]
   selectedCoord?: Coordinate | null
   /**
    * Draws a rotate-arrow glyph on this hex — the pending tile placement's
@@ -655,6 +688,26 @@ export function HexBoard(props: {
     }
   }
 
+  // One border segment per outward-facing side of each controlled hex — a
+  // side is "outward-facing" when its neighbor isn't controlled by the same
+  // player (a different player, nobody, or off the board), so no segment is
+  // drawn between two of that player's own adjacent hexes and a whole
+  // territory traces as one connected outline (see territoryControl above).
+  const territoryColorByKey = new Map((props.territoryControl ?? []).map((t) => [coordKey(t.coord), t.color]))
+  const territoryBorderSegments: { x1: number; y1: number; x2: number; y2: number; color: string }[] = []
+  if (territoryColorByKey.size > 0) {
+    for (const { coord, x, y } of pixels) {
+      const color = territoryColorByKey.get(coordKey(coord))
+      if (!color) continue
+      for (const neighborCoord of neighborCoords(props.board, coord)) {
+        if (territoryColorByKey.get(coordKey(neighborCoord)) === color) continue
+        const { x: nx, y: ny } = axialToPixel(neighborCoord, size)
+        const edge = hexEdgeSegment(x, y, nx, ny, size - 1)
+        territoryBorderSegments.push({ ...insetSegmentToward(edge, x, y, size * 0.16), color })
+      }
+    }
+  }
+
   return (
     <div className="relative">
       <svg
@@ -701,6 +754,33 @@ export function HexBoard(props: {
           y2={edge.y2}
           stroke="#d6b98c"
           strokeWidth={4}
+          strokeLinecap="round"
+          pointerEvents="none"
+        />
+      ))}
+      {territoryBorderSegments.map((seg, i) => (
+        <line
+          key={`territory-halo-${i}`}
+          x1={seg.x1}
+          y1={seg.y1}
+          x2={seg.x2}
+          y2={seg.y2}
+          stroke="#000000"
+          strokeOpacity={0.6}
+          strokeWidth={size * 0.24}
+          strokeLinecap="round"
+          pointerEvents="none"
+        />
+      ))}
+      {territoryBorderSegments.map((seg, i) => (
+        <line
+          key={`territory-${i}`}
+          x1={seg.x1}
+          y1={seg.y1}
+          x2={seg.x2}
+          y2={seg.y2}
+          stroke={seg.color}
+          strokeWidth={size * 0.12}
           strokeLinecap="round"
           pointerEvents="none"
         />

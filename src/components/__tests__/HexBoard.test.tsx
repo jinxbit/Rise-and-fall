@@ -326,3 +326,41 @@ describe('HexBoard — history-review labels', () => {
     expect(container.querySelectorAll('foreignObject')).toHaveLength(0)
   })
 })
+
+describe('HexBoard — territory control overlay', () => {
+  it('renders no border lines when territoryControl is omitted', () => {
+    const { container } = render(<HexBoard board={makeBoard()} />)
+    expect(container.querySelectorAll('line[stroke="#22c55e"]')).toHaveLength(0)
+  })
+
+  it('draws a border on every side of a single controlled hex (all 6 sides are outward-facing)', () => {
+    const { container } = render(<HexBoard board={makeBoard()} territoryControl={[{ coord: { q: 0, r: 0 }, color: '#22c55e' }]} />)
+    expect(container.querySelectorAll('line[stroke="#22c55e"]')).toHaveLength(6)
+  })
+
+  it("doesn't draw a border between two of the same player's own adjacent controlled hexes — territory-based, not hex-based", () => {
+    const territoryControl = [
+      { coord: { q: 0, r: 0 }, color: '#22c55e' },
+      { coord: { q: 1, r: 0 }, color: '#22c55e' },
+    ]
+    const { container } = render(<HexBoard board={makeBoard()} territoryControl={territoryControl} />)
+
+    // Each hex has 6 sides; the one side where they touch each other is
+    // interior to the shared territory and gets no border on either side —
+    // 5 outward-facing sides per hex, 10 total, not the naive 12.
+    expect(container.querySelectorAll('line[stroke="#22c55e"]')).toHaveLength(10)
+  })
+
+  it('draws a border on both sides of an edge shared by two different owners', () => {
+    const territoryControl = [
+      { coord: { q: 0, r: 0 }, color: '#22c55e' },
+      { coord: { q: 1, r: 0 }, color: '#3b82f6' },
+    ]
+    const { container } = render(<HexBoard board={makeBoard()} territoryControl={territoryControl} />)
+
+    // Both owners get a full 6-sided outline — the shared edge is
+    // outward-facing for each of them since the neighbor's a different owner.
+    expect(container.querySelectorAll('line[stroke="#22c55e"]')).toHaveLength(6)
+    expect(container.querySelectorAll('line[stroke="#3b82f6"]')).toHaveLength(6)
+  })
+})

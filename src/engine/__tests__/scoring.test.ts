@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createEmptyBoard, setTile } from '../board'
-import { calculateTerrainControlDetail, calculateTerrainControlVP } from '../scoring'
+import { calculateTerrainControlDetail, calculateTerrainControlVP, calculateTerritoryControlByHex } from '../scoring'
 import type { Board, Coordinate, Terrain, Unit } from '../types'
 
 function boardOf(cells: Array<[number, number, Terrain]>): Board {
@@ -231,5 +231,57 @@ describe('calculateTerrainControlDetail', () => {
     const detail = calculateTerrainControlDetail(board, units, { mountain: 2 }, { glacier: 'mountain' })
 
     expect(detail).toEqual({ p1: [{ terrain: 'mountain', hexCount: 2, vp: 4 }] })
+  })
+})
+
+/** Order-independent equality — calculateTerritoryControlByHex's result order follows region-then-tile iteration order, not something callers should depend on. */
+function sortedByCoord(hexes: { coord: Coordinate; ownerId: string }[]) {
+  return [...hexes].sort((a, b) => a.coord.q - b.coord.q || a.coord.r - b.coord.r)
+}
+
+describe('calculateTerritoryControlByHex', () => {
+  it('assigns every hex in a region to its majority owner, regardless of terrain VP value', () => {
+    const board = boardOf([
+      [0, 0, 'water'],
+      [1, 0, 'water'],
+      [0, 1, 'water'],
+    ])
+    const units = [unitAt('p1', { q: 0, r: 0 }), unitAt('p1', { q: 1, r: 0 }), unitAt('p2', { q: 0, r: 1 })]
+
+    // No terrainVictoryPoints table at all — territory control doesn't
+    // depend on whether the terrain actually scores anything.
+    const result = calculateTerritoryControlByHex(board, units)
+
+    expect(sortedByCoord(result)).toEqual([
+      { coord: { q: 0, r: 0 }, ownerId: 'p1' },
+      { coord: { q: 0, r: 1 }, ownerId: 'p1' },
+      { coord: { q: 1, r: 0 }, ownerId: 'p1' },
+    ])
+  })
+
+  it('omits hexes from a region with no majority owner (including empty ones)', () => {
+    const board = boardOf([
+      [0, 0, 'mountain'],
+      [1, 0, 'mountain'],
+      [5, 5, 'water'],
+    ])
+    const units = [unitAt('p1', { q: 0, r: 0 }), unitAt('p2', { q: 1, r: 0 })]
+
+    expect(calculateTerritoryControlByHex(board, units)).toEqual([])
+  })
+
+  it('merges a glacier region into its scores-as mountain region, same as calculateTerrainControlVP', () => {
+    const board = boardOf([
+      [0, 0, 'mountain'],
+      [1, 0, 'glacier'],
+    ])
+    const units = [unitAt('p1', { q: 0, r: 0 }), unitAt('p1', { q: 1, r: 0 })]
+
+    const result = calculateTerritoryControlByHex(board, units, { glacier: 'mountain' })
+
+    expect(sortedByCoord(result)).toEqual([
+      { coord: { q: 0, r: 0 }, ownerId: 'p1' },
+      { coord: { q: 1, r: 0 }, ownerId: 'p1' },
+    ])
   })
 })
