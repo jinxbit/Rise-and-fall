@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createEmptyBoard, setTile } from '../board'
-import { calculateTerrainControlDetail, calculateTerrainControlVP, calculateTerritoryControlByHex } from '../scoring'
+import { calculateChangedTerritoryHexes, calculateTerrainControlDetail, calculateTerrainControlVP, calculateTerritoryControlByHex } from '../scoring'
 import type { Board, Coordinate, Terrain, Unit } from '../types'
 
 function boardOf(cells: Array<[number, number, Terrain]>): Board {
@@ -311,5 +311,91 @@ describe('calculateTerritoryControlByHex', () => {
     const result = calculateTerritoryControlByHex(board, units)
 
     expect(result.every((hex) => hex.regionSize === 3)).toBe(true)
+  })
+})
+
+/** Order-independent equality — same rationale as sortedByCoord above. */
+function sortedChangedByCoord(hexes: { coord: Coordinate; ownerId: string | null; terrain: string; regionSize: number }[]) {
+  return [...hexes].sort((a, b) => a.coord.q - b.coord.q || a.coord.r - b.coord.r)
+}
+
+describe('calculateChangedTerritoryHexes', () => {
+  it('reports nothing when ownership is unchanged', () => {
+    const board = boardOf([[0, 0, 'plain']])
+    const before = [unitAt('p1', { q: 0, r: 0 })]
+    const after = [unitAt('p1', { q: 0, r: 0 })]
+
+    expect(calculateChangedTerritoryHexes(board, before, after)).toEqual([])
+  })
+
+  it('reports a region flipping from one owner to another', () => {
+    const board = boardOf([[0, 0, 'plain']])
+    const before = [unitAt('p1', { q: 0, r: 0 })]
+    const after = [unitAt('p2', { q: 0, r: 0 })]
+
+    expect(calculateChangedTerritoryHexes(board, before, after)).toEqual([{ coord: { q: 0, r: 0 }, ownerId: 'p2', terrain: 'plain', regionSize: 1 }])
+  })
+
+  it('reports a newly-owned region that had no majority owner before', () => {
+    const board = boardOf([[0, 0, 'plain']])
+    const before: Unit[] = []
+    const after = [unitAt('p1', { q: 0, r: 0 })]
+
+    expect(calculateChangedTerritoryHexes(board, before, after)).toEqual([{ coord: { q: 0, r: 0 }, ownerId: 'p1', terrain: 'plain', regionSize: 1 }])
+  })
+
+  it("reports a region that lost its owner with ownerId: null — for the caller to render grey ('turned neutral')", () => {
+    const board = boardOf([[0, 0, 'plain']])
+    const before = [unitAt('p1', { q: 0, r: 0 })]
+    const after: Unit[] = []
+
+    expect(calculateChangedTerritoryHexes(board, before, after)).toEqual([{ coord: { q: 0, r: 0 }, ownerId: null, terrain: 'plain', regionSize: 1 }])
+  })
+
+  it('reports a region that lost its majority owner to a tie as ownerId: null too', () => {
+    const board = boardOf([[0, 0, 'plain']])
+    const before = [unitAt('p1', { q: 0, r: 0 })]
+    const after = [unitAt('p1', { q: 0, r: 0 }), unitAt('p2', { q: 0, r: 0 })]
+
+    expect(calculateChangedTerritoryHexes(board, before, after)).toEqual([{ coord: { q: 0, r: 0 }, ownerId: null, terrain: 'plain', regionSize: 1 }])
+  })
+
+  it('only reports the hexes whose region actually changed, leaving unchanged regions out entirely', () => {
+    const board = boardOf([
+      [0, 0, 'plain'],
+      [5, 5, 'water'],
+    ])
+    const before = [unitAt('p1', { q: 0, r: 0 }), unitAt('p1', { q: 5, r: 5 })]
+    const after = [unitAt('p1', { q: 0, r: 0 }), unitAt('p2', { q: 5, r: 5 })]
+
+    expect(calculateChangedTerritoryHexes(board, before, after)).toEqual([{ coord: { q: 5, r: 5 }, ownerId: 'p2', terrain: 'water', regionSize: 1 }])
+  })
+
+  it('reports every hex of a multi-hex region that changed hands, each with the full region size', () => {
+    const board = boardOf([
+      [0, 0, 'mountain'],
+      [1, 0, 'mountain'],
+    ])
+    const before = [unitAt('p1', { q: 0, r: 0 }), unitAt('p1', { q: 1, r: 0 })]
+    const after = [unitAt('p2', { q: 0, r: 0 }), unitAt('p2', { q: 1, r: 0 })]
+
+    expect(sortedChangedByCoord(calculateChangedTerritoryHexes(board, before, after))).toEqual([
+      { coord: { q: 0, r: 0 }, ownerId: 'p2', terrain: 'mountain', regionSize: 2 },
+      { coord: { q: 1, r: 0 }, ownerId: 'p2', terrain: 'mountain', regionSize: 2 },
+    ])
+  })
+
+  it('respects terrainScoresAs when comparing regions across the merge (glacier -> mountain)', () => {
+    const board = boardOf([
+      [0, 0, 'mountain'],
+      [1, 0, 'glacier'],
+    ])
+    const before = [unitAt('p1', { q: 0, r: 0 }), unitAt('p1', { q: 1, r: 0 })]
+    const after = [unitAt('p2', { q: 0, r: 0 }), unitAt('p2', { q: 1, r: 0 })]
+
+    expect(sortedChangedByCoord(calculateChangedTerritoryHexes(board, before, after, { glacier: 'mountain' }))).toEqual([
+      { coord: { q: 0, r: 0 }, ownerId: 'p2', terrain: 'mountain', regionSize: 2 },
+      { coord: { q: 1, r: 0 }, ownerId: 'p2', terrain: 'mountain', regionSize: 2 },
+    ])
   })
 })

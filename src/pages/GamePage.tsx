@@ -126,6 +126,17 @@ export function GamePage() {
    */
   const [historyStepMode, setHistoryStepMode] = useState<'action' | 'turn'>('action')
   /**
+   * The review banner's territory-control overlay mode (issue #281,
+   * RoundView's `territoryControlMode` prop) — 'off' shows nothing extra,
+   * 'on' outlines every currently-controlled region like the victory screen,
+   * 'changes' outlines only what flipped since the previously-reviewed point
+   * (including a region that turned neutral, shown in grey). Defaults to
+   * 'changes' per issue #281 — the most useful at-a-glance view while
+   * stepping through history, more so than either the noisier 'on' or the
+   * silent 'off'.
+   */
+  const [territoryControlMode, setTerritoryControlMode] = useState<'off' | 'on' | 'changes'>('changes')
+  /**
    * Hotseat pass-and-play: which seated player the shared device is
    * currently "handed to" — distinct from auth identity, since every
    * hotseat seat shares one signed-in host's user_id (see gameApi.ts's
@@ -476,8 +487,13 @@ export function GamePage() {
     eventCountAtIndex: number[]
   } | null>(null)
 
-  const { reviewState, reviewGameLog, turnHalos } = useMemo((): { reviewState: EngineGameState | null; reviewGameLog: GameEvent[]; turnHalos: TurnReview | null } => {
-    if (reviewIndex === null || !game || !genesis || !gameState) return { reviewState: null, reviewGameLog: [], turnHalos: null }
+  const { reviewState, reviewGameLog, turnHalos, previousTerritoryState } = useMemo((): {
+    reviewState: EngineGameState | null
+    reviewGameLog: GameEvent[]
+    turnHalos: TurnReview | null
+    previousTerritoryState: EngineGameState | null
+  } => {
+    if (reviewIndex === null || !game || !genesis || !gameState) return { reviewState: null, reviewGameLog: [], turnHalos: null, previousTerritoryState: null }
     const actionHistory = gameState.actionHistory
     let cache = reviewCacheRef.current
 
@@ -546,18 +562,29 @@ export function GamePage() {
       // `defaultTurnHistoryIndex`'s own doc comment: paging forward from
       // there is what reveals each opponent's turn).
       let turnHalos: TurnReview | null = null
+      // The territory-control "highlight changes" mode (issue #281) needs
+      // the same "state just before this point" boundary turnHalos already
+      // diffs against — reusing its exact prevStop (and the same
+      // defaultTurnHistoryIndex/genesis skip) keeps both features agreeing
+      // on what "just changed" means at any given point in turn mode. Action
+      // mode has no equivalent halo feature to share a boundary with, so it
+      // just uses the one action immediately prior.
+      let previousTerritoryState: EngineGameState | null = null
       if (historyStepMode === 'turn' && reviewIndex > 0 && reviewIndex !== defaultTurnHistoryIndex && fullTurnStops) {
         const pos = fullTurnStops.indexOf(reviewIndex)
         if (pos > 0) {
           const prevStop = fullTurnStops[pos - 1]
           turnHalos = buildTurnReview(cache.states[prevStop], actionHistory.slice(prevStop, reviewIndex), unitContent, achievementContent, boardGenerationContent, taleContent)
+          previousTerritoryState = cache.states[prevStop]
         }
+      } else if (historyStepMode === 'action' && reviewIndex > 0) {
+        previousTerritoryState = cache.states[reviewIndex - 1]
       }
 
-      return { reviewState: cache.states[reviewIndex], reviewGameLog: cache.events.slice(0, cache.eventCountAtIndex[reviewIndex]), turnHalos }
+      return { reviewState: cache.states[reviewIndex], reviewGameLog: cache.events.slice(0, cache.eventCountAtIndex[reviewIndex]), turnHalos, previousTerritoryState }
     } catch {
       reviewCacheRef.current = null
-      return { reviewState: null, reviewGameLog: [], turnHalos: null }
+      return { reviewState: null, reviewGameLog: [], turnHalos: null, previousTerritoryState: null }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -1140,6 +1167,27 @@ export function GamePage() {
           >
             {historyStepMode === 'turn' ? 'Step by action' : 'Step by turn'}
           </button>
+          <div className="flex items-center gap-1" role="group" aria-label="Territory control display">
+            {(
+              [
+                { mode: 'off', label: 'Territory: off', title: 'Hide territory control.' },
+                { mode: 'on', label: 'Territory: on', title: 'Outline every region currently under a player’s control, like the victory screen.' },
+                { mode: 'changes', label: 'Territory: changes', title: 'Outline only the regions whose control changed since the previous step — including a region that turned neutral, shown in grey.' },
+              ] as const
+            ).map(({ mode, label, title }) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setTerritoryControlMode(mode)}
+                title={title}
+                className={`rounded-md border px-2 py-0.5 hover:border-amber-400 ${
+                  territoryControlMode === mode ? 'border-amber-500 bg-amber-500/10 text-amber-300' : 'border-amber-700/60'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -1302,6 +1350,8 @@ export function GamePage() {
           taleContent={taleContent}
           turnReview={turnHalos}
           showHistory={isReviewingHistory}
+          territoryControlMode={territoryControlMode}
+          previousHistoryState={previousTerritoryState}
           gameLog={isReviewingHistory ? reviewGameLog : gameLog}
           onChooseCard={(cardId) => {
             if (!me) return
