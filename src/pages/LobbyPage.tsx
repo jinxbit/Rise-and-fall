@@ -40,6 +40,7 @@ export function LobbyPage() {
   const navigate = useNavigate()
 
   const [game, setGame] = useState<GameRow | null>(null)
+  const [roomNotFound, setRoomNotFound] = useState(false)
   const [players, setPlayers] = useState<PlayerRow[]>([])
   const [error, setError] = useState<AppError | null>(null)
   const [busy, setBusy] = useState(false)
@@ -54,10 +55,15 @@ export function LobbyPage() {
 
   const load = useCallback(async () => {
     if (!roomCode) return
-    const foundGame = await getGameByRoomCode(roomCode)
-    setGame(foundGame)
-    if (foundGame) {
-      setPlayers(await listPlayers(foundGame.id))
+    try {
+      const foundGame = await getGameByRoomCode(roomCode)
+      setRoomNotFound(!foundGame)
+      setGame(foundGame)
+      if (foundGame) {
+        setPlayers(await listPlayers(foundGame.id))
+      }
+    } catch (err) {
+      setError(toAppError(err, 'Failed to load room'))
     }
   }, [roomCode])
 
@@ -101,7 +107,17 @@ export function LobbyPage() {
   }, [authLoading, session, roomCode, navigate])
 
   if (authLoading || !session) return <div className="p-8 text-neutral-400">Loading…</div>
-  if (!game) return <div className="p-8 text-neutral-400">Looking for room {roomCode}…</div>
+  if (!game) {
+    if (error) {
+      return (
+        <div className="p-8">
+          <ErrorBanner message={error.message} details={error.details} onDismiss={() => setError(null)} />
+        </div>
+      )
+    }
+    if (roomNotFound) return <div className="p-8 text-neutral-400">Room {roomCode} not found.</div>
+    return <div className="p-8 text-neutral-400">Looking for room {roomCode}…</div>
+  }
 
   const user = session.user
   const me = players.find((p) => p.user_id === user.id) ?? null

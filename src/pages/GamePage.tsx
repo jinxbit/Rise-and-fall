@@ -65,6 +65,8 @@ export function GamePage() {
   }, [authLoading, session, roomCode, navigate])
 
   const [game, setGame] = useState<GameRow | null>(null)
+  const [roomNotFound, setRoomNotFound] = useState(false)
+  const [loadError, setLoadError] = useState<AppError | null>(null)
   const [players, setPlayers] = useState<PlayerRow[]>([])
   const [gameState, setGameState] = useState<EngineGameState | null>(null)
   const [version, setVersion] = useState<number | null>(null)
@@ -157,6 +159,10 @@ export function GamePage() {
 
   useEffect(() => {
     if (!roomCode) return
+    let cancelled = false
+    setGame(null)
+    setRoomNotFound(false)
+    setLoadError(null)
     setHotseatActivePlayerId(null)
     setReviewIndex(null)
     setHistoryStepMode('action')
@@ -164,15 +170,23 @@ export function GamePage() {
     setMapSaveError(null)
     autoReviewAppliedRef.current = false
     void (async () => {
-      const foundGame = await getGameByRoomCode(roomCode)
-      if (!foundGame) {
-        setGame(null)
-        return
+      try {
+        const foundGame = await getGameByRoomCode(roomCode)
+        if (cancelled) return
+        if (!foundGame) {
+          setRoomNotFound(true)
+          return
+        }
+        setGame(foundGame)
+        const foundPlayers = await listPlayers(foundGame.id)
+        if (!cancelled) setPlayers(foundPlayers)
+      } catch (err) {
+        if (!cancelled) setLoadError(toAppError(err, 'Failed to load room'))
       }
-      const foundPlayers = await listPlayers(foundGame.id)
-      setGame(foundGame)
-      setPlayers(foundPlayers)
     })()
+    return () => {
+      cancelled = true
+    }
   }, [roomCode])
 
   useEffect(() => {
@@ -892,6 +906,14 @@ export function GamePage() {
   }
 
   if (authLoading || !session) return <div className="p-8 text-neutral-400">Loading…</div>
+  if (loadError) {
+    return (
+      <div className="p-8">
+        <ErrorBanner message={loadError.message} details={loadError.details} />
+      </div>
+    )
+  }
+  if (roomNotFound) return <div className="p-8 text-neutral-400">Room {roomCode} not found.</div>
   if (!game) return <div className="p-8 text-neutral-400">Looking for room {roomCode}…</div>
 
   return (
