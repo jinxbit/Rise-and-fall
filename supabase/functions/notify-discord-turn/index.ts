@@ -34,6 +34,8 @@ interface BoardSetupState {
   tilePlacerIndex: number
   unitsRemainingByPlayerId: Record<string, unknown[]>
   unitPlacerIndex: number
+  /** "Build alone" map mode (GameSettings.soloBuildMap) — see src/engine/types.ts's BoardSetupState.builderId doc comment. */
+  builderId?: string | null
 }
 
 type RoundPhase = 'selectCards' | 'actions' | 'decline' | 'purchase'
@@ -52,6 +54,7 @@ interface GameState {
 function currentTilePlacerId(state: GameState): string | null {
   const boardSetup = state.boardSetup
   if (state.status !== 'boardSetup' || !boardSetup || boardSetup.tileTierQueue.length === 0) return null
+  if (boardSetup.builderId) return boardSetup.builderId
   if (state.turnOrder.length === 0) return null
   return state.turnOrder[boardSetup.tilePlacerIndex % state.turnOrder.length]
 }
