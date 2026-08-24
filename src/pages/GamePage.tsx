@@ -336,6 +336,15 @@ export function GamePage() {
   // engine-side rejection of an unknown/already-eliminated player
   // (applyConcede in engine/applyAction.ts).
   const canConcede = !!me && gameState?.status === 'active' && !gameState.players.find((p) => p.id === me.id)?.eliminated
+  /**
+   * The board's terrain is locked in the moment tile placement finishes —
+   * unit placement (boardSetup's second sub-phase, see BoardSetupState in
+   * ../engine/types.ts) only ever adds starting units, which handleSaveMap's
+   * stripOccupants strips right back out anyway, so there's no reason to
+   * keep "Save this map" disabled for that whole sub-phase (issue #294).
+   * `active`/`completed` are always save-able too, same as before.
+   */
+  const canSaveMap = !!gameState && (gameState.status !== 'boardSetup' || gameState.boardSetup?.tileTierQueue.length === 0)
 
   /**
    * Deterministically rebuilt from the game's row + seated players — see
@@ -1061,12 +1070,12 @@ export function GamePage() {
                 <button
                   type="button"
                   role="menuitem"
-                  disabled={!gameState || gameState.status === 'boardSetup' || savingMap}
+                  disabled={!canSaveMap || savingMap}
                   onClick={() => {
                     setMenuOpen(false)
                     void handleSaveMap()
                   }}
-                  title="Save this game's current board layout to the map pool, so a future game can start from it."
+                  title="Save this game's current board layout to the map pool, so a future game can start from it. Available once tile placement finishes — the terrain won't change after that."
                   className="px-3 py-2 text-left hover:bg-neutral-800 disabled:opacity-50"
                 >
                   {savingMap ? 'Saving map…' : 'Save this map'}
