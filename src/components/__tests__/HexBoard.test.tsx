@@ -366,6 +366,33 @@ describe('HexBoard — territory control overlay', () => {
     expect(container.querySelectorAll('line[stroke="#22c55e"]')).toHaveLength(10)
   })
 
+  it("keeps the outline continuous where it crosses from one member hex to the next — bug report: \"line is broken when it crossed to a new hex\"", () => {
+    const territoryControl = [
+      { coord: { q: 0, r: 0 }, color: '#22c55e', terrain: 'plain', points: 1 },
+      { coord: { q: 1, r: 0 }, color: '#22c55e', terrain: 'plain', points: 1 },
+    ]
+    const { container } = render(<HexBoard board={makeBoard()} territoryControl={territoryControl} />)
+
+    // A closed, connected outline is a set of segments where every endpoint
+    // is shared by exactly two segments (the one ending there and the one
+    // starting there) — a broken outline instead leaves some endpoints
+    // touched by only one segment (a dangling end where the crossing failed
+    // to line up).
+    const lines = [...container.querySelectorAll('line[stroke="#22c55e"]')]
+    const endpointCounts = new Map<string, number>()
+    for (const line of lines) {
+      for (const [xAttr, yAttr] of [
+        ['x1', 'y1'],
+        ['x2', 'y2'],
+      ] as const) {
+        const key = `${Number(line.getAttribute(xAttr)).toFixed(2)},${Number(line.getAttribute(yAttr)).toFixed(2)}`
+        endpointCounts.set(key, (endpointCounts.get(key) ?? 0) + 1)
+      }
+    }
+    expect(endpointCounts.size).toBe(lines.length) // 10 segments, 10 distinct shared vertices
+    for (const count of endpointCounts.values()) expect(count).toBe(2)
+  })
+
   it('draws a border on both sides of an edge shared by two different owners', () => {
     const territoryControl = [
       { coord: { q: 0, r: 0 }, color: '#22c55e', terrain: 'plain', points: 1 },
@@ -434,7 +461,7 @@ describe('HexBoard — territory control overlay', () => {
 
     const width = Number(container.querySelector('line[stroke="#22c55e"]')!.getAttribute('stroke-width'))
     const size = 22 // HexBoard's default `size` prop
-    expect(width).toBeCloseTo(size * ((0.08 + 0.32) / 2))
+    expect(width).toBeCloseTo(size * ((0.05 + 0.2) / 2))
   })
 
   /** Every rendered `<line stroke={color}>`'s midpoint x — order-independent, unlike relying on which `<line>` a querySelector happens to match first. */

@@ -56,9 +56,9 @@ const CLIFF_CHECK_DIRECTIONS: Coordinate[] = [
 ]
 
 /** The thinnest a territory border ever gets — the lowest-scoring territory actually on the board, not an absolute point count (see territoryBorderWidth below). */
-const TERRITORY_BORDER_MIN_WIDTH_FACTOR = 0.08
+const TERRITORY_BORDER_MIN_WIDTH_FACTOR = 0.05
 /** The thickest a territory border ever gets — the highest-scoring territory actually on the board. */
-const TERRITORY_BORDER_MAX_WIDTH_FACTOR = 0.32
+const TERRITORY_BORDER_MAX_WIDTH_FACTOR = 0.2
 /** The dark halo drawn under the border's own colour (see territoryBorderSegments below) is always this many times wider, same ratio as before this became variable. */
 const TERRITORY_BORDER_HALO_WIDTH_MULTIPLIER = 2
 
@@ -150,6 +150,158 @@ function territoryInsetEdge(cx: number, cy: number, nx: number, ny: number, radi
     x2: cx + insetRadius * Math.cos(a2),
     y2: cy + insetRadius * Math.sin(a2),
   }
+}
+
+/** One outward-facing side of a territory's boundary, in true (un-inset) board coordinates — `v1`/`v2` are its two endpoints (see territoryInsetEdge, called with `insetDist: 0` to get them), `hexX`/`hexY` the center of whichever member hex this particular side belongs to (used to pick the inward direction when insetting, see edgeInwardNormal below). */
+interface TerritoryBoundaryEdge {
+  v1: { x: number; y: number }
+  v2: { x: number; y: number }
+  hexX: number
+  hexY: number
+}
+
+/** Rounds a point to a fixed precision for use as a map key — two boundary edges computed independently from different (adjacent) hexes' own centers still land on the exact same true grid vertex, just with floating-point noise many orders of magnitude finer than this. */
+function vertexKey(x: number, y: number): string {
+  return `${x.toFixed(3)},${y.toFixed(3)}`
+}
+
+/** Where infinite line p1-p2 crosses infinite line p3-p4, or null if they're parallel (or nearly enough that the intersection would shoot off to an unreasonable distance). */
+function lineIntersection(
+  p1: { x: number; y: number },
+  p2: { x: number; y: number },
+  p3: { x: number; y: number },
+  p4: { x: number; y: number },
+): { x: number; y: number } | null {
+  const denom = (p1.x - p2.x) * (p3.y - p4.y) - (p1.y - p2.y) * (p3.x - p4.x)
+  if (Math.abs(denom) < 1e-9) return null
+  const t = ((p1.x - p3.x) * (p3.y - p4.y) - (p1.y - p3.y) * (p3.x - p4.x)) / denom
+  return { x: p1.x + t * (p2.x - p1.x), y: p1.y + t * (p2.y - p1.y) }
+}
+
+/** Groups territory-controlled hexes into one array per contiguous same-owner-same-terrain region — the unit a single connected outline needs to trace over (see territoryBoundaryLoops below), matching the same "same colour and terrain" test the per-side border check already used. */
+function groupTerritoryHexes<T extends { coord: Coordinate; color: string; terrain: string }>(board: Board, territoryByKey: Map<string, T>): T[][] {
+  const visited = new Set<string>()
+  const groups: T[][] = []
+  for (const [key, territory] of territoryByKey) {
+    if (visited.has(key)) continue
+    visited.add(key)
+    const group: T[] = []
+    const queue = [territory]
+    while (queue.length > 0) {
+      const current = queue.pop()!
+      group.push(current)
+      for (const neighborCoord of neighborCoords(board, current.coord)) {
+        const neighborKey = coordKey(neighborCoord)
+        if (visited.has(neighborKey)) continue
+        const neighborTerritory = territoryByKey.get(neighborKey)
+        if (!neighborTerritory || neighborTerritory.color !== territory.color || neighborTerritory.terrain !== territory.terrain) continue
+        visited.add(neighborKey)
+        queue.push(neighborTerritory)
+      }
+    }
+    groups.push(group)
+  }
+  return groups
+}
+
+/**
+ * Every outward-facing side of one territory region, knitted into one or
+ * more closed loops (normally one — a hole in a region, e.g. a player's
+ * territory fully surrounding an enemy hex, would trace as a second, inner
+ * loop). Each hex contributes its own outward sides as independent edges
+ * (same true endpoints two adjacent hexes' sides always agree on, since
+ * they're both reading off the same real hex-grid vertex); chaining them by
+ * shared endpoint is what turns a whole multi-hex region into one connected
+ * boundary instead of the disconnected per-hex sides `territoryInsetEdge`
+ * alone produces.
+ */
+function territoryBoundaryLoops(
+  board: Board,
+  group: { coord: Coordinate; color: string; terrain: string }[],
+  territoryByKey: Map<string, { coord: Coordinate; color: string; terrain: string }>,
+  size: number,
+): TerritoryBoundaryEdge[][] {
+  const edges: TerritoryBoundaryEdge[] = []
+  for (const territory of group) {
+    const { x, y } = axialToPixel(territory.coord, size)
+    for (const neighborCoord of neighborCoords(board, territory.coord)) {
+      const neighborTerritory = territoryByKey.get(coordKey(neighborCoord))
+      if (neighborTerritory && neighborTerritory.color === territory.color && neighborTerritory.terrain === territory.terrain) continue
+      const { x: nx, y: ny } = axialToPixel(neighborCoord, size)
+      const trueEdge = territoryInsetEdge(x, y, nx, ny, size - 1, 0)
+      edges.push({ v1: { x: trueEdge.x1, y: trueEdge.y1 }, v2: { x: trueEdge.x2, y: trueEdge.y2 }, hexX: x, hexY: y })
+    }
+  }
+
+  const byStartKey = new Map(edges.map((e) => [vertexKey(e.v1.x, e.v1.y), e]))
+  const visited = new Set<TerritoryBoundaryEdge>()
+  const loops: TerritoryBoundaryEdge[][] = []
+  for (const start of edges) {
+    if (visited.has(start)) continue
+    const loop: TerritoryBoundaryEdge[] = []
+    let current: TerritoryBoundaryEdge | undefined = start
+    while (current && !visited.has(current)) {
+      visited.add(current)
+      loop.push(current)
+      current = byStartKey.get(vertexKey(current.v2.x, current.v2.y))
+    }
+    loops.push(loop)
+  }
+  return loops
+}
+
+/** How far a mitered corner is allowed to shoot out past its true vertex, as a multiple of the inset distance, before falling back to a plain bevel — guards a very sharp reflex notch in a region's shape from producing a wild spike. */
+const TERRITORY_BORDER_MITER_LIMIT = 4
+
+/** The perpendicular unit vector to `edge`, pointing toward whichever hex it belongs to (see TerritoryBoundaryEdge.hexX/hexY) rather than away from it — i.e. "inward." */
+function edgeInwardNormal(edge: TerritoryBoundaryEdge): { nx: number; ny: number } {
+  const dx = edge.v2.x - edge.v1.x
+  const dy = edge.v2.y - edge.v1.y
+  const dist = Math.hypot(dx, dy) || 1
+  let nx = -dy / dist
+  let ny = dx / dist
+  const midX = (edge.v1.x + edge.v2.x) / 2
+  const midY = (edge.v1.y + edge.v2.y) / 2
+  if (nx * (edge.hexX - midX) + ny * (edge.hexY - midY) < 0) {
+    nx = -nx
+    ny = -ny
+  }
+  return { nx, ny }
+}
+
+/**
+ * A closed boundary loop (see territoryBoundaryLoops), pulled inward by
+ * `insetDist` as a whole — each vertex becomes the intersection of its two
+ * neighboring sides, each independently offset toward its own owning hex
+ * (see edgeInwardNormal) — the standard mitered-polygon-offset construction.
+ * Unlike insetting each hex's sides independently (which leaves adjacent
+ * member hexes' segments pulled toward two different centers, and so not
+ * meeting where the outline crosses from one hex to the next — the "broken"
+ * line bug this replaces), every vertex here has exactly one inset position,
+ * so consecutive segments always share an endpoint.
+ */
+function insetLoopVertices(loop: TerritoryBoundaryEdge[], insetDist: number): { x: number; y: number }[] {
+  const n = loop.length
+  return loop.map((edge, i) => {
+    const prev = loop[(i - 1 + n) % n]
+    const normalPrev = edgeInwardNormal(prev)
+    const normalNext = edgeInwardNormal(edge)
+    const trueVertex = edge.v1
+    const bevel = {
+      x: trueVertex.x + ((normalPrev.nx + normalNext.nx) / 2) * insetDist,
+      y: trueVertex.y + ((normalPrev.ny + normalNext.ny) / 2) * insetDist,
+    }
+    const intersection = lineIntersection(
+      { x: prev.v1.x + normalPrev.nx * insetDist, y: prev.v1.y + normalPrev.ny * insetDist },
+      { x: prev.v2.x + normalPrev.nx * insetDist, y: prev.v2.y + normalPrev.ny * insetDist },
+      { x: edge.v1.x + normalNext.nx * insetDist, y: edge.v1.y + normalNext.ny * insetDist },
+      { x: edge.v2.x + normalNext.nx * insetDist, y: edge.v2.y + normalNext.ny * insetDist },
+    )
+    if (!intersection || Math.hypot(intersection.x - trueVertex.x, intersection.y - trueVertex.y) > insetDist * TERRITORY_BORDER_MITER_LIMIT) {
+      return bevel
+    }
+    return intersection
+  })
 }
 
 /** Pulls both ends of a line segment inward along its own direction — used to keep a history arrow (see HistoryArrow) from starting/ending right under a unit marker's plate. */
@@ -776,26 +928,21 @@ export function HexBoard(props: {
     }
   }
 
-  // One border segment per outward-facing side of each controlled hex — a
-  // side is "outward-facing" when its neighbor isn't part of the same
-  // territory (a different owner, a different terrain, nobody, or off the
-  // board), so no segment is drawn between two of that player's own
-  // adjacent hexes of the *same* terrain, and a whole territory traces as
-  // one connected outline (see territoryControl above) — while a same-owner
-  // hex of a different terrain still gets its own separate outline.
+  // Each territory (one contiguous same-owner-same-terrain region — see
+  // groupTerritoryHexes) traces as one or more closed boundary loops (see
+  // territoryBoundaryLoops), which are then inset inward as a whole (see
+  // insetLoopVertices) rather than one hex-side at a time: every vertex on
+  // the loop gets exactly one inset position, shared by the two segments on
+  // either side of it, so the outline stays connected as it crosses from one
+  // member hex to the next — insetting each hex's sides independently (an
+  // earlier version of this) instead pulled each hex's own sides toward its
+  // own center, which left the outline visibly broken at that same crossing
+  // (bug report: "line is broken when it crossed to a new hex").
   //
-  // Every segment is inset toward its own hex's center (via
-  // territoryInsetEdge above) by that hex's own halo half-width, so the
-  // stroke — halo included — always stays within this hex, never crossing
-  // the real hex-to-hex edge onto a neighbor's side. Both hexes on a
-  // competing edge independently draw their own fully-contained segment
-  // this way (unlike an earlier version, which centered one shared line on
-  // the boundary and let it bleed into whichever hex's stroke was wider —
-  // bug report: "the colors coexist... should face inward and never
-  // overlap"). Since the inset amount is the same for every side of one
-  // hex, adjacent drawn sides of that hex always meet at an exact shared
-  // corner with no separate mitering step needed (see territoryInsetEdge's
-  // doc comment).
+  // The loop is still inset by the halo's own half-width (not just the
+  // colour line's), so the stroke — halo included — always stays within its
+  // own territory, never crossing the real hex-to-hex edge into a
+  // neighboring territory's side of it (see TERRITORY_BORDER_HALO_WIDTH_MULTIPLIER).
   const territoryByKey = new Map((props.territoryControl ?? []).map((t) => [coordKey(t.coord), t]))
   const territoryBorderSegments: { x1: number; y1: number; x2: number; y2: number; color: string; strokeWidth: number }[] = []
   if (territoryByKey.size > 0) {
@@ -803,21 +950,18 @@ export function HexBoard(props: {
     const minPoints = Math.min(...allPoints)
     const maxPoints = Math.max(...allPoints)
 
-    for (const { coord, x, y } of pixels) {
-      const territory = territoryByKey.get(coordKey(coord))
-      if (!territory) continue
-      const strokeWidth = territoryBorderWidth(size, territory.points, minPoints, maxPoints)
-      // Inset by the halo's own half-width (not just the color line's) so
-      // the halo's outer edge lands right on the true boundary instead of
-      // poking past it — see TERRITORY_BORDER_HALO_WIDTH_MULTIPLIER.
+    for (const group of groupTerritoryHexes(props.board, territoryByKey)) {
+      const { color, points } = group[0]
+      const strokeWidth = territoryBorderWidth(size, points, minPoints, maxPoints)
       const insetDist = strokeWidth * (TERRITORY_BORDER_HALO_WIDTH_MULTIPLIER / 2)
-      for (const neighborCoord of neighborCoords(props.board, coord)) {
-        const neighborTerritory = territoryByKey.get(coordKey(neighborCoord))
-        if (neighborTerritory && neighborTerritory.color === territory.color && neighborTerritory.terrain === territory.terrain) continue
-
-        const { x: nx, y: ny } = axialToPixel(neighborCoord, size)
-        const edge = territoryInsetEdge(x, y, nx, ny, size - 1, insetDist)
-        territoryBorderSegments.push({ x1: edge.x1, y1: edge.y1, x2: edge.x2, y2: edge.y2, color: territory.color, strokeWidth })
+      for (const loop of territoryBoundaryLoops(props.board, group, territoryByKey, size)) {
+        const insetVertices = insetLoopVertices(loop, insetDist)
+        const n = insetVertices.length
+        for (let i = 0; i < n; i++) {
+          const a = insetVertices[i]
+          const b = insetVertices[(i + 1) % n]
+          territoryBorderSegments.push({ x1: a.x, y1: a.y, x2: b.x, y2: b.y, color, strokeWidth })
+        }
       }
     }
   }
