@@ -1919,15 +1919,28 @@ describe('RoundView — territory control overlay (issue #281)', () => {
     expect(container.querySelectorAll('line[stroke="#ef4444"]')).toHaveLength(0) // p1 no longer controls it
   })
 
-  it('outlines a region that turned neutral in white, in "changes" mode', () => {
+  it('outlines a region that turned neutral with black-and-white stripes, in "changes" mode', () => {
     const previousHistoryState = stateWithUnitAt('p1')
     const currentState = stateWithUnitAt('p1')
     currentState.units = [] // the region has no units at all any more — no majority owner
 
     const { container } = renderTerritory('changes', { state: currentState, previousHistoryState })
 
-    expect(container.querySelectorAll('line[stroke="#ffffff"]').length).toBeGreaterThan(0)
+    const stripedLines = container.querySelectorAll('line[data-striped="true"]')
+    expect(stripedLines.length).toBeGreaterThan(0)
     expect(container.querySelectorAll('line[stroke="#ef4444"]')).toHaveLength(0)
+
+    // Every striped line's stroke points at a <pattern> (not a flat colour), and that pattern
+    // actually alternates black and white rather than being some other placeholder shape.
+    for (const line of stripedLines) {
+      const strokeUrl = line.getAttribute('stroke') ?? ''
+      expect(strokeUrl).toMatch(/^url\(#.+\)$/)
+      const patternId = strokeUrl.slice('url(#'.length, -1)
+      const pattern = container.querySelector(`pattern#${CSS.escape(patternId)}`)
+      expect(pattern).not.toBeNull()
+      const fills = [...(pattern?.querySelectorAll('rect') ?? [])].map((r) => r.getAttribute('fill'))
+      expect(fills).toEqual(expect.arrayContaining(['#000000', '#ffffff']))
+    }
   })
 
   it('shows nothing in "changes" mode for a region whose owner did not change', () => {

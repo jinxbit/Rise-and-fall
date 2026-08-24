@@ -1,3 +1,4 @@
+import { useId } from 'react'
 import { neighborCoords } from '../engine/board'
 import { isCliffEdge } from '../engine/cliffs'
 import type { Board, Coordinate, Resources, Terrain } from '../engine/types'
@@ -779,7 +780,7 @@ export function HexBoard(props: {
    * cliff's own fixed-width black line could otherwise show through a
    * territory border drawn on the same real hex edge.
    */
-  territoryControl?: { coord: Coordinate; color: string; terrain: string; points: number }[]
+  territoryControl?: { coord: Coordinate; color: string; terrain: string; points: number; /** Renders this hex's border as black-and-white diagonal stripes instead of `color` — the review screen's "changes" mode (issue #281) uses this for a region that turned neutral, instead of a flat white that could be mistaken for an actual (very pale) player colour. */ striped?: boolean }[]
   /**
    * Overrides the min/max `points` this board's border widths (see
    * territoryBorderWidth) scale against, instead of deriving that range from
@@ -827,6 +828,9 @@ export function HexBoard(props: {
   analyzing?: boolean
 }) {
   const size = props.size ?? 22
+  // Scoped to this HexBoard instance (React can mount several at once, e.g. AdminMapsPage's
+  // list) so each board's <pattern> definition only ever resolves to its own.
+  const neutralStripePatternId = useId()
 
   const allCoords = new Map<string, Coordinate>()
   for (const tile of Object.values(props.board.tiles)) allCoords.set(coordKey(tile.coord), tile.coord)
@@ -977,14 +981,14 @@ export function HexBoard(props: {
   // own territory, never crossing the real hex-to-hex edge into a
   // neighboring territory's side of it (see TERRITORY_BORDER_HALO_WIDTH_MULTIPLIER).
   const territoryByKey = new Map((props.territoryControl ?? []).map((t) => [coordKey(t.coord), t]))
-  const territoryBorderSegments: { x1: number; y1: number; x2: number; y2: number; color: string; strokeWidth: number }[] = []
+  const territoryBorderSegments: { x1: number; y1: number; x2: number; y2: number; color: string; strokeWidth: number; striped: boolean }[] = []
   if (territoryByKey.size > 0) {
     const allPoints = [...territoryByKey.values()].map((t) => t.points)
     const minPoints = props.territoryValueRange?.min ?? Math.min(...allPoints)
     const maxPoints = props.territoryValueRange?.max ?? Math.max(...allPoints)
 
     for (const group of groupTerritoryHexes(props.board, territoryByKey)) {
-      const { color, points } = group[0]
+      const { color, points, striped } = group[0]
       const strokeWidth = territoryBorderWidth(size, points, minPoints, maxPoints)
       const insetDist = strokeWidth * (TERRITORY_BORDER_HALO_WIDTH_MULTIPLIER / 2)
       for (const loop of territoryBoundaryLoops(props.board, group, territoryByKey, size)) {
@@ -993,7 +997,7 @@ export function HexBoard(props: {
         for (let i = 0; i < n; i++) {
           const a = insetVertices[i]
           const b = insetVertices[(i + 1) % n]
-          territoryBorderSegments.push({ x1: a.x, y1: a.y, x2: b.x, y2: b.y, color, strokeWidth })
+          territoryBorderSegments.push({ x1: a.x, y1: a.y, x2: b.x, y2: b.y, color, strokeWidth, striped: striped ?? false })
         }
       }
     }
@@ -1006,6 +1010,21 @@ export function HexBoard(props: {
         style={{ overflow: 'visible' }}
         className={`w-full rounded-md border border-neutral-800 bg-neutral-950 ${props.expanded ? 'max-h-[92vh]' : 'max-h-[70vh]'}`}
       >
+      <defs>
+        {/* A region that turned neutral (see territoryControl's `striped` doc comment) renders with
+            this instead of a flat colour, so it can't be mistaken for an actual (very pale) player
+            colour. Rotated 45° for a "hazard tape" look distinct from any straight hex edge. */}
+        <pattern
+          id={neutralStripePatternId}
+          width={6}
+          height={6}
+          patternUnits="userSpaceOnUse"
+          patternTransform="rotate(45)"
+        >
+          <rect width={6} height={6} fill="#ffffff" />
+          <rect width={3} height={6} fill="#000000" />
+        </pattern>
+      </defs>
       {pixels.map(({ coord, x, y }) => {
         const tile = props.board.tiles[coordKey(coord)]
         const selected = props.selectedCoord?.q === coord.q && props.selectedCoord?.r === coord.r
@@ -1070,7 +1089,8 @@ export function HexBoard(props: {
           y1={seg.y1}
           x2={seg.x2}
           y2={seg.y2}
-          stroke={seg.color}
+          stroke={seg.striped ? `url(#${neutralStripePatternId})` : seg.color}
+          data-striped={seg.striped || undefined}
           strokeWidth={seg.strokeWidth}
           strokeLinecap="round"
           pointerEvents="none"

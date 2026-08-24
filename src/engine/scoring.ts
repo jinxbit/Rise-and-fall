@@ -145,7 +145,7 @@ export function calculateTerritoryControlByHex(
 
 export interface ChangedTerritoryHex {
   coord: Coordinate
-  /** The hex's new majority owner, or null if it had one before but lost it (no majority any more) — the review screen's "highlight changes" mode (issue #281) renders that case in grey rather than any player's colour. */
+  /** The hex's new majority owner, or null if it had one before but lost it (no majority any more) — the review screen's "highlight changes" mode (issue #281) renders that case in black-and-white stripes rather than any player's colour. */
   ownerId: string | null
   /** Effective terrain of the region this hex belongs to (post-terrainScoresAs merge) — see calculateTerritoryControlByHex. */
   terrain: string

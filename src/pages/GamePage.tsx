@@ -52,6 +52,28 @@ import { setPendingRedirect } from '../lib/pendingRedirect'
  */
 const MAX_WRITE_RETRIES = 3
 
+/**
+ * The review banner's territory-control toggle (see `territoryControlMode`
+ * state below) cycles through these in order on each click, rather than
+ * offering three separate buttons — one button reads more like a single
+ * "territory overlay" control switching between views than three
+ * independent, easy-to-confuse-with-multi-select toggles.
+ */
+const TERRITORY_CONTROL_MODES = [
+  { mode: 'off', label: 'Territory: off', title: 'Territory control is hidden. Click to outline every region a player currently controls, like the victory screen.' },
+  {
+    mode: 'on',
+    label: 'Territory: on',
+    title: 'Outlining every region currently under a player’s control, like the victory screen. Click to outline only what changed since the previous step instead.',
+  },
+  {
+    mode: 'changes',
+    label: 'Territory: changes',
+    title:
+      'Outlining only the regions whose control changed since the previous step — a region that turned neutral is striped black-and-white. Click to hide territory control.',
+  },
+] as const
+
 export function GamePage() {
   const { roomCode } = useParams<{ roomCode: string }>()
   const { session, loading: authLoading } = useAuth()
@@ -130,10 +152,12 @@ export function GamePage() {
    * RoundView's `territoryControlMode` prop) — 'off' shows nothing extra,
    * 'on' outlines every currently-controlled region like the victory screen,
    * 'changes' outlines only what flipped since the previously-reviewed point
-   * (including a region that turned neutral, shown in grey). Defaults to
-   * 'changes' per issue #281 — the most useful at-a-glance view while
-   * stepping through history, more so than either the noisier 'on' or the
-   * silent 'off'.
+   * (including a region that turned neutral, shown in black-and-white
+   * stripes). Defaults to 'changes' per issue #281 — the most useful
+   * at-a-glance view while stepping through history, more so than either the
+   * noisier 'on' or the silent 'off'. Cycled off -> on -> changes -> off by
+   * one toggle button (TERRITORY_CONTROL_MODES below) rather than three
+   * separate buttons, per follow-up request on issue #281.
    */
   const [territoryControlMode, setTerritoryControlMode] = useState<'off' | 'on' | 'changes'>('changes')
   /**
@@ -1167,27 +1191,21 @@ export function GamePage() {
           >
             {historyStepMode === 'turn' ? 'Step by action' : 'Step by turn'}
           </button>
-          <div className="flex items-center gap-1" role="group" aria-label="Territory control display">
-            {(
-              [
-                { mode: 'off', label: 'Territory: off', title: 'Hide territory control.' },
-                { mode: 'on', label: 'Territory: on', title: 'Outline every region currently under a player’s control, like the victory screen.' },
-                { mode: 'changes', label: 'Territory: changes', title: 'Outline only the regions whose control changed since the previous step — including a region that turned neutral, shown in grey.' },
-              ] as const
-            ).map(({ mode, label, title }) => (
-              <button
-                key={mode}
-                type="button"
-                onClick={() => setTerritoryControlMode(mode)}
-                title={title}
-                className={`rounded-md border px-2 py-0.5 hover:border-amber-400 ${
-                  territoryControlMode === mode ? 'border-amber-500 bg-amber-500/10 text-amber-300' : 'border-amber-700/60'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+          <button
+            type="button"
+            onClick={() =>
+              setTerritoryControlMode((current) => {
+                const currentIndex = TERRITORY_CONTROL_MODES.findIndex((m) => m.mode === current)
+                return TERRITORY_CONTROL_MODES[(currentIndex + 1) % TERRITORY_CONTROL_MODES.length].mode
+              })
+            }
+            title={TERRITORY_CONTROL_MODES.find((m) => m.mode === territoryControlMode)?.title}
+            className={`rounded-md border px-2 py-0.5 hover:border-amber-400 ${
+              territoryControlMode === 'off' ? 'border-amber-700/60' : 'border-amber-500 bg-amber-500/10 text-amber-300'
+            }`}
+          >
+            {TERRITORY_CONTROL_MODES.find((m) => m.mode === territoryControlMode)?.label}
+          </button>
           <div className="flex items-center gap-2">
             <button
               type="button"

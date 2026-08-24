@@ -344,7 +344,7 @@ describe('calculateChangedTerritoryHexes', () => {
     expect(calculateChangedTerritoryHexes(board, before, after)).toEqual([{ coord: { q: 0, r: 0 }, ownerId: 'p1', terrain: 'plain', regionSize: 1 }])
   })
 
-  it("reports a region that lost its owner with ownerId: null — for the caller to render grey ('turned neutral')", () => {
+  it("reports a region that lost its owner with ownerId: null — for the caller to render striped ('turned neutral')", () => {
     const board = boardOf([[0, 0, 'plain']])
     const before = [unitAt('p1', { q: 0, r: 0 })]
     const after: Unit[] = []

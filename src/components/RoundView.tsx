@@ -912,8 +912,9 @@ export function RoundView(props: {
    * outlines every currently-controlled region exactly like the victory
    * screen (see EndGameView.tsx), and 'changes' outlines only the regions
    * whose majority owner differs from `previousHistoryState` — including a
-   * region that lost its owner entirely, shown in grey rather than any
-   * player's colour (see calculateChangedTerritoryHexes). Ignored while
+   * region that lost its owner entirely, shown in black-and-white stripes
+   * rather than any player's colour (see calculateChangedTerritoryHexes).
+   * Ignored while
    * `showHistory` is false — this is a history-review-only feature.
    */
   territoryControlMode: 'off' | 'on' | 'changes'
@@ -1123,6 +1124,7 @@ export function RoundView(props: {
           color: hex.ownerId ? (players.find((p) => p.id === hex.ownerId)?.color ?? '#a3a3a3') : '#ffffff',
           terrain: hex.terrain,
           points: pointsForHex(hex),
+          striped: hex.ownerId === null,
         }))
       : []
     // Scale border width against every territory before or after this step,

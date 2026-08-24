@@ -478,6 +478,23 @@ describe('HexBoard — territory control overlay', () => {
     expect(width).toBeCloseTo(size * 0.05) // at the low end of the supplied range, not the fixed mid-range fallback
   })
 
+  it('renders a striped territory entry as black-and-white diagonal stripes instead of its own colour', () => {
+    const territoryControl = [{ coord: { q: 0, r: 0 }, color: '#ffffff', terrain: 'plain', points: 1, striped: true }]
+    const { container } = render(<HexBoard board={makeBoard()} territoryControl={territoryControl} />)
+
+    // Never rendered with a flat colour — including its own `color` — once striped.
+    expect(container.querySelectorAll('line[stroke="#ffffff"]')).toHaveLength(0)
+
+    const line = container.querySelector('line[data-striped="true"]')
+    expect(line).not.toBeNull()
+    const strokeUrl = line!.getAttribute('stroke') ?? ''
+    expect(strokeUrl).toMatch(/^url\(#.+\)$/)
+    const patternId = strokeUrl.slice('url(#'.length, -1)
+    const pattern = container.querySelector(`pattern#${CSS.escape(patternId)}`)
+    const fills = [...(pattern?.querySelectorAll('rect') ?? [])].map((r) => r.getAttribute('fill'))
+    expect(fills).toEqual(expect.arrayContaining(['#000000', '#ffffff']))
+  })
+
   /** Every rendered `<line stroke={color}>`'s midpoint x — order-independent, unlike relying on which `<line>` a querySelector happens to match first. */
   function borderMidXs(container: HTMLElement, color: string): number[] {
     return [...container.querySelectorAll(`line[stroke="${color}"]`)].map(
