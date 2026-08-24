@@ -17,9 +17,8 @@ import { buildTurnReview, findReviewWindowStart, findTurnStops } from '../engine
 import type { TurnReview } from '../engine/turnReview'
 import { currentActorId } from '../engine/turnOrder'
 import { useAuth } from '../hooks/useAuth'
-import { useDisplayName } from '../hooks/useDisplayName'
 import { useIsAdmin } from '../hooks/useIsAdmin'
-import type { GameRow, ObserverRow, PlayerRow } from '../lib/dbTypes'
+import type { GameRow, PlayerRow } from '../lib/dbTypes'
 import { simpleError, toAppError, type AppError } from '../lib/errors'
 import { buildGenesisState } from '../lib/gameGenesis'
 import {
@@ -27,14 +26,10 @@ import {
   deleteGame,
   getGameByRoomCode,
   getGameState,
-  joinAsObserver,
-  leaveAsObserver,
-  listObservers,
   listPlayers,
   setGameVisibility,
   subscribeToGame,
   subscribeToGameState,
-  subscribeToObservers,
   subscribeToPlayers,
   writeGameState,
 } from '../lib/gameApi'
@@ -60,7 +55,6 @@ const MAX_WRITE_RETRIES = 3
 export function GamePage() {
   const { roomCode } = useParams<{ roomCode: string }>()
   const { session, loading: authLoading } = useAuth()
-  const { displayName: observerDisplayName, loading: observerDisplayNameLoading } = useDisplayName(session?.user ?? null)
   const isAdmin = useIsAdmin(session?.user ?? null)
   const navigate = useNavigate()
 
@@ -139,17 +133,10 @@ export function GamePage() {
   const [hotseatActivePlayerId, setHotseatActivePlayerId] = useState<string | null>(null)
   const [lifecycleBusy, setLifecycleBusy] = useState(false)
   const [lifecycleError, setLifecycleError] = useState<AppError | null>(null)
-  const [observers, setObservers] = useState<ObserverRow[]>([])
-  const [observerBusy, setObserverBusy] = useState(false)
-  const [observerError, setObserverError] = useState<AppError | null>(null)
   /**
-   * Guards against re-running the auto-join-as-observer / auto-enter-review
-   * effects below more than once per room load (issue #105) — without these,
-   * every `canObserve`/`amObserving` recompute (e.g. after the user
-   * deliberately clicks "Stop observing") would re-trigger the very
-   * automation that's meant to only fire once, on arrival.
+   * Guards against re-running the auto-enter-review effect below more than
+   * once per room load (issue #105).
    */
-  const autoObserveAttemptedRef = useRef(false)
   const autoReviewAppliedRef = useRef(false)
 
   useEffect(() => {
@@ -175,7 +162,6 @@ export function GamePage() {
     setHistoryStepMode('action')
     setMapSaved(false)
     setMapSaveError(null)
-    autoObserveAttemptedRef.current = false
     autoReviewAppliedRef.current = false
     void (async () => {
       const foundGame = await getGameByRoomCode(roomCode)
@@ -183,19 +169,9 @@ export function GamePage() {
         setGame(null)
         return
       }
-      // Fetch players/observers BEFORE setting any state, and set game
-      // together with them in one batch below. Setting `game` first and
-      // `players` afterward (each its own `await`, hence its own render)
-      // used to open a window where `game.status === 'active'` was visible
-      // while `players` was still last render's value — on a fresh page
-      // load that's `[]`, so a seated player briefly read as `isSeatedPlayer
-      // === false`, `canObserve` briefly went true, and the auto-join
-      // effect below fired `handleObserve()` for a player who was never
-      // actually eligible to observe (issue #109 follow-up).
-      const [foundPlayers, foundObservers] = await Promise.all([listPlayers(foundGame.id), listObservers(foundGame.id)])
+      const foundPlayers = await listPlayers(foundGame.id)
       setGame(foundGame)
       setPlayers(foundPlayers)
-      setObservers(foundObservers)
     })()
   }, [roomCode])
 
@@ -218,9 +194,6 @@ export function GamePage() {
     const unsubscribePlayers = subscribeToPlayers(game.id, () => {
       void listPlayers(game.id).then(setPlayers)
     })
-    const unsubscribeObservers = subscribeToObservers(game.id, () => {
-      void listObservers(game.id).then(setObservers)
-    })
     // Live status updates (e.g. the Owner canceling from another tab/device)
     // — GamePage otherwise only fetches `game` once on mount, unlike
     // LobbyPage which already subscribes for its own status-driven navigate.
@@ -230,7 +203,6 @@ export function GamePage() {
       cancelled = true
       unsubscribeGameState()
       unsubscribePlayers()
-      unsubscribeObservers()
       unsubscribeGame()
     }
   }, [game])
@@ -275,47 +247,22 @@ export function GamePage() {
   // the lobby (see LobbyPage.tsx's matching toggle and setGameVisibility).
   const canEditVisibility = isCreator && game?.status !== 'canceled'
   const isHotseat = game?.play_mode === 'hotseat'
-  // Observers (issue section 6): view-only, don't occupy a seat. Joining is
-  // only offered once the room is genuinely Active — same 'active' gate as
-  // 0010_observers.sql's RLS (games.status can't distinguish In Progress
-  // from Finished, see dbTypes.ts's GameRow comment).
   const isSeatedPlayer = players.some((p) => p.user_id === session?.user.id)
-  const amObserving = observers.some((o) => o.user_id === session?.user.id)
-  const canObserve = !isSeatedPlayer && game?.status === 'active' && !amObserving
 
   /**
-   * Auto-join as an observer (issue #105) — landing on a room you're not
-   * seated in (e.g. via Public Rooms' "Observe" action) used to dead-end on
-   * a "You're not seated in this game" screen with an "Observe this game"
-   * button to click before anything was visible. Since `canObserve` already
-   * means "not seated, room is active, not already observing," there's
-   * nothing left for a human to decide there — so just do it, once per
-   * room load (autoObserveAttemptedRef), the same as clicking the button
-   * would have.
+   * Open spectating in history review mode (issue #105), not live — a
+   * non-seated visitor has no `me` and can't act regardless, but landing
+   * straight on the live board skips past the one review affordance
+   * actually meant for a spectator: scrubbing back through what already
+   * happened. Applies once per room load (autoReviewAppliedRef) so it
+   * doesn't fight a deliberate "Exit review" click later in the session.
    */
   useEffect(() => {
-    if (autoObserveAttemptedRef.current || observerBusy || !canObserve || observerDisplayNameLoading) return
-    autoObserveAttemptedRef.current = true
-    void handleObserve()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canObserve, observerBusy, observerDisplayNameLoading])
-
-  /**
-   * Open observing in history review mode (issue #105), not live — an
-   * observer has no `me` and can't act regardless, but landing straight on
-   * the live board skips past the one review affordance actually meant for
-   * a spectator: scrubbing back through what already happened. Applies
-   * whenever this session is observing (freshly auto-joined above, or
-   * already an observer on a page refresh), once per room load
-   * (autoReviewAppliedRef) so it doesn't fight a deliberate "Exit review"
-   * click later in the session.
-   */
-  useEffect(() => {
-    if (autoReviewAppliedRef.current || !amObserving || !gameState) return
+    if (autoReviewAppliedRef.current || isSeatedPlayer || !gameState) return
     autoReviewAppliedRef.current = true
     setHistoryStepMode('turn')
     setReviewIndex(gameState.actionHistory.length)
-  }, [amObserving, gameState])
+  }, [isSeatedPlayer, gameState])
 
   // Creation-time opt-out (CreateGamePage.tsx's checkbox, checked by default) for groups that don't
   // want the extra tap every turn — when set, `me` just always follows
@@ -944,52 +891,6 @@ export function GamePage() {
     }
   }
 
-  async function handleObserve() {
-    if (!game || !session) return
-    if (isSeatedPlayer) {
-      setObserverError(simpleError('You are already a player in this game.'))
-      return
-    }
-    setObserverBusy(true)
-    setObserverError(null)
-    try {
-      await joinAsObserver({
-        gameId: game.id,
-        userId: session.user.id,
-        displayName: observerDisplayName,
-        avatarUrl: (session.user.user_metadata?.avatar_url as string | undefined) ?? null,
-      })
-      setObservers(await listObservers(game.id))
-      // Joining flips the game_state select RLS from "no rows visible" to
-      // "readable" for this user — refetch now rather than waiting for the
-      // next unrelated `game` effect re-run (see the game-load effect above,
-      // which only fires once per `game` reference).
-      const snapshot = await getGameState(game.id)
-      if (snapshot) {
-        setGameState(snapshot.state)
-        setVersion(snapshot.version)
-      }
-    } catch (err) {
-      setObserverError(toAppError(err, 'Failed to start observing'))
-    } finally {
-      setObserverBusy(false)
-    }
-  }
-
-  async function handleStopObserving() {
-    if (!game || !session) return
-    setObserverBusy(true)
-    setObserverError(null)
-    try {
-      await leaveAsObserver(game.id, session.user.id)
-      setObservers(await listObservers(game.id))
-    } catch (err) {
-      setObserverError(toAppError(err, 'Failed to stop observing'))
-    } finally {
-      setObserverBusy(false)
-    }
-  }
-
   if (authLoading || !session) return <div className="p-8 text-neutral-400">Loading…</div>
   if (!game) return <div className="p-8 text-neutral-400">Looking for room {roomCode}…</div>
 
@@ -1141,24 +1042,8 @@ export function GamePage() {
               </li>
             ))}
           </ul>
-          {observers.length > 0 && (
-            <p className="text-xs text-neutral-500">
-              Observing: {observers.map((o) => o.display_name).join(', ')}
-            </p>
-          )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {amObserving && (
-            <button
-              type="button"
-              disabled={observerBusy}
-              onClick={() => void handleStopObserving()}
-              title="Stop observing this game."
-              className="rounded-md border border-neutral-700 px-3 py-1 text-sm hover:border-neutral-500 disabled:opacity-50"
-            >
-              Stop observing
-            </button>
-          )}
           <button
             type="button"
             disabled={undoing || isReviewingHistory || !gameState || gameState.actionHistory.length === 0}
@@ -1307,10 +1192,6 @@ export function GamePage() {
         <ErrorBanner message={lifecycleError.message} details={lifecycleError.details} onDismiss={() => setLifecycleError(null)} />
       )}
 
-      {observerError && (
-        <ErrorBanner message={observerError.message} details={observerError.details} onDismiss={() => setObserverError(null)} />
-      )}
-
       {game.status === 'canceled' && (
         <div className="rounded-md bg-neutral-800/60 p-3 text-sm text-neutral-300">
           This room was canceled{isCreator ? '' : ' by the host'}. Play is disabled — it stays here for reference until{' '}
@@ -1345,24 +1226,7 @@ export function GamePage() {
 
       {actionError && <ErrorBanner message={actionError.message} details={actionError.details} onDismiss={() => setActionError(null)} />}
 
-      {!gameState && canObserve && (
-        <div className="flex flex-col items-center gap-4 rounded-md border border-neutral-800 p-12 text-center">
-          <p className="text-neutral-400">
-            {observerBusy ? 'Joining as an observer…' : observerDisplayNameLoading ? 'Loading…' : "You're not seated in this game."}
-          </p>
-          {!observerBusy && !observerDisplayNameLoading && (
-            <button
-              type="button"
-              onClick={() => void handleObserve()}
-              className="rounded-md bg-indigo-600 px-6 py-2 font-medium text-white hover:bg-indigo-500"
-            >
-              Observe this game
-            </button>
-          )}
-        </div>
-      )}
-
-      {!gameState && !canObserve && <p className="text-neutral-400">Setting up the game…</p>}
+      {!gameState && <p className="text-neutral-400">Setting up the game…</p>}
 
       {needsHotseatGate && pendingActorId && !isReviewingHistory && (
         <div className="flex flex-col items-center gap-4 rounded-md border border-neutral-800 p-12 text-center">
