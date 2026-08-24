@@ -907,6 +907,12 @@ export function RoundView(props: {
    */
   showHistory: boolean
   /**
+   * Returns to live play from history review — called when the player
+   * clicks the board while `showHistory` is true (issue #285), same as the
+   * review banner's "Back to live" button. Undefined outside review.
+   */
+  onExitHistory?: () => void
+  /**
    * Which of the review screen's 3 territory-control display modes is active
    * (issue #281, GamePage's review banner): 'off' shows nothing extra, 'on'
    * outlines every currently-controlled region exactly like the victory
@@ -1219,8 +1225,8 @@ export function RoundView(props: {
             actionMenu={actionMenu}
             territoryControl={territoryControl}
             territoryValueRange={territoryValueRange}
-            interactive={isMyActionTurn}
-            onHexClick={isMyActionTurn ? handleBoardClick : undefined}
+            interactive={isMyActionTurn || showHistory}
+            onHexClick={isMyActionTurn ? handleBoardClick : showHistory ? props.onExitHistory : undefined}
             expanded={sidebarHidden}
           />
           {/* Overlaid on the board's own corner rather than a separate row above it — a standard collapse/expand chevron, flipping direction with sidebarHidden. */}
