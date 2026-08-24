@@ -462,7 +462,7 @@ describe('HexBoard — territory control overlay', () => {
     expect(rightmostX).toBeGreaterThan(17)
   })
 
-  it('draws a border facing a competing territory nudged off the shared edge, into each side', () => {
+  it('draws a border facing a competing territory as two half-segments split at the shared edge\'s true midpoint — never nudged off the real hex boundary', () => {
     const territoryControl = [
       { coord: { q: 0, r: 0 }, color: '#22c55e', terrain: 'plain', points: 1 },
       { coord: { q: 1, r: 0 }, color: '#3b82f6', terrain: 'plain', points: 1 },
@@ -470,42 +470,62 @@ describe('HexBoard — territory control overlay', () => {
     const { container } = render(<HexBoard board={makeBoard()} territoryControl={territoryControl} />)
 
     // Both hexes are centered on the x axis (q=0 and q=1); their shared
-    // edge's true (un-nudged) boundary sits at x≈19.05. The segment each
-    // side draws along that shared edge is the one whose midpoint x is
-    // closest to that boundary — green's should land left of it (nudged
-    // toward its own hex, at x=0) and blue's right of it (nudged toward its
-    // own hex, at x≈38.1), keeping the two territories' outlines visibly
-    // separate instead of overlapping on the same line.
+    // edge's true boundary sits at x≈19.05. The segment each side draws
+    // along that shared edge is the one whose midpoint x is closest to that
+    // boundary — unlike the old nudge-based rendering, both halves' own
+    // midpoints should land almost exactly on the true boundary (they're
+    // slices of the same real edge, not pulled apart from it), well short of
+    // where a nudge toward each hex's own center (x=0 or x≈38.1) would land.
     const sharedBoundaryX = 19.05
     const closestTo = (xs: number[]) => xs.reduce((best, x) => (Math.abs(x - sharedBoundaryX) < Math.abs(best - sharedBoundaryX) ? x : best))
     const greenSharedX = closestTo(borderMidXs(container, '#22c55e'))
     const blueSharedX = closestTo(borderMidXs(container, '#3b82f6'))
-    expect(greenSharedX).toBeLessThan(sharedBoundaryX)
-    expect(blueSharedX).toBeGreaterThan(sharedBoundaryX)
+    expect(greenSharedX).toBeCloseTo(sharedBoundaryX, 0)
+    expect(blueSharedX).toBeCloseTo(sharedBoundaryX, 0)
   })
 
-  it('joins a hex\'s own border segments at an exact shared corner even where one side is nudged (facing a competing territory) and its neighbor isn\'t (facing an uncontrolled hex) — bug report: "lines are overlapping each other... along cliff hex sides"', () => {
+  it('splits a competing-territory edge into two half-segments that meet at exactly the same point — no gap and no overlap, regardless of how different the two territories\' border widths are', () => {
     const territoryControl = [
-      // A big point gap maximizes green's nudge amount, so any corner
-      // mismatch between a nudged and an un-nudged side is large enough to
-      // fail this test outright rather than being lost in rounding.
+      // A big point gap maximizes the width difference between the two
+      // territories, so any mismatch between the two halves' meeting point
+      // is large enough to fail this test outright rather than being lost
+      // in rounding.
       { coord: { q: 0, r: 0 }, color: '#22c55e', terrain: 'plain', points: 12 },
       { coord: { q: 1, r: 0 }, color: '#3b82f6', terrain: 'plain', points: 1 },
     ]
     const { container } = render(<HexBoard board={makeBoard()} territoryControl={territoryControl} />)
 
     const greenLines = [...container.querySelectorAll('line[stroke="#22c55e"]')]
+    const blueLines = [...container.querySelectorAll('line[stroke="#3b82f6"]')]
     expect(greenLines).toHaveLength(6)
-    const endpoints = greenLines.flatMap((line) => [
-      `${Number(line.getAttribute('x1')).toFixed(2)},${Number(line.getAttribute('y1')).toFixed(2)}`,
-      `${Number(line.getAttribute('x2')).toFixed(2)},${Number(line.getAttribute('y2')).toFixed(2)}`,
-    ])
-    // 6 segments tracing a hexagon share exactly 6 corners, each the shared
-    // endpoint of two consecutive segments — independently nudging one side
-    // without moving its neighbor's matching endpoint (the bug) instead
-    // leaves each segment's own, slightly different corner point, closer to
-    // 12 distinct endpoints than 6.
-    expect(new Set(endpoints).size).toBe(6)
+    expect(blueLines).toHaveLength(6)
+
+    // The shared edge between (0,0) and (1,0) is vertical, at x≈19.05,
+    // running from y≈-10.5 to y≈10.5 — both its true vertices *and* its
+    // midpoint share that same x, so only y distinguishes them. The
+    // half-segment each colour draws along it is the one whose endpoints
+    // don't span the full edge; within that segment, the midpoint-side
+    // endpoint (shared with the other colour's half) is the one closer to
+    // y=0 than to either true vertex.
+    const sharedBoundaryX = 19.05
+    const meetingPoint = (lines: Element[]) => {
+      const segments = lines.map((line) => ({
+        x1: Number(line.getAttribute('x1')),
+        y1: Number(line.getAttribute('y1')),
+        x2: Number(line.getAttribute('x2')),
+        y2: Number(line.getAttribute('y2')),
+      }))
+      const half = segments.find((s) => Math.abs(s.x1 - sharedBoundaryX) < 1 && Math.abs(s.x2 - sharedBoundaryX) < 1)!
+      const [p1, p2] = [
+        { x: half.x1, y: half.y1 },
+        { x: half.x2, y: half.y2 },
+      ]
+      return Math.abs(p1.y) < Math.abs(p2.y) ? p1 : p2
+    }
+    const greenMeetingPoint = meetingPoint(greenLines)
+    const blueMeetingPoint = meetingPoint(blueLines)
+    expect(greenMeetingPoint.x).toBeCloseTo(blueMeetingPoint.x, 5)
+    expect(greenMeetingPoint.y).toBeCloseTo(blueMeetingPoint.y, 5)
   })
 
   it('draws cliff-edge lines when territoryControl is omitted', () => {

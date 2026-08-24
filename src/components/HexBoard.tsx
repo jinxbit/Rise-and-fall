@@ -124,44 +124,6 @@ function insetSegment(x1: number, y1: number, x2: number, y2: number, startInset
   return { x1: x1 + ux * startInset, y1: y1 + uy * startInset, x2: x2 - ux * endInset, y2: y2 - uy * endInset }
 }
 
-/** An infinite line as a point plus a unit direction vector — see territoryEdgeLine/lineIntersection below. */
-interface Line {
-  x: number
-  y: number
-  dx: number
-  dy: number
-}
-
-/**
- * The line carrying the edge between a hex centered at (x, y) and a neighbor
- * centered at (nx, ny), shifted `amount` toward (x, y) — 0 keeps it on the
- * true, un-nudged edge. Used (see territoryBorderSegments below) to nudge a
- * territory border off the exact hex edge when it faces a competing
- * territory, so the two owners' outlines render as distinct parallel lines
- * instead of one hiding the other underneath it — as a full line rather than
- * a fixed segment so two adjacent sides of the same hex, nudged by different
- * amounts (or not nudged at all), can still be joined into one exact corner
- * point via lineIntersection instead of leaving a gap between two
- * independently-shifted floating segments (a gap that, under a thick,
- * round-capped stroke, read as the two segments overlapping instead).
- */
-function territoryEdgeLine(x: number, y: number, nx: number, ny: number, amount: number): Line {
-  const dx = nx - x
-  const dy = ny - y
-  const dist = Math.hypot(dx, dy) || 1
-  const ux = dx / dist
-  const uy = dy / dist
-  return { x: (x + nx) / 2 - ux * amount, y: (y + ny) / 2 - uy * amount, dx: -uy, dy: ux }
-}
-
-/** Where two lines cross — degenerates to `a`'s own point for (near-)parallel lines, which doesn't arise for genuinely adjacent hex sides (60° apart) but keeps this total instead of producing NaN/Infinity. */
-function lineIntersection(a: Line, b: Line): { x: number; y: number } {
-  const denom = a.dx * b.dy - a.dy * b.dx
-  if (Math.abs(denom) < 1e-9) return { x: a.x, y: a.y }
-  const t = ((b.x - a.x) * b.dy - (b.y - a.y) * b.dx) / denom
-  return { x: a.x + a.dx * t, y: a.y + a.dy * t }
-}
-
 /** A small filled triangle pointing along (x1,y1) -> (x2,y2), tip at (x2,y2) — the arrowhead on a history arrow. */
 function arrowHeadPoints(x1: number, y1: number, x2: number, y2: number, headLength: number, headWidth: number): string {
   const angle = Math.atan2(y2 - y1, x2 - x1)
@@ -591,10 +553,9 @@ export function HexBoard(props: {
    * be worth less than a large Water one despite Water's lower per-hex rate.
    *
    * Supplying this (even an empty array) also suppresses cliff-edge lines
-   * for the whole board — cliffs aren't meaningful on the final board, and
-   * a territory border nudged off the true hex edge (see
-   * territoryBorderSegments below) could otherwise leave a cliff's own
-   * un-nudged line sitting visibly next to it instead of cleanly underneath.
+   * for the whole board — cliffs aren't meaningful on the final board, and a
+   * cliff's own fixed-width black line could otherwise show through a
+   * thinner territory border drawn on the same real hex edge.
    */
   territoryControl?: { coord: Coordinate; color: string; terrain: string; points: number }[]
   selectedCoord?: Coordinate | null
@@ -735,16 +696,12 @@ export function HexBoard(props: {
 
   // Cliff edges are skipped entirely once `territoryControl` is supplied
   // (the victory-screen board, see HexBoard.territoryControl's doc comment)
-  // rather than drawn underneath the territory borders. A territory border
-  // is only nudged off the true hex edge where it faces a *competing*
-  // territory (see territoryBorderSegments below) — everywhere else
-  // (uncontrolled hex, board edge) it sits exactly where a cliff edge would.
-  // A cliff's own segment is fixed to the true edge regardless, so wherever
-  // a border got nudged away from it, the cliff's un-nudged black line stuck
-  // out next to the shifted, thicker border instead of sitting cleanly under
-  // it — visually reading as two overlapping/mismatched lines. Cliffs aren't
-  // meaningful on the final board anyway, so this drops them there instead
-  // of chasing every case where the two could disagree.
+  // rather than drawn underneath the territory borders — every territory
+  // border segment sits exactly where a cliff edge would (see
+  // territoryBorderSegments below), so a cliff's own fixed-width black line
+  // would otherwise show through a thinner border drawn right on top of it.
+  // Cliffs aren't meaningful on the final board anyway, so this drops them
+  // there entirely instead of trying to reconcile the two.
   const cliffEdges: { x1: number; y1: number; x2: number; y2: number }[] = []
   if (!props.territoryControl) {
     for (const { coord, x, y } of pixels) {
@@ -779,49 +736,60 @@ export function HexBoard(props: {
   // one connected outline (see territoryControl above) — while a same-owner
   // hex of a different terrain still gets its own separate outline.
   //
-  // Only a side facing *another controlled territory* gets nudged off the
-  // shared edge (each side pulled toward its own hex, so the two don't
-  // paint over each other) — that's the one case with a second, competing
-  // line drawn from the other side. A side facing an uncontrolled hex or
-  // the board's own edge has nothing to compete with, so it's drawn right
-  // on the shared boundary instead, the same place cliff edges/structure
-  // connectors above already draw.
+  // Every segment sits on the real hex-to-hex edge (via hexEdgeSegment, the
+  // same helper cliff edges/structure connectors above already use) rather
+  // than being nudged off it — an earlier version pulled a side toward its
+  // own hex's center whenever it faced a competing territory, but left
+  // untouched sides (facing an uncontrolled hex/the board edge) on the true
+  // edge; wherever those two kinds of sides met at a corner (common), the
+  // corner became the intersection of a pulled-in line and a not-pulled-in
+  // one — a visibly skewed, kinked corner instead of a clean one (bug
+  // report: "lines are pushed inwards creating weird shapes").
   //
-  // Each hex's own outward sides are joined into corners via lineIntersection
-  // rather than drawn as independently-nudged floating segments — a hex
-  // whose sides face a mix of competing territories (nudged) and
-  // uncontrolled hexes/the board edge (not nudged) still needs its own
-  // corner, shared by both sides, to land in exactly one place; two
-  // separately-nudged segments left to find their own endpoints don't meet
-  // there; with thicker, round-capped borders that gap reads as the two
-  // segments overlapping instead of a clean corner (issue: overlapping
-  // border lines, worst right along cliffs, since a cliff is exactly where
-  // terrain — and often the competing-territory side of a border — changes).
+  // A side facing a *competing* territory (the one case with two owners
+  // wanting to draw on the same physical edge) is instead split into two
+  // half-length segments meeting exactly at the edge's true midpoint, one
+  // per owner's colour — drawn once per shared edge (from whichever of the
+  // two hexes is "canonical" for that direction, `i < neighbors.length / 2`)
+  // so it isn't emitted twice. Both halves land on the real edge, so they
+  // never overlap and never leave a gap.
   const territoryByKey = new Map((props.territoryControl ?? []).map((t) => [coordKey(t.coord), t]))
   const territoryBorderSegments: { x1: number; y1: number; x2: number; y2: number; color: string; strokeWidth: number }[] = []
   if (territoryByKey.size > 0) {
     const allPoints = [...territoryByKey.values()].map((t) => t.points)
     const minPoints = Math.min(...allPoints)
     const maxPoints = Math.max(...allPoints)
+    const widthOf = (t: { points: number }) => territoryBorderWidth(size, t.points, minPoints, maxPoints)
 
     for (const { coord, x, y } of pixels) {
       const territory = territoryByKey.get(coordKey(coord))
       if (!territory) continue
-      const strokeWidth = territoryBorderWidth(size, territory.points, minPoints, maxPoints)
-      const sides = neighborCoords(props.board, coord).map((neighborCoord) => {
+      const strokeWidth = widthOf(territory)
+      const neighbors = neighborCoords(props.board, coord)
+      neighbors.forEach((neighborCoord, i) => {
         const neighborTerritory = territoryByKey.get(coordKey(neighborCoord))
-        const competing = Boolean(neighborTerritory) && (neighborTerritory!.color !== territory.color || neighborTerritory!.terrain !== territory.terrain)
-        const outward = !neighborTerritory || competing
+        if (neighborTerritory && neighborTerritory.color === territory.color && neighborTerritory.terrain === territory.terrain) return
+
         const { x: nx, y: ny } = axialToPixel(neighborCoord, size)
-        return { outward, line: territoryEdgeLine(x, y, nx, ny, competing ? strokeWidth * 1.5 : 0) }
-      })
-      const sideCount = sides.length
-      const corners = sides.map((side, i) => lineIntersection(side.line, sides[(i + 1) % sideCount].line))
-      sides.forEach((side, i) => {
-        if (!side.outward) return
-        const start = corners[(i - 1 + sideCount) % sideCount]
-        const end = corners[i]
-        territoryBorderSegments.push({ x1: start.x, y1: start.y, x2: end.x, y2: end.y, color: territory.color, strokeWidth })
+        const edge = hexEdgeSegment(x, y, nx, ny, size - 1)
+
+        if (!neighborTerritory) {
+          territoryBorderSegments.push({ x1: edge.x1, y1: edge.y1, x2: edge.x2, y2: edge.y2, color: territory.color, strokeWidth })
+          return
+        }
+
+        if (i >= neighbors.length / 2) return // the paired direction from the neighbor already emits both halves
+        const midX = (edge.x1 + edge.x2) / 2
+        const midY = (edge.y1 + edge.y2) / 2
+        territoryBorderSegments.push({ x1: edge.x1, y1: edge.y1, x2: midX, y2: midY, color: territory.color, strokeWidth })
+        territoryBorderSegments.push({
+          x1: midX,
+          y1: midY,
+          x2: edge.x2,
+          y2: edge.y2,
+          color: neighborTerritory.color,
+          strokeWidth: widthOf(neighborTerritory),
+        })
       })
     }
   }
