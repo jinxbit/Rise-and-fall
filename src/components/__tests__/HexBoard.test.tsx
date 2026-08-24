@@ -552,4 +552,63 @@ describe('HexBoard — territory control overlay', () => {
     const { container } = render(<HexBoard board={makeCliffBoard()} territoryControl={[]} />)
     expect(cliffLines(container)).toHaveLength(0)
   })
+
+  /** A rendered `<line>`'s two endpoints collapse to the same point — with `strokeLinecap="round"`, that paints as a dot instead of a segment. */
+  function degenerateLineCount(lines: Element[]): number {
+    return lines.filter((line) => {
+      const x1 = Number(line.getAttribute('x1'))
+      const y1 = Number(line.getAttribute('y1'))
+      const x2 = Number(line.getAttribute('x2'))
+      const y2 = Number(line.getAttribute('y2'))
+      return Math.hypot(x2 - x1, y2 - y1) < 0.01
+    }).length
+  }
+
+  it(
+    'draws a full 6-sided outline (no degenerate zero-length segments) for a lone controlled hex centered on the board\'s x=0 symmetry axis — ' +
+      'bug report: "only circles are drawn on most of the hexes." The hex-vertex angles this hex\'s own opposite sides compute round to +0/-0 ' +
+      'in floating point, which used to produce two different map keys for what should be the same shared vertex (see vertexKey), silently ' +
+      'breaking the outline into disconnected fragments that included zero-length segments (round line caps render those as dots, not lines).',
+    () => {
+      let board = createEmptyBoard('hex')
+      board = setTile(board, { q: 0, r: 0 }, 'plain')
+      const { container } = render(
+        <HexBoard board={board} territoryControl={[{ coord: { q: 0, r: 0 }, color: '#22c55e', terrain: 'plain', points: 1 }]} />,
+      )
+      const lines = [...container.querySelectorAll('line[stroke="#22c55e"]')]
+      expect(lines).toHaveLength(6)
+      expect(degenerateLineCount(lines)).toBe(0)
+    },
+  )
+
+  it(
+    'draws a continuous, degenerate-segment-free outline across a realistic multi-hex, multi-owner, multi-terrain board — ' +
+      'a broader regression net for the same "only circles" class of bug, including the case where a territory\'s "true" boundary vertex ' +
+      '(before insetting) was computed at the drawn hex polygon\'s own shrunk radius (size - 1) rather than the true circumradius implied by ' +
+      "the grid's center-to-center spacing (size), which left two adjacent hexes' independently-computed versions of their shared corner a " +
+      'pixel or more apart instead of exactly coincident.',
+    () => {
+      let board = createEmptyBoard('hex')
+      const radius = 3
+      const coords: { q: number; r: number }[] = []
+      for (let q = -radius; q <= radius; q++) {
+        for (let r = -radius; r <= radius; r++) {
+          if (Math.abs(q + r) <= radius) coords.push({ q, r })
+        }
+      }
+      const terrainFor = (c: { q: number; r: number }) => (['plain', 'forest', 'mountain'] as const)[((c.q + c.r * 2) % 3 + 3) % 3]
+      for (const c of coords) board = setTile(board, c, terrainFor(c))
+
+      const territoryControl = coords.map((c) => {
+        const terrain = terrainFor(c)
+        const color = (c.q + c.r) % 2 === 0 ? '#22c55e' : '#3b82f6'
+        return { coord: c, color, terrain, points: terrain === 'mountain' ? 12 : terrain === 'forest' ? 8 : 3 }
+      })
+
+      const { container } = render(<HexBoard board={board} territoryControl={territoryControl} />)
+      const territoryLines = [...container.querySelectorAll('line[stroke="#22c55e"], line[stroke="#3b82f6"]')]
+      expect(territoryLines.length).toBeGreaterThan(0)
+      expect(degenerateLineCount(territoryLines)).toBe(0)
+    },
+  )
 })

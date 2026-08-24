@@ -160,9 +160,15 @@ interface TerritoryBoundaryEdge {
   hexY: number
 }
 
+/** Rounds a coordinate to a fixed precision, normalizing -0 to 0 — `(-1e-15).toFixed(3)` is the string `'-0.000'`, distinct from `(1e-15).toFixed(3)`'s `'0.000'`, so without this two edges computing the same true vertex as tiny opposite-signed floating-point noise around zero would produce different map keys (see vertexKey below). */
+function roundCoord(n: number): number {
+  const rounded = Math.round(n * 1000) / 1000
+  return rounded === 0 ? 0 : rounded
+}
+
 /** Rounds a point to a fixed precision for use as a map key — two boundary edges computed independently from different (adjacent) hexes' own centers still land on the exact same true grid vertex, just with floating-point noise many orders of magnitude finer than this. */
 function vertexKey(x: number, y: number): string {
-  return `${x.toFixed(3)},${y.toFixed(3)}`
+  return `${roundCoord(x)},${roundCoord(y)}`
 }
 
 /** Where infinite line p1-p2 crosses infinite line p3-p4, or null if they're parallel (or nearly enough that the intersection would shoot off to an unreasonable distance). */
@@ -228,7 +234,20 @@ function territoryBoundaryLoops(
       const neighborTerritory = territoryByKey.get(coordKey(neighborCoord))
       if (neighborTerritory && neighborTerritory.color === territory.color && neighborTerritory.terrain === territory.terrain) continue
       const { x: nx, y: ny } = axialToPixel(neighborCoord, size)
-      const trueEdge = territoryInsetEdge(x, y, nx, ny, size - 1, 0)
+      // Deliberately `size`, not `size - 1` (the polygon's own drawn radius,
+      // shrunk by 1px for a visual gap between hexes — see hexPoints). Two
+      // adjacent hexes each compute this same shared grid vertex from their
+      // own center independently (see this function's doc comment above),
+      // and that only lands on the same point when the radius matches the
+      // true circumradius implied by axialToPixel's center-to-center
+      // spacing, which is `size`. Using `size - 1` left every such pair a
+      // pixel or more apart — nowhere near vertexKey's float-noise rounding
+      // tolerance — so the chain below broke apart into short, unclosed
+      // fragments almost everywhere a territory spanned more than one hex,
+      // and insetLoopVertices then produced degenerate zero-length segments
+      // from those fragments, rendering as dots (bug report: "only circles
+      // are drawn on most of the hexes").
+      const trueEdge = territoryInsetEdge(x, y, nx, ny, size, 0)
       edges.push({ v1: { x: trueEdge.x1, y: trueEdge.y1 }, v2: { x: trueEdge.x2, y: trueEdge.y2 }, hexX: x, hexY: y })
     }
   }
