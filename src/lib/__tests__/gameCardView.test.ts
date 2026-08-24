@@ -4,7 +4,7 @@ import { createEmptyBoard } from '../../engine/board'
 import { createNewGame } from '../../engine/createGame'
 import { calculateVPBreakdown } from '../../engine/victoryPoints'
 import type { GameState as EngineGameState } from '../../engine/types'
-import { buildGameCardSummary } from '../gameCardView'
+import { buildGameCardSummary, describeGamePhase, latestUpdatedAt } from '../gameCardView'
 import type { GameRow, GameSettings, PlayerRow } from '../dbTypes'
 
 function makeSettings(overrides: Partial<GameSettings> = {}): GameSettings {
@@ -162,5 +162,49 @@ describe('buildGameCardSummary', () => {
 
     const finished = makeGameState({ status: 'completed', winnerPlayerIds: ['p2'] })
     expect(buildGameCardSummary(game, finished, players).winnerNames).toEqual(['Bob Row'])
+  })
+})
+
+describe('latestUpdatedAt', () => {
+  it("falls back to games.updated_at when there's no game_state row yet (lobby)", () => {
+    const game = makeGame({ updated_at: '2026-01-01T00:00:00Z' })
+    expect(latestUpdatedAt(game, null)).toBe('2026-01-01T00:00:00Z')
+  })
+
+  it('prefers game_state.updated_at once it is more recent — gameplay actions only touch that row, not games.updated_at', () => {
+    const game = makeGame({ updated_at: '2026-01-01T00:00:00Z' })
+    expect(latestUpdatedAt(game, '2026-01-02T00:00:00Z')).toBe('2026-01-02T00:00:00Z')
+  })
+
+  it('falls back to games.updated_at when it is the more recent of the two (e.g. a settings edit right after insertGameState)', () => {
+    const game = makeGame({ updated_at: '2026-01-05T00:00:00Z' })
+    expect(latestUpdatedAt(game, '2026-01-02T00:00:00Z')).toBe('2026-01-05T00:00:00Z')
+  })
+})
+
+describe('describeGamePhase', () => {
+  it('reports the lobby before a game_state row exists', () => {
+    expect(describeGamePhase(makeGame({ status: 'lobby' }), null)).toBe('Waiting in lobby')
+  })
+
+  it('reports canceled off games.status even with a live (pre-cancel) gameState', () => {
+    expect(describeGamePhase(makeGame({ status: 'canceled' }), makeGameState())).toBe('Canceled')
+  })
+
+  it('reports board setup', () => {
+    expect(describeGamePhase(makeGame(), makeGameState({ status: 'boardSetup' }))).toBe('Setting up board')
+  })
+
+  it('reports finished once gameState.status is completed', () => {
+    expect(describeGamePhase(makeGame(), makeGameState({ status: 'completed' }))).toBe('Finished')
+  })
+
+  it.each([
+    ['selectCards', 'Choosing cards'],
+    ['actions', 'Resolving actions'],
+    ['decline', 'Declining cards'],
+    ['purchase', 'Purchasing'],
+  ] as const)('reports the round phase %s as %s while active', (roundPhase, label) => {
+    expect(describeGamePhase(makeGame(), makeGameState({ roundPhase }))).toBe(label)
   })
 })

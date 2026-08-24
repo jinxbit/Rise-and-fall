@@ -3,8 +3,9 @@ import { Link, useNavigate } from 'react-router-dom'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { GameOverviewCard } from '../components/GameOverviewCard'
 import { useAuth } from '../hooks/useAuth'
+import { useRefetchOnVisible } from '../hooks/useRefetchOnVisible'
 import { listPublicRooms } from '../lib/gameApi'
-import { buildGameCardSummary, formatUpdatedAt } from '../lib/gameCardView'
+import { buildGameCardSummary, describeGamePhase, formatUpdatedAt, latestUpdatedAt } from '../lib/gameCardView'
 import { toAppError, type AppError } from '../lib/errors'
 import {
   groupPublicRooms,
@@ -12,15 +13,8 @@ import {
   isMyTurn,
   pendingActorIds,
   publicRoomBucket,
-  type PublicRoomBucket,
   type PublicRoomEntry,
 } from '../lib/publicRoomsView'
-
-const PHASE_LABEL: Record<PublicRoomBucket, string> = {
-  notStarted: 'Not started',
-  inProgress: 'In progress',
-  finished: 'Finished',
-}
 
 /**
  * The Public Rooms discovery screen (issue #40 section 5): every room whose
@@ -52,6 +46,13 @@ export function PublicRoomsPage() {
       cancelled = true
     }
   }, [session])
+
+  useRefetchOnVisible(() => {
+    if (!session) return
+    listPublicRooms()
+      .then(setEntries)
+      .catch((err: unknown) => setError(toAppError(err, 'Failed to load public rooms')))
+  })
 
   if (authLoading) return <div className="p-8 text-neutral-400">Loading…</div>
   if (!session) {
@@ -141,13 +142,13 @@ function RoomSection({
             key={entry.game.id}
             name={entry.game.name}
             description={`${entry.players.length}/${entry.game.max_players} players`}
-            phase={PHASE_LABEL[publicRoomBucket(entry)]}
+            phase={describeGamePhase(entry.game, entry.gameState)}
             players={entry.players}
             pendingPlayerIds={pendingActorIds(entry)}
             isMyTurn={isMyTurn(entry, userId)}
             isFinished={publicRoomBucket(entry) === 'finished'}
             isJoinable={isJoinable(entry)}
-            updatedAt={formatUpdatedAt(entry.game.updated_at)}
+            updatedAt={formatUpdatedAt(latestUpdatedAt(entry.game, entry.gameStateUpdatedAt))}
             action={renderAction(entry)}
             summary={buildGameCardSummary(entry.game, entry.gameState, entry.players)}
             onOpen={() => onOpen(entry)}

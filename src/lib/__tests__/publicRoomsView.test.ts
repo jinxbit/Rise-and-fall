@@ -72,6 +72,7 @@ function makeEntry(overrides: Partial<PublicRoomEntry> = {}): PublicRoomEntry {
     game,
     players: makePlayers(game.id),
     gameState: makeActiveState(),
+    gameStateUpdatedAt: null,
     ...overrides,
   }
 }

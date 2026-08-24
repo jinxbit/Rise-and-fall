@@ -20,6 +20,8 @@ export interface PublicRoomEntry {
   game: GameRow
   players: PlayerRow[]
   gameState: EngineGameState | null
+  /** game_state.updated_at (null alongside gameState while still in the lobby) — see gameCardView.ts's latestUpdatedAt. */
+  gameStateUpdatedAt: string | null
 }
 
 /**

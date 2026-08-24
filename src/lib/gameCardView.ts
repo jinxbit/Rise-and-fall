@@ -7,7 +7,7 @@
 import { listMapTemplates, listTales, resolveAchievementContent, resolveTaleContent } from '../content/resolveContent'
 import { pendingActorIds as pendingActorIdsForState } from '../engine/turnOrder'
 import { calculateVPBreakdown } from '../engine/victoryPoints'
-import type { GameState as EngineGameState } from '../engine/types'
+import type { GameState as EngineGameState, RoundPhase } from '../engine/types'
 import type { GameRow, GameSettings, PlayerRow } from './dbTypes'
 
 /** The seated players who must act next, or `[]` if nobody's turn is pending (lobby/completed). */
@@ -36,6 +36,42 @@ export function formatUpdatedAt(isoTimestamp: string, now: Date = new Date()): s
   const diffDays = Math.round(diffHours / 24)
   if (diffDays < 7) return `Updated ${diffDays}d ago`
   return `Updated ${updated.toLocaleDateString()}`
+}
+
+/**
+ * The real "last activity" timestamp for a game: `games.updated_at` only
+ * changes for lobby-era edits (settings, status, visibility — see
+ * 0001_init_schema.sql's `games_set_updated_at` trigger), never for
+ * gameplay actions, which only touch the separate `game_state` row (its own
+ * `game_state_set_updated_at` trigger). Once a game_state row exists, its
+ * `updated_at` is almost always the more recent of the two — this just
+ * guards against the rare edge case (e.g. a settings edit right after
+ * insertGameState) where `games.updated_at` is actually newer.
+ */
+export function latestUpdatedAt(game: GameRow, gameStateUpdatedAt: string | null): string {
+  if (!gameStateUpdatedAt) return game.updated_at
+  return new Date(gameStateUpdatedAt).getTime() > new Date(game.updated_at).getTime() ? gameStateUpdatedAt : game.updated_at
+}
+
+const ROUND_PHASE_LABEL: Record<RoundPhase, string> = {
+  selectCards: 'Choosing cards',
+  actions: 'Resolving actions',
+  decline: 'Declining cards',
+  purchase: 'Purchasing',
+}
+
+/**
+ * What a game card should show in place of a blanket "In progress" — issue
+ * #293 section 4. Everything this reads (gameState.status/roundPhase) is
+ * already fetched for turn/finished classification, so no DB change is
+ * needed to break "active" apart into its actual round phase.
+ */
+export function describeGamePhase(game: GameRow, gameState: EngineGameState | null): string {
+  if (game.status === 'canceled') return 'Canceled'
+  if (!gameState) return 'Waiting in lobby'
+  if (gameState.status === 'boardSetup') return 'Setting up board'
+  if (gameState.status === 'completed') return 'Finished'
+  return ROUND_PHASE_LABEL[gameState.roundPhase]
 }
 
 export interface GameCardScore {
