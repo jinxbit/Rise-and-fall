@@ -1368,6 +1368,7 @@ export function GamePage() {
           taleContent={taleContent}
           turnReview={turnHalos}
           showHistory={isReviewingHistory}
+          onExitHistory={() => setReviewIndex(null)}
           territoryControlMode={territoryControlMode}
           previousHistoryState={previousTerritoryState}
           gameLog={isReviewingHistory ? reviewGameLog : gameLog}

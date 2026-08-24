@@ -1740,7 +1740,7 @@ describe('RoundView — history review overlay', () => {
   // `turnReview` events GamePage hands it onto the board it's given (which,
   // for "Show history", is already the real historical board state at that
   // point — see GamePage's `reviewState`/`turnHalos`).
-  function renderWithReview(turnReview: TurnReview | null, showHistory: boolean) {
+  function renderWithReview(turnReview: TurnReview | null, showHistory: boolean, onExitHistory?: () => void) {
     const state = makeState()
     state.board = setTile(state.board, { q: 0, r: 0 }, 'plain')
     state.units = [
@@ -1757,6 +1757,7 @@ describe('RoundView — history review overlay', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={turnReview}
         showHistory={showHistory}
+        onExitHistory={onExitHistory}
         territoryControlMode="off"
         previousHistoryState={null}
         gameLog={[]}
@@ -1847,6 +1848,28 @@ describe('RoundView — history review overlay', () => {
     renderWithReview(turnReview, true)
     expect(screen.getByText('(+5)')).toBeInTheDocument()
     expect(screen.getByText('(-1)')).toBeInTheDocument()
+  })
+
+  it('exits history review when the board is clicked (issue #285)', () => {
+    const onExitHistory = vi.fn()
+    const { container } = renderWithReview({ events: [], resourceDeltaByPlayerId: {} }, true, onExitHistory)
+
+    const hex = container.querySelector('polygon[data-coord]')
+    expect(hex).not.toBeNull()
+    fireEvent.click(hex!)
+
+    expect(onExitHistory).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not treat board clicks as exiting history when showHistory is off', () => {
+    const onExitHistory = vi.fn()
+    const { container } = renderWithReview({ events: [], resourceDeltaByPlayerId: {} }, false, onExitHistory)
+
+    const hex = container.querySelector('polygon[data-coord]')
+    expect(hex).not.toBeNull()
+    fireEvent.click(hex!)
+
+    expect(onExitHistory).not.toHaveBeenCalled()
   })
 })
 
