@@ -225,13 +225,13 @@ describe('GameOverviewCard', () => {
     expect(screen.getByText('Modules: The Capital, The Ports')).toBeInTheDocument()
   })
 
-  it('shows the round number and player scores on an in-progress card', () => {
+  it('combines the player list with their scores instead of listing names twice', () => {
     render(
       <ul>
         <GameOverviewCard
           name="Test room"
           phase="In progress"
-          players={[]}
+          players={[makePlayer('p1', 'Alice'), makePlayer('p2', 'Bob')]}
           pendingPlayerIds={[]}
           isMyTurn={false}
           isFinished={false}
@@ -253,13 +253,13 @@ describe('GameOverviewCard', () => {
     expect(screen.getByText((_, el) => el?.textContent === 'Alice: 12, Bob: 7')).toBeInTheDocument()
   })
 
-  it('shows the winner with a crown and the final scores on a finished card, but no round number', () => {
+  it('shows the winner with a crown and combines the player list with final scores, but no round number', () => {
     render(
       <ul>
         <GameOverviewCard
           name="Test room"
           phase="Finished"
-          players={[]}
+          players={[makePlayer('p1', 'Alice')]}
           pendingPlayerIds={[]}
           isMyTurn={false}
           isFinished
@@ -276,6 +276,7 @@ describe('GameOverviewCard', () => {
     )
 
     expect(screen.getByText('👑 Alice')).toBeInTheDocument()
+    expect(screen.getByText('Alice: 20')).toBeInTheDocument()
     expect(screen.queryByText('Round 8')).not.toBeInTheDocument()
   })
 

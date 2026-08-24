@@ -40,6 +40,7 @@ export function GameOverviewCard({
   onOpen,
 }: GameOverviewCardProps) {
   const dimText = isFinished ? 'text-yellow-600' : 'text-neutral-500'
+  const scoreByPlayerId = new Map((summary?.scores ?? []).map((s) => [s.playerId, s.score]))
 
   return (
     <li>
@@ -69,6 +70,7 @@ export function GameOverviewCard({
                 <span key={p.id} className={pendingPlayerIds.includes(p.id) ? 'font-semibold text-neutral-100' : undefined}>
                   {i > 0 && ', '}
                   {p.display_name}
+                  {scoreByPlayerId.has(p.id) && `: ${scoreByPlayerId.get(p.id)}`}
                 </span>
               ))}
         </span>
@@ -89,10 +91,8 @@ export function GameOverviewCard({
  */
 function GameCardSummaryLines({ summary, isFinished }: { summary: GameCardSummary; isFinished: boolean }) {
   const hasPregameInfo = summary.playerRange !== null || summary.mapBuildStyle !== null
-  const scores = summary.scores ?? []
-  const hasScores = scores.length > 0
 
-  if (!hasPregameInfo && summary.moduleNames.length === 0 && summary.roundNumber === null && !hasScores && summary.winnerNames.length === 0) {
+  if (!hasPregameInfo && summary.moduleNames.length === 0 && summary.roundNumber === null && summary.winnerNames.length === 0) {
     return null
   }
 
@@ -108,16 +108,6 @@ function GameCardSummaryLines({ summary, isFinished }: { summary: GameCardSummar
       {summary.moduleNames.length > 0 && <span>Modules: {summary.moduleNames.join(', ')}</span>}
       {!isFinished && summary.roundNumber !== null && <span>Round {summary.roundNumber}</span>}
       {isFinished && summary.winnerNames.length > 0 && <span>👑 {summary.winnerNames.join(', ')}</span>}
-      {hasScores && (
-        <span>
-          {scores.map((s, i) => (
-            <span key={s.playerId}>
-              {i > 0 && ', '}
-              {s.name}: {s.score}
-            </span>
-          ))}
-        </span>
-      )}
     </div>
   )
 }

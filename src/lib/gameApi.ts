@@ -234,7 +234,7 @@ export async function listMyGames(userId: string): Promise<MyGameEntry[]> {
   ] = await Promise.all([
     supabase.from('games').select().in('id', gameIds),
     supabase.from('players').select().in('game_id', gameIds),
-    supabase.from('game_state').select('game_id, state').in('game_id', gameIds),
+    supabase.from('game_state').select('game_id, state, updated_at').in('game_id', gameIds),
   ])
   if (gamesError) throw gamesError
   if (allPlayersError) throw allPlayersError
@@ -248,8 +248,10 @@ export async function listMyGames(userId: string): Promise<MyGameEntry[]> {
   }
 
   const stateByGame = new Map<string, EngineGameState>()
-  for (const row of states as { game_id: string; state: EngineGameState }[]) {
+  const stateUpdatedAtByGame = new Map<string, string>()
+  for (const row of states as { game_id: string; state: EngineGameState; updated_at: string }[]) {
     stateByGame.set(row.game_id, row.state)
+    stateUpdatedAtByGame.set(row.game_id, row.updated_at)
   }
 
   return (games as GameRow[]).map((game) => {
@@ -258,6 +260,7 @@ export async function listMyGames(userId: string): Promise<MyGameEntry[]> {
       game,
       players: gamePlayers,
       gameState: stateByGame.get(game.id) ?? null,
+      gameStateUpdatedAt: stateUpdatedAtByGame.get(game.id) ?? null,
       myPlayerIds: gamePlayers.filter((p) => p.user_id === userId).map((p) => p.id),
     }
   })
@@ -290,7 +293,7 @@ export async function listPublicRooms(): Promise<PublicRoomEntry[]> {
     { data: states, error: statesError },
   ] = await Promise.all([
     supabase.from('players').select().in('game_id', gameIds),
-    supabase.from('game_state').select('game_id, state').in('game_id', gameIds),
+    supabase.from('game_state').select('game_id, state, updated_at').in('game_id', gameIds),
   ])
   if (allPlayersError) throw allPlayersError
   if (statesError) throw statesError
@@ -303,14 +306,17 @@ export async function listPublicRooms(): Promise<PublicRoomEntry[]> {
   }
 
   const stateByGame = new Map<string, EngineGameState>()
-  for (const row of states as { game_id: string; state: EngineGameState }[]) {
+  const stateUpdatedAtByGame = new Map<string, string>()
+  for (const row of states as { game_id: string; state: EngineGameState; updated_at: string }[]) {
     stateByGame.set(row.game_id, row.state)
+    stateUpdatedAtByGame.set(row.game_id, row.updated_at)
   }
 
   return gameRows.map((game) => ({
     game,
     players: (playersByGame.get(game.id) ?? []).sort((a, b) => a.seat_index - b.seat_index),
     gameState: stateByGame.get(game.id) ?? null,
+    gameStateUpdatedAt: stateUpdatedAtByGame.get(game.id) ?? null,
   }))
 }
 

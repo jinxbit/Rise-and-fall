@@ -9,19 +9,21 @@ import { SupportBanner } from '../components/SupportBanner'
 import { useAuth } from '../hooks/useAuth'
 import { useDisplayName } from '../hooks/useDisplayName'
 import { useIsAdmin } from '../hooks/useIsAdmin'
+import { useRefetchOnVisible } from '../hooks/useRefetchOnVisible'
 import { getGameByRoomCode, listMyGames, listPublicRooms } from '../lib/gameApi'
 import { buildGameCardSummary } from '../lib/gameCardView'
 import { paginate } from '../lib/pagination'
 import { consumePendingRedirect } from '../lib/pendingRedirect'
 import { simpleError, toAppError, type AppError } from '../lib/errors'
 import {
+  describeGamePhase,
   formatUpdatedAt,
   groupMyGames,
   isMyTurn,
+  latestUpdatedAt,
   myGameStatus,
   pendingActorIds,
   type MyGameEntry,
-  type MyGameStatus,
 } from '../lib/myGamesView'
 import {
   groupPublicRooms,
@@ -29,25 +31,10 @@ import {
   isMyTurn as isMyTurnInPublicRoom,
   pendingActorIds as pendingActorIdsInPublicRoom,
   publicRoomBucket,
-  type PublicRoomBucket,
   type PublicRoomEntry,
 } from '../lib/publicRoomsView'
 
 const PAGE_SIZE = 10
-
-const STATUS_LABEL: Record<MyGameStatus, string> = {
-  lobby: 'Waiting in lobby',
-  boardSetup: 'Setting up board',
-  active: 'In progress',
-  completed: 'Finished',
-  canceled: 'Canceled',
-}
-
-const PUBLIC_PHASE_LABEL: Record<PublicRoomBucket, string> = {
-  notStarted: 'Not started',
-  inProgress: 'In progress',
-  finished: 'Finished',
-}
 
 /** Same routing rule as MyGamesPage.tsx's gamePath — no game_state row yet means the room is still in the lobby. */
 function gamePath(entry: MyGameEntry): string {
@@ -97,6 +84,16 @@ export function HomePage() {
       cancelled = true
     }
   }, [session])
+
+  useRefetchOnVisible(() => {
+    if (!session) return
+    Promise.all([listMyGames(session.user.id), listPublicRooms()])
+      .then(([myGames, publicRooms]) => {
+        setMyEntries(myGames)
+        setPublicEntries(publicRooms)
+      })
+      .catch((err: unknown) => setLoadError(toAppError(err, 'Failed to load games')))
+  })
 
   if (loading) {
     return <div className="p-8 text-neutral-400">Loading…</div>
@@ -312,12 +309,12 @@ function MyGameRow({ entry, onOpen }: { entry: MyGameEntry; onOpen: () => void }
   return (
     <GameOverviewCard
       name={entry.game.name}
-      phase={STATUS_LABEL[status]}
+      phase={describeGamePhase(entry.game, entry.gameState)}
       players={entry.players}
       pendingPlayerIds={pendingActorIds(entry)}
       isMyTurn={isMyTurn(entry)}
       isFinished={status === 'completed'}
-      updatedAt={formatUpdatedAt(entry.game.updated_at)}
+      updatedAt={formatUpdatedAt(latestUpdatedAt(entry.game, entry.gameStateUpdatedAt))}
       summary={buildGameCardSummary(entry.game, entry.gameState, entry.players)}
       onOpen={onOpen}
     />
@@ -339,14 +336,14 @@ function PublicGameRow({
   return (
     <GameOverviewCard
       name={entry.game.name}
-      description={`${entry.players.length}/${entry.game.max_players} players`}
-      phase={PUBLIC_PHASE_LABEL[bucket]}
+      description={bucket === 'notStarted' ? `${entry.players.length}/${entry.game.max_players} players` : undefined}
+      phase={describeGamePhase(entry.game, entry.gameState)}
       players={entry.players}
       pendingPlayerIds={pendingActorIdsInPublicRoom(entry)}
       isMyTurn={isMyTurnInPublicRoom(entry, userId)}
       isFinished={bucket === 'finished'}
       isJoinable={isJoinable(entry)}
-      updatedAt={formatUpdatedAt(entry.game.updated_at)}
+      updatedAt={formatUpdatedAt(latestUpdatedAt(entry.game, entry.gameStateUpdatedAt))}
       action={action}
       summary={buildGameCardSummary(entry.game, entry.gameState, entry.players)}
       onOpen={onOpen}

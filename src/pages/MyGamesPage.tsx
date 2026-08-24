@@ -3,26 +3,20 @@ import { Link, useNavigate } from 'react-router-dom'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { GameOverviewCard } from '../components/GameOverviewCard'
 import { useAuth } from '../hooks/useAuth'
+import { useRefetchOnVisible } from '../hooks/useRefetchOnVisible'
 import { listMyGames } from '../lib/gameApi'
 import { buildGameCardSummary } from '../lib/gameCardView'
 import { toAppError, type AppError } from '../lib/errors'
 import {
+  describeGamePhase,
   formatUpdatedAt,
   groupMyGames,
   isMyTurn,
+  latestUpdatedAt,
   myGameStatus,
   pendingActorIds,
   type MyGameEntry,
-  type MyGameStatus,
 } from '../lib/myGamesView'
-
-const STATUS_LABEL: Record<MyGameStatus, string> = {
-  lobby: 'Waiting in lobby',
-  boardSetup: 'Setting up board',
-  active: 'In progress',
-  completed: 'Finished',
-  canceled: 'Canceled',
-}
 
 /**
  * Where clicking a game row should go. Keyed off whether a game_state row
@@ -58,6 +52,13 @@ export function MyGamesPage() {
       cancelled = true
     }
   }, [session])
+
+  useRefetchOnVisible(() => {
+    if (!session) return
+    listMyGames(session.user.id)
+      .then(setEntries)
+      .catch((err: unknown) => setError(toAppError(err, 'Failed to load games')))
+  })
 
   if (authLoading) return <div className="p-8 text-neutral-400">Loading…</div>
   if (!session) {
@@ -132,12 +133,12 @@ function GameRowItem({ entry, onOpen }: { entry: MyGameEntry; onOpen: () => void
   return (
     <GameOverviewCard
       name={entry.game.name}
-      phase={STATUS_LABEL[status]}
+      phase={describeGamePhase(entry.game, entry.gameState)}
       players={entry.players}
       pendingPlayerIds={pendingActorIds(entry)}
       isMyTurn={isMyTurn(entry)}
       isFinished={status === 'completed'}
-      updatedAt={formatUpdatedAt(entry.game.updated_at)}
+      updatedAt={formatUpdatedAt(latestUpdatedAt(entry.game, entry.gameStateUpdatedAt))}
       summary={buildGameCardSummary(entry.game, entry.gameState, entry.players)}
       onOpen={onOpen}
     />

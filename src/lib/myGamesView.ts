@@ -7,7 +7,7 @@ import type { GameState as EngineGameState } from '../engine/types'
 import type { GameRow, PlayerRow } from './dbTypes'
 import { isMyTurnFor, pendingActorIdsFor } from './gameCardView'
 
-export { formatUpdatedAt } from './gameCardView'
+export { describeGamePhase, formatUpdatedAt, latestUpdatedAt } from './gameCardView'
 
 /**
  * One game the current user is seated in, plus everything the list/detail
@@ -20,6 +20,8 @@ export interface MyGameEntry {
   game: GameRow
   players: PlayerRow[]
   gameState: EngineGameState | null
+  /** game_state.updated_at (null alongside gameState while still in the lobby) — see gameCardView.ts's latestUpdatedAt. */
+  gameStateUpdatedAt: string | null
   myPlayerIds: string[]
 }
 

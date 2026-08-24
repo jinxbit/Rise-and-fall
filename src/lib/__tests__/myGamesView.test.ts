@@ -66,6 +66,7 @@ function makeEntry(overrides: Partial<MyGameEntry> = {}): MyGameEntry {
     game,
     players,
     gameState: makeActiveState(),
+    gameStateUpdatedAt: null,
     myPlayerIds: ['p1'],
     ...overrides,
   }
