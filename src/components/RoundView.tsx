@@ -1185,9 +1185,6 @@ export function RoundView(props: {
       {/* Turn status panels ("Waiting for X…") re-render as other players act in real time; their
           height changes shift everything below them. Hidden while reviewing history so that view
           stays still instead of jumping around underneath the player. */}
-      {!showHistory && state.roundPhase === 'selectCards' && (
-        <SelectCardsPanel state={state} players={players} myPlayerId={myPlayerId} onChooseCard={props.onChooseCard} />
-      )}
       {!showHistory && state.roundPhase === 'actions' && mode.kind === 'supporting' && supportingUnit && supportingAction && (
         <SupportHint actingUnitKind={supportingUnit.kind} actionLabel={supportingAction.name} neededCandidateCount={supportingNeededCandidates.length} />
       )}
@@ -1199,19 +1196,6 @@ export function RoundView(props: {
           unitContent={unitContent}
           onPassActions={props.onPassActions}
           onResolveBulkAction={props.onResolveBulkAction}
-        />
-      )}
-      {!showHistory && state.roundPhase === 'decline' && (
-        <DeclinePanel state={state} players={players} myPlayerId={myPlayerId} onMoveToDecline={props.onMoveToDecline} />
-      )}
-      {!showHistory && state.roundPhase === 'purchase' && (
-        <PurchasePanel
-          state={state}
-          players={players}
-          myPlayerId={myPlayerId}
-          achievementContent={achievementContent}
-          onPurchaseCard={props.onPurchaseCard}
-          onPassPurchase={props.onPassPurchase}
         />
       )}
 
@@ -1229,6 +1213,32 @@ export function RoundView(props: {
             onHexClick={isMyActionTurn ? handleBoardClick : showHistory ? props.onExitHistory : undefined}
             expanded={sidebarHidden}
           />
+          {/* Card-choice panels (select/decline/purchase — issue #304) sit
+              directly on the map they affect, anchored to its top-left
+              corner, rather than a separate row pushing the board down the
+              page. Hidden while reviewing history for the same reason the
+              other turn-status panels are (see the comment that used to sit
+              above these before they moved here). */}
+          {!showHistory && (state.roundPhase === 'selectCards' || state.roundPhase === 'decline' || state.roundPhase === 'purchase') && (
+            <div className="absolute left-2 top-2 z-10 max-w-[calc(100%_-_1rem)] rounded-md border border-neutral-700 bg-neutral-900/90 p-3 shadow-lg">
+              {state.roundPhase === 'selectCards' && (
+                <SelectCardsPanel state={state} players={players} myPlayerId={myPlayerId} onChooseCard={props.onChooseCard} />
+              )}
+              {state.roundPhase === 'decline' && (
+                <DeclinePanel state={state} players={players} myPlayerId={myPlayerId} onMoveToDecline={props.onMoveToDecline} />
+              )}
+              {state.roundPhase === 'purchase' && (
+                <PurchasePanel
+                  state={state}
+                  players={players}
+                  myPlayerId={myPlayerId}
+                  achievementContent={achievementContent}
+                  onPurchaseCard={props.onPurchaseCard}
+                  onPassPurchase={props.onPassPurchase}
+                />
+              )}
+            </div>
+          )}
           {/* Overlaid on the board's own corner rather than a separate row above it — a standard collapse/expand chevron, flipping direction with sidebarHidden. */}
           <button
             type="button"
