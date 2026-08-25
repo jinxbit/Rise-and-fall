@@ -1740,7 +1740,13 @@ describe('RoundView — history review overlay', () => {
   // `turnReview` events GamePage hands it onto the board it's given (which,
   // for "Show history", is already the real historical board state at that
   // point — see GamePage's `reviewState`/`turnHalos`).
-  function renderWithReview(turnReview: TurnReview | null, showHistory: boolean, onExitHistory?: () => void, stateOverrides?: Partial<GameState>) {
+  function renderWithReview(
+    turnReview: TurnReview | null,
+    showHistory: boolean,
+    onExitHistory?: () => void,
+    stateOverrides?: Partial<GameState>,
+    revealPendingCardChoices?: boolean,
+  ) {
     const state = { ...makeState(), ...stateOverrides }
     state.board = setTile(state.board, { q: 0, r: 0 }, 'plain')
     state.units = [
@@ -1757,6 +1763,7 @@ describe('RoundView — history review overlay', () => {
         taleContent={EMPTY_TALE_CONTENT}
         turnReview={turnReview}
         showHistory={showHistory}
+        revealPendingCardChoices={revealPendingCardChoices}
         onExitHistory={onExitHistory}
         territoryControlMode="off"
         previousHistoryState={null}
@@ -1872,11 +1879,64 @@ describe('RoundView — history review overlay', () => {
     expect(onExitHistory).not.toHaveBeenCalled()
   })
 
-  it('shows no card-choice recap while players are still mid-pick, not a partial reveal (issue #316)', () => {
-    renderWithReview({ events: [], resourceDeltaByPlayerId: {} }, true)
+  it('shows no card-choice recap for a still-in-progress selectCards phase at the live edge, not a partial reveal (issue #316)', () => {
+    renderWithReview({ events: [], resourceDeltaByPlayerId: {} }, true, undefined, undefined, false)
 
     expect(screen.queryByText('Played cards:')).not.toBeInTheDocument()
+    expect(screen.queryByText('Chosen cards so far:')).not.toBeInTheDocument()
     expect(screen.queryByText(/still choosing/)).not.toBeInTheDocument()
+  })
+
+  it('reveals picks made so far in a selectCards phase once it is safely behind the live edge (issue #318)', () => {
+    renderWithReview(
+      { events: [], resourceDeltaByPlayerId: {} },
+      true,
+      undefined,
+      {
+        roundPhase: 'selectCards',
+        chosenCardIdByPlayerId: { p1: cardIdFor('p1', 'nomad'), p2: null },
+        pendingPlayerIds: ['p2'],
+        activePlayerId: 'p2',
+      },
+      true,
+    )
+
+    expect(screen.getByText('Chosen cards so far:')).toBeInTheDocument()
+    const row = screen.getByText('Chosen cards so far:').nextElementSibling as HTMLElement
+    expect(within(row).getByTitle('Nomad')).toBeInTheDocument()
+    expect(within(row).getAllByText('none')).toHaveLength(1)
+  })
+
+  it('shows no decline recap for a still-in-progress decline phase at the live edge (issue #318)', () => {
+    renderWithReview({ events: [], resourceDeltaByPlayerId: {} }, true, undefined, { roundPhase: 'decline' }, false)
+
+    expect(screen.queryByText('Declined cards so far:')).not.toBeInTheDocument()
+  })
+
+  it('reveals declines made so far in a decline phase once it is safely behind the live edge (issue #318)', () => {
+    const declinedCardId = cardIdFor('p2', 'city')
+    renderWithReview(
+      { events: [], resourceDeltaByPlayerId: {} },
+      true,
+      undefined,
+      {
+        roundPhase: 'decline',
+        pendingPlayerIds: ['p1'],
+        activePlayerId: 'p1',
+        turn: 1,
+        actionHistory: [{ action: { type: 'MOVE_TO_DECLINE', playerId: 'p2', cardId: declinedCardId }, turn: 1, timestamp: '' }],
+        players: [
+          { ...makeEnginePlayer('p1', ['nomad', 'ship']), declineCardIds: [] },
+          { ...makeEnginePlayer('p2', ['city']), declineCardIds: [declinedCardId] },
+        ],
+      },
+      true,
+    )
+
+    expect(screen.getByText('Declined cards so far:')).toBeInTheDocument()
+    const row = screen.getByText('Declined cards so far:').nextElementSibling as HTMLElement
+    expect(within(row).getByTitle('City')).toBeInTheDocument()
+    expect(within(row).getAllByText('none')).toHaveLength(1)
   })
 
   it("shows a summary of every eligible player's card choice, with icons and player-coloured names, once selectCards is done (issue #316)", () => {
@@ -1926,6 +1986,10 @@ describe('RoundView — history review overlay', () => {
 
     expect(screen.getByText('Purchased cards:')).toBeInTheDocument()
     expect(screen.getByText('Declined cards:')).toBeInTheDocument()
+
+    // Declined is listed above Purchased (issue #318).
+    const labels = screen.getAllByText(/^(Purchased|Declined) cards:$/).map((el) => el.textContent)
+    expect(labels).toEqual(['Declined cards:', 'Purchased cards:'])
 
     // Both sections lay every player out in one flex-wrap row, not a stacked list.
     const purchasedRow = screen.getByText('Purchased cards:').nextElementSibling as HTMLElement

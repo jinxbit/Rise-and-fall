@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import {
   boostedStateForSupport,
   computeActionOutcomePreview,
@@ -932,22 +933,23 @@ function CardChoiceHistorySection({ label, players, eligiblePlayers, kindsByPlay
  * and `actionHistory` already reflect exactly what's happened so far, with
  * no separate tracking needed.
  *
- * Only ever rendered for `actions`/`purchase` (see the `showHistory` block
- * below in RoundView), never for `selectCards`/`decline` themselves (issue
- * #316: don't reveal a partial "n of N chosen" picture while eligible
- * players are still mid-pick) — `selectCards` and `decline` are
- * simultaneous phases that complete and advance to the *next* phase within
- * the very same logged action (see applyChooseCard/applyMoveToDecline in
- * engine/applyAction.ts), so there's no reachable historical state where
- * e.g. roundPhase is still `selectCards` but every eligible (non-eliminated)
- * player has already chosen — the completed picks only ever show up here,
- * one phase later.
+ * Covers every round phase, including `selectCards`/`decline` while
+ * they're still in progress (issue #318 — a player stepping through a
+ * genuinely-past round wants to see who picked/declined what without an
+ * extra click forward). Those two phases are gated by `revealPending`
+ * (RoundView's `revealPendingCardChoices` prop, see its doc comment): only
+ * once the reviewed state is safely behind the live edge of
+ * `actionHistory` — never for the live edge itself, where the very same
+ * partial picture would leak a still-pending player's own choice to other
+ * players who haven't chosen yet (issue #316). Returns null while there's
+ * nothing safe/useful to show yet.
  */
-function CardChoiceHistoryPanel({ state, players }: { state: GameState; players: PlayerRow[] }) {
+function CardChoiceHistoryPanel({ state, players, revealPending }: { state: GameState; players: PlayerRow[]; revealPending: boolean }) {
   const eligiblePlayers = state.players.filter((p) => !p.eliminated)
 
+  let content: ReactNode
   if (state.roundPhase === 'actions') {
-    return (
+    content = (
       <CardChoiceHistorySection
         label="Played cards:"
         players={players}
@@ -959,16 +961,43 @@ function CardChoiceHistoryPanel({ state, players }: { state: GameState; players:
         }}
       />
     )
+  } else if (state.roundPhase === 'selectCards') {
+    if (!revealPending) return null
+    content = (
+      <CardChoiceHistorySection
+        label="Chosen cards so far:"
+        players={players}
+        eligiblePlayers={eligiblePlayers}
+        kindsByPlayerId={(playerId) => {
+          const cardId = state.chosenCardIdByPlayerId[playerId]
+          const kind = cardId ? state.cards[cardId]?.kind : undefined
+          return kind ? [kind] : []
+        }}
+      />
+    )
+  } else if (state.roundPhase === 'decline') {
+    if (!revealPending) return null
+    const declinedSoFar = declinedKindsByPlayerId(state)
+    content = (
+      <CardChoiceHistorySection
+        label="Declined cards so far:"
+        players={players}
+        eligiblePlayers={eligiblePlayers}
+        kindsByPlayerId={(playerId) => declinedSoFar.get(playerId)}
+      />
+    )
+  } else {
+    const purchased = purchasedKindsByPlayerId(state)
+    const declined = declinedKindsByPlayerId(state)
+    content = (
+      <div className="flex flex-col gap-2">
+        <CardChoiceHistorySection label="Declined cards:" players={players} eligiblePlayers={eligiblePlayers} kindsByPlayerId={(playerId) => declined.get(playerId)} />
+        <CardChoiceHistorySection label="Purchased cards:" players={players} eligiblePlayers={eligiblePlayers} kindsByPlayerId={(playerId) => purchased.get(playerId)} />
+      </div>
+    )
   }
 
-  const purchased = purchasedKindsByPlayerId(state)
-  const declined = declinedKindsByPlayerId(state)
-  return (
-    <div className="flex flex-col gap-2">
-      <CardChoiceHistorySection label="Purchased cards:" players={players} eligiblePlayers={eligiblePlayers} kindsByPlayerId={(playerId) => purchased.get(playerId)} />
-      <CardChoiceHistorySection label="Declined cards:" players={players} eligiblePlayers={eligiblePlayers} kindsByPlayerId={(playerId) => declined.get(playerId)} />
-    </div>
-  )
+  return <div className="pointer-events-none absolute left-2 top-2 z-10 max-w-[calc(100%_-_1rem)] rounded-md border border-neutral-700 bg-neutral-900/90 p-3 shadow-lg">{content}</div>
 }
 
 export function RoundView(props: {
@@ -1001,6 +1030,20 @@ export function RoundView(props: {
    * would otherwise let the (non-existent, in review) `myPlayerId` act.
    */
   showHistory: boolean
+  /**
+   * Whether it's safe for CardChoiceHistoryPanel to reveal a still-in-
+   * progress `selectCards`/`decline` phase's picks so far (issue #318) —
+   * GamePage only sets this once the reviewed state sits strictly behind
+   * the live edge of `actionHistory` (a later action has genuinely already
+   * happened), never for the live edge itself. Revealing picks there would
+   * leak a still-pending player's own choice to other players who haven't
+   * chosen yet — the exact spoiler GamePage's replay cache is built to
+   * avoid (issue #316). Ignored for `actions`/`purchase`, which are always
+   * safe to reveal (every eligible player's pick for the phase before them
+   * is settled by the time either phase begins). Optional/defaults to
+   * false so tests unconcerned with this panel don't need to pass it.
+   */
+  revealPendingCardChoices?: boolean
   /**
    * Returns to live play from history review — called when the player
    * clicks the board while `showHistory` is true (issue #285), same as the
@@ -1050,7 +1093,7 @@ export function RoundView(props: {
   onPurchaseCard: (cardId: string) => void
   onPassPurchase: () => void
 }) {
-  const { state, players, myPlayerId, unitContent, achievementContent, taleContent, unitPlateColors, turnReview, showHistory, territoryControlMode, previousHistoryState } = props
+  const { state, players, myPlayerId, unitContent, achievementContent, taleContent, unitPlateColors, turnReview, showHistory, revealPendingCardChoices = false, territoryControlMode, previousHistoryState } = props
   const [mode, setMode] = useState<ActionUiMode>({ kind: 'idle' })
   /** Hides the full player roster + achievements sidebar so the board can grow into the freed space — see the "Expand board" toggle below. */
   const [sidebarHidden, setSidebarHidden] = useState(false)
@@ -1358,15 +1401,11 @@ export function RoundView(props: {
               board's top-left corner while reviewing history (issue #314) — the
               interactive pick panels above only make sense during live play
               (see the matching `!showHistory` panels above), but a player
-              stepping through history still wants to see what everyone chose
-              without an extra click. Only shown for `actions`/`purchase`,
-              once every eligible player's pick for the phase before it is
-              settled — see CardChoiceHistoryPanel's doc comment (issue #316). */}
-          {showHistory && (state.roundPhase === 'actions' || state.roundPhase === 'purchase') && (
-            <div className="pointer-events-none absolute left-2 top-2 z-10 max-w-[calc(100%_-_1rem)] rounded-md border border-neutral-700 bg-neutral-900/90 p-3 shadow-lg">
-              <CardChoiceHistoryPanel state={state} players={players} />
-            </div>
-          )}
+              stepping through history still wants to see what everyone
+              chose/declined without an extra click forward. Renders nothing
+              itself when there's nothing safe/useful to show yet — see
+              CardChoiceHistoryPanel's doc comment (issues #316/#318). */}
+          {showHistory && <CardChoiceHistoryPanel state={state} players={players} revealPending={revealPendingCardChoices} />}
           {/* Overlaid on the board's own corner rather than a separate row above it — a standard collapse/expand chevron, flipping direction with sidebarHidden. */}
           <button
             type="button"

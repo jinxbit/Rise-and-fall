@@ -483,6 +483,20 @@ export function GamePage() {
 
   const reviewMaxIndex = gameState?.actionHistory.length ?? 0
   const isReviewingHistory = reviewIndex !== null
+  /**
+   * Whether `reviewIndex` sits strictly behind the live edge of
+   * `actionHistory` — i.e. this reviewed round has genuinely gone on to
+   * later actions in the real game, not just within `reviewState` itself.
+   * Passed to RoundView as `revealPendingCardChoices` (issue #318) so its
+   * CardChoiceHistoryPanel can tell a truly-past round's still-in-progress
+   * `selectCards`/`decline` phase (safe to reveal picks made so far — the
+   * round has already fully played out since) from the live edge itself
+   * (`reviewIndex === reviewMaxIndex`), where the same partial picture
+   * would leak a still-pending player's own choice to other players who
+   * haven't chosen yet — the exact spoiler this file's replay cache above
+   * is built to avoid (issue #316).
+   */
+  const revealPendingCardChoices = reviewIndex !== null && reviewIndex !== reviewMaxIndex
 
   /**
    * The state (for BoardSetupView/RoundView) and narration log (see
@@ -1397,6 +1411,7 @@ export function GamePage() {
           unitPlateColors={unitPlateColors}
           turnReview={turnHalos}
           showHistory={isReviewingHistory}
+          revealPendingCardChoices={revealPendingCardChoices}
           onExitHistory={() => setReviewIndex(null)}
           territoryControlMode={territoryControlMode}
           previousHistoryState={previousTerritoryState}
