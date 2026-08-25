@@ -13,7 +13,7 @@ import { replayActions } from '../engine/replay'
 import { calculateScoreHistory } from '../engine/scoreHistory'
 import { applyTaleAchievementModifiers, applyTaleModifiers } from '../engine/tales'
 import type { ActionResult, GameEvent, GameState as EngineGameState, Coordinate } from '../engine/types'
-import { buildTurnReview, findReviewWindowStart, findTurnStops, reviewPhaseGroupAt, shouldShowCardChoiceRecap } from '../engine/turnReview'
+import { buildTurnReview, findReviewWindowStart, findTurnStops, reviewPhaseGroupAt, roundPhaseForRecap, shouldShowCardChoiceRecap } from '../engine/turnReview'
 import type { TurnReview } from '../engine/turnReview'
 import { currentActorId } from '../engine/turnOrder'
 import { useAuth } from '../hooks/useAuth'
@@ -627,13 +627,21 @@ export function GamePage() {
       // Computed independently of `previousTerritoryState` above: that one
       // intentionally goes null at `defaultTurnHistoryIndex` (issue #261 —
       // no "just happened" turn to halo-highlight there), but the recap
-      // should still reflect a real phase change at that same point.
+      // should still reflect a real phase change at that same point. Both
+      // this stop's and the previous stop's phase go through
+      // `roundPhaseForRecap`, not the replayed state's raw `roundPhase` —
+      // see that function's doc comment for why a completed `declinePurchase`
+      // stop's raw `roundPhase` can't be trusted (issue #326's second
+      // follow-up).
       let previousStopRoundPhase: EngineGameState['roundPhase'] | null = null
       if (historyStepMode === 'turn' && fullTurnStops) {
         const pos = fullTurnStops.indexOf(reviewIndex)
-        if (pos > 0) previousStopRoundPhase = cache.states[fullTurnStops[pos - 1]].roundPhase
+        if (pos > 0) {
+          const prevStop = fullTurnStops[pos - 1]
+          previousStopRoundPhase = roundPhaseForRecap(actionHistory, prevStop, cache.states[prevStop])
+        }
       }
-      const showCardChoiceRecap = shouldShowCardChoiceRecap(cache.states[reviewIndex].roundPhase, previousStopRoundPhase, historyStepMode)
+      const showCardChoiceRecap = shouldShowCardChoiceRecap(roundPhaseForRecap(actionHistory, reviewIndex, cache.states[reviewIndex]), previousStopRoundPhase, historyStepMode)
 
       return {
         reviewState: cache.states[reviewIndex],

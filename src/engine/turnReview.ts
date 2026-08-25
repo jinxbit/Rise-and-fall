@@ -143,12 +143,47 @@ export function reviewPhaseGroupAt(actionHistory: LoggedAction[], stopEnd: numbe
 }
 
 /**
+ * The `RoundPhase` a history-review stop ending at `stopEnd` should be
+ * treated as being in for `shouldShowCardChoiceRecap`'s purposes — usually
+ * just `state.roundPhase` itself, EXCEPT right at a completed
+ * `declinePurchase` review stop (issue #326's second follow-up): just like
+ * `applyChooseCard` flips `roundPhase` straight to `'actions'` the instant
+ * the last `selectCards` pick lands (see `shouldShowCardChoiceRecap`'s own
+ * doc comment), `applyMoveToDecline`/`applyPurchaseCard`/`applyPassPurchase`
+ * chain straight through `finishRound` into the *next* round's
+ * `beginSelectCardsPhase` (or straight to `status: 'completed'`) the instant
+ * the group's last action lands (round.ts) — so by the time this stop is
+ * reached, `state.roundPhase` no longer reads `'decline'`/`'purchase'` at
+ * all, even though the recap should still show what was just declined and
+ * purchased. Reports `'purchase'` for that case instead.
+ *
+ * `stopEnd < actionHistory.length` (a genuinely earlier, already-passed
+ * stop) is enough on its own to know the group's last action is behind us —
+ * `findTurnStops` only ever draws a boundary once the *next* action's group
+ * has changed. At the live tail (`stopEnd === actionHistory.length`, i.e.
+ * "now"), there's no next action to check, so only `state.status ===
+ * 'completed'` gives that same guarantee; otherwise `state.roundPhase` is
+ * trusted as genuinely still `'decline'`/`'purchase'`, mid-phase (matching
+ * `shouldShowCardChoiceRecap`'s existing "never mid-pick" rule for
+ * `'decline'`, and its existing turn-order partial-reveal allowance for
+ * `'purchase'`).
+ */
+export function roundPhaseForRecap(actionHistory: LoggedAction[], stopEnd: number, state: GameState): RoundPhase {
+  const group = reviewPhaseGroupAt(actionHistory, stopEnd)
+  if (group === 'declinePurchase' && (stopEnd < actionHistory.length || state.status === 'completed')) return 'purchase'
+  return state.roundPhase
+}
+
+/**
  * Whether RoundView's card-choice recap overlay (CardChoiceHistoryPanel)
  * should be shown for a history-review stop at `roundPhase` (issue #326
  * follow-up to #314/#316) — never for `selectCards`/`decline` themselves (a
  * partial "n of N chosen" picture while eligible players are still
  * mid-pick), and for `actions`/`purchase` only at the FIRST review stop that
- * shows the phase's completed picks, not every stop after it.
+ * shows the phase's completed picks, not every stop after it. Callers must
+ * pass `roundPhaseForRecap`'s result, not the review stop's raw
+ * `state.roundPhase` — see that function's own doc comment for why the raw
+ * field can't be trusted for `declinePurchase` stops.
  *
  * In turn-step mode, `actions` gets one stop per acting player
  * (`findTurnStops`'s `splitsWithinGroup`), and `selectCards` collapses to a

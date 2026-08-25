@@ -4,7 +4,7 @@ import { createEmptyBoard, setTile } from '../board'
 import { cardIdFor, createPlayerCards, syncCardZonesWithBoard } from '../cards'
 import { createNewGame } from '../createGame'
 import { beginSelectCardsPhase } from '../round'
-import { buildTurnReview, findReviewWindowStart, findTurnStops, reviewPhaseGroupAt, shouldShowCardChoiceRecap } from '../turnReview'
+import { buildTurnReview, findReviewWindowStart, findTurnStops, reviewPhaseGroupAt, roundPhaseForRecap, shouldShowCardChoiceRecap } from '../turnReview'
 import type { LoggedAction } from '../actions'
 import type { Card, GameState, Player, Terrain, Unit } from '../types'
 import type { UnitAction, UnitContent } from '../unitContent'
@@ -249,6 +249,35 @@ describe('reviewPhaseGroupAt', () => {
       { action: { type: 'CONCEDE', playerId: 'p2' }, turn: 1, timestamp: '' },
     ]
     expect(reviewPhaseGroupAt(history, 2)).toBe('selectCards')
+  })
+})
+
+describe('roundPhaseForRecap', () => {
+  const fakeState = (roundPhase: GameState['roundPhase'], status: GameState['status'] = 'active'): GameState => ({ roundPhase, status }) as GameState
+
+  it("reports 'purchase' for a completed (non-tail) declinePurchase stop, even though its replayed state already chained into the next round's selectCards", () => {
+    const history: LoggedAction[] = [
+      { action: { type: 'PASS_ACTIONS', playerId: 'p1' }, turn: 1, timestamp: '' },
+      { action: { type: 'PASS_PURCHASE', playerId: 'p1' }, turn: 1, timestamp: '' },
+      { action: { type: 'CHOOSE_CARD', playerId: 'p1', cardId: 'c2' }, turn: 2, timestamp: '' },
+    ]
+    expect(roundPhaseForRecap(history, 2, fakeState('selectCards'))).toBe('purchase')
+  })
+
+  it("reports 'purchase' at the live tail once the game has actually completed mid-purchase (finishRound's early-return path never increments turn or changes roundPhase)", () => {
+    const history: LoggedAction[] = [{ action: { type: 'PASS_PURCHASE', playerId: 'p1' }, turn: 1, timestamp: '' }]
+    expect(roundPhaseForRecap(history, 1, fakeState('purchase', 'completed'))).toBe('purchase')
+  })
+
+  it('trusts the replayed roundPhase as-is at the live tail while decline/purchase is still genuinely in progress (no next action to prove the group is done)', () => {
+    const history: LoggedAction[] = [{ action: { type: 'MOVE_TO_DECLINE', playerId: 'p1', cardId: 'c1' }, turn: 1, timestamp: '' }]
+    expect(roundPhaseForRecap(history, 1, fakeState('decline'))).toBe('decline')
+    expect(roundPhaseForRecap(history, 1, fakeState('purchase'))).toBe('purchase')
+  })
+
+  it('passes the replayed roundPhase through unchanged outside the declinePurchase group', () => {
+    const history: LoggedAction[] = [{ action: { type: 'PASS_ACTIONS', playerId: 'p1' }, turn: 1, timestamp: '' }]
+    expect(roundPhaseForRecap(history, 1, fakeState('actions'))).toBe('actions')
   })
 })
 

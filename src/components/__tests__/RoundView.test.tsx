@@ -2019,6 +2019,44 @@ describe('RoundView — history review overlay', () => {
     const declinedRow = screen.getByText('Declined cards:').nextElementSibling as HTMLElement
     expect(within(declinedRow).getByTitle('City')).toBeInTheDocument()
   })
+
+  it("still reports what was purchased/declined once finishRound has already chained the replayed state into the next round's selectCards phase (issue #326's second follow-up)", () => {
+    const purchasedCardId = cardIdFor('p1', 'mountaineer')
+    const declinedCardId = cardIdFor('p2', 'city')
+    renderWithReview(
+      { events: [], resourceDeltaByPlayerId: {} },
+      true,
+      undefined,
+      {
+        // finishRound increments `turn` and moves straight into the next
+        // round's selectCards the instant the last purchase/decline action
+        // lands (round.ts) — so the collapsed declinePurchase review stop
+        // being recapped here genuinely replays with roundPhase 'selectCards'
+        // and turn one ahead of the actions being recapped.
+        roundPhase: 'selectCards',
+        chosenCardIdByPlayerId: { p1: null, p2: null },
+        pendingPlayerIds: ['p1', 'p2'],
+        activePlayerId: null,
+        turn: 2,
+        actionHistory: [
+          { action: { type: 'PURCHASE_CARD', playerId: 'p1', cardId: purchasedCardId }, turn: 1, timestamp: '' },
+          { action: { type: 'MOVE_TO_DECLINE', playerId: 'p2', cardId: declinedCardId }, turn: 1, timestamp: '' },
+        ],
+        players: [
+          { ...makeEnginePlayer('p1', ['nomad', 'ship']), declineCardIds: [] },
+          { ...makeEnginePlayer('p2', ['city']), declineCardIds: [declinedCardId] },
+        ],
+      },
+      true,
+    )
+
+    expect(screen.getByText('Purchased cards:')).toBeInTheDocument()
+    expect(screen.getByText('Declined cards:')).toBeInTheDocument()
+    const purchasedRow = screen.getByText('Purchased cards:').nextElementSibling as HTMLElement
+    expect(within(purchasedRow).getByTitle('Mountaineer')).toBeInTheDocument()
+    const declinedRow = screen.getByText('Declined cards:').nextElementSibling as HTMLElement
+    expect(within(declinedRow).getByTitle('City')).toBeInTheDocument()
+  })
 })
 
 describe('RoundView — territory control overlay (issue #281)', () => {

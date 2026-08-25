@@ -875,20 +875,34 @@ function PurchasePanel(props: {
   )
 }
 
-/** Every card kind a player has bought back so far during the current round's purchase phase (rule 4) — derived from `state.actionHistory` (a PURCHASE_CARD entry logged this same `state.turn`), since GameState itself only tracks the *current* decline zone, not what's already left it this round. Safe against a replayed historical `state` (see CardChoiceHistoryPanel's doc comment): its `actionHistory` only ever holds entries up to the reviewed point. */
+/** Every card kind a player has bought back so far during the current round's purchase phase (rule 4) — derived from `state.actionHistory` (a PURCHASE_CARD entry logged the recapped round's turn, see `kindsByPlayerIdForActionThisTurn`), since GameState itself only tracks the *current* decline zone, not what's already left it this round. Safe against a replayed historical `state` (see CardChoiceHistoryPanel's doc comment): its `actionHistory` only ever holds entries up to the reviewed point. */
 function purchasedKindsByPlayerId(state: GameState): Map<string, string[]> {
   return kindsByPlayerIdForActionThisTurn(state, 'PURCHASE_CARD')
 }
 
-/** Every card kind a player chose to move to decline this round — derived from `state.actionHistory` (a MOVE_TO_DECLINE entry logged this same `state.turn`), the same way redactStateForPlayer's declineAdditionsThisPhase (engine/redaction.ts) recovers a still-in-progress decline phase's picks. Deliberately not `player.declineCardIds` itself: that zone accumulates across every round until a card is bought back, so it would also surface an earlier round's still-unpurchased declines, and would silently drop this round's pick again once it's bought back later in the very same purchase phase. */
+/** Every card kind a player chose to move to decline this round — derived from `state.actionHistory` (a MOVE_TO_DECLINE entry logged the recapped round's turn, see `kindsByPlayerIdForActionThisTurn`), the same way redactStateForPlayer's declineAdditionsThisPhase (engine/redaction.ts) recovers a still-in-progress decline phase's picks. Deliberately not `player.declineCardIds` itself: that zone accumulates across every round until a card is bought back, so it would also surface an earlier round's still-unpurchased declines, and would silently drop this round's pick again once it's bought back later in the very same purchase phase. */
 function declinedKindsByPlayerId(state: GameState): Map<string, string[]> {
   return kindsByPlayerIdForActionThisTurn(state, 'MOVE_TO_DECLINE')
 }
 
+/**
+ * Filters `state.actionHistory` to one action type, restricted to the round
+ * this recap is actually showing — NOT always `state.turn` itself (issue
+ * #326's second follow-up): this panel is only ever reached (see its
+ * `roundPhase === 'actions'` guard above) with `state.roundPhase` one of
+ * `'decline'`/`'purchase'`/`'selectCards'`. The first two mean the round
+ * being recapped is still genuinely the current one (`state.turn` as-is);
+ * `'selectCards'` means `finishRound` (engine/round.ts) already incremented
+ * `state.turn` and chained straight into the *next* round's card-selection
+ * in the very same action that completed this one (see
+ * `roundPhaseForRecap`'s doc comment) — so the round actually being
+ * recapped is `state.turn - 1`.
+ */
 function kindsByPlayerIdForActionThisTurn(state: GameState, actionType: 'PURCHASE_CARD' | 'MOVE_TO_DECLINE'): Map<string, string[]> {
+  const recapTurn = state.roundPhase === 'decline' || state.roundPhase === 'purchase' ? state.turn : state.turn - 1
   const byPlayerId = new Map<string, string[]>()
   for (const entry of state.actionHistory) {
-    if (entry.turn !== state.turn || entry.action.type !== actionType) continue
+    if (entry.turn !== recapTurn || entry.action.type !== actionType) continue
     const kind = state.cards[entry.action.cardId]?.kind
     if (!kind) continue
     const list = byPlayerId.get(entry.action.playerId) ?? []
@@ -922,17 +936,17 @@ function CardChoiceHistorySection({ label, players, eligiblePlayers, kindsByPlay
  * and `actionHistory` already reflect exactly what's happened so far, with
  * no separate tracking needed.
  *
- * Only ever rendered for `actions`/`purchase`, and only at the review stop
- * that first shows each phase's settled picks (see the `showCardChoiceRecap`
- * block below in RoundView), never for `selectCards`/`decline` themselves (issue
- * #316: don't reveal a partial "n of N chosen" picture while eligible
- * players are still mid-pick) — `selectCards` and `decline` are
- * simultaneous phases that complete and advance to the *next* phase within
- * the very same logged action (see applyChooseCard/applyMoveToDecline in
- * engine/applyAction.ts), so there's no reachable historical state where
- * e.g. roundPhase is still `selectCards` but every eligible (non-eliminated)
- * player has already chosen — the completed picks only ever show up here,
- * one phase later.
+ * Only ever rendered for a review stop GamePage has computed
+ * `roundPhaseForRecap`/`showCardChoiceRecap` true for (engine/turnReview.ts)
+ * — `'actions'` (below) or a completed `declinePurchase` group (else
+ * branch), never for `selectCards`/`decline` themselves (issue #316: don't
+ * reveal a partial "n of N chosen" picture while eligible players are still
+ * mid-pick). Note the else branch's `state.roundPhase` itself can actually
+ * be `'selectCards'` here (issue #326's second follow-up): a completed
+ * `declinePurchase` group's stop replays with `finishRound` already having
+ * chained into the *next* round's `selectCards` phase — see
+ * `roundPhaseForRecap`'s doc comment — so `kindsByPlayerIdForActionThisTurn`
+ * below accounts for that when picking which turn's actions to recap.
  */
 function CardChoiceHistoryPanel({ state, players }: { state: GameState; players: PlayerRow[] }) {
   const eligiblePlayers = state.players.filter((p) => !p.eliminated)
