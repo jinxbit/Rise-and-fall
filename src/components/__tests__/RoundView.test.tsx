@@ -2050,11 +2050,11 @@ describe('RoundView — map indicator for a unit\'s card zone (issue #305)', () 
 
   const move = { isMobile: true, terrains: [], canCrossCliffs: false }
 
-  const HAND_PLATE_COLOR = '#fef3c7'
+  const HAND_PLATE_COLOR = '#ffffff'
   const SELECTED_PLATE_COLOR = '#fde68a'
-  const DISCARD_PLATE_COLOR = '#f2f2ef'
+  const DISCARD_PLATE_COLOR = '#e5e7eb'
 
-  it("fills the plate a light gold on the map for a unit whose card is in the owner's hand", () => {
+  it("fills the plate white on the map for a unit whose card is in the owner's hand", () => {
     const state = makeState() // p1's hand is ['nomad', 'ship'] (see makeEnginePlayer)
     state.board = setTile(state.board, { q: 0, r: 0 }, 'plain')
     state.units = [{ id: 'u1', ownerId: 'p1', kind: 'nomad', coord: { q: 0, r: 0 }, movement: move, traits: [] }]
@@ -2064,7 +2064,7 @@ describe('RoundView — map indicator for a unit\'s card zone (issue #305)', () 
     expect(container.querySelectorAll(`circle[fill="${HAND_PLATE_COLOR}"]`)).toHaveLength(1)
   })
 
-  it("fills the plate the (darker) selected gold once the actions phase reveals the round's chosen card, even though it's still technically in the 'hand' CardZone until the owner's turn resolves it (issue #311 follow-up)", () => {
+  it("fills the plate light gold once the actions phase reveals the round's chosen card, even though it's still technically in the 'hand' CardZone until the owner's turn resolves it (issue #311 follow-up)", () => {
     const state = makeState() // p1's hand is ['nomad', 'ship']
     state.board = setTile(state.board, { q: 0, r: 0 }, 'plain')
     state.roundPhase = 'actions'
@@ -2117,7 +2117,10 @@ describe('RoundView — map indicator for a unit\'s card zone (issue #305)', () 
 
     const { container } = renderWithUnits(state)
 
-    expect(container.querySelectorAll(`[fill="${HAND_PLATE_COLOR}"]`)).toHaveLength(0)
+    // Scoped to stroke="#000" (every unit plate's outline) so the white
+    // hand default doesn't also match HexBoard's unrelated white
+    // neutral-stripe <pattern> def rect, which has no stroke.
+    expect(container.querySelectorAll(`rect[stroke="#000"][fill="${HAND_PLATE_COLOR}"], circle[stroke="#000"][fill="${HAND_PLATE_COLOR}"]`)).toHaveLength(0)
     expect(container.querySelectorAll('[fill="#9ca3af"]').length).toBeGreaterThan(0)
   })
 
@@ -2131,7 +2134,7 @@ describe('RoundView — map indicator for a unit\'s card zone (issue #305)', () 
 
     const { container } = renderWithUnits(state)
 
-    expect(container.querySelectorAll(`[fill="${HAND_PLATE_COLOR}"]`)).toHaveLength(0)
+    expect(container.querySelectorAll(`rect[stroke="#000"][fill="${HAND_PLATE_COLOR}"], circle[stroke="#000"][fill="${HAND_PLATE_COLOR}"]`)).toHaveLength(0)
     expect(container.querySelectorAll('[fill="#9ca3af"]')).toHaveLength(0)
   })
 

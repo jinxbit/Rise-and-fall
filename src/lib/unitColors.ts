@@ -12,17 +12,17 @@ export interface UnitPlateColors {
 }
 
 /**
- * Defaults match "the current colours" as of issue #311, split into 3
- * distinct shades per the follow-up request: a lighter gold for a card
- * sitting untouched in hand, the previous gold (issue #311's
- * UNIT_HAND_PLATE_COLOR) for the card a player has chosen to play this round,
- * and the original neutral plate for discard (unchanged — discard had no
- * special colour before this feature).
+ * Defaults per the issue #311 follow-up request: plain white for a card
+ * sitting untouched in hand (so it reads as the "normal" state), light gold
+ * for the card a player has chosen to play this round (the most visually
+ * distinct state — it's the one about to resolve), and light grey for
+ * discard — distinct from both the white hand plate and the off-white
+ * neutral plate (UNIT_PLATE_COLOR in HexBoard.tsx) used for supply/decline.
  */
 export const DEFAULT_UNIT_PLATE_COLORS: UnitPlateColors = {
-  hand: '#fef3c7',
+  hand: '#ffffff',
   selected: '#fde68a',
-  discard: '#f2f2ef',
+  discard: '#e5e7eb',
 }
 
 /** A profile row's raw per-column overrides — each null/undefined means "use the default" (see DEFAULT_UNIT_PLATE_COLORS). */

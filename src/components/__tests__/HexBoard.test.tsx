@@ -31,9 +31,9 @@ function cliffLines(container: HTMLElement) {
 }
 
 const NEUTRAL_PLATE_COLOR = '#f2f2ef'
-const HAND_PLATE_COLOR = '#fef3c7'
+const HAND_PLATE_COLOR = '#ffffff'
 const SELECTED_PLATE_COLOR = '#fde68a'
-const DISCARD_PLATE_COLOR = '#f2f2ef'
+const DISCARD_PLATE_COLOR = '#e5e7eb'
 
 describe('HexBoard — unit markers', () => {
   it('renders a rectangle marker for static kinds (City, Temple) and a circle for mobile kinds, both in the fixed neutral plate colour', () => {
@@ -89,28 +89,31 @@ describe('HexBoard — unit markers', () => {
     expect(() => render(<HexBoard board={makeBoard()} units={units} />)).not.toThrow()
   })
 
-  it('fills the plate a light gold for a unit whose card is in hand, and the usual neutral colour otherwise (issue #305/#311)', () => {
+  it('fills the plate white for a unit whose card is in hand, and the usual neutral colour otherwise (issue #305/#311)', () => {
     const units: UnitMarker[] = [
       { coord: { q: 0, r: 0 }, color: '#ef4444', kind: 'city', cardState: 'hand' },
       { coord: { q: 1, r: 0 }, color: '#3b82f6', kind: 'nomad' },
     ]
     const { container } = render(<HexBoard board={makeBoard()} units={units} />)
 
-    // The in-hand city's plate (a <rect>) is light gold; the plain nomad's
-    // plate (a <circle>) stays the fixed neutral colour.
-    expect(container.querySelectorAll(`rect[fill="${HAND_PLATE_COLOR}"]`)).toHaveLength(1)
+    // The in-hand city's plate (a <rect>) is white; the plain nomad's
+    // plate (a <circle>) stays the fixed neutral colour. Scoped to
+    // stroke="#000" (every unit plate's outline) so the white hand colour
+    // doesn't also match the unrelated white rect inside the SVG's neutral-
+    // stripe <pattern> def, which has no stroke.
+    expect(container.querySelectorAll(`rect[stroke="#000"][fill="${HAND_PLATE_COLOR}"]`)).toHaveLength(1)
     expect(container.querySelectorAll(`circle[fill="${NEUTRAL_PLATE_COLOR}"]`)).toHaveLength(1)
   })
 
-  it('fills the plate the (darker) selected gold for the card chosen to play this round, distinct from the lighter in-hand shade (issue #311 follow-up)', () => {
+  it('fills the plate light gold for the card chosen to play this round, distinct from the white in-hand plate (issue #311 follow-up)', () => {
     const units: UnitMarker[] = [{ coord: { q: 0, r: 0 }, color: '#ef4444', kind: 'city', cardState: 'selected' }]
     const { container } = render(<HexBoard board={makeBoard()} units={units} />)
 
     expect(container.querySelectorAll(`rect[fill="${SELECTED_PLATE_COLOR}"]`)).toHaveLength(1)
-    expect(container.querySelectorAll(`rect[fill="${HAND_PLATE_COLOR}"]`)).toHaveLength(0)
+    expect(container.querySelectorAll(`rect[stroke="#000"][fill="${HAND_PLATE_COLOR}"]`)).toHaveLength(0)
   })
 
-  it('fills the plate the discard colour for a unit whose card is in discard (issue #311 follow-up)', () => {
+  it('fills the plate light grey for a unit whose card is in discard (issue #311 follow-up)', () => {
     const units: UnitMarker[] = [{ coord: { q: 0, r: 0 }, color: '#ef4444', kind: 'city', cardState: 'discard' }]
     const { container } = render(<HexBoard board={makeBoard()} units={units} />)
 
@@ -129,8 +132,11 @@ describe('HexBoard — unit markers', () => {
     expect(container.querySelectorAll(`rect[fill="${customColors.hand}"]`)).toHaveLength(1)
     expect(container.querySelectorAll(`circle[fill="${customColors.selected}"]`)).toHaveLength(1)
     expect(container.querySelectorAll(`circle[fill="${customColors.discard}"]`)).toHaveLength(1)
-    // None of the default colours leak through once every state is overridden.
-    expect(container.querySelectorAll(`[fill="${HAND_PLATE_COLOR}"]`)).toHaveLength(0)
+    // None of the default colours leak through once every state is
+    // overridden. Scoped to stroke="#000" (every unit plate's outline) so
+    // the white hand default doesn't also match the SVG's unrelated white
+    // neutral-stripe <pattern> def rect, which has no stroke.
+    expect(container.querySelectorAll(`rect[stroke="#000"][fill="${HAND_PLATE_COLOR}"], circle[stroke="#000"][fill="${HAND_PLATE_COLOR}"]`)).toHaveLength(0)
     expect(container.querySelectorAll(`[fill="${SELECTED_PLATE_COLOR}"]`)).toHaveLength(0)
   })
 
@@ -150,7 +156,10 @@ describe('HexBoard — unit markers', () => {
     const units: UnitMarker[] = [{ coord: { q: 0, r: 0 }, color: '#ef4444', kind: 'city' }]
     const { container } = render(<HexBoard board={makeBoard()} units={units} />)
 
-    expect(container.querySelectorAll(`[fill="${HAND_PLATE_COLOR}"]`)).toHaveLength(0)
+    // Scoped to stroke="#000" (every unit plate's outline) so the white
+    // hand default doesn't also match the SVG's unrelated white
+    // neutral-stripe <pattern> def rect, which has no stroke.
+    expect(container.querySelectorAll(`rect[stroke="#000"][fill="${HAND_PLATE_COLOR}"], circle[stroke="#000"][fill="${HAND_PLATE_COLOR}"]`)).toHaveLength(0)
     expect(container.querySelectorAll('[fill="#9ca3af"]')).toHaveLength(0)
   })
 })
