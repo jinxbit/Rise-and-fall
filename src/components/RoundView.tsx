@@ -21,7 +21,7 @@ import type { VPBreakdown } from '../engine/victoryPoints'
 import type { AchievementContent } from '../engine/achievementContent'
 import type { TaleContent } from '../engine/taleContent'
 import { listAchievements } from '../content/resolveContent'
-import type { Card, Coordinate, GameEvent, GameState, Player, Resources, RoundPhase, Unit } from '../engine/types'
+import type { Card, Coordinate, GameEvent, GameState, Player, Resources, Unit } from '../engine/types'
 import type { UnitAction, UnitContent } from '../engine/unitContent'
 import type { PlayerRow } from '../lib/dbTypes'
 import type { UnitPlateColors } from '../lib/unitColors'
@@ -122,17 +122,7 @@ type ActionUiMode =
   | { kind: 'supporting'; unitId: string; actionId: string; target?: Coordinate; selectedSupportUnitIds: string[] }
 
 function PhaseBanner({ state }: { state: GameState }) {
-  const phaseLabel: Record<RoundPhase, string> = {
-    selectCards: 'Select cards',
-    actions: 'Resolve actions',
-    decline: 'Decline',
-    purchase: 'Purchase',
-  }
-  return (
-    <p className="text-sm text-neutral-400">
-      Round {state.turn} — <span className="font-medium text-neutral-200">{phaseLabel[state.roundPhase]}</span>
-    </p>
-  )
+  return <p className="text-sm text-neutral-400">Round {state.turn}</p>
 }
 
 /** How much of each resource is left in the shared bank for players to draw from — see GameState.resourceBank. */
