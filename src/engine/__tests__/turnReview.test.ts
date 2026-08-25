@@ -4,7 +4,7 @@ import { createEmptyBoard, setTile } from '../board'
 import { cardIdFor, createPlayerCards, syncCardZonesWithBoard } from '../cards'
 import { createNewGame } from '../createGame'
 import { beginSelectCardsPhase } from '../round'
-import { buildTurnReview, findReviewWindowStart, findTurnStops } from '../turnReview'
+import { buildTurnReview, findReviewWindowStart, findTurnStops, reviewPhaseGroupAt } from '../turnReview'
 import type { LoggedAction } from '../actions'
 import type { Card, GameState, Player, Terrain, Unit } from '../types'
 import type { UnitAction, UnitContent } from '../unitContent'
@@ -214,6 +214,41 @@ describe('findTurnStops', () => {
       { action: { type: 'CHOOSE_CARD', playerId: 'p3', cardId: 'c3' }, turn: 1, timestamp: '' },
     ]
     expect(findTurnStops(history, 0)).toEqual([0, 3])
+  })
+})
+
+describe('reviewPhaseGroupAt', () => {
+  it("reports 'selectCards' for a stop inside a simultaneous card-selection phase (issue #324)", () => {
+    const history: LoggedAction[] = [
+      { action: { type: 'CHOOSE_CARD', playerId: 'p1', cardId: 'c1' }, turn: 1, timestamp: '' },
+      { action: { type: 'CHOOSE_CARD', playerId: 'p2', cardId: 'c2' }, turn: 1, timestamp: '' },
+    ]
+    expect(reviewPhaseGroupAt(history, 2)).toBe('selectCards')
+  })
+
+  it("reports 'declinePurchase' for a stop inside the merged decline/purchase phase (issue #324)", () => {
+    const history: LoggedAction[] = [
+      { action: { type: 'PASS_ACTIONS', playerId: 'p1' }, turn: 1, timestamp: '' },
+      { action: { type: 'MOVE_TO_DECLINE', playerId: 'p1', cardId: 'c1' }, turn: 1, timestamp: '' },
+      { action: { type: 'PASS_PURCHASE', playerId: 'p2' }, turn: 1, timestamp: '' },
+    ]
+    expect(reviewPhaseGroupAt(history, 3)).toBe('declinePurchase')
+  })
+
+  it("reports 'actions' for a turn-order stop, where a single player is meaningfully 'next'", () => {
+    const history: LoggedAction[] = [
+      { action: { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [] }, turn: 1, timestamp: '' },
+      { action: { type: 'PASS_ACTIONS', playerId: 'p1' }, turn: 1, timestamp: '' },
+    ]
+    expect(reviewPhaseGroupAt(history, 2)).toBe('actions')
+  })
+
+  it('a trailing CONCEDE inherits the group of the phase it interrupted', () => {
+    const history: LoggedAction[] = [
+      { action: { type: 'CHOOSE_CARD', playerId: 'p1', cardId: 'c1' }, turn: 1, timestamp: '' },
+      { action: { type: 'CONCEDE', playerId: 'p2' }, turn: 1, timestamp: '' },
+    ]
+    expect(reviewPhaseGroupAt(history, 2)).toBe('selectCards')
   })
 })
 

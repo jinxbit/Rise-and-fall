@@ -13,7 +13,7 @@ import { replayActions } from '../engine/replay'
 import { calculateScoreHistory } from '../engine/scoreHistory'
 import { applyTaleAchievementModifiers, applyTaleModifiers } from '../engine/tales'
 import type { ActionResult, GameEvent, GameState as EngineGameState, Coordinate } from '../engine/types'
-import { buildTurnReview, findReviewWindowStart, findTurnStops } from '../engine/turnReview'
+import { buildTurnReview, findReviewWindowStart, findTurnStops, reviewPhaseGroupAt } from '../engine/turnReview'
 import type { TurnReview } from '../engine/turnReview'
 import { currentActorId } from '../engine/turnOrder'
 import { useAuth } from '../hooks/useAuth'
@@ -657,6 +657,11 @@ export function GamePage() {
     }
     if (reviewIndex === 0) return 'Start of the game'
     if (reviewIndex === defaultTurnHistoryIndex) return 'Right after your last turn'
+    // selectCards/declinePurchase are simultaneous — every player acts at once, so
+    // there's no single "next" player to name; show the phase instead (issue #324).
+    const group = gameState ? reviewPhaseGroupAt(gameState.actionHistory, reviewIndex) : null
+    if (group === 'selectCards') return `Select cards (${currentTurnPos} of ${turnPosCount})`
+    if (group === 'declinePurchase') return `Decline / Purchase (${currentTurnPos} of ${turnPosCount})`
     const actorId = gameState?.actionHistory[reviewIndex - 1]?.action.playerId ?? null
     const actorName = players.find((p) => p.id === actorId)?.display_name ?? 'Unknown'
     return `${actorName}'s turn (${currentTurnPos} of ${turnPosCount})`
