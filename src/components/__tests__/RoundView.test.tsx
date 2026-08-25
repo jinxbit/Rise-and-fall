@@ -1740,8 +1740,8 @@ describe('RoundView — history review overlay', () => {
   // `turnReview` events GamePage hands it onto the board it's given (which,
   // for "Show history", is already the real historical board state at that
   // point — see GamePage's `reviewState`/`turnHalos`).
-  function renderWithReview(turnReview: TurnReview | null, showHistory: boolean, onExitHistory?: () => void) {
-    const state = makeState()
+  function renderWithReview(turnReview: TurnReview | null, showHistory: boolean, onExitHistory?: () => void, stateOverrides?: Partial<GameState>) {
+    const state = { ...makeState(), ...stateOverrides }
     state.board = setTile(state.board, { q: 0, r: 0 }, 'plain')
     state.units = [
       { id: 'nomad_a', ownerId: 'p1', kind: 'nomad', coord: { q: 0, r: 0 }, movement: { isMobile: true, terrains: [], canCrossCliffs: false }, traits: [] },
@@ -1872,12 +1872,31 @@ describe('RoundView — history review overlay', () => {
     expect(onExitHistory).not.toHaveBeenCalled()
   })
 
-  it('shows a read-only recap of card choices on the board while reviewing history (issue #314), not the interactive picker', () => {
+  it('shows no card-choice recap while players are still mid-pick, not a partial reveal (issue #316)', () => {
     renderWithReview({ events: [], resourceDeltaByPlayerId: {} }, true)
 
+    expect(screen.queryByText('Card choices this round:')).not.toBeInTheDocument()
+    expect(screen.queryByText(/still choosing/)).not.toBeInTheDocument()
+  })
+
+  it("shows a summary of every eligible player's card choice, with icons and player-coloured names, once selectCards is done (issue #316)", () => {
+    renderWithReview({ events: [], resourceDeltaByPlayerId: {} }, true, undefined, {
+      roundPhase: 'actions',
+      chosenCardIdByPlayerId: { p1: cardIdFor('p1', 'nomad'), p2: cardIdFor('p2', 'city') },
+      pendingPlayerIds: ['p1', 'p2'],
+      activePlayerId: 'p1',
+    })
+
     expect(screen.getByText('Card choices this round:')).toBeInTheDocument()
-    expect(screen.getAllByText(/still choosing…/)).toHaveLength(2)
     expect(screen.queryByText('Your turn — choose a card to play.')).not.toBeInTheDocument()
+
+    const alice = screen.getByText('Alice:')
+    expect(alice.style.color).toBe('rgb(255, 0, 0)')
+    const bob = screen.getByText('Bob:')
+    expect(bob.style.color).toBe('rgb(0, 0, 255)')
+
+    expect(screen.getByTitle('Nomad')).toBeInTheDocument()
+    expect(screen.getByTitle('City')).toBeInTheDocument()
   })
 
   it('shows the interactive card picker, not the read-only history recap, during live play (issue #314)', () => {

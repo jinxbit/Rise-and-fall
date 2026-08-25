@@ -44,6 +44,12 @@ function playerName(players: PlayerRow[], playerId: string | null): string {
   return players.find((p) => p.id === playerId)?.display_name ?? playerId
 }
 
+/** A player's display name (plus trailing colon, for the label: value rows it's used in) coloured with their player colour (issue #316) — same `row?.color ?? fallback` lookup PlayersStrip's colour dot and every score chart already use. */
+function PlayerColorName({ players, playerId }: { players: PlayerRow[]; playerId: string }) {
+  const row = players.find((p) => p.id === playerId)
+  return <span style={{ color: row?.color ?? '#a3a3a3' }}>{(row?.display_name ?? playerId) + ':'}</span>
+}
+
 /** Whether `unit` still has an activation left this turn — usually just "hasn't acted yet," but a Tale companion may act more than once (e.g. The Capital Tale's Capital: unitContent.activationsPerTurnByKind.capital === 2) — see applyResolveUnitAction's matching cap check (engine/applyAction.ts). */
 function hasRemainingActivation(state: GameState, unitContent: UnitContent, unit: Unit): boolean {
   const cap = unitContent.activationsPerTurnByKind[unit.kind] ?? 1
@@ -880,25 +886,42 @@ function PurchasePanel(props: {
 }
 
 /**
- * Read-only recap of card selection/decline/purchase shown on the board
- * while reviewing history (issue #314) — `state` is the actual replayed
+ * Read-only recap of card selection/purchase shown on the board while
+ * reviewing history (issue #314) — `state` is the actual replayed
  * historical state at the point being reviewed, so `chosenCardIdByPlayerId`
  * and each player's `declineCardIds` already reflect exactly what's
  * happened so far, with no separate tracking needed.
+ *
+ * Only ever rendered for `actions`/`purchase` (see the `showHistory` block
+ * below in RoundView), never for `selectCards`/`decline` themselves (issue
+ * #316: don't reveal a partial "n of N chosen" picture while eligible
+ * players are still mid-pick) — `selectCards` and `decline` are
+ * simultaneous phases that complete and advance to the *next* phase within
+ * the very same logged action (see applyChooseCard/applyMoveToDecline in
+ * engine/applyAction.ts), so there's no reachable historical state where
+ * e.g. roundPhase is still `selectCards` but every eligible (non-eliminated)
+ * player has already chosen — the completed picks only ever show up here,
+ * one phase later.
  */
 function CardChoiceHistoryPanel({ state, players }: { state: GameState; players: PlayerRow[] }) {
-  if (state.roundPhase === 'selectCards') {
+  const eligiblePlayers = state.players.filter((p) => !p.eliminated)
+
+  if (state.roundPhase === 'actions') {
     return (
       <div className="flex flex-col gap-1 text-sm">
         <p className="font-medium text-neutral-300">Card choices this round:</p>
-        <ul className="flex flex-col gap-0.5">
-          {state.players.map((p) => {
+        <ul className="flex flex-col gap-1">
+          {eligiblePlayers.map((p) => {
             const cardId = state.chosenCardIdByPlayerId[p.id]
-            const card = cardId ? state.cards[cardId] : null
-            const stillChoosing = state.pendingPlayerIds.includes(p.id)
+            const kind = cardId ? state.cards[cardId]?.kind : undefined
             return (
-              <li key={p.id} className="text-neutral-400">
-                <span className="text-neutral-200">{playerName(players, p.id)}</span>: {card ? capitalize(card.kind) : stillChoosing ? 'still choosing…' : '—'}
+              <li key={p.id} className="flex items-center gap-1.5">
+                <PlayerColorName players={players} playerId={p.id} />
+                {kind ? (
+                  <UnitIcon kind={kind} title={capitalize(kind)} className="h-4 w-4 shrink-0 text-neutral-300" />
+                ) : (
+                  <span className="text-neutral-500">—</span>
+                )}
               </li>
             )
           })}
@@ -907,20 +930,16 @@ function CardChoiceHistoryPanel({ state, players }: { state: GameState; players:
     )
   }
 
-  const isDecline = state.roundPhase === 'decline'
   return (
     <div className="flex flex-col gap-1 text-sm">
-      <p className="font-medium text-neutral-300">{isDecline ? 'Cards moved to decline this round:' : 'Cards available to purchase back:'}</p>
-      <ul className="flex flex-col gap-0.5">
-        {state.players.map((p) => {
-          const declineCardIds = sortCardIdsForDisplay(p.declineCardIds, state.cards)
-          return (
-            <li key={p.id} className="text-neutral-400">
-              <span className="text-neutral-200">{playerName(players, p.id)}</span>:{' '}
-              {declineCardIds.length > 0 ? declineCardIds.map((id) => capitalize(state.cards[id]?.kind ?? id)).join(', ') : 'none'}
-            </li>
-          )
-        })}
+      <p className="font-medium text-neutral-300">Cards available to purchase back:</p>
+      <ul className="flex flex-col gap-1">
+        {eligiblePlayers.map((p) => (
+          <li key={p.id} className="flex items-center gap-1.5">
+            <PlayerColorName players={players} playerId={p.id} />
+            <KindIconRow kinds={kindsInZone(p.declineCardIds, state.cards)} emptyLabel="none" />
+          </li>
+        ))}
       </ul>
     </div>
   )
@@ -1309,13 +1328,15 @@ export function RoundView(props: {
             onHexClick={isMyActionTurn ? handleBoardClick : showHistory ? props.onExitHistory : undefined}
             expanded={sidebarHidden}
           />
-          {/* Read-only recap of card selection/decline/purchase, overlaid on the
+          {/* Read-only recap of card selection/purchase, overlaid on the
               board's top-left corner while reviewing history (issue #314) — the
               interactive pick panels above only make sense during live play
               (see the matching `!showHistory` panels above), but a player
               stepping through history still wants to see what everyone chose
-              at that point without an extra click. */}
-          {showHistory && (state.roundPhase === 'selectCards' || state.roundPhase === 'decline' || state.roundPhase === 'purchase') && (
+              without an extra click. Only shown for `actions`/`purchase`,
+              once every eligible player's pick for the phase before it is
+              settled — see CardChoiceHistoryPanel's doc comment (issue #316). */}
+          {showHistory && (state.roundPhase === 'actions' || state.roundPhase === 'purchase') && (
             <div className="pointer-events-none absolute left-2 top-2 z-10 max-w-[calc(100%_-_1rem)] rounded-md border border-neutral-700 bg-neutral-900/90 p-3 shadow-lg">
               <CardChoiceHistoryPanel state={state} players={players} />
             </div>
