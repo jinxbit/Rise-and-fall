@@ -942,6 +942,18 @@ function CardChoiceHistorySection({ label, players, eligiblePlayers, kindsByPlay
  * e.g. roundPhase is still `selectCards` but every eligible (non-eliminated)
  * player has already chosen — the completed picks only ever show up here,
  * one phase later.
+ *
+ * Also hidden once the currently-reviewed turn has its own unit-action
+ * halos to show (issue #318) — see the `turnReview`/`turnHalos` check
+ * alongside this panel's render condition below. Without that check, the
+ * recap would keep reappearing for every later actor's turn within the same
+ * `actions` phase, overlaid on top of *their* action highlights, which
+ * reads as if the highlighted actions were part of the card selection
+ * itself. It's meant as a one-time snapshot of "what was picked", right at
+ * the turn where the pick becomes visible (no halos yet for that turn,
+ * since the reveal itself is just a CHOOSE_CARD/MOVE_TO_DECLINE/
+ * PURCHASE_CARD entry, not a unit action) — not a running HUD for the rest
+ * of the phase.
  */
 function CardChoiceHistoryPanel({ state, players }: { state: GameState; players: PlayerRow[] }) {
   const eligiblePlayers = state.players.filter((p) => !p.eliminated)
@@ -965,8 +977,8 @@ function CardChoiceHistoryPanel({ state, players }: { state: GameState; players:
   const declined = declinedKindsByPlayerId(state)
   return (
     <div className="flex flex-col gap-2">
-      <CardChoiceHistorySection label="Purchased cards:" players={players} eligiblePlayers={eligiblePlayers} kindsByPlayerId={(playerId) => purchased.get(playerId)} />
       <CardChoiceHistorySection label="Declined cards:" players={players} eligiblePlayers={eligiblePlayers} kindsByPlayerId={(playerId) => declined.get(playerId)} />
+      <CardChoiceHistorySection label="Purchased cards:" players={players} eligiblePlayers={eligiblePlayers} kindsByPlayerId={(playerId) => purchased.get(playerId)} />
     </div>
   )
 }
@@ -1361,8 +1373,12 @@ export function RoundView(props: {
               stepping through history still wants to see what everyone chose
               without an extra click. Only shown for `actions`/`purchase`,
               once every eligible player's pick for the phase before it is
-              settled — see CardChoiceHistoryPanel's doc comment (issue #316). */}
-          {showHistory && (state.roundPhase === 'actions' || state.roundPhase === 'purchase') && (
+              settled — see CardChoiceHistoryPanel's doc comment (issue #316).
+              Also only for the turn where that pick becomes visible, not
+              every later turn in the same phase (issue #318) — once the
+              reviewed turn has its own unit-action halos to show, this recap
+              steps aside instead of overlaying on top of them. */}
+          {showHistory && (state.roundPhase === 'actions' || state.roundPhase === 'purchase') && (!turnReview || turnReview.events.length === 0) && (
             <div className="pointer-events-none absolute left-2 top-2 z-10 max-w-[calc(100%_-_1rem)] rounded-md border border-neutral-700 bg-neutral-900/90 p-3 shadow-lg">
               <CardChoiceHistoryPanel state={state} players={players} />
             </div>

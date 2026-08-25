@@ -1906,6 +1906,32 @@ describe('RoundView — history review overlay', () => {
     expect(screen.queryByText('Played cards:')).not.toBeInTheDocument()
   })
 
+  it('hides the card-choice recap once the reviewed turn has its own unit-action halos to show, instead of overlaying it on top of them (issue #318)', () => {
+    const turnReview: TurnReview = {
+      events: [{ unitId: 'nomad_a', playerId: 'p1', type: 'produced', to: { q: 0, r: 0 }, resourceDelta: { wood: 2 } }],
+      resourceDeltaByPlayerId: { p1: { gold: 0, wood: 2, stone: 0 } },
+    }
+    renderWithReview(turnReview, true, undefined, {
+      roundPhase: 'actions',
+      chosenCardIdByPlayerId: { p1: cardIdFor('p1', 'nomad'), p2: cardIdFor('p2', 'city') },
+      pendingPlayerIds: ['p1', 'p2'],
+      activePlayerId: 'p1',
+    })
+
+    expect(screen.queryByText('Played cards:')).not.toBeInTheDocument()
+  })
+
+  it('shows the card-choice recap again once back at a turn with no halos of its own (issue #318)', () => {
+    renderWithReview(null, true, undefined, {
+      roundPhase: 'actions',
+      chosenCardIdByPlayerId: { p1: cardIdFor('p1', 'nomad'), p2: cardIdFor('p2', 'city') },
+      pendingPlayerIds: ['p1', 'p2'],
+      activePlayerId: 'p1',
+    })
+
+    expect(screen.getByText('Played cards:')).toBeInTheDocument()
+  })
+
   it("splits the purchase-phase recap into what's been purchased back and what's been declined this round, with every player in a single row (issue #317)", () => {
     const purchasedCardId = cardIdFor('p1', 'mountaineer')
     const declinedCardId = cardIdFor('p2', 'city')
@@ -1927,11 +1953,16 @@ describe('RoundView — history review overlay', () => {
     expect(screen.getByText('Purchased cards:')).toBeInTheDocument()
     expect(screen.getByText('Declined cards:')).toBeInTheDocument()
 
+    // Declined listed above purchased (issue #318).
+    const declinedLabel = screen.getByText('Declined cards:')
+    const purchasedLabel = screen.getByText('Purchased cards:')
+    expect(declinedLabel.compareDocumentPosition(purchasedLabel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
     // Both sections lay every player out in one flex-wrap row, not a stacked list.
-    const purchasedRow = screen.getByText('Purchased cards:').nextElementSibling as HTMLElement
+    const purchasedRow = purchasedLabel.nextElementSibling as HTMLElement
     expect(purchasedRow.className).toContain('flex-wrap')
     expect(purchasedRow.children).toHaveLength(2)
-    const declinedRow = screen.getByText('Declined cards:').nextElementSibling as HTMLElement
+    const declinedRow = declinedLabel.nextElementSibling as HTMLElement
     expect(declinedRow.className).toContain('flex-wrap')
     expect(declinedRow.children).toHaveLength(2)
 
