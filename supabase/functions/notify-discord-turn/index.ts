@@ -73,7 +73,9 @@ function pendingActorIds(state: GameState): string[] {
     return id ? [id] : []
   }
   if (state.status === 'active') {
-    if (state.pendingPlayerIds.length > 0) return state.pendingPlayerIds
+    if (state.roundPhase === 'selectCards' || state.roundPhase === 'decline') {
+      return state.pendingPlayerIds
+    }
     return state.activePlayerId ? [state.activePlayerId] : []
   }
   return []

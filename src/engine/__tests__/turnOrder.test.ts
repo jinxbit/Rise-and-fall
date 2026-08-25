@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createEmptyBoard } from '../board'
-import { currentActorId } from '../turnOrder'
+import { currentActorId, pendingActorIds } from '../turnOrder'
 import type { GameState } from '../types'
 
 function makeState(overrides: Partial<GameState> = {}): GameState {
@@ -74,5 +74,50 @@ describe('currentActorId', () => {
   it('returns null for lobby/completed statuses', () => {
     expect(currentActorId(makeState({ status: 'lobby' }))).toBeNull()
     expect(currentActorId(makeState({ status: 'completed' }))).toBeNull()
+  })
+})
+
+describe('pendingActorIds', () => {
+  it('returns only the active player during the turn-order actions phase, not the rest of the round queue', () => {
+    // pendingPlayerIds still holds every player who hasn't taken their turn
+    // this round yet ('p1' included, since they go last) — only 'p2' (the
+    // head of the queue / activePlayerId) is actually up right now.
+    const state = makeState({
+      status: 'active',
+      roundPhase: 'actions',
+      pendingPlayerIds: ['p2', 'p1'],
+      activePlayerId: 'p2',
+    })
+    expect(pendingActorIds(state)).toEqual(['p2'])
+  })
+
+  it('returns only the active player during the turn-order purchase phase', () => {
+    const state = makeState({
+      status: 'active',
+      roundPhase: 'purchase',
+      pendingPlayerIds: ['p2', 'p1'],
+      activePlayerId: 'p2',
+    })
+    expect(pendingActorIds(state)).toEqual(['p2'])
+  })
+
+  it('returns every pending player during the simultaneous selectCards phase', () => {
+    const state = makeState({
+      status: 'active',
+      roundPhase: 'selectCards',
+      pendingPlayerIds: ['p1', 'p2'],
+      activePlayerId: null,
+    })
+    expect(pendingActorIds(state)).toEqual(['p1', 'p2'])
+  })
+
+  it('returns every pending player during the simultaneous decline phase', () => {
+    const state = makeState({
+      status: 'active',
+      roundPhase: 'decline',
+      pendingPlayerIds: ['p1', 'p2'],
+      activePlayerId: null,
+    })
+    expect(pendingActorIds(state)).toEqual(['p1', 'p2'])
   })
 })

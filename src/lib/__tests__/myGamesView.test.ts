@@ -120,17 +120,37 @@ describe('isMyTurn', () => {
   })
 
   it('is true when one of my seats is the active player', () => {
-    expect(isMyTurn(makeEntry({ myPlayerIds: ['p1'], gameState: makeActiveState({ activePlayerId: 'p1' }) }))).toBe(true)
+    expect(
+      isMyTurn(makeEntry({ myPlayerIds: ['p1'], gameState: makeActiveState({ roundPhase: 'actions', activePlayerId: 'p1' }) })),
+    ).toBe(true)
   })
 
   it('is false when a different seat is active', () => {
-    expect(isMyTurn(makeEntry({ myPlayerIds: ['p1'], gameState: makeActiveState({ activePlayerId: 'p2' }) }))).toBe(false)
+    expect(
+      isMyTurn(makeEntry({ myPlayerIds: ['p1'], gameState: makeActiveState({ roundPhase: 'actions', activePlayerId: 'p2' }) })),
+    ).toBe(false)
   })
 
   it('checks every seat I hold, e.g. a hotseat host with several local players', () => {
     expect(
-      isMyTurn(makeEntry({ myPlayerIds: ['p1', 'p2'], gameState: makeActiveState({ activePlayerId: 'p2' }) })),
+      isMyTurn(
+        makeEntry({ myPlayerIds: ['p1', 'p2'], gameState: makeActiveState({ roundPhase: 'actions', activePlayerId: 'p2' }) }),
+      ),
     ).toBe(true)
+  })
+
+  // Regression for issue #301: it's turn order (not simultaneous), so a
+  // player still waiting further down pendingPlayerIds must NOT show as
+  // "my turn" just because they're in the queue.
+  it('is false for a player still queued behind the active player in a turn-order phase', () => {
+    expect(
+      isMyTurn(
+        makeEntry({
+          myPlayerIds: ['p1'],
+          gameState: makeActiveState({ roundPhase: 'actions', activePlayerId: 'p2', pendingPlayerIds: ['p2', 'p1'] }),
+        }),
+      ),
+    ).toBe(false)
   })
 
   it('is true for a simultaneous phase when I am one of the pending players', () => {
@@ -151,7 +171,17 @@ describe('pendingActorIds', () => {
   })
 
   it('returns the active player when one player is up', () => {
-    expect(pendingActorIds(makeEntry({ gameState: makeActiveState({ activePlayerId: 'p2' }) }))).toEqual(['p2'])
+    expect(
+      pendingActorIds(makeEntry({ gameState: makeActiveState({ roundPhase: 'actions', activePlayerId: 'p2' }) })),
+    ).toEqual(['p2'])
+  })
+
+  it('returns only the active player in a turn-order phase, even with others still queued', () => {
+    expect(
+      pendingActorIds(
+        makeEntry({ gameState: makeActiveState({ roundPhase: 'actions', activePlayerId: 'p2', pendingPlayerIds: ['p2', 'p1'] }) }),
+      ),
+    ).toEqual(['p2'])
   })
 
   it('returns every pending player during a simultaneous phase', () => {
@@ -212,17 +242,17 @@ describe('groupMyGames', () => {
     const notMyTurn = makeEntry({
       game: makeGame({ id: 'g1', room_code: 'AAAAA', updated_at: '2026-01-03T00:00:00Z' }),
       myPlayerIds: ['p1'],
-      gameState: makeActiveState({ activePlayerId: 'p2' }),
+      gameState: makeActiveState({ roundPhase: 'actions', activePlayerId: 'p2' }),
     })
     const myTurnOlder = makeEntry({
       game: makeGame({ id: 'g2', room_code: 'BBBBB', updated_at: '2026-01-01T00:00:00Z' }),
       myPlayerIds: ['p1'],
-      gameState: makeActiveState({ activePlayerId: 'p1' }),
+      gameState: makeActiveState({ roundPhase: 'actions', activePlayerId: 'p1' }),
     })
     const myTurnNewer = makeEntry({
       game: makeGame({ id: 'g3', room_code: 'CCCCC', updated_at: '2026-01-02T00:00:00Z' }),
       myPlayerIds: ['p1'],
-      gameState: makeActiveState({ activePlayerId: 'p1' }),
+      gameState: makeActiveState({ roundPhase: 'actions', activePlayerId: 'p1' }),
     })
 
     const { active } = groupMyGames([notMyTurn, myTurnOlder, myTurnNewer])

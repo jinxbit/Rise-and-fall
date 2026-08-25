@@ -127,7 +127,17 @@ describe('pendingActorIds', () => {
   })
 
   it('returns the active player when one player is up', () => {
-    expect(pendingActorIds(makeEntry({ gameState: makeActiveState({ activePlayerId: 'p2' }) }))).toEqual(['p2'])
+    expect(
+      pendingActorIds(makeEntry({ gameState: makeActiveState({ roundPhase: 'actions', activePlayerId: 'p2' }) })),
+    ).toEqual(['p2'])
+  })
+
+  it('returns only the active player in a turn-order phase, even with others still queued', () => {
+    expect(
+      pendingActorIds(
+        makeEntry({ gameState: makeActiveState({ roundPhase: 'actions', activePlayerId: 'p2', pendingPlayerIds: ['p2', 'p1'] }) }),
+      ),
+    ).toEqual(['p2'])
   })
 
   it('is empty once the room is finished', () => {
@@ -137,19 +147,39 @@ describe('pendingActorIds', () => {
 
 describe('isMyTurn', () => {
   it('is true when the given user seats the active player', () => {
-    expect(isMyTurn(makeEntry({ gameState: makeActiveState({ activePlayerId: 'p1' }) }), 'auth_1')).toBe(true)
+    expect(
+      isMyTurn(makeEntry({ gameState: makeActiveState({ roundPhase: 'actions', activePlayerId: 'p1' }) }), 'auth_1'),
+    ).toBe(true)
   })
 
   it('is false when the given user is not seated in this room', () => {
-    expect(isMyTurn(makeEntry({ gameState: makeActiveState({ activePlayerId: 'p1' }) }), 'auth_9')).toBe(false)
+    expect(
+      isMyTurn(makeEntry({ gameState: makeActiveState({ roundPhase: 'actions', activePlayerId: 'p1' }) }), 'auth_9'),
+    ).toBe(false)
   })
 
   it('is false when the given user is seated but a different player is active', () => {
-    expect(isMyTurn(makeEntry({ gameState: makeActiveState({ activePlayerId: 'p2' }) }), 'auth_1')).toBe(false)
+    expect(
+      isMyTurn(makeEntry({ gameState: makeActiveState({ roundPhase: 'actions', activePlayerId: 'p2' }) }), 'auth_1'),
+    ).toBe(false)
   })
 
   it('is false with no game_state row yet (lobby)', () => {
     expect(isMyTurn(makeEntry({ gameState: null }), 'auth_1')).toBe(false)
+  })
+
+  // Regression for issue #301: it's turn order (not simultaneous), so a
+  // player still waiting further down pendingPlayerIds must NOT show as
+  // "my turn" just because they're in the queue.
+  it('is false for a user seated in a queued (not yet active) seat in a turn-order phase', () => {
+    expect(
+      isMyTurn(
+        makeEntry({
+          gameState: makeActiveState({ roundPhase: 'actions', activePlayerId: 'p2', pendingPlayerIds: ['p2', 'p1'] }),
+        }),
+        'auth_1',
+      ),
+    ).toBe(false)
   })
 })
 
