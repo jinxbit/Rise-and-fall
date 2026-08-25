@@ -922,8 +922,9 @@ function CardChoiceHistorySection({ label, players, eligiblePlayers, kindsByPlay
  * and `actionHistory` already reflect exactly what's happened so far, with
  * no separate tracking needed.
  *
- * Only ever rendered for `actions`/`purchase` (see the `showHistory` block
- * below in RoundView), never for `selectCards`/`decline` themselves (issue
+ * Only ever rendered for `actions`/`purchase`, and only at the review stop
+ * that first shows each phase's settled picks (see the `showCardChoiceRecap`
+ * block below in RoundView), never for `selectCards`/`decline` themselves (issue
  * #316: don't reveal a partial "n of N chosen" picture while eligible
  * players are still mid-pick) — `selectCards` and `decline` are
  * simultaneous phases that complete and advance to the *next* phase within
@@ -992,6 +993,16 @@ export function RoundView(props: {
    */
   showHistory: boolean
   /**
+   * Whether the card-choice recap overlay (CardChoiceHistoryPanel) should
+   * render right now (issue #326 follow-up) — GamePage decides this since it
+   * alone knows whether "Show history" is on a review group's first turn
+   * stop vs. a later one within the same `actions` group (see
+   * engine/turnReview.ts's `shouldShowCardChoiceRecap`). Meaningless outside
+   * `showHistory`; defaults to false so callers that never enter review
+   * (most tests) don't need to pass it.
+   */
+  showCardChoiceRecap?: boolean
+  /**
    * Returns to live play from history review — called when the player
    * clicks the board while `showHistory` is true (issue #285), same as the
    * review banner's "Back to live" button. Undefined outside review.
@@ -1040,7 +1051,20 @@ export function RoundView(props: {
   onPurchaseCard: (cardId: string) => void
   onPassPurchase: () => void
 }) {
-  const { state, players, myPlayerId, unitContent, achievementContent, taleContent, unitPlateColors, turnReview, showHistory, territoryControlMode, previousHistoryState } = props
+  const {
+    state,
+    players,
+    myPlayerId,
+    unitContent,
+    achievementContent,
+    taleContent,
+    unitPlateColors,
+    turnReview,
+    showHistory,
+    showCardChoiceRecap = false,
+    territoryControlMode,
+    previousHistoryState,
+  } = props
   const [mode, setMode] = useState<ActionUiMode>({ kind: 'idle' })
   /** Hides the full player roster + achievements sidebar so the board can grow into the freed space — see the "Expand board" toggle below. */
   const [sidebarHidden, setSidebarHidden] = useState(false)
@@ -1351,8 +1375,11 @@ export function RoundView(props: {
               stepping through history still wants to see what everyone chose
               without an extra click. Only shown for `actions`/`purchase`,
               once every eligible player's pick for the phase before it is
-              settled — see CardChoiceHistoryPanel's doc comment (issue #316). */}
-          {showHistory && (state.roundPhase === 'actions' || state.roundPhase === 'purchase') && (
+              settled — see CardChoiceHistoryPanel's doc comment (issue #316)
+              — and only at the review stop that first shows it, not every
+              stop after (issue #326 follow-up) — see GamePage's
+              `showCardChoiceRecap` doc comment. */}
+          {showCardChoiceRecap && (
             <div className="pointer-events-none absolute left-2 top-2 z-10 max-w-[calc(100%_-_1rem)] rounded-md border border-neutral-700 bg-neutral-900/90 p-3 shadow-lg">
               <CardChoiceHistoryPanel state={state} players={players} />
             </div>

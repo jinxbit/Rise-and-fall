@@ -4,7 +4,7 @@ import { createEmptyBoard, setTile } from '../board'
 import { cardIdFor, createPlayerCards, syncCardZonesWithBoard } from '../cards'
 import { createNewGame } from '../createGame'
 import { beginSelectCardsPhase } from '../round'
-import { buildTurnReview, findReviewWindowStart, findTurnStops, reviewPhaseGroupAt } from '../turnReview'
+import { buildTurnReview, findReviewWindowStart, findTurnStops, reviewPhaseGroupAt, shouldShowCardChoiceRecap } from '../turnReview'
 import type { LoggedAction } from '../actions'
 import type { Card, GameState, Player, Terrain, Unit } from '../types'
 import type { UnitAction, UnitContent } from '../unitContent'
@@ -249,6 +249,38 @@ describe('reviewPhaseGroupAt', () => {
       { action: { type: 'CONCEDE', playerId: 'p2' }, turn: 1, timestamp: '' },
     ]
     expect(reviewPhaseGroupAt(history, 2)).toBe('selectCards')
+  })
+})
+
+describe('shouldShowCardChoiceRecap', () => {
+  it("never shows for 'selectCards'/'decline' themselves, regardless of step mode", () => {
+    expect(shouldShowCardChoiceRecap('selectCards', null, 'turn')).toBe(false)
+    expect(shouldShowCardChoiceRecap('decline', null, 'turn')).toBe(false)
+    expect(shouldShowCardChoiceRecap('selectCards', 'selectCards', 'action')).toBe(false)
+    expect(shouldShowCardChoiceRecap('decline', 'actions', 'action')).toBe(false)
+  })
+
+  it('always shows for actions/purchase in action-by-action mode, regardless of the previous stop', () => {
+    expect(shouldShowCardChoiceRecap('actions', 'actions', 'action')).toBe(true)
+    expect(shouldShowCardChoiceRecap('purchase', 'purchase', 'action')).toBe(true)
+    expect(shouldShowCardChoiceRecap('actions', null, 'action')).toBe(true)
+  })
+
+  it("shows for the FIRST turn-stop of 'actions' — right as selectCards flips over — since selectCards's own single stop already replays as roundPhase 'actions' (applyChooseCard's atomic transition)", () => {
+    expect(shouldShowCardChoiceRecap('actions', 'selectCards', 'turn')).toBe(true)
+  })
+
+  it("does NOT keep showing for every subsequent per-player turn-stop within 'actions' (issue #326) — roundPhase stays 'actions' for the whole group, but the previous stop already showed it", () => {
+    expect(shouldShowCardChoiceRecap('actions', 'actions', 'turn')).toBe(false)
+  })
+
+  it("shows for 'declinePurchase' group's single turn-stop, right as 'actions' flips over", () => {
+    expect(shouldShowCardChoiceRecap('purchase', 'actions', 'turn')).toBe(true)
+  })
+
+  it('shows when there is no previous stop at all (genesis, or the first stop in a windowed review)', () => {
+    expect(shouldShowCardChoiceRecap('actions', null, 'turn')).toBe(true)
+    expect(shouldShowCardChoiceRecap('purchase', null, 'turn')).toBe(true)
   })
 })
 

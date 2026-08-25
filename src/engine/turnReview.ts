@@ -6,7 +6,7 @@ import { EMPTY_BOARD_GENERATION_CONTENT } from './boardGenerationContent'
 import type { BoardGenerationContent } from './boardGenerationContent'
 import { EMPTY_TALE_CONTENT } from './taleContent'
 import type { TaleContent } from './taleContent'
-import type { Coordinate, GameState, Resources } from './types'
+import type { Coordinate, GameState, Resources, RoundPhase } from './types'
 import { applyUnitActionEffect } from './unitActions'
 import type { UnitActionEffect, UnitContent } from './unitContent'
 
@@ -140,6 +140,37 @@ export function reviewPhaseGroupAt(actionHistory: LoggedAction[], stopEnd: numbe
     group = reviewPhaseGroupFor(actionHistory[i].action, group)
   }
   return group
+}
+
+/**
+ * Whether RoundView's card-choice recap overlay (CardChoiceHistoryPanel)
+ * should be shown for a history-review stop at `roundPhase` (issue #326
+ * follow-up to #314/#316) — never for `selectCards`/`decline` themselves (a
+ * partial "n of N chosen" picture while eligible players are still
+ * mid-pick), and for `actions`/`purchase` only at the FIRST review stop that
+ * shows the phase's completed picks, not every stop after it.
+ *
+ * In turn-step mode, `actions` gets one stop per acting player
+ * (`findTurnStops`'s `splitsWithinGroup`), and `selectCards` collapses to a
+ * single stop that — because `applyChooseCard` flips `roundPhase` straight
+ * to `'actions'` the instant the last player picks (see applyAction.ts) —
+ * already replays as `roundPhase: 'actions'` itself; there's no reachable
+ * stop where it's still `'selectCards'` with every pick in. So "is this the
+ * first stop showing `'actions'`/`'purchase'`" can't be read off *this*
+ * stop's own action types (a CHOOSE_CARD-classified stop can itself already
+ * be the `'actions'`-phase state) — it has to compare against the roundPhase
+ * the PREVIOUS turn-stop actually replayed to. `previousStopRoundPhase` is
+ * that comparison point, supplied by the caller (GamePage's replay cache
+ * already holds every stop's state) — `null` when there is no previous stop
+ * (genesis, or reviewing the very first stop in the window), which compares
+ * unequal to any real `RoundPhase` and so still shows. Action-by-action
+ * ("Review history") mode has no multi-stop group at all, so
+ * `historyStepMode !== 'turn'` always passes once the phase itself is right.
+ */
+export function shouldShowCardChoiceRecap(roundPhase: RoundPhase, previousStopRoundPhase: RoundPhase | null, historyStepMode: 'action' | 'turn'): boolean {
+  if (roundPhase !== 'actions' && roundPhase !== 'purchase') return false
+  if (historyStepMode !== 'turn') return true
+  return previousStopRoundPhase !== roundPhase
 }
 
 function diffResources(before: Resources, after: Resources): Partial<Resources> {
