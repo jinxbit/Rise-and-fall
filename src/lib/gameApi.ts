@@ -3,6 +3,7 @@ import { nextSeatIndex } from './seatIndex'
 import type { GameRow, GameSettings, GameStateRow, PlayerRow, PushSubscriptionRow } from './dbTypes'
 import type { MyGameEntry } from './myGamesView'
 import type { PublicRoomEntry } from './publicRoomsView'
+import type { UnitPlateColorOverrides } from './unitColors'
 import type { Board, GameState as EngineGameState, PlayMode } from '../engine/types'
 
 /**
@@ -69,6 +70,33 @@ export async function getProfileDisplayName(userId: string): Promise<string | nu
 
 export async function saveProfileDisplayName(userId: string, displayName: string | null): Promise<void> {
   const { error } = await supabase.from('profiles').upsert({ user_id: userId, display_name: displayName })
+  if (error) throw error
+}
+
+/**
+ * Reads a user's unit-plate colour overrides (0022_unit_plate_colors.sql),
+ * for whichever of the 3 card-zone states they've customized — each `null`
+ * (including "no profile row yet") means "use the default" (see
+ * resolveUnitPlateColors in lib/unitColors.ts).
+ */
+export async function getProfileUnitColors(userId: string): Promise<UnitPlateColorOverrides> {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('unit_color_hand, unit_color_selected, unit_color_discard')
+    .eq('user_id', userId)
+    .maybeSingle()
+  if (error) throw error
+  return {
+    hand: data?.unit_color_hand ?? null,
+    selected: data?.unit_color_selected ?? null,
+    discard: data?.unit_color_discard ?? null,
+  }
+}
+
+export async function saveProfileUnitColors(userId: string, colors: UnitPlateColorOverrides): Promise<void> {
+  const { error } = await supabase
+    .from('profiles')
+    .upsert({ user_id: userId, unit_color_hand: colors.hand, unit_color_selected: colors.selected, unit_color_discard: colors.discard })
   if (error) throw error
 }
 

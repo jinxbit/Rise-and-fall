@@ -31,6 +31,9 @@ function cliffLines(container: HTMLElement) {
 }
 
 const NEUTRAL_PLATE_COLOR = '#f2f2ef'
+const HAND_PLATE_COLOR = '#fef3c7'
+const SELECTED_PLATE_COLOR = '#fde68a'
+const DISCARD_PLATE_COLOR = '#f2f2ef'
 
 describe('HexBoard — unit markers', () => {
   it('renders a rectangle marker for static kinds (City, Temple) and a circle for mobile kinds, both in the fixed neutral plate colour', () => {
@@ -86,18 +89,49 @@ describe('HexBoard — unit markers', () => {
     expect(() => render(<HexBoard board={makeBoard()} units={units} />)).not.toThrow()
   })
 
-  it('draws a gold star badge for a unit whose card is in hand, and none otherwise (issue #305)', () => {
+  it('fills the plate a light gold for a unit whose card is in hand, and the usual neutral colour otherwise (issue #305/#311)', () => {
     const units: UnitMarker[] = [
-      { coord: { q: 0, r: 0 }, color: '#ef4444', kind: 'city', inHand: true },
+      { coord: { q: 0, r: 0 }, color: '#ef4444', kind: 'city', cardState: 'hand' },
       { coord: { q: 1, r: 0 }, color: '#3b82f6', kind: 'nomad' },
     ]
     const { container } = render(<HexBoard board={makeBoard()} units={units} />)
 
-    // A 5-pointed star is drawn as a 10-point polygon, distinct from every
-    // other polygon on the board (glyph shapes use the icon viewBox, not raw pixel coords).
-    const stars = container.querySelectorAll('polygon[fill="#eab308"]')
-    expect(stars).toHaveLength(1)
-    expect(stars[0].getAttribute('points')?.trim().split(/\s+/)).toHaveLength(10)
+    // The in-hand city's plate (a <rect>) is light gold; the plain nomad's
+    // plate (a <circle>) stays the fixed neutral colour.
+    expect(container.querySelectorAll(`rect[fill="${HAND_PLATE_COLOR}"]`)).toHaveLength(1)
+    expect(container.querySelectorAll(`circle[fill="${NEUTRAL_PLATE_COLOR}"]`)).toHaveLength(1)
+  })
+
+  it('fills the plate the (darker) selected gold for the card chosen to play this round, distinct from the lighter in-hand shade (issue #311 follow-up)', () => {
+    const units: UnitMarker[] = [{ coord: { q: 0, r: 0 }, color: '#ef4444', kind: 'city', cardState: 'selected' }]
+    const { container } = render(<HexBoard board={makeBoard()} units={units} />)
+
+    expect(container.querySelectorAll(`rect[fill="${SELECTED_PLATE_COLOR}"]`)).toHaveLength(1)
+    expect(container.querySelectorAll(`rect[fill="${HAND_PLATE_COLOR}"]`)).toHaveLength(0)
+  })
+
+  it('fills the plate the discard colour for a unit whose card is in discard (issue #311 follow-up)', () => {
+    const units: UnitMarker[] = [{ coord: { q: 0, r: 0 }, color: '#ef4444', kind: 'city', cardState: 'discard' }]
+    const { container } = render(<HexBoard board={makeBoard()} units={units} />)
+
+    expect(container.querySelectorAll(`rect[fill="${DISCARD_PLATE_COLOR}"]`)).toHaveLength(1)
+  })
+
+  it('uses the colours from `unitPlateColors` instead of the defaults when supplied (profile customization, issue #311 follow-up)', () => {
+    const units: UnitMarker[] = [
+      { coord: { q: 0, r: 0 }, color: '#ef4444', kind: 'city', cardState: 'hand' },
+      { coord: { q: 1, r: 0 }, color: '#3b82f6', kind: 'nomad', cardState: 'selected' },
+      { coord: { q: 2, r: 0 }, color: '#22c55e', kind: 'ship', cardState: 'discard' },
+    ]
+    const customColors = { hand: '#111111', selected: '#222222', discard: '#333333' }
+    const { container } = render(<HexBoard board={makeBoard()} units={units} unitPlateColors={customColors} />)
+
+    expect(container.querySelectorAll(`rect[fill="${customColors.hand}"]`)).toHaveLength(1)
+    expect(container.querySelectorAll(`circle[fill="${customColors.selected}"]`)).toHaveLength(1)
+    expect(container.querySelectorAll(`circle[fill="${customColors.discard}"]`)).toHaveLength(1)
+    // None of the default colours leak through once every state is overridden.
+    expect(container.querySelectorAll(`[fill="${HAND_PLATE_COLOR}"]`)).toHaveLength(0)
+    expect(container.querySelectorAll(`[fill="${SELECTED_PLATE_COLOR}"]`)).toHaveLength(0)
   })
 
   it("greys out a declined unit's glyph instead of the usual near-black fill (issue #305)", () => {
@@ -112,11 +146,11 @@ describe('HexBoard — unit markers', () => {
     expect(container.querySelectorAll('[fill="#14161a"]').length).toBeGreaterThan(0)
   })
 
-  it('shows no star and no grey fill for a unit whose card is in discard (or otherwise neither in hand nor declined)', () => {
+  it('shows no gold plate and no grey fill for a unit whose card is in discard (or otherwise neither in hand nor declined)', () => {
     const units: UnitMarker[] = [{ coord: { q: 0, r: 0 }, color: '#ef4444', kind: 'city' }]
     const { container } = render(<HexBoard board={makeBoard()} units={units} />)
 
-    expect(container.querySelectorAll('polygon[fill="#eab308"]')).toHaveLength(0)
+    expect(container.querySelectorAll(`[fill="${HAND_PLATE_COLOR}"]`)).toHaveLength(0)
     expect(container.querySelectorAll('[fill="#9ca3af"]')).toHaveLength(0)
   })
 })
