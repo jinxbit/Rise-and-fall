@@ -885,12 +885,43 @@ function PurchasePanel(props: {
   )
 }
 
+/** Every card kind a player has bought back so far during the current round's purchase phase (rule 4) — derived from `state.actionHistory` (a PURCHASE_CARD entry logged this same `state.turn`), since GameState itself only tracks the *current* decline zone, not what's already left it this round. Safe against a replayed historical `state` (see CardChoiceHistoryPanel's doc comment): its `actionHistory` only ever holds entries up to the reviewed point. */
+function purchasedKindsByPlayerId(state: GameState): Map<string, string[]> {
+  const byPlayerId = new Map<string, string[]>()
+  for (const entry of state.actionHistory) {
+    if (entry.turn !== state.turn || entry.action.type !== 'PURCHASE_CARD') continue
+    const kind = state.cards[entry.action.cardId]?.kind
+    if (!kind) continue
+    const list = byPlayerId.get(entry.action.playerId) ?? []
+    list.push(kind)
+    byPlayerId.set(entry.action.playerId, list)
+  }
+  return byPlayerId
+}
+
+/** One section of CardChoiceHistoryPanel: a label followed by every eligible player's icon row, all wrapped into as few rows as will fit rather than one row per player. */
+function CardChoiceHistorySection({ label, players, eligiblePlayers, kindsByPlayerId }: { label: string; players: PlayerRow[]; eligiblePlayers: Player[]; kindsByPlayerId: (playerId: string) => string[] | undefined }) {
+  return (
+    <div className="flex flex-col gap-1 text-sm">
+      <p className="font-medium text-neutral-300">{label}</p>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        {eligiblePlayers.map((p) => (
+          <span key={p.id} className="flex items-center gap-1.5">
+            <PlayerColorName players={players} playerId={p.id} />
+            <KindIconRow kinds={kindsByPlayerId(p.id) ?? []} emptyLabel="none" />
+          </span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 /**
  * Read-only recap of card selection/purchase shown on the board while
  * reviewing history (issue #314) — `state` is the actual replayed
- * historical state at the point being reviewed, so `chosenCardIdByPlayerId`
- * and each player's `declineCardIds` already reflect exactly what's
- * happened so far, with no separate tracking needed.
+ * historical state at the point being reviewed, so `chosenCardIdByPlayerId`,
+ * each player's `declineCardIds`, and `actionHistory` already reflect
+ * exactly what's happened so far, with no separate tracking needed.
  *
  * Only ever rendered for `actions`/`purchase` (see the `showHistory` block
  * below in RoundView), never for `selectCards`/`decline` themselves (issue
@@ -908,39 +939,25 @@ function CardChoiceHistoryPanel({ state, players }: { state: GameState; players:
 
   if (state.roundPhase === 'actions') {
     return (
-      <div className="flex flex-col gap-1 text-sm">
-        <p className="font-medium text-neutral-300">Card choices this round:</p>
-        <ul className="flex flex-col gap-1">
-          {eligiblePlayers.map((p) => {
-            const cardId = state.chosenCardIdByPlayerId[p.id]
-            const kind = cardId ? state.cards[cardId]?.kind : undefined
-            return (
-              <li key={p.id} className="flex items-center gap-1.5">
-                <PlayerColorName players={players} playerId={p.id} />
-                {kind ? (
-                  <UnitIcon kind={kind} title={capitalize(kind)} className="h-4 w-4 shrink-0 text-neutral-300" />
-                ) : (
-                  <span className="text-neutral-500">—</span>
-                )}
-              </li>
-            )
-          })}
-        </ul>
-      </div>
+      <CardChoiceHistorySection
+        label="Played cards:"
+        players={players}
+        eligiblePlayers={eligiblePlayers}
+        kindsByPlayerId={(playerId) => {
+          const cardId = state.chosenCardIdByPlayerId[playerId]
+          const kind = cardId ? state.cards[cardId]?.kind : undefined
+          return kind ? [kind] : []
+        }}
+      />
     )
   }
 
+  const purchased = purchasedKindsByPlayerId(state)
+  const declined = new Map(eligiblePlayers.map((p) => [p.id, kindsInZone(p.declineCardIds, state.cards)]))
   return (
-    <div className="flex flex-col gap-1 text-sm">
-      <p className="font-medium text-neutral-300">Cards available to purchase back:</p>
-      <ul className="flex flex-col gap-1">
-        {eligiblePlayers.map((p) => (
-          <li key={p.id} className="flex items-center gap-1.5">
-            <PlayerColorName players={players} playerId={p.id} />
-            <KindIconRow kinds={kindsInZone(p.declineCardIds, state.cards)} emptyLabel="none" />
-          </li>
-        ))}
-      </ul>
+    <div className="flex flex-col gap-2">
+      <CardChoiceHistorySection label="Purchased cards:" players={players} eligiblePlayers={eligiblePlayers} kindsByPlayerId={(playerId) => purchased.get(playerId)} />
+      <CardChoiceHistorySection label="Declined cards:" players={players} eligiblePlayers={eligiblePlayers} kindsByPlayerId={(playerId) => declined.get(playerId)} />
     </div>
   )
 }

@@ -1875,7 +1875,7 @@ describe('RoundView — history review overlay', () => {
   it('shows no card-choice recap while players are still mid-pick, not a partial reveal (issue #316)', () => {
     renderWithReview({ events: [], resourceDeltaByPlayerId: {} }, true)
 
-    expect(screen.queryByText('Card choices this round:')).not.toBeInTheDocument()
+    expect(screen.queryByText('Played cards:')).not.toBeInTheDocument()
     expect(screen.queryByText(/still choosing/)).not.toBeInTheDocument()
   })
 
@@ -1887,7 +1887,7 @@ describe('RoundView — history review overlay', () => {
       activePlayerId: 'p1',
     })
 
-    expect(screen.getByText('Card choices this round:')).toBeInTheDocument()
+    expect(screen.getByText('Played cards:')).toBeInTheDocument()
     expect(screen.queryByText('Your turn — choose a card to play.')).not.toBeInTheDocument()
 
     const alice = screen.getByText('Alice:')
@@ -1903,7 +1903,38 @@ describe('RoundView — history review overlay', () => {
     renderWithReview({ events: [], resourceDeltaByPlayerId: {} }, false)
 
     expect(screen.getByText('Your turn — choose a card to play.')).toBeInTheDocument()
-    expect(screen.queryByText('Card choices this round:')).not.toBeInTheDocument()
+    expect(screen.queryByText('Played cards:')).not.toBeInTheDocument()
+  })
+
+  it("splits the purchase-phase recap into what's been purchased back and what's still declined, with every player in a single row (issue #317)", () => {
+    const purchasedCardId = cardIdFor('p1', 'mountaineer')
+    const declinedCardId = cardIdFor('p2', 'city')
+    renderWithReview({ events: [], resourceDeltaByPlayerId: {} }, true, undefined, {
+      roundPhase: 'purchase',
+      pendingPlayerIds: ['p2'],
+      activePlayerId: 'p2',
+      turn: 1,
+      actionHistory: [{ action: { type: 'PURCHASE_CARD', playerId: 'p1', cardId: purchasedCardId }, turn: 1, timestamp: '' }],
+      players: [
+        { ...makeEnginePlayer('p1', ['nomad', 'ship']), declineCardIds: [] },
+        { ...makeEnginePlayer('p2', ['city']), declineCardIds: [declinedCardId] },
+      ],
+    })
+
+    expect(screen.getByText('Purchased cards:')).toBeInTheDocument()
+    expect(screen.getByText('Declined cards:')).toBeInTheDocument()
+
+    // Both sections lay every player out in one flex-wrap row, not a stacked list.
+    const purchasedRow = screen.getByText('Purchased cards:').nextElementSibling as HTMLElement
+    expect(purchasedRow.className).toContain('flex-wrap')
+    expect(purchasedRow.children).toHaveLength(2)
+    const declinedRow = screen.getByText('Declined cards:').nextElementSibling as HTMLElement
+    expect(declinedRow.className).toContain('flex-wrap')
+    expect(declinedRow.children).toHaveLength(2)
+
+    // p1 bought a Mountaineer back this phase; p2's City is still sitting in decline.
+    expect(within(purchasedRow).getByTitle('Mountaineer')).toBeInTheDocument()
+    expect(within(declinedRow).getByTitle('City')).toBeInTheDocument()
   })
 })
 
