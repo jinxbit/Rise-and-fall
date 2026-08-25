@@ -1740,8 +1740,8 @@ describe('RoundView — history review overlay', () => {
   // `turnReview` events GamePage hands it onto the board it's given (which,
   // for "Show history", is already the real historical board state at that
   // point — see GamePage's `reviewState`/`turnHalos`).
-  function renderWithReview(turnReview: TurnReview | null, showHistory: boolean, onExitHistory?: () => void) {
-    const state = makeState()
+  function renderWithReview(turnReview: TurnReview | null, showHistory: boolean, onExitHistory?: () => void, stateOverrides?: Partial<GameState>) {
+    const state = { ...makeState(), ...stateOverrides }
     state.board = setTile(state.board, { q: 0, r: 0 }, 'plain')
     state.units = [
       { id: 'nomad_a', ownerId: 'p1', kind: 'nomad', coord: { q: 0, r: 0 }, movement: { isMobile: true, terrains: [], canCrossCliffs: false }, traits: [] },
@@ -1872,19 +1872,116 @@ describe('RoundView — history review overlay', () => {
     expect(onExitHistory).not.toHaveBeenCalled()
   })
 
-  it('shows a read-only recap of card choices on the board while reviewing history (issue #314), not the interactive picker', () => {
+  it('shows no card-choice recap while players are still mid-pick, not a partial reveal (issue #316)', () => {
     renderWithReview({ events: [], resourceDeltaByPlayerId: {} }, true)
 
-    expect(screen.getByText('Card choices this round:')).toBeInTheDocument()
-    expect(screen.getAllByText(/still choosing…/)).toHaveLength(2)
+    expect(screen.queryByText('Played cards:')).not.toBeInTheDocument()
+    expect(screen.queryByText(/still choosing/)).not.toBeInTheDocument()
+  })
+
+  it("shows a summary of every eligible player's card choice, with icons and player-coloured names, once selectCards is done (issue #316)", () => {
+    renderWithReview({ events: [], resourceDeltaByPlayerId: {} }, true, undefined, {
+      roundPhase: 'actions',
+      chosenCardIdByPlayerId: { p1: cardIdFor('p1', 'nomad'), p2: cardIdFor('p2', 'city') },
+      pendingPlayerIds: ['p1', 'p2'],
+      activePlayerId: 'p1',
+    })
+
+    expect(screen.getByText('Played cards:')).toBeInTheDocument()
     expect(screen.queryByText('Your turn — choose a card to play.')).not.toBeInTheDocument()
+
+    const alice = screen.getByText('Alice:')
+    expect(alice.style.color).toBe('rgb(255, 0, 0)')
+    const bob = screen.getByText('Bob:')
+    expect(bob.style.color).toBe('rgb(0, 0, 255)')
+
+    expect(screen.getByTitle('Nomad')).toBeInTheDocument()
+    expect(screen.getByTitle('City')).toBeInTheDocument()
   })
 
   it('shows the interactive card picker, not the read-only history recap, during live play (issue #314)', () => {
     renderWithReview({ events: [], resourceDeltaByPlayerId: {} }, false)
 
     expect(screen.getByText('Your turn — choose a card to play.')).toBeInTheDocument()
-    expect(screen.queryByText('Card choices this round:')).not.toBeInTheDocument()
+    expect(screen.queryByText('Played cards:')).not.toBeInTheDocument()
+  })
+
+  it("splits the purchase-phase recap into what's been purchased back and what's been declined this round, with every player in a single row (issue #317)", () => {
+    const purchasedCardId = cardIdFor('p1', 'mountaineer')
+    const declinedCardId = cardIdFor('p2', 'city')
+    renderWithReview({ events: [], resourceDeltaByPlayerId: {} }, true, undefined, {
+      roundPhase: 'purchase',
+      pendingPlayerIds: ['p2'],
+      activePlayerId: 'p2',
+      turn: 1,
+      actionHistory: [
+        { action: { type: 'PURCHASE_CARD', playerId: 'p1', cardId: purchasedCardId }, turn: 1, timestamp: '' },
+        { action: { type: 'MOVE_TO_DECLINE', playerId: 'p2', cardId: declinedCardId }, turn: 1, timestamp: '' },
+      ],
+      players: [
+        { ...makeEnginePlayer('p1', ['nomad', 'ship']), declineCardIds: [] },
+        { ...makeEnginePlayer('p2', ['city']), declineCardIds: [declinedCardId] },
+      ],
+    })
+
+    expect(screen.getByText('Purchased cards:')).toBeInTheDocument()
+    expect(screen.getByText('Declined cards:')).toBeInTheDocument()
+
+    // Both sections lay every player out in one flex-wrap row, not a stacked list.
+    const purchasedRow = screen.getByText('Purchased cards:').nextElementSibling as HTMLElement
+    expect(purchasedRow.className).toContain('flex-wrap')
+    expect(purchasedRow.children).toHaveLength(2)
+    const declinedRow = screen.getByText('Declined cards:').nextElementSibling as HTMLElement
+    expect(declinedRow.className).toContain('flex-wrap')
+    expect(declinedRow.children).toHaveLength(2)
+
+    // p1 bought a Mountaineer back this phase; p2 chose to decline their City this round.
+    expect(within(purchasedRow).getByTitle('Mountaineer')).toBeInTheDocument()
+    expect(within(declinedRow).getByTitle('City')).toBeInTheDocument()
+  })
+
+  it('shows "none" for a player who declined nothing this round, and ignores an earlier round\'s leftover decline pile (issue #317)', () => {
+    const oldDeclineCardId = cardIdFor('p1', 'ship')
+    renderWithReview({ events: [], resourceDeltaByPlayerId: {} }, true, undefined, {
+      roundPhase: 'purchase',
+      pendingPlayerIds: ['p2'],
+      activePlayerId: 'p2',
+      turn: 2,
+      // Logged on an earlier round — still sitting in p1's decline zone (never bought back),
+      // but shouldn't be reported as something p1 chose to decline *this* round.
+      actionHistory: [{ action: { type: 'MOVE_TO_DECLINE', playerId: 'p1', cardId: oldDeclineCardId }, turn: 1, timestamp: '' }],
+      players: [
+        { ...makeEnginePlayer('p1', ['nomad', 'ship']), declineCardIds: [oldDeclineCardId] },
+        { ...makeEnginePlayer('p2', ['city']), declineCardIds: [] },
+      ],
+    })
+
+    const declinedRow = screen.getByText('Declined cards:').nextElementSibling as HTMLElement
+    expect(within(declinedRow).getAllByText('none')).toHaveLength(2)
+    expect(within(declinedRow).queryByTitle('Ship')).not.toBeInTheDocument()
+  })
+
+  it('still reports a card as declined this round even after it is bought back later in the same purchase phase (issue #317)', () => {
+    const cardId = cardIdFor('p2', 'city')
+    renderWithReview({ events: [], resourceDeltaByPlayerId: {} }, true, undefined, {
+      roundPhase: 'purchase',
+      pendingPlayerIds: ['p2'],
+      activePlayerId: 'p2',
+      turn: 1,
+      actionHistory: [
+        { action: { type: 'MOVE_TO_DECLINE', playerId: 'p2', cardId }, turn: 1, timestamp: '' },
+        { action: { type: 'PURCHASE_CARD', playerId: 'p2', cardId }, turn: 1, timestamp: '' },
+      ],
+      players: [
+        { ...makeEnginePlayer('p1', ['nomad', 'ship']), declineCardIds: [] },
+        { ...makeEnginePlayer('p2', ['city']), declineCardIds: [] },
+      ],
+    })
+
+    const purchasedRow = screen.getByText('Purchased cards:').nextElementSibling as HTMLElement
+    expect(within(purchasedRow).getByTitle('City')).toBeInTheDocument()
+    const declinedRow = screen.getByText('Declined cards:').nextElementSibling as HTMLElement
+    expect(within(declinedRow).getByTitle('City')).toBeInTheDocument()
   })
 })
 
