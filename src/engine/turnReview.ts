@@ -1,4 +1,4 @@
-import type { LoggedAction } from './actions'
+import type { Action, LoggedAction } from './actions'
 import { EMPTY_ACHIEVEMENT_CONTENT } from './achievementContent'
 import type { AchievementContent } from './achievementContent'
 import { applyAction } from './applyAction'
@@ -50,19 +50,76 @@ export function findReviewWindowStart(actionHistory: LoggedAction[], playerId: s
 }
 
 /**
- * Splits `actionHistory` from `windowStart` to its end into per-player-turn
- * segments, for GamePage's "Show history" turn-by-turn stepping (issue
- * #261) — each boundary is where the acting player changes. Always starts
- * with `windowStart` and ends with `actionHistory.length`; indices are
- * absolute positions into `actionHistory` (also valid `reviewIndex` values
- * for GamePage's replay cache, since a turn boundary is just a particular
+ * The three step "shapes" issue #322 wants "Show history" to walk through
+ * (each a `RoundPhase`, see types.ts, except `purchase` — merged into
+ * `decline`'s stop): `selectCards` and `decline`/`purchase` are simultaneous
+ * (round.ts) — nobody is "active" and the map shows no per-player action
+ * resolution — so every action in one of those round phases collapses into
+ * a single stop, aggregated across all players. `actions` is turn-order and
+ * sequential, so it keeps one stop per acting player. `boardSetup` (the
+ * PLACE_TILE/PLACE_UNIT phase before round 1) isn't part of that request,
+ * so it keeps its original per-player-change granularity.
+ */
+type ReviewPhaseGroup = 'boardSetup' | 'selectCards' | 'actions' | 'declinePurchase'
+
+/**
+ * Maps a logged action to the `ReviewPhaseGroup` it always belongs to —
+ * every action type but CONCEDE is only ever submitted during one specific
+ * round phase (see actions.ts's file-level comment). CONCEDE is the one
+ * exception (submittable "at any point"), so it has no group of its own:
+ * it simply inherits whichever group precedes it.
+ */
+function reviewPhaseGroupFor(action: Action, precedingGroup: ReviewPhaseGroup): ReviewPhaseGroup {
+  switch (action.type) {
+    case 'PLACE_TILE':
+    case 'PLACE_UNIT':
+      return 'boardSetup'
+    case 'CHOOSE_CARD':
+      return 'selectCards'
+    case 'RESOLVE_UNIT_ACTION':
+    case 'PASS_ACTIONS':
+      return 'actions'
+    case 'MOVE_TO_DECLINE':
+    case 'PURCHASE_CARD':
+    case 'PASS_PURCHASE':
+      return 'declinePurchase'
+    case 'CONCEDE':
+      return precedingGroup
+  }
+}
+
+/**
+ * Splits `actionHistory` from `windowStart` to its end into history-review
+ * stops, for GamePage's "Show history" turn-by-turn stepping (issue #261,
+ * refined by #322 to be phase-aware instead of splitting on every change of
+ * acting player): a boundary is inserted wherever the `ReviewPhaseGroup`
+ * changes, and additionally wherever the acting player changes within the
+ * `boardSetup`/`actions` groups (see `ReviewPhaseGroup`'s doc comment for
+ * why `selectCards`/`declinePurchase` don't also split on actor). Always
+ * starts with `windowStart` and ends with `actionHistory.length`; indices
+ * are absolute positions into `actionHistory` (also valid `reviewIndex`
+ * values for GamePage's replay cache, since a stop is just a particular
  * point in the action list). Pass `windowStart: 0` to cover the whole game.
  * A one-element result means nothing happened in `[windowStart, end]`.
  */
 export function findTurnStops(actionHistory: LoggedAction[], windowStart: number): number[] {
   const stops = [windowStart]
+  if (windowStart >= actionHistory.length) return stops
+
+  let group = reviewPhaseGroupFor(actionHistory[windowStart].action, windowStart > 0 ? reviewPhaseGroupFor(actionHistory[windowStart - 1].action, 'boardSetup') : 'boardSetup')
+  let playerId = actionHistory[windowStart].action.playerId
+
   for (let i = windowStart + 1; i <= actionHistory.length; i++) {
-    if (i === actionHistory.length || actionHistory[i].action.playerId !== actionHistory[i - 1].action.playerId) stops.push(i)
+    if (i === actionHistory.length) {
+      stops.push(i)
+      break
+    }
+    const nextGroup = reviewPhaseGroupFor(actionHistory[i].action, group)
+    const nextPlayerId = actionHistory[i].action.playerId
+    const splitsWithinGroup = nextGroup === 'boardSetup' || nextGroup === 'actions'
+    if (nextGroup !== group || (splitsWithinGroup && nextPlayerId !== playerId)) stops.push(i)
+    group = nextGroup
+    playerId = nextPlayerId
   }
   return stops
 }
