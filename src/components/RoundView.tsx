@@ -276,7 +276,7 @@ function PlayerDetailPanel({ state, player, breakdown }: { state: GameState; pla
   const currentlyPlayed = player.currentlyPlayedCardId ? kindsInZone([player.currentlyPlayedCardId], state.cards) : []
 
   return (
-    <div className="flex flex-col gap-3 rounded-md border border-neutral-800 bg-neutral-900/50 p-3 text-xs text-neutral-400">
+    <div className="col-span-2 flex flex-col gap-3 rounded-md border border-neutral-800 bg-neutral-900/50 p-3 text-xs text-neutral-400 lg:col-span-1">
       <div>
         <p className="mb-1 font-medium text-neutral-200">VP breakdown — {breakdown?.total ?? 0} total</p>
         <p>{VP_BREAKDOWN_LABELS.map(([key, label]) => `${label} ${breakdown?.[key] ?? 0}`).join(', ')}</p>
@@ -349,7 +349,7 @@ function PlayersStrip({
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex flex-col gap-2 text-xs text-neutral-400">
+      <div className="grid grid-cols-2 gap-2 text-xs text-neutral-400 lg:grid-cols-1">
         {state.players.map((player) => {
           const row = players.find((p) => p.id === player.id)
           const chosenCardId = state.chosenCardIdByPlayerId[player.id]
