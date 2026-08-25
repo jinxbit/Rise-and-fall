@@ -591,21 +591,22 @@ export function GamePage() {
       // replayed state just before this turn started and the one now shown
       // (issue #261). Both ends are already in `cache.states` (dense up to
       // `reviewIndex`), so this is a small, single-turn buildTurnReview
-      // call, not a fresh whole-game replay. Skipped at the default entry
-      // point (`defaultTurnHistoryIndex`) and at genesis (index 0) — there's
-      // no "just happened" turn to highlight at either (see
-      // `defaultTurnHistoryIndex`'s own doc comment: paging forward from
-      // there is what reveals each opponent's turn).
+      // call, not a fresh whole-game replay. This includes the default entry
+      // point (`defaultTurnHistoryIndex`) — right after `me`'s own last turn
+      // — so the reviewer's own turn shows its markings too, same as every
+      // opponent turn paged to afterward (issue #304). Only genesis (index
+      // 0) has no "just happened" turn to highlight, since there's nothing
+      // before it.
       let turnHalos: TurnReview | null = null
       // The territory-control "highlight changes" mode (issue #281) needs
       // the same "state just before this point" boundary turnHalos already
-      // diffs against — reusing its exact prevStop (and the same
-      // defaultTurnHistoryIndex/genesis skip) keeps both features agreeing
-      // on what "just changed" means at any given point in turn mode. Action
-      // mode has no equivalent halo feature to share a boundary with, so it
-      // just uses the one action immediately prior.
+      // diffs against — reusing its exact prevStop (and the same genesis
+      // skip) keeps both features agreeing on what "just changed" means at
+      // any given point in turn mode. Action mode has no equivalent halo
+      // feature to share a boundary with, so it just uses the one action
+      // immediately prior.
       let previousTerritoryState: EngineGameState | null = null
-      if (historyStepMode === 'turn' && reviewIndex > 0 && reviewIndex !== defaultTurnHistoryIndex && fullTurnStops) {
+      if (historyStepMode === 'turn' && reviewIndex > 0 && fullTurnStops) {
         const pos = fullTurnStops.indexOf(reviewIndex)
         if (pos > 0) {
           const prevStop = fullTurnStops[pos - 1]
@@ -634,7 +635,6 @@ export function GamePage() {
     taleContent,
     historyStepMode,
     fullTurnStops,
-    defaultTurnHistoryIndex,
   ])
 
   /** The action most recently applied as of `reviewIndex`, for the review banner's label — null at genesis (reviewIndex 0). */

@@ -930,9 +930,8 @@ export function RoundView(props: {
    * replay cache already holds this (same "previous state" `turnReview`
    * above is itself derived from), see its doc comment for how the boundary
    * is chosen for each step mode. Null wherever there's nothing prior to
-   * compare against (genesis, or turn mode's default entry point) — 'changes'
-   * mode then simply has nothing to highlight. Ignored outside 'changes'
-   * mode.
+   * compare against (genesis) — 'changes' mode then simply has nothing to
+   * highlight. Ignored outside 'changes' mode.
    */
   previousHistoryState: GameState | null
   /** The running narration log — derived from actionHistory, see engine/gameLog.ts's buildGameLog. */
@@ -1185,9 +1184,6 @@ export function RoundView(props: {
       {/* Turn status panels ("Waiting for X…") re-render as other players act in real time; their
           height changes shift everything below them. Hidden while reviewing history so that view
           stays still instead of jumping around underneath the player. */}
-      {!showHistory && state.roundPhase === 'selectCards' && (
-        <SelectCardsPanel state={state} players={players} myPlayerId={myPlayerId} onChooseCard={props.onChooseCard} />
-      )}
       {!showHistory && state.roundPhase === 'actions' && mode.kind === 'supporting' && supportingUnit && supportingAction && (
         <SupportHint actingUnitKind={supportingUnit.kind} actionLabel={supportingAction.name} neededCandidateCount={supportingNeededCandidates.length} />
       )}
@@ -1199,19 +1195,6 @@ export function RoundView(props: {
           unitContent={unitContent}
           onPassActions={props.onPassActions}
           onResolveBulkAction={props.onResolveBulkAction}
-        />
-      )}
-      {!showHistory && state.roundPhase === 'decline' && (
-        <DeclinePanel state={state} players={players} myPlayerId={myPlayerId} onMoveToDecline={props.onMoveToDecline} />
-      )}
-      {!showHistory && state.roundPhase === 'purchase' && (
-        <PurchasePanel
-          state={state}
-          players={players}
-          myPlayerId={myPlayerId}
-          achievementContent={achievementContent}
-          onPurchaseCard={props.onPurchaseCard}
-          onPassPurchase={props.onPassPurchase}
         />
       )}
 
@@ -1229,6 +1212,29 @@ export function RoundView(props: {
             onHexClick={isMyActionTurn ? handleBoardClick : showHistory ? props.onExitHistory : undefined}
             expanded={sidebarHidden}
           />
+          {/* Card-choice panels (select a card to play, decline, or buy back) overlaid on the
+              board's own top-left corner instead of a separate row above it — keeps the choice
+              next to the map it affects rather than pushed off-screen above it (issue #304). */}
+          {!showHistory && (state.roundPhase === 'selectCards' || state.roundPhase === 'decline' || state.roundPhase === 'purchase') && (
+            <div className="absolute left-2 top-2 z-10 max-w-[calc(100%-1rem)] rounded-md border border-neutral-700 bg-neutral-900/90 p-3 shadow-lg sm:max-w-sm">
+              {state.roundPhase === 'selectCards' && (
+                <SelectCardsPanel state={state} players={players} myPlayerId={myPlayerId} onChooseCard={props.onChooseCard} />
+              )}
+              {state.roundPhase === 'decline' && (
+                <DeclinePanel state={state} players={players} myPlayerId={myPlayerId} onMoveToDecline={props.onMoveToDecline} />
+              )}
+              {state.roundPhase === 'purchase' && (
+                <PurchasePanel
+                  state={state}
+                  players={players}
+                  myPlayerId={myPlayerId}
+                  achievementContent={achievementContent}
+                  onPurchaseCard={props.onPurchaseCard}
+                  onPassPurchase={props.onPassPurchase}
+                />
+              )}
+            </div>
+          )}
           {/* Overlaid on the board's own corner rather than a separate row above it — a standard collapse/expand chevron, flipping direction with sidebarHidden. */}
           <button
             type="button"
