@@ -85,6 +85,40 @@ describe('HexBoard — unit markers', () => {
     const units: UnitMarker[] = [{ coord: { q: 0, r: 0 }, color: '#ef4444', kind: 'not-a-real-kind' }]
     expect(() => render(<HexBoard board={makeBoard()} units={units} />)).not.toThrow()
   })
+
+  it('draws a gold star badge for a unit whose card is in hand, and none otherwise (issue #305)', () => {
+    const units: UnitMarker[] = [
+      { coord: { q: 0, r: 0 }, color: '#ef4444', kind: 'city', inHand: true },
+      { coord: { q: 1, r: 0 }, color: '#3b82f6', kind: 'nomad' },
+    ]
+    const { container } = render(<HexBoard board={makeBoard()} units={units} />)
+
+    // A 5-pointed star is drawn as a 10-point polygon, distinct from every
+    // other polygon on the board (glyph shapes use the icon viewBox, not raw pixel coords).
+    const stars = container.querySelectorAll('polygon[fill="#eab308"]')
+    expect(stars).toHaveLength(1)
+    expect(stars[0].getAttribute('points')?.trim().split(/\s+/)).toHaveLength(10)
+  })
+
+  it("greys out a declined unit's glyph instead of the usual near-black fill (issue #305)", () => {
+    const units: UnitMarker[] = [
+      { coord: { q: 0, r: 0 }, color: '#ef4444', kind: 'city', declined: true },
+      { coord: { q: 1, r: 0 }, color: '#3b82f6', kind: 'nomad' },
+    ]
+    const { container } = render(<HexBoard board={makeBoard()} units={units} />)
+
+    expect(container.querySelectorAll('[fill="#9ca3af"]').length).toBeGreaterThan(0)
+    // The plain nomad's glyph shapes still use the fixed ink colour, unaffected.
+    expect(container.querySelectorAll('[fill="#14161a"]').length).toBeGreaterThan(0)
+  })
+
+  it('shows no star and no grey fill for a unit whose card is in discard (or otherwise neither in hand nor declined)', () => {
+    const units: UnitMarker[] = [{ coord: { q: 0, r: 0 }, color: '#ef4444', kind: 'city' }]
+    const { container } = render(<HexBoard board={makeBoard()} units={units} />)
+
+    expect(container.querySelectorAll('polygon[fill="#eab308"]')).toHaveLength(0)
+    expect(container.querySelectorAll('[fill="#9ca3af"]')).toHaveLength(0)
+  })
 })
 
 describe('HexBoard — ghost cell placement preview', () => {

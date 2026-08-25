@@ -11,7 +11,7 @@ import {
   legalTransformTargets,
   neededSupportCandidates,
 } from '../engine/actionTargeting'
-import { sortCardIdsForDisplay, UNIT_KINDS } from '../engine/cards'
+import { cardIdFor, findCardZone, sortCardIdsForDisplay, UNIT_KINDS } from '../engine/cards'
 import { legalMoveDestinations } from '../engine/movement'
 import { calculatePurchaseCost } from '../engine/purchaseCost'
 import { calculateChangedTerritoryHexes, calculateTerritoryControlByHex } from '../engine/scoring'
@@ -1091,6 +1091,12 @@ export function RoundView(props: {
   const historyByUnit = showHistory && turnReview ? summarizeUnitHistory(turnReview.events) : null
   const units: UnitMarker[] = state.units.map((u) => {
     const history = historyByUnit?.get(u.id)
+    // Card-zone lookup for the "in hand" star / "in decline" grey glyph
+    // (issue #305) — each player has exactly one card per unit kind
+    // (cardIdFor), so no need to search state.cards. `players` (PlayerRow[])
+    // only carries display info; card zones live on state.players (Player).
+    const engineOwner = state.players.find((p) => p.id === u.ownerId)
+    const cardZone = engineOwner ? findCardZone(engineOwner, cardIdFor(u.ownerId, u.kind)) : undefined
     return {
       coord: u.coord,
       color: players.find((p) => p.id === u.ownerId)?.color ?? '#a3a3a3',
@@ -1105,6 +1111,8 @@ export function RoundView(props: {
       historyHalos: history?.halos,
       historyDelta: history && Object.keys(history.resourceDelta).length > 0 ? history.resourceDelta : undefined,
       connectedNeighborCoords: u.connectedNeighborCoords,
+      inHand: cardZone === 'hand',
+      declined: cardZone === 'decline',
     }
   })
   const historyArrows: HistoryArrow[] = historyByUnit ? [...historyByUnit.values()].flatMap((h) => h.moves) : []

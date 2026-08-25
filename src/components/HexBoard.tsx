@@ -417,6 +417,10 @@ export interface UnitMarker {
   historyDelta?: Partial<Resources>
   /** Mirrors Unit.connectedNeighborCoords (see ../engine/types) — the two neighboring hexes this structure spans between, e.g. Bridge. Drawn as a marker on those two hex sides so it's visible which sides land units may cross onto/from. */
   connectedNeighborCoords?: [Coordinate, Coordinate]
+  /** This unit's card currently sits in its owner's hand (see cards.ts's CardZone) — drawn as a small star badge at the plate's corner (issue #305). Mutually exclusive with `declined` — a card is in exactly one zone at a time. */
+  inHand?: boolean
+  /** This unit's card currently sits in its owner's decline pile (see cards.ts's CardZone) — the glyph is drawn grey with a thin dark outline instead of the usual near-black fill, so a declined unit still on the board reads as visually distinct (issue #305). */
+  declined?: boolean
 }
 
 /** A movement event in history-review mode — one hex-to-hex hop, drawn as an arrow. A unit that moved more than once in the reviewed window gets one arrow per hop, in order. */
@@ -427,28 +431,46 @@ export interface HistoryArrow {
 
 /** The unit glyph's fixed ink colour — always drawn on UNIT_PLATE_COLOR (see UnitGlyph), so contrast is guaranteed regardless of player colour or terrain. */
 const UNIT_GLYPH_COLOR = '#14161a'
+/** The glyph's fill while its card is in decline (see UnitMarker.declined, issue #305) — grey instead of the usual near-black, with a thin UNIT_GLYPH_COLOR outline standing in for the "thin black border" ask. */
+const UNIT_GLYPH_DECLINED_COLOR = '#9ca3af'
 /** The marker's fixed backdrop behind the glyph — deliberately NOT the player's colour (see unitIcons.ts's doc comment for why). Ownership shows instead as a small colour bar beneath it. */
 const UNIT_PLATE_COLOR = '#f2f2ef'
+/** Fill for the "card in hand" star badge (see UnitMarker.inHand, issue #305) — gold, echoing HISTORY_HALO_COLOR's income colour so both read as "resource-bearing" at a glance. */
+const UNIT_HAND_STAR_COLOR = '#eab308'
 
-/** A unit kind's pictogram, centered at (x, y) at `size` pixels square, in the fixed ink colour. */
-function UnitGlyph({ kind, x, y, size }: { kind: string; x: number; y: number; size: number }) {
+/** A unit kind's pictogram, centered at (x, y) at `size` pixels square. Grey with a thin outline while `declined` (see UnitMarker.declined), otherwise the fixed ink colour. */
+function UnitGlyph({ kind, x, y, size, declined }: { kind: string; x: number; y: number; size: number; declined?: boolean }) {
   const shapes = UNIT_ICONS[kind] ?? []
+  const fill = declined ? UNIT_GLYPH_DECLINED_COLOR : UNIT_GLYPH_COLOR
+  const stroke = declined ? UNIT_GLYPH_COLOR : undefined
+  const strokeWidth = declined ? 0.5 : undefined
   return (
     <svg x={x - size / 2} y={y - size / 2} width={size} height={size} viewBox="0 0 24 24" pointerEvents="none">
       {shapes.map((shape: IconShape, i) => {
         switch (shape.kind) {
           case 'polygon':
-            return <polygon key={i} points={shape.points} fill={UNIT_GLYPH_COLOR} />
+            return <polygon key={i} points={shape.points} fill={fill} stroke={stroke} strokeWidth={strokeWidth} />
           case 'rect':
-            return <rect key={i} x={shape.x} y={shape.y} width={shape.width} height={shape.height} rx={shape.rx} fill={UNIT_GLYPH_COLOR} />
+            return <rect key={i} x={shape.x} y={shape.y} width={shape.width} height={shape.height} rx={shape.rx} fill={fill} stroke={stroke} strokeWidth={strokeWidth} />
           case 'path':
-            return <path key={i} d={shape.d} fill={UNIT_GLYPH_COLOR} fillRule={shape.fillRule} />
+            return <path key={i} d={shape.d} fill={fill} fillRule={shape.fillRule} stroke={stroke} strokeWidth={strokeWidth} />
           case 'circle':
-            return <circle key={i} cx={shape.cx} cy={shape.cy} r={shape.r} fill={UNIT_GLYPH_COLOR} />
+            return <circle key={i} cx={shape.cx} cy={shape.cy} r={shape.r} fill={fill} stroke={stroke} strokeWidth={strokeWidth} />
         }
       })}
     </svg>
   )
+}
+
+/** Points for a regular 5-pointed star centered at (cx, cy), alternating between outerR and innerR — used for the "card in hand" badge (see UnitMarker.inHand). */
+function starPoints(cx: number, cy: number, outerR: number, innerR: number): string {
+  const points: string[] = []
+  for (let i = 0; i < 10; i++) {
+    const r = i % 2 === 0 ? outerR : innerR
+    const angle = (Math.PI / 5) * i - Math.PI / 2
+    points.push(`${cx + r * Math.cos(angle)},${cy + r * Math.sin(angle)}`)
+  }
+  return points.join(' ')
 }
 
 export interface ActionMenuOption {
@@ -1204,7 +1226,15 @@ export function HexBoard(props: {
               stroke="#000"
               strokeWidth={0.75}
             />
-            <UnitGlyph kind={unit.kind} x={x} y={y} size={glyphSize} />
+            <UnitGlyph kind={unit.kind} x={x} y={y} size={glyphSize} declined={unit.declined} />
+            {unit.inHand && (
+              <polygon
+                points={starPoints(x + plateSize / 2 - plateSize * 0.06, y - plateSize / 2 + plateSize * 0.06, plateSize * 0.19, plateSize * 0.075)}
+                fill={UNIT_HAND_STAR_COLOR}
+                stroke="#000"
+                strokeWidth={0.75}
+              />
+            )}
           </g>
         )
       })}

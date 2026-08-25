@@ -2004,3 +2004,74 @@ describe('RoundView — territory control overlay (issue #281)', () => {
     expect(width).toBeCloseTo(size * 0.05)
   })
 })
+
+describe('RoundView — map indicator for a unit\'s card zone (issue #305)', () => {
+  function renderWithUnits(state: GameState) {
+    const players: PlayerRow[] = [makePlayerRow('p1', 'Alice', '#ef4444'), makePlayerRow('p2', 'Bob', '#3b82f6')]
+    return render(
+      <RoundView
+        state={state}
+        players={players}
+        myPlayerId="p1"
+        unitContent={EMPTY_UNIT_CONTENT}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
+        turnReview={null}
+        showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
+        gameLog={[]}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+  }
+
+  const move = { isMobile: true, terrains: [], canCrossCliffs: false }
+
+  it("draws a star badge on the map for a unit whose card is in the owner's hand", () => {
+    const state = makeState() // p1's hand is ['nomad', 'ship'] (see makeEnginePlayer)
+    state.board = setTile(state.board, { q: 0, r: 0 }, 'plain')
+    state.units = [{ id: 'u1', ownerId: 'p1', kind: 'nomad', coord: { q: 0, r: 0 }, movement: move, traits: [] }]
+
+    const { container } = renderWithUnits(state)
+
+    expect(container.querySelectorAll('polygon[fill="#eab308"]')).toHaveLength(1)
+  })
+
+  it("greys out the glyph for a unit whose card has been moved to decline, and draws no star", () => {
+    const state = makeState()
+    state.board = setTile(state.board, { q: 0, r: 0 }, 'plain')
+    const p1 = state.players.find((p) => p.id === 'p1')!
+    // Move the Nomad card from hand to decline, matching moveCard's effect
+    // (see cards.ts) without needing the rest of the decline-phase machinery.
+    p1.handCardIds = p1.handCardIds.filter((id) => id !== cardIdFor('p1', 'nomad'))
+    p1.declineCardIds = [cardIdFor('p1', 'nomad')]
+    state.units = [{ id: 'u1', ownerId: 'p1', kind: 'nomad', coord: { q: 0, r: 0 }, movement: move, traits: [] }]
+
+    const { container } = renderWithUnits(state)
+
+    expect(container.querySelectorAll('polygon[fill="#eab308"]')).toHaveLength(0)
+    expect(container.querySelectorAll('[fill="#9ca3af"]').length).toBeGreaterThan(0)
+  })
+
+  it('shows no star and no grey glyph for a unit whose card is in discard', () => {
+    const state = makeState()
+    state.board = setTile(state.board, { q: 0, r: 0 }, 'plain')
+    const p1 = state.players.find((p) => p.id === 'p1')!
+    p1.handCardIds = p1.handCardIds.filter((id) => id !== cardIdFor('p1', 'nomad'))
+    p1.discardCardIds = [cardIdFor('p1', 'nomad')]
+    state.units = [{ id: 'u1', ownerId: 'p1', kind: 'nomad', coord: { q: 0, r: 0 }, movement: move, traits: [] }]
+
+    const { container } = renderWithUnits(state)
+
+    expect(container.querySelectorAll('polygon[fill="#eab308"]')).toHaveLength(0)
+    expect(container.querySelectorAll('[fill="#9ca3af"]')).toHaveLength(0)
+  })
+})
