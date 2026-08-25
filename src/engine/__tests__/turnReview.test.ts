@@ -175,6 +175,46 @@ describe('findTurnStops', () => {
   it('returns just [0] for an empty actionHistory', () => {
     expect(findTurnStops([], 0)).toEqual([0])
   })
+
+  it('aggregates a whole selectCards phase into one stop, regardless of the order players choose in (issue #322)', () => {
+    const history: LoggedAction[] = [
+      { action: { type: 'CHOOSE_CARD', playerId: 'p1', cardId: 'c1' }, turn: 1, timestamp: '' },
+      { action: { type: 'CHOOSE_CARD', playerId: 'p2', cardId: 'c2' }, turn: 1, timestamp: '' },
+      { action: { type: 'CHOOSE_CARD', playerId: 'p1', cardId: 'c3' }, turn: 1, timestamp: '' },
+    ]
+    expect(findTurnStops(history, 0)).toEqual([0, 3])
+  })
+
+  it('still splits the actions phase one stop per acting player (issue #322)', () => {
+    const history: LoggedAction[] = [
+      { action: { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [] }, turn: 1, timestamp: '' },
+      { action: { type: 'PASS_ACTIONS', playerId: 'p1' }, turn: 1, timestamp: '' },
+      { action: { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2', unitActions: [] }, turn: 1, timestamp: '' },
+      { action: { type: 'PASS_ACTIONS', playerId: 'p2' }, turn: 1, timestamp: '' },
+    ]
+    expect(findTurnStops(history, 0)).toEqual([0, 2, 4])
+  })
+
+  it('merges decline and purchase into a single aggregated stop, and splits into a new stop on entering/leaving that combined phase (issue #322)', () => {
+    const history: LoggedAction[] = [
+      { action: { type: 'PASS_ACTIONS', playerId: 'p1' }, turn: 1, timestamp: '' },
+      { action: { type: 'MOVE_TO_DECLINE', playerId: 'p1', cardId: 'c1' }, turn: 1, timestamp: '' },
+      { action: { type: 'MOVE_TO_DECLINE', playerId: 'p2', cardId: 'c2' }, turn: 1, timestamp: '' },
+      { action: { type: 'PURCHASE_CARD', playerId: 'p1', cardId: 'c1' }, turn: 1, timestamp: '' },
+      { action: { type: 'PASS_PURCHASE', playerId: 'p2' }, turn: 1, timestamp: '' },
+      { action: { type: 'CHOOSE_CARD', playerId: 'p1', cardId: 'c4' }, turn: 2, timestamp: '' },
+    ]
+    expect(findTurnStops(history, 0)).toEqual([0, 1, 5, 6])
+  })
+
+  it('a CONCEDE mid-phase inherits the surrounding group instead of forcing its own stop', () => {
+    const history: LoggedAction[] = [
+      { action: { type: 'CHOOSE_CARD', playerId: 'p1', cardId: 'c1' }, turn: 1, timestamp: '' },
+      { action: { type: 'CONCEDE', playerId: 'p2' }, turn: 1, timestamp: '' },
+      { action: { type: 'CHOOSE_CARD', playerId: 'p3', cardId: 'c3' }, turn: 1, timestamp: '' },
+    ]
+    expect(findTurnStops(history, 0)).toEqual([0, 3])
+  })
 })
 
 describe('buildTurnReview', () => {
