@@ -879,6 +879,53 @@ function PurchasePanel(props: {
   )
 }
 
+/**
+ * Read-only recap of card selection/decline/purchase shown on the board
+ * while reviewing history (issue #314) — `state` is the actual replayed
+ * historical state at the point being reviewed, so `chosenCardIdByPlayerId`
+ * and each player's `declineCardIds` already reflect exactly what's
+ * happened so far, with no separate tracking needed.
+ */
+function CardChoiceHistoryPanel({ state, players }: { state: GameState; players: PlayerRow[] }) {
+  if (state.roundPhase === 'selectCards') {
+    return (
+      <div className="flex flex-col gap-1 text-sm">
+        <p className="font-medium text-neutral-300">Card choices this round:</p>
+        <ul className="flex flex-col gap-0.5">
+          {state.players.map((p) => {
+            const cardId = state.chosenCardIdByPlayerId[p.id]
+            const card = cardId ? state.cards[cardId] : null
+            const stillChoosing = state.pendingPlayerIds.includes(p.id)
+            return (
+              <li key={p.id} className="text-neutral-400">
+                <span className="text-neutral-200">{playerName(players, p.id)}</span>: {card ? capitalize(card.kind) : stillChoosing ? 'still choosing…' : '—'}
+              </li>
+            )
+          })}
+        </ul>
+      </div>
+    )
+  }
+
+  const isDecline = state.roundPhase === 'decline'
+  return (
+    <div className="flex flex-col gap-1 text-sm">
+      <p className="font-medium text-neutral-300">{isDecline ? 'Cards moved to decline this round:' : 'Cards available to purchase back:'}</p>
+      <ul className="flex flex-col gap-0.5">
+        {state.players.map((p) => {
+          const declineCardIds = sortCardIdsForDisplay(p.declineCardIds, state.cards)
+          return (
+            <li key={p.id} className="text-neutral-400">
+              <span className="text-neutral-200">{playerName(players, p.id)}</span>:{' '}
+              {declineCardIds.length > 0 ? declineCardIds.map((id) => capitalize(state.cards[id]?.kind ?? id)).join(', ') : 'none'}
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
 export function RoundView(props: {
   state: GameState
   players: PlayerRow[]
@@ -1217,6 +1264,9 @@ export function RoundView(props: {
       {/* Turn status panels ("Waiting for X…") re-render as other players act in real time; their
           height changes shift everything below them. Hidden while reviewing history so that view
           stays still instead of jumping around underneath the player. */}
+      {!showHistory && state.roundPhase === 'selectCards' && (
+        <SelectCardsPanel state={state} players={players} myPlayerId={myPlayerId} onChooseCard={props.onChooseCard} />
+      )}
       {!showHistory && state.roundPhase === 'actions' && mode.kind === 'supporting' && supportingUnit && supportingAction && (
         <SupportHint actingUnitKind={supportingUnit.kind} actionLabel={supportingAction.name} neededCandidateCount={supportingNeededCandidates.length} />
       )}
@@ -1228,6 +1278,19 @@ export function RoundView(props: {
           unitContent={unitContent}
           onPassActions={props.onPassActions}
           onResolveBulkAction={props.onResolveBulkAction}
+        />
+      )}
+      {!showHistory && state.roundPhase === 'decline' && (
+        <DeclinePanel state={state} players={players} myPlayerId={myPlayerId} onMoveToDecline={props.onMoveToDecline} />
+      )}
+      {!showHistory && state.roundPhase === 'purchase' && (
+        <PurchasePanel
+          state={state}
+          players={players}
+          myPlayerId={myPlayerId}
+          achievementContent={achievementContent}
+          onPurchaseCard={props.onPurchaseCard}
+          onPassPurchase={props.onPassPurchase}
         />
       )}
 
@@ -1246,30 +1309,15 @@ export function RoundView(props: {
             onHexClick={isMyActionTurn ? handleBoardClick : showHistory ? props.onExitHistory : undefined}
             expanded={sidebarHidden}
           />
-          {/* Card-choice panels (select/decline/purchase — issue #304) sit
-              directly on the map they affect, anchored to its top-left
-              corner, rather than a separate row pushing the board down the
-              page. Hidden while reviewing history for the same reason the
-              other turn-status panels are (see the comment that used to sit
-              above these before they moved here). */}
-          {!showHistory && (state.roundPhase === 'selectCards' || state.roundPhase === 'decline' || state.roundPhase === 'purchase') && (
-            <div className="absolute left-2 top-2 z-10 max-w-[calc(100%_-_1rem)] rounded-md border border-neutral-700 bg-neutral-900/90 p-3 shadow-lg">
-              {state.roundPhase === 'selectCards' && (
-                <SelectCardsPanel state={state} players={players} myPlayerId={myPlayerId} onChooseCard={props.onChooseCard} />
-              )}
-              {state.roundPhase === 'decline' && (
-                <DeclinePanel state={state} players={players} myPlayerId={myPlayerId} onMoveToDecline={props.onMoveToDecline} />
-              )}
-              {state.roundPhase === 'purchase' && (
-                <PurchasePanel
-                  state={state}
-                  players={players}
-                  myPlayerId={myPlayerId}
-                  achievementContent={achievementContent}
-                  onPurchaseCard={props.onPurchaseCard}
-                  onPassPurchase={props.onPassPurchase}
-                />
-              )}
+          {/* Read-only recap of card selection/decline/purchase, overlaid on the
+              board's top-left corner while reviewing history (issue #314) — the
+              interactive pick panels above only make sense during live play
+              (see the matching `!showHistory` panels above), but a player
+              stepping through history still wants to see what everyone chose
+              at that point without an extra click. */}
+          {showHistory && (state.roundPhase === 'selectCards' || state.roundPhase === 'decline' || state.roundPhase === 'purchase') && (
+            <div className="pointer-events-none absolute left-2 top-2 z-10 max-w-[calc(100%_-_1rem)] rounded-md border border-neutral-700 bg-neutral-900/90 p-3 shadow-lg">
+              <CardChoiceHistoryPanel state={state} players={players} />
             </div>
           )}
           {/* Overlaid on the board's own corner rather than a separate row above it — a standard collapse/expand chevron, flipping direction with sidebarHidden. */}

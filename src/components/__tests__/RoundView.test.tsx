@@ -1871,6 +1871,21 @@ describe('RoundView — history review overlay', () => {
 
     expect(onExitHistory).not.toHaveBeenCalled()
   })
+
+  it('shows a read-only recap of card choices on the board while reviewing history (issue #314), not the interactive picker', () => {
+    renderWithReview({ events: [], resourceDeltaByPlayerId: {} }, true)
+
+    expect(screen.getByText('Card choices this round:')).toBeInTheDocument()
+    expect(screen.getAllByText(/still choosing…/)).toHaveLength(2)
+    expect(screen.queryByText('Your turn — choose a card to play.')).not.toBeInTheDocument()
+  })
+
+  it('shows the interactive card picker, not the read-only history recap, during live play (issue #314)', () => {
+    renderWithReview({ events: [], resourceDeltaByPlayerId: {} }, false)
+
+    expect(screen.getByText('Your turn — choose a card to play.')).toBeInTheDocument()
+    expect(screen.queryByText('Card choices this round:')).not.toBeInTheDocument()
+  })
 })
 
 describe('RoundView — territory control overlay (issue #281)', () => {
