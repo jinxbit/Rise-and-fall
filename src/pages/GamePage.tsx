@@ -12,8 +12,8 @@ import { buildGameLogFrom, extendGameLog } from '../engine/gameLog'
 import { replayActions } from '../engine/replay'
 import { calculateScoreHistory } from '../engine/scoreHistory'
 import { applyTaleAchievementModifiers, applyTaleModifiers } from '../engine/tales'
-import type { ActionResult, GameEvent, GameState as EngineGameState, Coordinate } from '../engine/types'
-import { buildTurnReview, findReviewWindowStart, findTurnStops } from '../engine/turnReview'
+import type { ActionResult, GameEvent, GameState as EngineGameState, Coordinate, RoundPhase } from '../engine/types'
+import { buildRoundPhaseTimeline, buildTurnReview, extendRoundPhaseTimeline, findReviewWindowStart, findTurnStops } from '../engine/turnReview'
 import type { TurnReview } from '../engine/turnReview'
 import { currentActorId } from '../engine/turnOrder'
 import { useAuth } from '../hooks/useAuth'
@@ -373,20 +373,93 @@ export function GamePage() {
   }, [game, players.length, playersSignature])
 
   /**
+   * `state.roundPhase` after every prefix of the full actionHistory (see
+   * engine/turnReview.ts's buildRoundPhaseTimeline) — feeds `fullTurnStops`
+   * below so "Show history" turn-by-turn stepping lands a stop right where
+   * `roundPhase` changes, not just where the acting player does (issue
+   * #318/#321: the `selectCards`→`actions` transition completes inside the
+   * very same logged action as the last player's own pick, so without this
+   * a stop can silently merge "everyone's cards are chosen" together with
+   * that same player's own unit actions whenever they're also
+   * `turnOrder[0]`). Incrementally extended the same way `gameLog` below
+   * is — this also needs a full replay from genesis, and redoing that from
+   * scratch on every single new action would scale just as badly.
+   */
+  const roundPhaseCacheRef = useRef<{
+    gameId: string
+    playersSignature: string
+    unitContent: typeof unitContent
+    achievementContent: typeof achievementContent
+    boardGenerationContent: typeof boardGenerationContent
+    taleContent: typeof taleContent
+    actionHistory: LoggedAction[]
+    state: EngineGameState
+    timeline: RoundPhase[]
+  } | null>(null)
+
+  const roundPhaseTimeline = useMemo(() => {
+    if (!game || !genesis) return null
+    const actionHistory = gameState?.actionHistory ?? []
+    const cache = roundPhaseCacheRef.current
+
+    const cacheCoversPrefix =
+      !!cache &&
+      cache.gameId === game.id &&
+      cache.playersSignature === playersSignature &&
+      cache.unitContent === unitContent &&
+      cache.achievementContent === achievementContent &&
+      cache.boardGenerationContent === boardGenerationContent &&
+      cache.taleContent === taleContent &&
+      cache.actionHistory.length <= actionHistory.length &&
+      (cache.actionHistory.length === 0 ||
+        JSON.stringify(cache.actionHistory[cache.actionHistory.length - 1]) === JSON.stringify(actionHistory[cache.actionHistory.length - 1]))
+
+    try {
+      if (cacheCoversPrefix && cache) {
+        const newActions = actionHistory.slice(cache.actionHistory.length)
+        if (newActions.length === 0) return cache.timeline
+        const { state, phases } = extendRoundPhaseTimeline(cache.state, newActions, unitContent, achievementContent, boardGenerationContent, taleContent)
+        const timeline = [...cache.timeline, ...phases]
+        roundPhaseCacheRef.current = { ...cache, actionHistory, state, timeline }
+        return timeline
+      }
+
+      const built = buildRoundPhaseTimeline(genesis, actionHistory, unitContent, achievementContent, boardGenerationContent, taleContent)
+      roundPhaseCacheRef.current = {
+        gameId: game.id,
+        playersSignature,
+        unitContent,
+        achievementContent,
+        boardGenerationContent,
+        taleContent,
+        actionHistory,
+        state: built.state,
+        timeline: built.timeline,
+      }
+      return built.timeline
+    } catch {
+      roundPhaseCacheRef.current = null
+      return null
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [game, genesis, playersSignature, gameState?.actionHistory, unitContent, achievementContent, boardGenerationContent, taleContent])
+
+  /**
    * Turn boundaries across the ENTIRE actionHistory (issue #261 follow-up:
    * "Show history" must be able to page all the way back through the whole
    * game, not just what happened since the reviewer's own last turn) — see
    * engine/turnReview.ts's findTurnStops. `fullTurnStops[0]` is always 0
    * (genesis) and its last entry is always `gameState.actionHistory.length`
    * (now); every entry in between is a point where the acting player
-   * changes. Each entry is itself a valid `reviewIndex` (see below), so
-   * "Show history"'s Prev/Next/slider just step across this array instead
-   * of the raw action-by-action `reviewIndex` "Review history" uses.
+   * changes, or (via `roundPhaseTimeline` above) `roundPhase` changes.
+   * Each entry is itself a valid `reviewIndex` (see below), so "Show
+   * history"'s Prev/Next/slider just step across this array instead of the
+   * raw action-by-action `reviewIndex` "Review history" uses.
    */
   const fullTurnStops = useMemo(
-    () => (gameState ? findTurnStops(gameState.actionHistory, 0) : null),
+    () => (gameState ? findTurnStops(gameState.actionHistory, 0, roundPhaseTimeline ?? undefined) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [gameState?.actionHistory],
+    [gameState?.actionHistory, roundPhaseTimeline],
   )
   /**
    * Where "Show history" defaults to on entry — right after `me`'s own last
@@ -641,6 +714,25 @@ export function GamePage() {
 
   /** The action most recently applied as of `reviewIndex`, for the review banner's label — null at genesis (reviewIndex 0). */
   const reviewActionMeta = reviewIndex !== null && reviewIndex > 0 ? (gameState?.actionHistory[reviewIndex - 1] ?? null) : null
+
+  /**
+   * True exactly when `reviewIndex`'s own action moved `roundPhase` from
+   * `selectCards` to `actions` — the one state where every player's card
+   * choice is final but nobody's resolved a unit action yet, which is the
+   * sole point RoundView's read-only card-choice recap (issue #314) is
+   * allowed to render over the `actions` phase (issue #318/#321). Derived
+   * straight from `roundPhaseTimeline` rather than `previousTerritoryState`
+   * (which is deliberately null at some valid review points, e.g. turn
+   * mode's default entry — see its own doc comment above), so this stays
+   * correct everywhere "Show history"/"Review history" can land, including
+   * right at that default entry point.
+   */
+  const justEnteredActionsPhase =
+    reviewIndex !== null &&
+    reviewIndex > 0 &&
+    !!roundPhaseTimeline &&
+    roundPhaseTimeline[reviewIndex] === 'actions' &&
+    roundPhaseTimeline[reviewIndex - 1] === 'selectCards'
 
   /** How many turns `fullTurnStops` covers — "Show history"'s slider/Prev/Next range. */
   const turnPosCount = fullTurnStops ? fullTurnStops.length - 1 : 0
@@ -1400,6 +1492,7 @@ export function GamePage() {
           onExitHistory={() => setReviewIndex(null)}
           territoryControlMode={territoryControlMode}
           previousHistoryState={previousTerritoryState}
+          justEnteredActionsPhase={justEnteredActionsPhase}
           gameLog={isReviewingHistory ? reviewGameLog : gameLog}
           onChooseCard={(cardId) => {
             if (!me) return

@@ -926,29 +926,48 @@ function CardChoiceHistorySection({ label, players, eligiblePlayers, kindsByPlay
 }
 
 /**
- * Read-only recap of card selection/purchase shown on the board while
- * reviewing history (issue #314) — `state` is the actual replayed
+ * Whether the read-only card-choice recap (CardChoiceHistoryPanel below)
+ * should render over the board for the currently-reviewed `state` (issue
+ * #314/#316/#318/#321) — one phase shown at a time, never blended with
+ * another, and never with nothing to show:
+ *
+ * - `actions`: only the single state right after everyone's pick becomes
+ *   final, before anyone's resolved a unit action — `justEnteredActionsPhase`
+ *   (computed by GamePage from its full-game `roundPhase` timeline; see
+ *   RoundView's own doc comment for why `state` alone can't tell this
+ *   moment apart from any later actor's own turn). Never for `selectCards`
+ *   itself (issue #316: don't reveal a partial "n of N chosen" picture
+ *   while eligible players are still mid-pick).
+ * - `decline`: from the first player's decline onward, since declines
+ *   aren't secret and keep accumulating turn by turn — but not before that
+ *   first pick (an all-"none" panel isn't worth showing), and never once
+ *   `roundPhase` moves on to `purchase` (issue #321: decline and purchase
+ *   are shown one phase at a time, never merged into one panel).
+ * - `purchase`: same rule, for purchases — and skipped entirely for a
+ *   purchase phase where every pending player just passes, since there's
+ *   nothing to recap.
+ */
+function shouldShowCardChoiceRecap(state: GameState, justEnteredActionsPhase: boolean): boolean {
+  switch (state.roundPhase) {
+    case 'actions':
+      return justEnteredActionsPhase
+    case 'decline':
+      return declinedKindsByPlayerId(state).size > 0
+    case 'purchase':
+      return purchasedKindsByPlayerId(state).size > 0
+    default:
+      return false
+  }
+}
+
+/**
+ * Read-only recap of card selection/decline/purchase shown on the board
+ * while reviewing history (issue #314) — `state` is the actual replayed
  * historical state at the point being reviewed, so `chosenCardIdByPlayerId`
  * and `actionHistory` already reflect exactly what's happened so far, with
- * no separate tracking needed.
- *
- * Only ever rendered for `actions`/`purchase` (see the `showHistory` block
- * below in RoundView), never for `selectCards`/`decline` themselves (issue
- * #316: don't reveal a partial "n of N chosen" picture while eligible
- * players are still mid-pick) — `selectCards` and `decline` are
- * simultaneous phases that complete and advance to the *next* phase within
- * the very same logged action (see applyChooseCard/applyMoveToDecline in
- * engine/applyAction.ts), so there's no reachable historical state where
- * e.g. roundPhase is still `selectCards` but every eligible (non-eliminated)
- * player has already chosen — the completed picks only ever show up here,
- * one phase later.
- *
- * For `actions`, the `showHistory` block further restricts this to just the
- * one turn right after `selectCards` finishes (issue #318) — otherwise it
- * stays overlaid on every later actor's own unit-action halos for the rest
- * of the phase. `purchase` has no such restriction: purchases/declines
- * aren't secret and keep accumulating turn by turn, so it stays visible for
- * the whole phase.
+ * no separate tracking needed. Shows exactly one section, matching
+ * `state.roundPhase` — see `shouldShowCardChoiceRecap` above for when each
+ * one is allowed to render at all.
  */
 function CardChoiceHistoryPanel({ state, players }: { state: GameState; players: PlayerRow[] }) {
   const eligiblePlayers = state.players.filter((p) => !p.eliminated)
@@ -968,14 +987,13 @@ function CardChoiceHistoryPanel({ state, players }: { state: GameState; players:
     )
   }
 
+  if (state.roundPhase === 'decline') {
+    const declined = declinedKindsByPlayerId(state)
+    return <CardChoiceHistorySection label="Declined cards:" players={players} eligiblePlayers={eligiblePlayers} kindsByPlayerId={(playerId) => declined.get(playerId)} />
+  }
+
   const purchased = purchasedKindsByPlayerId(state)
-  const declined = declinedKindsByPlayerId(state)
-  return (
-    <div className="flex flex-col gap-2">
-      <CardChoiceHistorySection label="Declined cards:" players={players} eligiblePlayers={eligiblePlayers} kindsByPlayerId={(playerId) => declined.get(playerId)} />
-      <CardChoiceHistorySection label="Purchased cards:" players={players} eligiblePlayers={eligiblePlayers} kindsByPlayerId={(playerId) => purchased.get(playerId)} />
-    </div>
-  )
+  return <CardChoiceHistorySection label="Purchased cards:" players={players} eligiblePlayers={eligiblePlayers} kindsByPlayerId={(playerId) => purchased.get(playerId)} />
 }
 
 export function RoundView(props: {
@@ -1037,6 +1055,18 @@ export function RoundView(props: {
    * mode.
    */
   previousHistoryState: GameState | null
+  /**
+   * True exactly when the currently-reviewed `state` is the one right after
+   * everyone's card choice for the round became final but before anyone's
+   * resolved a unit action — the sole point the read-only card-choice recap
+   * below is allowed to show over the `actions` phase (issue #318/#321).
+   * Computed by GamePage from its own full-game `roundPhase` timeline (see
+   * engine/turnReview.ts's buildRoundPhaseTimeline), not from `state` alone
+   * — `state.roundPhase === 'actions'` stays true for the entire rest of
+   * the phase, so nothing on `state` by itself distinguishes this one
+   * moment from any later actor's own turn.
+   */
+  justEnteredActionsPhase?: boolean
   /** The running narration log — derived from actionHistory, see engine/gameLog.ts's buildGameLog. */
   gameLog: GameEvent[]
   onChooseCard: (cardId: string) => void
@@ -1057,7 +1087,20 @@ export function RoundView(props: {
   onPurchaseCard: (cardId: string) => void
   onPassPurchase: () => void
 }) {
-  const { state, players, myPlayerId, unitContent, achievementContent, taleContent, unitPlateColors, turnReview, showHistory, territoryControlMode, previousHistoryState } = props
+  const {
+    state,
+    players,
+    myPlayerId,
+    unitContent,
+    achievementContent,
+    taleContent,
+    unitPlateColors,
+    turnReview,
+    showHistory,
+    territoryControlMode,
+    previousHistoryState,
+    justEnteredActionsPhase = false,
+  } = props
   const [mode, setMode] = useState<ActionUiMode>({ kind: 'idle' })
   /** Hides the full player roster + achievements sidebar so the board can grow into the freed space — see the "Expand board" toggle below. */
   const [sidebarHidden, setSidebarHidden] = useState(false)
@@ -1361,21 +1404,16 @@ export function RoundView(props: {
             onHexClick={isMyActionTurn ? handleBoardClick : showHistory ? props.onExitHistory : undefined}
             expanded={sidebarHidden}
           />
-          {/* Read-only recap of card selection/purchase, overlaid on the
-              board's top-left corner while reviewing history (issue #314) — the
-              interactive pick panels above only make sense during live play
-              (see the matching `!showHistory` panels above), but a player
-              stepping through history still wants to see what everyone chose
-              without an extra click. `purchase` shows for the whole phase —
-              purchases/declines aren't secret and keep accumulating turn by
-              turn (see CardChoiceHistoryPanel's doc comment, issue #316).
-              `actions` shows only on the one turn right after `selectCards`
-              finishes, i.e. exactly where `previousHistoryState` (the state
-              just before this reviewed turn) was still `selectCards` —
-              otherwise it would stay overlaid on top of every later actor's
-              own unit-action halos for the rest of the phase (issue #318). */}
-          {showHistory &&
-            (state.roundPhase === 'purchase' || (state.roundPhase === 'actions' && previousHistoryState?.roundPhase === 'selectCards')) && (
+          {/* Read-only recap of card selection/decline/purchase, overlaid on
+              the board's top-left corner while reviewing history (issue #314)
+              — the interactive pick panels above only make sense during live
+              play (see the matching `!showHistory` panels above), but a
+              player stepping through history still wants to see what
+              everyone chose without an extra click. See
+              `shouldShowCardChoiceRecap`'s doc comment for exactly when each
+              phase's section is shown (issue #316/#318/#321: one phase at a
+              time, never blended, never with nothing to show). */}
+          {showHistory && shouldShowCardChoiceRecap(state, justEnteredActionsPhase) && (
             <div className="pointer-events-none absolute left-2 top-2 z-10 max-w-[calc(100%_-_1rem)] rounded-md border border-neutral-700 bg-neutral-900/90 p-3 shadow-lg">
               <CardChoiceHistoryPanel state={state} players={players} />
             </div>

@@ -4,7 +4,7 @@ import { createEmptyBoard, setTile } from '../board'
 import { cardIdFor, createPlayerCards, syncCardZonesWithBoard } from '../cards'
 import { createNewGame } from '../createGame'
 import { beginSelectCardsPhase } from '../round'
-import { buildTurnReview, findReviewWindowStart, findTurnStops } from '../turnReview'
+import { buildRoundPhaseTimeline, buildTurnReview, extendRoundPhaseTimeline, findReviewWindowStart, findTurnStops } from '../turnReview'
 import type { LoggedAction } from '../actions'
 import type { Card, GameState, Player, Terrain, Unit } from '../types'
 import type { UnitAction, UnitContent } from '../unitContent'
@@ -174,6 +174,86 @@ describe('findTurnStops', () => {
 
   it('returns just [0] for an empty actionHistory', () => {
     expect(findTurnStops([], 0)).toEqual([0])
+  })
+
+  it('splits on a phaseTimeline change even when the acting player stays the same, e.g. the last card-chooser also going first in the new phase (issue #318/#321)', () => {
+    // p1 chooses last (completing selectCards -> actions) and is also next
+    // up to act — no actor-change boundary between those two actions, but
+    // the phase timeline still separates them, matching count-of-actions
+    // indices (phaseTimeline[k] is the phase reached after k actions).
+    const history = historyFor(['p2', 'p1', 'p1'])
+    const phaseTimeline = ['selectCards', 'selectCards', 'actions', 'actions'] as const
+
+    // Without a phaseTimeline, the last two same-actor actions merge into one segment.
+    expect(findTurnStops(history, 0)).toEqual([0, 1, 3])
+    // With it, the phase change gets its own stop even though the actor didn't change.
+    expect(findTurnStops(history, 0, [...phaseTimeline])).toEqual([0, 1, 2, 3])
+  })
+})
+
+describe('buildRoundPhaseTimeline / extendRoundPhaseTimeline', () => {
+  const NOMAD_BOARD_2P = () =>
+    boardOf([
+      [0, 0, 'forest'],
+      [1, 0, 'forest'],
+    ])
+
+  it("records genesis's own roundPhase as index 0, then one entry per action", () => {
+    const nomadP1: Unit = { id: 'nomad_p1', ownerId: 'p1', kind: 'nomad', coord: { q: 0, r: 0 }, movement: content.movementByKind.nomad, traits: [] }
+    const nomadP2: Unit = { id: 'nomad_p2', ownerId: 'p2', kind: 'nomad', coord: { q: 1, r: 0 }, movement: content.movementByKind.nomad, traits: [] }
+    const genesis = makeGenesis([nomadP1, nomadP2], NOMAD_BOARD_2P())
+    const state = drive(genesis, [{ type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'nomad') }])
+
+    const { timeline } = buildRoundPhaseTimeline(genesis, state.actionHistory, content)
+    expect(timeline).toEqual(['selectCards', 'selectCards'])
+  })
+
+  it("captures the selectCards -> actions transition landing exactly on the last chooser's own action, distinguishing it from their own subsequent unit action (issue #318/#321)", () => {
+    // turnOrder is ['p1', 'p2'] (see makeGenesis); p2 chooses first, p1
+    // chooses last — completing the phase — and, being turnOrder[0], is
+    // also immediately up to resolve their own unit action next. This is
+    // exactly the case where a plain actor-change boundary can't tell
+    // "everyone's picked" apart from "p1's own turn" (issue #318).
+    const nomadP1: Unit = { id: 'nomad_p1', ownerId: 'p1', kind: 'nomad', coord: { q: 0, r: 0 }, movement: content.movementByKind.nomad, traits: [] }
+    const nomadP2: Unit = { id: 'nomad_p2', ownerId: 'p2', kind: 'nomad', coord: { q: 1, r: 0 }, movement: content.movementByKind.nomad, traits: [] }
+    const genesis = makeGenesis([nomadP1, nomadP2], NOMAD_BOARD_2P())
+    const state = drive(genesis, [
+      { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'nomad') },
+      { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'nomad') },
+      { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [{ unitId: 'nomad_p1', actionId: 'produce-resource' }] },
+    ])
+
+    const { timeline } = buildRoundPhaseTimeline(genesis, state.actionHistory, content)
+    // index 0: genesis (selectCards); 1: after p2's pick (still selectCards,
+    // p1 hasn't chosen yet); 2: after p1's pick (phase flips to actions,
+    // right as the recap should show); 3: after p1's own unit action.
+    expect(timeline).toEqual(['selectCards', 'selectCards', 'actions', 'actions'])
+
+    // findTurnStops using this timeline lands a stop exactly at index 2 —
+    // the pure "everyone's picked, nobody's acted yet" state — even though
+    // p1 is also the actor immediately before and after it.
+    expect(findTurnStops(state.actionHistory, 0, timeline)).toEqual([0, 1, 2, 3])
+    // Without it, that stop is unreachable — turn-by-turn stepping jumps
+    // straight from "p2 just chose" to "p1's whole turn (pick + action)
+    // already resolved", merging the two (the regression in issue #318).
+    expect(findTurnStops(state.actionHistory, 0)).toEqual([0, 1, 3])
+  })
+
+  it('extendRoundPhaseTimeline continues from an already-derived state, matching buildRoundPhaseTimeline\'s own result for the same suffix', () => {
+    const nomadP1: Unit = { id: 'nomad_p1', ownerId: 'p1', kind: 'nomad', coord: { q: 0, r: 0 }, movement: content.movementByKind.nomad, traits: [] }
+    const nomadP2: Unit = { id: 'nomad_p2', ownerId: 'p2', kind: 'nomad', coord: { q: 1, r: 0 }, movement: content.movementByKind.nomad, traits: [] }
+    const genesis = makeGenesis([nomadP1, nomadP2], NOMAD_BOARD_2P())
+    const actions: Parameters<typeof applyAction>[1][] = [
+      { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'nomad') },
+      { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'nomad') },
+    ]
+    const state = drive(genesis, actions)
+
+    const whole = buildRoundPhaseTimeline(genesis, state.actionHistory, content)
+    const partial = buildRoundPhaseTimeline(genesis, state.actionHistory.slice(0, 1), content)
+    const extended = extendRoundPhaseTimeline(partial.state, state.actionHistory.slice(1), content)
+
+    expect([...partial.timeline, ...extended.phases]).toEqual(whole.timeline)
   })
 })
 

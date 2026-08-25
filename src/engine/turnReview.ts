@@ -6,8 +6,9 @@ import { EMPTY_BOARD_GENERATION_CONTENT } from './boardGenerationContent'
 import type { BoardGenerationContent } from './boardGenerationContent'
 import { EMPTY_TALE_CONTENT } from './taleContent'
 import type { TaleContent } from './taleContent'
-import type { Coordinate, GameState, Resources } from './types'
+import type { Coordinate, GameState, Resources, RoundPhase } from './types'
 import { applyUnitActionEffect } from './unitActions'
+import { EMPTY_UNIT_CONTENT } from './unitContent'
 import type { UnitActionEffect, UnitContent } from './unitContent'
 
 /**
@@ -52,19 +53,78 @@ export function findReviewWindowStart(actionHistory: LoggedAction[], playerId: s
 /**
  * Splits `actionHistory` from `windowStart` to its end into per-player-turn
  * segments, for GamePage's "Show history" turn-by-turn stepping (issue
- * #261) — each boundary is where the acting player changes. Always starts
- * with `windowStart` and ends with `actionHistory.length`; indices are
- * absolute positions into `actionHistory` (also valid `reviewIndex` values
- * for GamePage's replay cache, since a turn boundary is just a particular
- * point in the action list). Pass `windowStart: 0` to cover the whole game.
- * A one-element result means nothing happened in `[windowStart, end]`.
+ * #261) — each boundary is where the acting player changes, OR (when
+ * `phaseTimeline` is supplied — see `buildRoundPhaseTimeline` below) where
+ * `roundPhase` changes. The phase-change boundary matters because
+ * `selectCards`→`actions` (and `actions`→`decline`/`purchase`) completes
+ * inside the very same logged action as whoever's turn just finished the
+ * old phase — so whenever that same player is also next up in the new
+ * phase (e.g. the last card-chooser happens to be `turnOrder[0]`, issue
+ * #318/#321), a plain actor-change boundary would merge "the phase just
+ * changed" together with that player's own turn in the new phase into one
+ * indistinguishable stop. Always starts with `windowStart` and ends with
+ * `actionHistory.length`; indices are absolute positions into
+ * `actionHistory` (also valid `reviewIndex` values for GamePage's replay
+ * cache, since a turn boundary is just a particular point in the action
+ * list). Pass `windowStart: 0` to cover the whole game. A one-element
+ * result means nothing happened in `[windowStart, end]`.
  */
-export function findTurnStops(actionHistory: LoggedAction[], windowStart: number): number[] {
+export function findTurnStops(actionHistory: LoggedAction[], windowStart: number, phaseTimeline?: RoundPhase[]): number[] {
   const stops = [windowStart]
   for (let i = windowStart + 1; i <= actionHistory.length; i++) {
-    if (i === actionHistory.length || actionHistory[i].action.playerId !== actionHistory[i - 1].action.playerId) stops.push(i)
+    const actorChanged = i < actionHistory.length && actionHistory[i].action.playerId !== actionHistory[i - 1].action.playerId
+    const phaseChanged = !!phaseTimeline && phaseTimeline[i] !== phaseTimeline[i - 1]
+    if (i === actionHistory.length || actorChanged || phaseChanged) stops.push(i)
   }
   return stops
+}
+
+/**
+ * Continues `timeline` (see `buildRoundPhaseTimeline` below) on top of a
+ * `state` already derived from some prefix of a game's `actionHistory` —
+ * the same incremental-extension shape as `engine/gameLog.ts`'s
+ * `extendGameLog`, so GamePage can cheaply append just the newly-logged
+ * actions instead of replaying the whole game on every update.
+ */
+export function extendRoundPhaseTimeline(
+  state: GameState,
+  actions: LoggedAction[],
+  unitContent: UnitContent = EMPTY_UNIT_CONTENT,
+  achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT,
+  boardGenerationContent: BoardGenerationContent = EMPTY_BOARD_GENERATION_CONTENT,
+  taleContent: TaleContent = EMPTY_TALE_CONTENT,
+): { state: GameState; phases: RoundPhase[] } {
+  const phases: RoundPhase[] = []
+  for (const { action } of actions) {
+    // trustedReplay: `action` comes straight from actionHistory, already
+    // validated once when originally submitted (see applyAction's own doc
+    // comment).
+    const result = applyAction(state, action, unitContent, achievementContent, boardGenerationContent, taleContent, true)
+    if (!result.ok) break // a validly-logged action should never fail to reapply; bail defensively rather than throw mid-replay
+    state = result.state
+    phases.push(state.roundPhase)
+  }
+  return { state, phases }
+}
+
+/**
+ * `state.roundPhase` after every prefix of `actionHistory`, from `genesis`
+ * (index 0, before any action) through the full history (last index) —
+ * `findTurnStops` above uses this to split "Show history" turn stops on
+ * phase changes as well as actor changes. Same replay-from-genesis
+ * approach `engine/gameLog.ts`'s `buildGameLogFrom` uses for narration;
+ * `extendRoundPhaseTimeline` above is its incremental-append counterpart.
+ */
+export function buildRoundPhaseTimeline(
+  genesis: GameState,
+  actionHistory: LoggedAction[],
+  unitContent: UnitContent = EMPTY_UNIT_CONTENT,
+  achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT,
+  boardGenerationContent: BoardGenerationContent = EMPTY_BOARD_GENERATION_CONTENT,
+  taleContent: TaleContent = EMPTY_TALE_CONTENT,
+): { state: GameState; timeline: RoundPhase[] } {
+  const { state, phases } = extendRoundPhaseTimeline(genesis, actionHistory, unitContent, achievementContent, boardGenerationContent, taleContent)
+  return { state, timeline: [genesis.roundPhase, ...phases] }
 }
 
 function diffResources(before: Resources, after: Resources): Partial<Resources> {
