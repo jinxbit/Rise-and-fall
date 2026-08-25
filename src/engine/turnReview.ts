@@ -60,7 +60,7 @@ export function findReviewWindowStart(actionHistory: LoggedAction[], playerId: s
  * PLACE_TILE/PLACE_UNIT phase before round 1) isn't part of that request,
  * so it keeps its original per-player-change granularity.
  */
-type ReviewPhaseGroup = 'boardSetup' | 'selectCards' | 'actions' | 'declinePurchase'
+export type ReviewPhaseGroup = 'boardSetup' | 'selectCards' | 'actions' | 'declinePurchase'
 
 /**
  * Maps a logged action to the `ReviewPhaseGroup` it always belongs to —
@@ -122,6 +122,24 @@ export function findTurnStops(actionHistory: LoggedAction[], windowStart: number
     playerId = nextPlayerId
   }
   return stops
+}
+
+/**
+ * The `ReviewPhaseGroup` governing a history-review stop ending at `stopEnd`
+ * (one of `findTurnStops`'s return values, `stopEnd > 0`) — lets GamePage's
+ * "Show history" banner (issue #324) tell a simultaneous phase
+ * (`selectCards`/`declinePurchase`, where nobody is "next" to play) from a
+ * turn-order one, so it can show the phase name instead of a misleading
+ * player. Walks from the start of `actionHistory` the same way
+ * `findTurnStops` does, since every action's group depends on the one
+ * before it (see `reviewPhaseGroupFor`'s CONCEDE case).
+ */
+export function reviewPhaseGroupAt(actionHistory: LoggedAction[], stopEnd: number): ReviewPhaseGroup {
+  let group: ReviewPhaseGroup = 'boardSetup'
+  for (let i = 0; i < stopEnd; i++) {
+    group = reviewPhaseGroupFor(actionHistory[i].action, group)
+  }
+  return group
 }
 
 function diffResources(before: Resources, after: Resources): Partial<Resources> {
