@@ -2,8 +2,10 @@ import { Link } from 'react-router-dom'
 import { DiscordWebhookSettings } from '../components/DiscordWebhookSettings'
 import { DisplayNameSettings } from '../components/DisplayNameSettings'
 import { PushNotificationSettings } from '../components/PushNotificationSettings'
+import { UnitColorSettings } from '../components/UnitColorSettings'
 import { useAuth } from '../hooks/useAuth'
 import { useDisplayName } from '../hooks/useDisplayName'
+import { useUnitPlateColors } from '../hooks/useUnitPlateColors'
 import { signOut } from '../lib/auth'
 import { resolveDisplayName } from '../lib/displayName'
 
@@ -14,6 +16,11 @@ export function ProfilePage() {
     loading: displayNameLoading,
     setProfileDisplayName,
   } = useDisplayName(session?.user ?? null)
+  const {
+    overrides: unitColorOverrides,
+    loading: unitColorsLoading,
+    setOverrides: setUnitColorOverrides,
+  } = useUnitPlateColors(session?.user ?? null)
 
   if (loading) return <div className="p-8 text-neutral-400">Loading…</div>
 
@@ -54,6 +61,13 @@ export function ProfilePage() {
         fallback={discordName}
         loading={displayNameLoading}
         onSaved={setProfileDisplayName}
+      />
+
+      <UnitColorSettings
+        userId={user.id}
+        overrides={unitColorOverrides}
+        loading={unitColorsLoading}
+        onSaved={setUnitColorOverrides}
       />
 
       <DiscordWebhookSettings user={user} />

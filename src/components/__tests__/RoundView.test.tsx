@@ -2035,9 +2035,11 @@ describe('RoundView — map indicator for a unit\'s card zone (issue #305)', () 
 
   const move = { isMobile: true, terrains: [], canCrossCliffs: false }
 
-  const HAND_PLATE_COLOR = '#fde68a'
+  const HAND_PLATE_COLOR = '#fef3c7'
+  const SELECTED_PLATE_COLOR = '#fde68a'
+  const DISCARD_PLATE_COLOR = '#f2f2ef'
 
-  it("fills the plate gold on the map for a unit whose card is in the owner's hand", () => {
+  it("fills the plate a light gold on the map for a unit whose card is in the owner's hand", () => {
     const state = makeState() // p1's hand is ['nomad', 'ship'] (see makeEnginePlayer)
     state.board = setTile(state.board, { q: 0, r: 0 }, 'plain')
     state.units = [{ id: 'u1', ownerId: 'p1', kind: 'nomad', coord: { q: 0, r: 0 }, movement: move, traits: [] }]
@@ -2045,6 +2047,47 @@ describe('RoundView — map indicator for a unit\'s card zone (issue #305)', () 
     const { container } = renderWithUnits(state)
 
     expect(container.querySelectorAll(`circle[fill="${HAND_PLATE_COLOR}"]`)).toHaveLength(1)
+  })
+
+  it("fills the plate the (darker) selected gold once the actions phase reveals the round's chosen card, even though it's still technically in the 'hand' CardZone until the owner's turn resolves it (issue #311 follow-up)", () => {
+    const state = makeState() // p1's hand is ['nomad', 'ship']
+    state.board = setTile(state.board, { q: 0, r: 0 }, 'plain')
+    state.roundPhase = 'actions'
+    state.chosenCardIdByPlayerId = { p1: cardIdFor('p1', 'nomad'), p2: null }
+    state.units = [{ id: 'u1', ownerId: 'p1', kind: 'nomad', coord: { q: 0, r: 0 }, movement: move, traits: [] }]
+
+    const { container } = renderWithUnits(state)
+
+    expect(container.querySelectorAll(`circle[fill="${SELECTED_PLATE_COLOR}"]`)).toHaveLength(1)
+    expect(container.querySelectorAll(`circle[fill="${HAND_PLATE_COLOR}"]`)).toHaveLength(0)
+  })
+
+  it("doesn't reveal the round's chosen card as selected during the secret selectCards phase — same secrecy as PlayerSidebar's own 'Playing' badge", () => {
+    const state = makeState() // roundPhase defaults to 'selectCards'
+    state.board = setTile(state.board, { q: 0, r: 0 }, 'plain')
+    state.chosenCardIdByPlayerId = { p1: cardIdFor('p1', 'nomad'), p2: null }
+    state.units = [{ id: 'u1', ownerId: 'p1', kind: 'nomad', coord: { q: 0, r: 0 }, movement: move, traits: [] }]
+
+    const { container } = renderWithUnits(state)
+
+    expect(container.querySelectorAll(`circle[fill="${SELECTED_PLATE_COLOR}"]`)).toHaveLength(0)
+    expect(container.querySelectorAll(`circle[fill="${HAND_PLATE_COLOR}"]`)).toHaveLength(1)
+  })
+
+  it("shows a previous player's already-resolved pick as discard, not selected, once their turn has passed (their chosen card id is still recorded, but finishActionsTurn already moved the card to discard)", () => {
+    const state = makeState()
+    state.board = setTile(state.board, { q: 0, r: 0 }, 'plain')
+    state.roundPhase = 'actions'
+    state.chosenCardIdByPlayerId = { p1: cardIdFor('p1', 'nomad'), p2: null }
+    const p1 = state.players.find((p) => p.id === 'p1')!
+    p1.handCardIds = p1.handCardIds.filter((id) => id !== cardIdFor('p1', 'nomad'))
+    p1.discardCardIds = [cardIdFor('p1', 'nomad')]
+    state.units = [{ id: 'u1', ownerId: 'p1', kind: 'nomad', coord: { q: 0, r: 0 }, movement: move, traits: [] }]
+
+    const { container } = renderWithUnits(state)
+
+    expect(container.querySelectorAll(`circle[fill="${DISCARD_PLATE_COLOR}"]`)).toHaveLength(1)
+    expect(container.querySelectorAll(`circle[fill="${SELECTED_PLATE_COLOR}"]`)).toHaveLength(0)
   })
 
   it("greys out the glyph for a unit whose card has been moved to decline, and draws no gold plate", () => {
@@ -2075,5 +2118,40 @@ describe('RoundView — map indicator for a unit\'s card zone (issue #305)', () 
 
     expect(container.querySelectorAll(`[fill="${HAND_PLATE_COLOR}"]`)).toHaveLength(0)
     expect(container.querySelectorAll('[fill="#9ca3af"]')).toHaveLength(0)
+  })
+
+  it('threads a custom unitPlateColors prop down to the board instead of the defaults (profile customization, issue #311 follow-up)', () => {
+    const state = makeState() // p1's hand is ['nomad', 'ship']
+    state.board = setTile(state.board, { q: 0, r: 0 }, 'plain')
+    state.units = [{ id: 'u1', ownerId: 'p1', kind: 'nomad', coord: { q: 0, r: 0 }, movement: move, traits: [] }]
+    const players: PlayerRow[] = [makePlayerRow('p1', 'Alice', '#ef4444'), makePlayerRow('p2', 'Bob', '#3b82f6')]
+
+    const { container } = render(
+      <RoundView
+        state={state}
+        players={players}
+        myPlayerId="p1"
+        unitContent={EMPTY_UNIT_CONTENT}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
+        unitPlateColors={{ hand: '#123456', selected: '#654321', discard: '#abcdef' }}
+        turnReview={null}
+        showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
+        gameLog={[]}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+
+    expect(container.querySelectorAll('circle[fill="#123456"]')).toHaveLength(1)
+    expect(container.querySelectorAll(`circle[fill="${HAND_PLATE_COLOR}"]`)).toHaveLength(0)
   })
 })

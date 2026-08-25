@@ -18,6 +18,7 @@ import type { TurnReview } from '../engine/turnReview'
 import { currentActorId } from '../engine/turnOrder'
 import { useAuth } from '../hooks/useAuth'
 import { useIsAdmin } from '../hooks/useIsAdmin'
+import { useUnitPlateColors } from '../hooks/useUnitPlateColors'
 import type { GameRow, PlayerRow } from '../lib/dbTypes'
 import { simpleError, toAppError, type AppError } from '../lib/errors'
 import { buildGenesisState } from '../lib/gameGenesis'
@@ -78,6 +79,7 @@ export function GamePage() {
   const { roomCode } = useParams<{ roomCode: string }>()
   const { session, loading: authLoading } = useAuth()
   const isAdmin = useIsAdmin(session?.user ?? null)
+  const { colors: unitPlateColors } = useUnitPlateColors(session?.user ?? null)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -1392,6 +1394,7 @@ export function GamePage() {
           unitContent={unitContent}
           achievementContent={achievementContent}
           taleContent={taleContent}
+          unitPlateColors={unitPlateColors}
           turnReview={turnHalos}
           showHistory={isReviewingHistory}
           onExitHistory={() => setReviewIndex(null)}

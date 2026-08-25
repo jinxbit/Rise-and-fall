@@ -3,6 +3,8 @@ import { neighborCoords } from '../engine/board'
 import { isCliffEdge } from '../engine/cliffs'
 import type { Board, Coordinate, Resources, Terrain } from '../engine/types'
 import { coordKey } from '../engine/types'
+import { DEFAULT_UNIT_PLATE_COLORS } from '../lib/unitColors'
+import type { UnitPlateColors } from '../lib/unitColors'
 import { ResourceIcon } from './ResourceIcon'
 import { RESOURCE_COLOR_CLASS } from './resourceIcons'
 import type { IconShape } from './unitIcons'
@@ -417,8 +419,18 @@ export interface UnitMarker {
   historyDelta?: Partial<Resources>
   /** Mirrors Unit.connectedNeighborCoords (see ../engine/types) — the two neighboring hexes this structure spans between, e.g. Bridge. Drawn as a marker on those two hex sides so it's visible which sides land units may cross onto/from. */
   connectedNeighborCoords?: [Coordinate, Coordinate]
-  /** This unit's card currently sits in its owner's hand (see cards.ts's CardZone) — the plate fills gold instead of the usual off-white (issue #305/#311). Mutually exclusive with `declined` — a card is in exactly one zone at a time. */
-  inHand?: boolean
+  /**
+   * Which of the 3 customizable card-zone states (see cards.ts's CardZone)
+   * this unit's card currently sits in — the plate fills the matching colour
+   * from `unitPlateColors` (issue #305/#311/#313) instead of the usual
+   * neutral one. `'hand'`: sitting untouched in the owner's hand. `'selected'`:
+   * the card the owner has chosen to play this round, still awaiting their
+   * turn to resolve. `'discard'`: already played this round (or otherwise
+   * sitting in discard). Omitted (supply/decline/no card) renders the usual
+   * neutral plate. Mutually exclusive with `declined` — a card is in exactly
+   * one zone at a time.
+   */
+  cardState?: 'hand' | 'selected' | 'discard'
   /** This unit's card currently sits in its owner's decline pile (see cards.ts's CardZone) — the glyph is drawn grey with a thin dark outline instead of the usual near-black fill, so a declined unit still on the board reads as visually distinct (issue #305). */
   declined?: boolean
 }
@@ -435,8 +447,12 @@ const UNIT_GLYPH_COLOR = '#14161a'
 const UNIT_GLYPH_DECLINED_COLOR = '#9ca3af'
 /** The marker's fixed backdrop behind the glyph — deliberately NOT the player's colour (see unitIcons.ts's doc comment for why). Ownership shows instead as a small colour bar beneath it. */
 const UNIT_PLATE_COLOR = '#f2f2ef'
-/** Plate fill while the unit's card is in hand (see UnitMarker.inHand, issue #305/#311) — a light gold, so the whole plate reads as "resource-bearing" at a glance instead of a small corner badge. */
-const UNIT_HAND_PLATE_COLOR = '#fde68a'
+
+/** Resolves a unit's plate fill for its `cardState` (see UnitMarker.cardState) against the board's configured `unitPlateColors` — falls back to the fixed neutral plate for `undefined` (supply/decline/no card). */
+function plateColorFor(cardState: UnitMarker['cardState'], colors: UnitPlateColors): string {
+  if (!cardState) return UNIT_PLATE_COLOR
+  return colors[cardState]
+}
 
 /** A unit kind's pictogram, centered at (x, y) at `size` pixels square. Grey with a thin outline while `declined` (see UnitMarker.declined), otherwise the fixed ink colour. */
 function UnitGlyph({ kind, x, y, size, declined }: { kind: string; x: number; y: number; size: number; declined?: boolean }) {
@@ -750,6 +766,8 @@ export function HexBoard(props: {
   extraCoords?: Coordinate[]
   ghostCells?: GhostCell[]
   units?: UnitMarker[]
+  /** Per-card-zone plate colours for `units[].cardState` (issue #311 follow-up) — a signed-in player's profile settings (see UnitColorSettings.tsx), resolved against DEFAULT_UNIT_PLATE_COLORS. Defaults to DEFAULT_UNIT_PLATE_COLORS itself when omitted, e.g. for a signed-out viewer or a context with no profile to load. */
+  unitPlateColors?: UnitPlateColors
   /** History-review overlay (see RoundView.tsx's history toggle): one arrow per movement hop since the reviewed window began. */
   arrows?: HistoryArrow[]
   actionMenu?: ActionMenu
@@ -844,6 +862,7 @@ export function HexBoard(props: {
   analyzing?: boolean
 }) {
   const size = props.size ?? 22
+  const unitPlateColors = props.unitPlateColors ?? DEFAULT_UNIT_PLATE_COLORS
   // Scoped to this HexBoard instance (React can mount several at once, e.g. AdminMapsPage's
   // list) so each board's <pattern> definition only ever resolves to its own.
   const neutralStripePatternId = useId()
@@ -1198,12 +1217,12 @@ export function HexBoard(props: {
                 width={plateSize}
                 height={plateSize}
                 rx={plateSize * 0.15}
-                fill={unit.inHand ? UNIT_HAND_PLATE_COLOR : UNIT_PLATE_COLOR}
+                fill={plateColorFor(unit.cardState, unitPlateColors)}
                 stroke="#000"
                 strokeWidth={1}
               />
             ) : (
-              <circle cx={x} cy={y} r={plateSize / 2} fill={unit.inHand ? UNIT_HAND_PLATE_COLOR : UNIT_PLATE_COLOR} stroke="#000" strokeWidth={1} />
+              <circle cx={x} cy={y} r={plateSize / 2} fill={plateColorFor(unit.cardState, unitPlateColors)} stroke="#000" strokeWidth={1} />
             )}
             <rect
               x={x - barWidth / 2}

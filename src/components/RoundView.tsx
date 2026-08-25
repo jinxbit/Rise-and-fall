@@ -24,6 +24,7 @@ import { listAchievements } from '../content/resolveContent'
 import type { Card, Coordinate, GameEvent, GameState, Player, Resources, RoundPhase, Unit } from '../engine/types'
 import type { UnitAction, UnitContent } from '../engine/unitContent'
 import type { PlayerRow } from '../lib/dbTypes'
+import type { UnitPlateColors } from '../lib/unitColors'
 import type { GhostCell, HistoryArrow, HistoryHaloType, UnitMarker } from './HexBoard'
 import { HexBoard } from './HexBoard'
 import { ResourceIcon } from './ResourceIcon'
@@ -886,6 +887,8 @@ export function RoundView(props: {
   achievementContent: AchievementContent
   /** Drives the achievements panel's "Tale bonuses" section and its contribution to each player's live score (see calculateVPBreakdown) — EMPTY_TALE_CONTENT for a game with no Tales active. */
   taleContent: TaleContent
+  /** Per-card-zone unit plate colours (issue #311 follow-up) — GamePage's `useUnitPlateColors` resolves the viewer's own profile settings against the defaults; undefined (e.g. no signed-in viewer) falls back to DEFAULT_UNIT_PLATE_COLORS inside HexBoard. */
+  unitPlateColors?: UnitPlateColors
   /**
    * What happened during the single turn currently shown by GamePage's
    * "Show history" bar (issue #261) — see engine/turnReview.ts's
@@ -955,7 +958,7 @@ export function RoundView(props: {
   onPurchaseCard: (cardId: string) => void
   onPassPurchase: () => void
 }) {
-  const { state, players, myPlayerId, unitContent, achievementContent, taleContent, turnReview, showHistory, territoryControlMode, previousHistoryState } = props
+  const { state, players, myPlayerId, unitContent, achievementContent, taleContent, unitPlateColors, turnReview, showHistory, territoryControlMode, previousHistoryState } = props
   const [mode, setMode] = useState<ActionUiMode>({ kind: 'idle' })
   /** Hides the full player roster + achievements sidebar so the board can grow into the freed space — see the "Expand board" toggle below. */
   const [sidebarHidden, setSidebarHidden] = useState(false)
@@ -1091,12 +1094,33 @@ export function RoundView(props: {
   const historyByUnit = showHistory && turnReview ? summarizeUnitHistory(turnReview.events) : null
   const units: UnitMarker[] = state.units.map((u) => {
     const history = historyByUnit?.get(u.id)
-    // Card-zone lookup for the "in hand" star / "in decline" grey glyph
-    // (issue #305) — each player has exactly one card per unit kind
+    // Card-zone lookup for the plate colour / "in decline" grey glyph
+    // (issue #305/#311) — each player has exactly one card per unit kind
     // (cardIdFor), so no need to search state.cards. `players` (PlayerRow[])
     // only carries display info; card zones live on state.players (Player).
     const engineOwner = state.players.find((p) => p.id === u.ownerId)
-    const cardZone = engineOwner ? findCardZone(engineOwner, cardIdFor(u.ownerId, u.kind)) : undefined
+    const cardId = cardIdFor(u.ownerId, u.kind)
+    const cardZone = engineOwner ? findCardZone(engineOwner, cardId) : undefined
+    // A card stays in the 'hand' zone (see cards.ts's findCardZone) for the
+    // whole round once chosen, right up until its owner's turn actually
+    // resolves it (applyAction.ts's finishActionsTurn moves it hand ->
+    // discard then) — so "selected" isn't its own CardZone in practice, it's
+    // this hand card matching the round's chosen pick. Revealed to every
+    // player once the actions phase starts (matching PlayerSidebar's own
+    // "Playing" badge above), not just once it's actually that owner's turn
+    // — see this file's PlayerSidebar component for the same reveal-timing
+    // comment. Once a player's turn passes, cardZone naturally flips to
+    // 'discard' on its own, so an earlier player's pick reads as discard
+    // without any extra bookkeeping here.
+    const isChosenThisRound = state.roundPhase === 'actions' && engineOwner && state.chosenCardIdByPlayerId[engineOwner.id] === cardId
+    const cardState: UnitMarker['cardState'] =
+      cardZone === 'currentlyPlayed' || (cardZone === 'hand' && isChosenThisRound)
+        ? 'selected'
+        : cardZone === 'hand'
+          ? 'hand'
+          : cardZone === 'discard'
+            ? 'discard'
+            : undefined
     return {
       coord: u.coord,
       color: players.find((p) => p.id === u.ownerId)?.color ?? '#a3a3a3',
@@ -1111,7 +1135,7 @@ export function RoundView(props: {
       historyHalos: history?.halos,
       historyDelta: history && Object.keys(history.resourceDelta).length > 0 ? history.resourceDelta : undefined,
       connectedNeighborCoords: u.connectedNeighborCoords,
-      inHand: cardZone === 'hand',
+      cardState,
       declined: cardZone === 'decline',
     }
   })
@@ -1212,6 +1236,7 @@ export function RoundView(props: {
           <HexBoard
             board={state.board}
             units={units}
+            unitPlateColors={unitPlateColors}
             arrows={historyArrows}
             ghostCells={ghostCells}
             actionMenu={actionMenu}

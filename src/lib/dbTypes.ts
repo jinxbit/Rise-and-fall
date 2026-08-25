@@ -186,5 +186,16 @@ export interface ProfileRow {
   display_name: string | null
   /** Grants the room-lifecycle "delete any game" override (0017_admin_delete_any_game.sql) — nothing in the UI sets this, it's assigned directly via SQL. */
   is_admin: boolean
+  /**
+   * Per-account unit-plate colour overrides (issue #311 follow-up, see
+   * 0022_unit_plate_colors.sql and src/lib/unitColors.ts) — null means "use
+   * the default" for that state. `unit_color_hand`: a card sitting untouched
+   * in hand. `unit_color_selected`: the card chosen to play this round.
+   * `unit_color_discard`: already played this round (or otherwise sitting in
+   * discard).
+   */
+  unit_color_hand: string | null
+  unit_color_selected: string | null
+  unit_color_discard: string | null
   updated_at: string
 }
