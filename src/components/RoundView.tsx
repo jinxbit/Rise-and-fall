@@ -897,12 +897,26 @@ function declinedKindsByPlayerId(state: GameState): Map<string, string[]> {
  * in the very same action that completed this one (see
  * `roundPhaseForRecap`'s doc comment) — so the round actually being
  * recapped is `state.turn - 1`.
+ *
+ * Also accepts `recapTurn + 1` (issue #328): `applyAction`
+ * (engine/applyAction.ts) logs an action's `turn` as `state.turn` *after*
+ * applying it, and whichever single decline/purchase action happens to
+ * finish the round chains straight through `finishRound` in that very same
+ * call — bumping `state.turn` before it's logged. So that one entry (often
+ * the very last purchase, or the last decline when nobody can afford a
+ * buyback) is logged one turn ahead of every other action in the same
+ * phase, and a strict `=== recapTurn` filter silently dropped it. Safe to
+ * accept unconditionally: `turn` only ever increases along `actionHistory`,
+ * `state.actionHistory` here never reaches past the reviewed stop (see
+ * CardChoiceHistoryPanel's doc comment), and `finishRound` runs at most
+ * once per phase — so `recapTurn + 1` can only ever match that phase's own
+ * closing entry, never a genuinely different round's.
  */
 function kindsByPlayerIdForActionThisTurn(state: GameState, actionType: 'PURCHASE_CARD' | 'MOVE_TO_DECLINE'): Map<string, string[]> {
   const recapTurn = state.roundPhase === 'decline' || state.roundPhase === 'purchase' ? state.turn : state.turn - 1
   const byPlayerId = new Map<string, string[]>()
   for (const entry of state.actionHistory) {
-    if (entry.turn !== recapTurn || entry.action.type !== actionType) continue
+    if ((entry.turn !== recapTurn && entry.turn !== recapTurn + 1) || entry.action.type !== actionType) continue
     const kind = state.cards[entry.action.cardId]?.kind
     if (!kind) continue
     const list = byPlayerId.get(entry.action.playerId) ?? []

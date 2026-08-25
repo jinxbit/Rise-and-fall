@@ -2057,6 +2057,43 @@ describe('RoundView — history review overlay', () => {
     const declinedRow = screen.getByText('Declined cards:').nextElementSibling as HTMLElement
     expect(within(declinedRow).getByTitle('City')).toBeInTheDocument()
   })
+
+  it("doesn't drop the single action that itself completed the phase, even though applyAction logs its turn one ahead of the rest (issue #328)", () => {
+    const purchasedCardId = cardIdFor('p1', 'mountaineer')
+    const declinedCardId = cardIdFor('p2', 'city')
+    renderWithReview(
+      { events: [], resourceDeltaByPlayerId: {} },
+      true,
+      undefined,
+      {
+        // Mirrors applyAction.ts: only the single action that actually
+        // chains into finishRound (here, p2's decline — the round has
+        // nothing left to purchase, so beginPurchasePhase falls straight
+        // through) is logged with the already-incremented turn; every
+        // other action in the same phase keeps the round it really
+        // happened in.
+        roundPhase: 'selectCards',
+        chosenCardIdByPlayerId: { p1: null, p2: null },
+        pendingPlayerIds: ['p1', 'p2'],
+        activePlayerId: null,
+        turn: 2,
+        actionHistory: [
+          { action: { type: 'PURCHASE_CARD', playerId: 'p1', cardId: purchasedCardId }, turn: 1, timestamp: '' },
+          { action: { type: 'MOVE_TO_DECLINE', playerId: 'p2', cardId: declinedCardId }, turn: 2, timestamp: '' },
+        ],
+        players: [
+          { ...makeEnginePlayer('p1', ['nomad', 'ship']), declineCardIds: [] },
+          { ...makeEnginePlayer('p2', ['city']), declineCardIds: [declinedCardId] },
+        ],
+      },
+      true,
+    )
+
+    const purchasedRow = screen.getByText('Purchased cards:').nextElementSibling as HTMLElement
+    expect(within(purchasedRow).getByTitle('Mountaineer')).toBeInTheDocument()
+    const declinedRow = screen.getByText('Declined cards:').nextElementSibling as HTMLElement
+    expect(within(declinedRow).getByTitle('City')).toBeInTheDocument()
+  })
 })
 
 describe('RoundView — territory control overlay (issue #281)', () => {
