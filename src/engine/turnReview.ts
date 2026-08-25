@@ -6,7 +6,7 @@ import { EMPTY_BOARD_GENERATION_CONTENT } from './boardGenerationContent'
 import type { BoardGenerationContent } from './boardGenerationContent'
 import { EMPTY_TALE_CONTENT } from './taleContent'
 import type { TaleContent } from './taleContent'
-import type { Coordinate, GameState, Resources } from './types'
+import type { Coordinate, GameState, Resources, RoundPhase } from './types'
 import { applyUnitActionEffect } from './unitActions'
 import type { UnitActionEffect, UnitContent } from './unitContent'
 
@@ -140,6 +140,93 @@ export function reviewPhaseGroupAt(actionHistory: LoggedAction[], stopEnd: numbe
     group = reviewPhaseGroupFor(actionHistory[i].action, group)
   }
   return group
+}
+
+/**
+ * The `RoundPhase` a history-review stop ending at `stopEnd` should be
+ * treated as being in for `shouldShowCardChoiceRecap`'s purposes — usually
+ * just `state.roundPhase` itself, EXCEPT for two auto-chaining cases (issue
+ * #326's second and third follow-ups) where the replayed `state.roundPhase`
+ * has already raced ahead of the `ReviewPhaseGroup` (see `reviewPhaseGroupAt`)
+ * this stop is actually showing:
+ *
+ * - Right at (or after) a completed `actions` review stop: just like
+ *   `applyChooseCard` flips `roundPhase` straight to `'actions'` the instant
+ *   the last `selectCards` pick lands (see `shouldShowCardChoiceRecap`'s own
+ *   doc comment), `beginPostActionsPhase` (round.ts) chains the *last*
+ *   acting player's stop straight into `'decline'`/`'purchase'` — and, if
+ *   that phase itself has nothing pending (e.g. no achievement was claimed
+ *   this round, or nobody has anything to decline yet), straight on through
+ *   `finishRound` into the *next* round's `'selectCards'` (or `'completed'`)
+ *   — the instant that player's last action lands. So a stop `reviewPhaseGroupAt`
+ *   still classifies as `'actions'` (i.e. this is genuinely the last acting
+ *   player's own turn, not yet the decline/purchase group's turn) can no
+ *   longer trust `state.roundPhase` to still read `'actions'` either.
+ *   Reports `'actions'` unconditionally for this group — mid-phase, before
+ *   any chaining, `state.roundPhase` already reads `'actions'` anyway, so
+ *   this only ever changes the one already-chained stop, never a genuine
+ *   mid-`actions` one.
+ * - Right at a completed `declinePurchase` review stop: `applyMoveToDecline`/
+ *   `applyPurchaseCard`/`applyPassPurchase` chain the same way, straight
+ *   through `finishRound` into the *next* round's `beginSelectCardsPhase`
+ *   (or straight to `status: 'completed'`) the instant the group's last
+ *   action lands — so by the time this stop is reached, `state.roundPhase`
+ *   no longer reads `'decline'`/`'purchase'` at all, even though the recap
+ *   should still show what was just declined and purchased. Reports
+ *   `'purchase'` for that case instead.
+ *
+ *   `stopEnd < actionHistory.length` (a genuinely earlier, already-passed
+ *   stop) is enough on its own to know the group's last action is behind us
+ *   — `findTurnStops` only ever draws a boundary once the *next* action's
+ *   group has changed. At the live tail (`stopEnd === actionHistory.length`,
+ *   i.e. "now"), there's no next action to check, so only `state.status ===
+ *   'completed'` gives that same guarantee; otherwise `state.roundPhase` is
+ *   trusted as genuinely still `'decline'`/`'purchase'`, mid-phase (matching
+ *   `shouldShowCardChoiceRecap`'s existing "never mid-pick" rule for
+ *   `'decline'`, and its existing turn-order partial-reveal allowance for
+ *   `'purchase'`). The `'actions'` case above needs no equivalent live-tail
+ *   guard: unlike `'decline'`/`'purchase'`, `'actions'` is never itself a
+ *   value worth "trusting" mid-phase over the forced one — they agree.
+ */
+export function roundPhaseForRecap(actionHistory: LoggedAction[], stopEnd: number, state: GameState): RoundPhase {
+  const group = reviewPhaseGroupAt(actionHistory, stopEnd)
+  if (group === 'actions') return 'actions'
+  if (group === 'declinePurchase' && (stopEnd < actionHistory.length || state.status === 'completed')) return 'purchase'
+  return state.roundPhase
+}
+
+/**
+ * Whether RoundView's card-choice recap overlay (CardChoiceHistoryPanel)
+ * should be shown for a history-review stop at `roundPhase` (issue #326
+ * follow-up to #314/#316) — never for `selectCards`/`decline` themselves (a
+ * partial "n of N chosen" picture while eligible players are still
+ * mid-pick), and for `actions`/`purchase` only at the FIRST review stop that
+ * shows the phase's completed picks, not every stop after it. Callers must
+ * pass `roundPhaseForRecap`'s result, not the review stop's raw
+ * `state.roundPhase` — see that function's own doc comment for why the raw
+ * field can't be trusted for `declinePurchase` stops.
+ *
+ * In turn-step mode, `actions` gets one stop per acting player
+ * (`findTurnStops`'s `splitsWithinGroup`), and `selectCards` collapses to a
+ * single stop that — because `applyChooseCard` flips `roundPhase` straight
+ * to `'actions'` the instant the last player picks (see applyAction.ts) —
+ * already replays as `roundPhase: 'actions'` itself; there's no reachable
+ * stop where it's still `'selectCards'` with every pick in. So "is this the
+ * first stop showing `'actions'`/`'purchase'`" can't be read off *this*
+ * stop's own action types (a CHOOSE_CARD-classified stop can itself already
+ * be the `'actions'`-phase state) — it has to compare against the roundPhase
+ * the PREVIOUS turn-stop actually replayed to. `previousStopRoundPhase` is
+ * that comparison point, supplied by the caller (GamePage's replay cache
+ * already holds every stop's state) — `null` when there is no previous stop
+ * (genesis, or reviewing the very first stop in the window), which compares
+ * unequal to any real `RoundPhase` and so still shows. Action-by-action
+ * ("Review history") mode has no multi-stop group at all, so
+ * `historyStepMode !== 'turn'` always passes once the phase itself is right.
+ */
+export function shouldShowCardChoiceRecap(roundPhase: RoundPhase, previousStopRoundPhase: RoundPhase | null, historyStepMode: 'action' | 'turn'): boolean {
+  if (roundPhase !== 'actions' && roundPhase !== 'purchase') return false
+  if (historyStepMode !== 'turn') return true
+  return previousStopRoundPhase !== roundPhase
 }
 
 function diffResources(before: Resources, after: Resources): Partial<Resources> {
