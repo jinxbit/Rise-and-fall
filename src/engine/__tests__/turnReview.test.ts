@@ -275,9 +275,24 @@ describe('roundPhaseForRecap', () => {
     expect(roundPhaseForRecap(history, 1, fakeState('purchase'))).toBe('purchase')
   })
 
-  it('passes the replayed roundPhase through unchanged outside the declinePurchase group', () => {
-    const history: LoggedAction[] = [{ action: { type: 'PASS_ACTIONS', playerId: 'p1' }, turn: 1, timestamp: '' }]
+  it('passes the replayed roundPhase through unchanged outside the actions/declinePurchase groups', () => {
+    const history: LoggedAction[] = [{ action: { type: 'CHOOSE_CARD', playerId: 'p1', cardId: 'c1' }, turn: 1, timestamp: '' }]
     expect(roundPhaseForRecap(history, 1, fakeState('actions'))).toBe('actions')
+  })
+
+  it("reports 'actions' for a completed actions-group stop even though its replayed state already chained straight into 'purchase' (e.g. no achievement claimed this round, so decline was skipped entirely)", () => {
+    const history: LoggedAction[] = [{ action: { type: 'PASS_ACTIONS', playerId: 'p1' }, turn: 1, timestamp: '' }]
+    expect(roundPhaseForRecap(history, 1, fakeState('purchase'))).toBe('actions')
+  })
+
+  it("reports 'actions' for a completed actions-group stop even though its replayed state already chained all the way through to the next round's selectCards (nothing pending in either decline or purchase)", () => {
+    const history: LoggedAction[] = [{ action: { type: 'PASS_ACTIONS', playerId: 'p1' }, turn: 1, timestamp: '' }]
+    expect(roundPhaseForRecap(history, 1, fakeState('selectCards'))).toBe('actions')
+  })
+
+  it("reports 'actions' for the live tail right after the actions group's last action, same as a historical stop", () => {
+    const history: LoggedAction[] = [{ action: { type: 'PASS_ACTIONS', playerId: 'p1' }, turn: 1, timestamp: '' }]
+    expect(roundPhaseForRecap(history, history.length, fakeState('purchase'))).toBe('actions')
   })
 })
 

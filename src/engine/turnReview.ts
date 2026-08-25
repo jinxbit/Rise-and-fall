@@ -145,31 +145,52 @@ export function reviewPhaseGroupAt(actionHistory: LoggedAction[], stopEnd: numbe
 /**
  * The `RoundPhase` a history-review stop ending at `stopEnd` should be
  * treated as being in for `shouldShowCardChoiceRecap`'s purposes — usually
- * just `state.roundPhase` itself, EXCEPT right at a completed
- * `declinePurchase` review stop (issue #326's second follow-up): just like
- * `applyChooseCard` flips `roundPhase` straight to `'actions'` the instant
- * the last `selectCards` pick lands (see `shouldShowCardChoiceRecap`'s own
- * doc comment), `applyMoveToDecline`/`applyPurchaseCard`/`applyPassPurchase`
- * chain straight through `finishRound` into the *next* round's
- * `beginSelectCardsPhase` (or straight to `status: 'completed'`) the instant
- * the group's last action lands (round.ts) — so by the time this stop is
- * reached, `state.roundPhase` no longer reads `'decline'`/`'purchase'` at
- * all, even though the recap should still show what was just declined and
- * purchased. Reports `'purchase'` for that case instead.
+ * just `state.roundPhase` itself, EXCEPT for two auto-chaining cases (issue
+ * #326's second and third follow-ups) where the replayed `state.roundPhase`
+ * has already raced ahead of the `ReviewPhaseGroup` (see `reviewPhaseGroupAt`)
+ * this stop is actually showing:
  *
- * `stopEnd < actionHistory.length` (a genuinely earlier, already-passed
- * stop) is enough on its own to know the group's last action is behind us —
- * `findTurnStops` only ever draws a boundary once the *next* action's group
- * has changed. At the live tail (`stopEnd === actionHistory.length`, i.e.
- * "now"), there's no next action to check, so only `state.status ===
- * 'completed'` gives that same guarantee; otherwise `state.roundPhase` is
- * trusted as genuinely still `'decline'`/`'purchase'`, mid-phase (matching
- * `shouldShowCardChoiceRecap`'s existing "never mid-pick" rule for
- * `'decline'`, and its existing turn-order partial-reveal allowance for
- * `'purchase'`).
+ * - Right at (or after) a completed `actions` review stop: just like
+ *   `applyChooseCard` flips `roundPhase` straight to `'actions'` the instant
+ *   the last `selectCards` pick lands (see `shouldShowCardChoiceRecap`'s own
+ *   doc comment), `beginPostActionsPhase` (round.ts) chains the *last*
+ *   acting player's stop straight into `'decline'`/`'purchase'` — and, if
+ *   that phase itself has nothing pending (e.g. no achievement was claimed
+ *   this round, or nobody has anything to decline yet), straight on through
+ *   `finishRound` into the *next* round's `'selectCards'` (or `'completed'`)
+ *   — the instant that player's last action lands. So a stop `reviewPhaseGroupAt`
+ *   still classifies as `'actions'` (i.e. this is genuinely the last acting
+ *   player's own turn, not yet the decline/purchase group's turn) can no
+ *   longer trust `state.roundPhase` to still read `'actions'` either.
+ *   Reports `'actions'` unconditionally for this group — mid-phase, before
+ *   any chaining, `state.roundPhase` already reads `'actions'` anyway, so
+ *   this only ever changes the one already-chained stop, never a genuine
+ *   mid-`actions` one.
+ * - Right at a completed `declinePurchase` review stop: `applyMoveToDecline`/
+ *   `applyPurchaseCard`/`applyPassPurchase` chain the same way, straight
+ *   through `finishRound` into the *next* round's `beginSelectCardsPhase`
+ *   (or straight to `status: 'completed'`) the instant the group's last
+ *   action lands — so by the time this stop is reached, `state.roundPhase`
+ *   no longer reads `'decline'`/`'purchase'` at all, even though the recap
+ *   should still show what was just declined and purchased. Reports
+ *   `'purchase'` for that case instead.
+ *
+ *   `stopEnd < actionHistory.length` (a genuinely earlier, already-passed
+ *   stop) is enough on its own to know the group's last action is behind us
+ *   — `findTurnStops` only ever draws a boundary once the *next* action's
+ *   group has changed. At the live tail (`stopEnd === actionHistory.length`,
+ *   i.e. "now"), there's no next action to check, so only `state.status ===
+ *   'completed'` gives that same guarantee; otherwise `state.roundPhase` is
+ *   trusted as genuinely still `'decline'`/`'purchase'`, mid-phase (matching
+ *   `shouldShowCardChoiceRecap`'s existing "never mid-pick" rule for
+ *   `'decline'`, and its existing turn-order partial-reveal allowance for
+ *   `'purchase'`). The `'actions'` case above needs no equivalent live-tail
+ *   guard: unlike `'decline'`/`'purchase'`, `'actions'` is never itself a
+ *   value worth "trusting" mid-phase over the forced one — they agree.
  */
 export function roundPhaseForRecap(actionHistory: LoggedAction[], stopEnd: number, state: GameState): RoundPhase {
   const group = reviewPhaseGroupAt(actionHistory, stopEnd)
+  if (group === 'actions') return 'actions'
   if (group === 'declinePurchase' && (stopEnd < actionHistory.length || state.status === 'completed')) return 'purchase'
   return state.roundPhase
 }
