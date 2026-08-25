@@ -1906,7 +1906,7 @@ describe('RoundView — history review overlay', () => {
     expect(screen.queryByText('Played cards:')).not.toBeInTheDocument()
   })
 
-  it("splits the purchase-phase recap into what's been purchased back and what's still declined, with every player in a single row (issue #317)", () => {
+  it("splits the purchase-phase recap into what's been purchased back and what's been declined this round, with every player in a single row (issue #317)", () => {
     const purchasedCardId = cardIdFor('p1', 'mountaineer')
     const declinedCardId = cardIdFor('p2', 'city')
     renderWithReview({ events: [], resourceDeltaByPlayerId: {} }, true, undefined, {
@@ -1914,7 +1914,10 @@ describe('RoundView — history review overlay', () => {
       pendingPlayerIds: ['p2'],
       activePlayerId: 'p2',
       turn: 1,
-      actionHistory: [{ action: { type: 'PURCHASE_CARD', playerId: 'p1', cardId: purchasedCardId }, turn: 1, timestamp: '' }],
+      actionHistory: [
+        { action: { type: 'PURCHASE_CARD', playerId: 'p1', cardId: purchasedCardId }, turn: 1, timestamp: '' },
+        { action: { type: 'MOVE_TO_DECLINE', playerId: 'p2', cardId: declinedCardId }, turn: 1, timestamp: '' },
+      ],
       players: [
         { ...makeEnginePlayer('p1', ['nomad', 'ship']), declineCardIds: [] },
         { ...makeEnginePlayer('p2', ['city']), declineCardIds: [declinedCardId] },
@@ -1932,8 +1935,52 @@ describe('RoundView — history review overlay', () => {
     expect(declinedRow.className).toContain('flex-wrap')
     expect(declinedRow.children).toHaveLength(2)
 
-    // p1 bought a Mountaineer back this phase; p2's City is still sitting in decline.
+    // p1 bought a Mountaineer back this phase; p2 chose to decline their City this round.
     expect(within(purchasedRow).getByTitle('Mountaineer')).toBeInTheDocument()
+    expect(within(declinedRow).getByTitle('City')).toBeInTheDocument()
+  })
+
+  it('shows "none" for a player who declined nothing this round, and ignores an earlier round\'s leftover decline pile (issue #317)', () => {
+    const oldDeclineCardId = cardIdFor('p1', 'ship')
+    renderWithReview({ events: [], resourceDeltaByPlayerId: {} }, true, undefined, {
+      roundPhase: 'purchase',
+      pendingPlayerIds: ['p2'],
+      activePlayerId: 'p2',
+      turn: 2,
+      // Logged on an earlier round — still sitting in p1's decline zone (never bought back),
+      // but shouldn't be reported as something p1 chose to decline *this* round.
+      actionHistory: [{ action: { type: 'MOVE_TO_DECLINE', playerId: 'p1', cardId: oldDeclineCardId }, turn: 1, timestamp: '' }],
+      players: [
+        { ...makeEnginePlayer('p1', ['nomad', 'ship']), declineCardIds: [oldDeclineCardId] },
+        { ...makeEnginePlayer('p2', ['city']), declineCardIds: [] },
+      ],
+    })
+
+    const declinedRow = screen.getByText('Declined cards:').nextElementSibling as HTMLElement
+    expect(within(declinedRow).getAllByText('none')).toHaveLength(2)
+    expect(within(declinedRow).queryByTitle('Ship')).not.toBeInTheDocument()
+  })
+
+  it('still reports a card as declined this round even after it is bought back later in the same purchase phase (issue #317)', () => {
+    const cardId = cardIdFor('p2', 'city')
+    renderWithReview({ events: [], resourceDeltaByPlayerId: {} }, true, undefined, {
+      roundPhase: 'purchase',
+      pendingPlayerIds: ['p2'],
+      activePlayerId: 'p2',
+      turn: 1,
+      actionHistory: [
+        { action: { type: 'MOVE_TO_DECLINE', playerId: 'p2', cardId }, turn: 1, timestamp: '' },
+        { action: { type: 'PURCHASE_CARD', playerId: 'p2', cardId }, turn: 1, timestamp: '' },
+      ],
+      players: [
+        { ...makeEnginePlayer('p1', ['nomad', 'ship']), declineCardIds: [] },
+        { ...makeEnginePlayer('p2', ['city']), declineCardIds: [] },
+      ],
+    })
+
+    const purchasedRow = screen.getByText('Purchased cards:').nextElementSibling as HTMLElement
+    expect(within(purchasedRow).getByTitle('City')).toBeInTheDocument()
+    const declinedRow = screen.getByText('Declined cards:').nextElementSibling as HTMLElement
     expect(within(declinedRow).getByTitle('City')).toBeInTheDocument()
   })
 })

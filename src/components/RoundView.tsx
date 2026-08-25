@@ -887,9 +887,18 @@ function PurchasePanel(props: {
 
 /** Every card kind a player has bought back so far during the current round's purchase phase (rule 4) — derived from `state.actionHistory` (a PURCHASE_CARD entry logged this same `state.turn`), since GameState itself only tracks the *current* decline zone, not what's already left it this round. Safe against a replayed historical `state` (see CardChoiceHistoryPanel's doc comment): its `actionHistory` only ever holds entries up to the reviewed point. */
 function purchasedKindsByPlayerId(state: GameState): Map<string, string[]> {
+  return kindsByPlayerIdForActionThisTurn(state, 'PURCHASE_CARD')
+}
+
+/** Every card kind a player chose to move to decline this round — derived from `state.actionHistory` (a MOVE_TO_DECLINE entry logged this same `state.turn`), the same way redactStateForPlayer's declineAdditionsThisPhase (engine/redaction.ts) recovers a still-in-progress decline phase's picks. Deliberately not `player.declineCardIds` itself: that zone accumulates across every round until a card is bought back, so it would also surface an earlier round's still-unpurchased declines, and would silently drop this round's pick again once it's bought back later in the very same purchase phase. */
+function declinedKindsByPlayerId(state: GameState): Map<string, string[]> {
+  return kindsByPlayerIdForActionThisTurn(state, 'MOVE_TO_DECLINE')
+}
+
+function kindsByPlayerIdForActionThisTurn(state: GameState, actionType: 'PURCHASE_CARD' | 'MOVE_TO_DECLINE'): Map<string, string[]> {
   const byPlayerId = new Map<string, string[]>()
   for (const entry of state.actionHistory) {
-    if (entry.turn !== state.turn || entry.action.type !== 'PURCHASE_CARD') continue
+    if (entry.turn !== state.turn || entry.action.type !== actionType) continue
     const kind = state.cards[entry.action.cardId]?.kind
     if (!kind) continue
     const list = byPlayerId.get(entry.action.playerId) ?? []
@@ -919,9 +928,9 @@ function CardChoiceHistorySection({ label, players, eligiblePlayers, kindsByPlay
 /**
  * Read-only recap of card selection/purchase shown on the board while
  * reviewing history (issue #314) — `state` is the actual replayed
- * historical state at the point being reviewed, so `chosenCardIdByPlayerId`,
- * each player's `declineCardIds`, and `actionHistory` already reflect
- * exactly what's happened so far, with no separate tracking needed.
+ * historical state at the point being reviewed, so `chosenCardIdByPlayerId`
+ * and `actionHistory` already reflect exactly what's happened so far, with
+ * no separate tracking needed.
  *
  * Only ever rendered for `actions`/`purchase` (see the `showHistory` block
  * below in RoundView), never for `selectCards`/`decline` themselves (issue
@@ -953,7 +962,7 @@ function CardChoiceHistoryPanel({ state, players }: { state: GameState; players:
   }
 
   const purchased = purchasedKindsByPlayerId(state)
-  const declined = new Map(eligiblePlayers.map((p) => [p.id, kindsInZone(p.declineCardIds, state.cards)]))
+  const declined = declinedKindsByPlayerId(state)
   return (
     <div className="flex flex-col gap-2">
       <CardChoiceHistorySection label="Purchased cards:" players={players} eligiblePlayers={eligiblePlayers} kindsByPlayerId={(playerId) => purchased.get(playerId)} />
