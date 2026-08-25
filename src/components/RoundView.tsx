@@ -1220,7 +1220,7 @@ export function RoundView(props: {
               other turn-status panels are (see the comment that used to sit
               above these before they moved here). */}
           {!showHistory && (state.roundPhase === 'selectCards' || state.roundPhase === 'decline' || state.roundPhase === 'purchase') && (
-            <div className="absolute left-2 top-2 z-10 max-w-[calc(100%-1rem)] rounded-md border border-neutral-700 bg-neutral-900/90 p-3 shadow-lg">
+            <div className="absolute left-2 top-2 z-10 max-w-[calc(100%_-_1rem)] rounded-md border border-neutral-700 bg-neutral-900/90 p-3 shadow-lg">
               {state.roundPhase === 'selectCards' && (
                 <SelectCardsPanel state={state} players={players} myPlayerId={myPlayerId} onChooseCard={props.onChooseCard} />
               )}
