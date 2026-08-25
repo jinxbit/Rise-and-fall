@@ -62,17 +62,34 @@ export function findReviewWindowStart(actionHistory: LoggedAction[], playerId: s
  * phase (e.g. the last card-chooser happens to be `turnOrder[0]`, issue
  * #318/#321), a plain actor-change boundary would merge "the phase just
  * changed" together with that player's own turn in the new phase into one
- * indistinguishable stop. Always starts with `windowStart` and ends with
- * `actionHistory.length`; indices are absolute positions into
- * `actionHistory` (also valid `reviewIndex` values for GamePage's replay
- * cache, since a turn boundary is just a particular point in the action
- * list). Pass `windowStart: 0` to cover the whole game. A one-element
- * result means nothing happened in `[windowStart, end]`.
+ * indistinguishable stop.
+ *
+ * Actor changes are also ignored while both the state just before and just
+ * after the boundary are still `selectCards` (issue #318/#321 follow-up):
+ * every player picks their card independently, in whatever order they
+ * happen to submit, so without this a single simultaneous "everyone picks a
+ * card" phase would otherwise fragment into one stop per player — most of
+ * them landing on a state with nothing yet to show (see
+ * `shouldShowCardChoiceRecap` in RoundView.tsx, which deliberately hides the
+ * recap for `selectCards` itself) — instead of the one stop, right where the
+ * phase actually ends, that shows every player's finished pick together.
+ * The phase's entry/exit boundaries are untouched (still real
+ * `phaseChanged` stops either side), so this only ever collapses the
+ * mid-phase, player-to-player noise in between.
+ *
+ * Always starts with `windowStart` and ends with `actionHistory.length`;
+ * indices are absolute positions into `actionHistory` (also valid
+ * `reviewIndex` values for GamePage's replay cache, since a turn boundary is
+ * just a particular point in the action list). Pass `windowStart: 0` to
+ * cover the whole game. A one-element result means nothing happened in
+ * `[windowStart, end]`.
  */
 export function findTurnStops(actionHistory: LoggedAction[], windowStart: number, phaseTimeline?: RoundPhase[]): number[] {
   const stops = [windowStart]
   for (let i = windowStart + 1; i <= actionHistory.length; i++) {
-    const actorChanged = i < actionHistory.length && actionHistory[i].action.playerId !== actionHistory[i - 1].action.playerId
+    const bothSidesStillSelectingCards = !!phaseTimeline && phaseTimeline[i] === 'selectCards' && phaseTimeline[i - 1] === 'selectCards'
+    const actorChanged =
+      i < actionHistory.length && actionHistory[i].action.playerId !== actionHistory[i - 1].action.playerId && !bothSidesStillSelectingCards
     const phaseChanged = !!phaseTimeline && phaseTimeline[i] !== phaseTimeline[i - 1]
     if (i === actionHistory.length || actorChanged || phaseChanged) stops.push(i)
   }

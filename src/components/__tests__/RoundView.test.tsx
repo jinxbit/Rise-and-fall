@@ -1907,6 +1907,12 @@ describe('RoundView — history review overlay', () => {
     expect(screen.getByText('Played cards:')).toBeInTheDocument()
     expect(screen.queryByText('Your turn — choose a card to play.')).not.toBeInTheDocument()
 
+    // The phase banner reads "Card selection", not "Resolve actions" —
+    // otherwise this reads exactly like whichever player happened to choose
+    // last is already taking their own turn (issue #318/#321 follow-up).
+    expect(screen.getByText('Card selection')).toBeInTheDocument()
+    expect(screen.queryByText('Resolve actions')).not.toBeInTheDocument()
+
     const alice = screen.getByText('Alice:')
     expect(alice.style.color).toBe('rgb(255, 0, 0)')
     const bob = screen.getByText('Bob:')
@@ -1937,6 +1943,10 @@ describe('RoundView — history review overlay', () => {
     )
 
     expect(screen.queryByText('Played cards:')).not.toBeInTheDocument()
+    // A later actor's own turn within the actions phase — the normal phase
+    // banner applies, unlike the selectCards -> actions transition itself.
+    expect(screen.getByText('Resolve actions')).toBeInTheDocument()
+    expect(screen.queryByText('Card selection')).not.toBeInTheDocument()
   })
 
   it('shows the interactive card picker, not the read-only history recap, during live play (issue #314)', () => {

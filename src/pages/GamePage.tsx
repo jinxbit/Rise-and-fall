@@ -749,6 +749,12 @@ export function GamePage() {
     }
     if (reviewIndex === 0) return 'Start of the game'
     if (reviewIndex === defaultTurnHistoryIndex) return 'Right after your last turn'
+    // The one stop where `roundPhase` just moved from `selectCards` to
+    // `actions` (see `justEnteredActionsPhase` above) is a phase of its own,
+    // not any particular player's turn — every player picked simultaneously,
+    // and whoever happened to submit last is otherwise indistinguishable
+    // from "resolving their own actions" here (issue #318/#321 follow-up).
+    if (justEnteredActionsPhase) return `Card selection (${currentTurnPos} of ${turnPosCount})`
     const actorId = gameState?.actionHistory[reviewIndex - 1]?.action.playerId ?? null
     const actorName = players.find((p) => p.id === actorId)?.display_name ?? 'Unknown'
     return `${actorName}'s turn (${currentTurnPos} of ${turnPosCount})`

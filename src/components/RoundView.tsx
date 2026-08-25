@@ -121,7 +121,18 @@ type ActionUiMode =
   | { kind: 'targeting'; unitId: string; actionId: string }
   | { kind: 'supporting'; unitId: string; actionId: string; target?: Coordinate; selectedSupportUnitIds: string[] }
 
-function PhaseBanner({ state }: { state: GameState }) {
+/**
+ * `justEnteredActionsPhase` (issue #318/#321 follow-up): while reviewing
+ * history, the one state right after every player's card choice became
+ * final reads as `state.roundPhase === 'actions'` (the phase change is
+ * folded into the same logged action as the last player's pick — see
+ * `justEnteredActionsPhase`'s own doc comment on RoundView's props), so
+ * without an override this banner would call it "Resolve actions" even
+ * though nobody's resolved anything yet — reading exactly like whichever
+ * player happened to choose last is already taking their turn. Only ever
+ * applies during history review; live play never sets this prop.
+ */
+function PhaseBanner({ state, justEnteredActionsPhase = false }: { state: GameState; justEnteredActionsPhase?: boolean }) {
   const phaseLabel: Record<RoundPhase, string> = {
     selectCards: 'Select cards',
     actions: 'Resolve actions',
@@ -130,7 +141,8 @@ function PhaseBanner({ state }: { state: GameState }) {
   }
   return (
     <p className="text-sm text-neutral-400">
-      Round {state.turn} — <span className="font-medium text-neutral-200">{phaseLabel[state.roundPhase]}</span>
+      Round {state.turn} —{' '}
+      <span className="font-medium text-neutral-200">{justEnteredActionsPhase ? 'Card selection' : phaseLabel[state.roundPhase]}</span>
     </p>
   )
 }
@@ -1353,7 +1365,7 @@ export function RoundView(props: {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center gap-4">
-        <PhaseBanner state={state} />
+        <PhaseBanner state={state} justEnteredActionsPhase={showHistory && justEnteredActionsPhase} />
         <BankResources state={state} />
       </div>
       {/* Turn status panels ("Waiting for X…") re-render as other players act in real time; their

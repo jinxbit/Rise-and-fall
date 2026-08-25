@@ -186,8 +186,25 @@ describe('findTurnStops', () => {
 
     // Without a phaseTimeline, the last two same-actor actions merge into one segment.
     expect(findTurnStops(history, 0)).toEqual([0, 1, 3])
-    // With it, the phase change gets its own stop even though the actor didn't change.
-    expect(findTurnStops(history, 0, [...phaseTimeline])).toEqual([0, 1, 2, 3])
+    // With it, the phase change gets its own stop even though the actor
+    // didn't change — and p2's earlier pick doesn't get one of its own,
+    // since both sides of that boundary are still selectCards (see the next
+    // test).
+    expect(findTurnStops(history, 0, [...phaseTimeline])).toEqual([0, 2, 3])
+  })
+
+  it("collapses every player's card pick into a single selectCards segment, regardless of pick order or player count (issue #318/#321 follow-up)", () => {
+    // p2, then p3, then p1 each choose a card — a plain actor-change
+    // boundary would split this into one stop per player, even though
+    // there's nothing to show for any of them individually (RoundView's
+    // shouldShowCardChoiceRecap deliberately hides the recap for
+    // selectCards itself, issue #316). Reviewing history should be able to
+    // jump straight from "before anyone's picked" to "everyone's picked" in
+    // one step, not three.
+    const history = historyFor(['p2', 'p3', 'p1'])
+    const phaseTimeline = ['selectCards', 'selectCards', 'selectCards', 'actions'] as const
+
+    expect(findTurnStops(history, 0, [...phaseTimeline])).toEqual([0, 3])
   })
 })
 
@@ -231,11 +248,13 @@ describe('buildRoundPhaseTimeline / extendRoundPhaseTimeline', () => {
 
     // findTurnStops using this timeline lands a stop exactly at index 2 —
     // the pure "everyone's picked, nobody's acted yet" state — even though
-    // p1 is also the actor immediately before and after it.
-    expect(findTurnStops(state.actionHistory, 0, timeline)).toEqual([0, 1, 2, 3])
+    // p1 is also the actor immediately before and after it. p2's own pick
+    // (index 1) doesn't get a stop of its own either, since both sides of
+    // that boundary are still selectCards — the whole phase is one segment.
+    expect(findTurnStops(state.actionHistory, 0, timeline)).toEqual([0, 2, 3])
     // Without it, that stop is unreachable — turn-by-turn stepping jumps
-    // straight from "p2 just chose" to "p1's whole turn (pick + action)
-    // already resolved", merging the two (the regression in issue #318).
+    // straight from "before anyone's picked" to "p1's whole turn (pick +
+    // action) already resolved", merging the two (the regression in issue #318).
     expect(findTurnStops(state.actionHistory, 0)).toEqual([0, 1, 3])
   })
 
