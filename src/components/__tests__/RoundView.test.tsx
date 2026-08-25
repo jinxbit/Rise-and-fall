@@ -1740,13 +1740,20 @@ describe('RoundView — history review overlay', () => {
   // `turnReview` events GamePage hands it onto the board it's given (which,
   // for "Show history", is already the real historical board state at that
   // point — see GamePage's `reviewState`/`turnHalos`).
-  function renderWithReview(turnReview: TurnReview | null, showHistory: boolean, onExitHistory?: () => void, stateOverrides?: Partial<GameState>) {
+  function renderWithReview(
+    turnReview: TurnReview | null,
+    showHistory: boolean,
+    onExitHistory?: () => void,
+    stateOverrides?: Partial<GameState>,
+    previousHistoryStateOverrides?: Partial<GameState> | null,
+  ) {
     const state = { ...makeState(), ...stateOverrides }
     state.board = setTile(state.board, { q: 0, r: 0 }, 'plain')
     state.units = [
       { id: 'nomad_a', ownerId: 'p1', kind: 'nomad', coord: { q: 0, r: 0 }, movement: { isMobile: true, terrains: [], canCrossCliffs: false }, traits: [] },
     ]
     const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
+    const previousHistoryState = previousHistoryStateOverrides == null ? null : { ...makeState(), ...previousHistoryStateOverrides }
     return render(
       <RoundView
         state={state}
@@ -1759,7 +1766,7 @@ describe('RoundView — history review overlay', () => {
         showHistory={showHistory}
         onExitHistory={onExitHistory}
         territoryControlMode="off"
-        previousHistoryState={null}
+        previousHistoryState={previousHistoryState}
         gameLog={[]}
         onChooseCard={() => {}}
         onResolveUnit={() => {}}
@@ -1879,13 +1886,19 @@ describe('RoundView — history review overlay', () => {
     expect(screen.queryByText(/still choosing/)).not.toBeInTheDocument()
   })
 
-  it("shows a summary of every eligible player's card choice, with icons and player-coloured names, once selectCards is done (issue #316)", () => {
-    renderWithReview({ events: [], resourceDeltaByPlayerId: {} }, true, undefined, {
-      roundPhase: 'actions',
-      chosenCardIdByPlayerId: { p1: cardIdFor('p1', 'nomad'), p2: cardIdFor('p2', 'city') },
-      pendingPlayerIds: ['p1', 'p2'],
-      activePlayerId: 'p1',
-    })
+  it("shows a summary of every eligible player's card choice, with icons and player-coloured names, on the turn right after selectCards is done (issue #316)", () => {
+    renderWithReview(
+      { events: [], resourceDeltaByPlayerId: {} },
+      true,
+      undefined,
+      {
+        roundPhase: 'actions',
+        chosenCardIdByPlayerId: { p1: cardIdFor('p1', 'nomad'), p2: cardIdFor('p2', 'city') },
+        pendingPlayerIds: ['p1', 'p2'],
+        activePlayerId: 'p1',
+      },
+      { roundPhase: 'selectCards' },
+    )
 
     expect(screen.getByText('Played cards:')).toBeInTheDocument()
     expect(screen.queryByText('Your turn — choose a card to play.')).not.toBeInTheDocument()
@@ -1897,6 +1910,43 @@ describe('RoundView — history review overlay', () => {
 
     expect(screen.getByTitle('Nomad')).toBeInTheDocument()
     expect(screen.getByTitle('City')).toBeInTheDocument()
+  })
+
+  it('hides the card-choice recap once the actions phase has moved past the turn right after selectCards, instead of staying overlaid on every later turn (issue #318)', () => {
+    renderWithReview(
+      { events: [{ unitId: 'nomad_a', playerId: 'p2', type: 'moved', from: { q: 0, r: 0 }, to: { q: 1, r: 0 } }], resourceDeltaByPlayerId: {} },
+      true,
+      undefined,
+      {
+        roundPhase: 'actions',
+        chosenCardIdByPlayerId: { p1: cardIdFor('p1', 'nomad'), p2: cardIdFor('p2', 'city') },
+        pendingPlayerIds: ['p1', 'p2'],
+        activePlayerId: 'p2',
+      },
+      // The previous reviewed turn was itself already `actions` (some other
+      // actor's turn), not the `selectCards` -> `actions` transition — this
+      // is the case that regressed in issue #318.
+      { roundPhase: 'actions' },
+    )
+
+    expect(screen.queryByText('Played cards:')).not.toBeInTheDocument()
+  })
+
+  it('hides the card-choice recap when there is no previous reviewed state to confirm the selectCards -> actions transition (e.g. the default "Show history" entry point)', () => {
+    renderWithReview(
+      { events: [], resourceDeltaByPlayerId: {} },
+      true,
+      undefined,
+      {
+        roundPhase: 'actions',
+        chosenCardIdByPlayerId: { p1: cardIdFor('p1', 'nomad'), p2: cardIdFor('p2', 'city') },
+        pendingPlayerIds: ['p1', 'p2'],
+        activePlayerId: 'p1',
+      },
+      null,
+    )
+
+    expect(screen.queryByText('Played cards:')).not.toBeInTheDocument()
   })
 
   it('shows the interactive card picker, not the read-only history recap, during live play (issue #314)', () => {
@@ -1926,6 +1976,10 @@ describe('RoundView — history review overlay', () => {
 
     expect(screen.getByText('Purchased cards:')).toBeInTheDocument()
     expect(screen.getByText('Declined cards:')).toBeInTheDocument()
+
+    // Declined is listed above Purchased (issue #318).
+    const labels = screen.getAllByText(/^(Purchased|Declined) cards:$/).map((el) => el.textContent)
+    expect(labels).toEqual(['Declined cards:', 'Purchased cards:'])
 
     // Both sections lay every player out in one flex-wrap row, not a stacked list.
     const purchasedRow = screen.getByText('Purchased cards:').nextElementSibling as HTMLElement

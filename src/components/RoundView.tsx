@@ -942,6 +942,13 @@ function CardChoiceHistorySection({ label, players, eligiblePlayers, kindsByPlay
  * e.g. roundPhase is still `selectCards` but every eligible (non-eliminated)
  * player has already chosen — the completed picks only ever show up here,
  * one phase later.
+ *
+ * For `actions`, the `showHistory` block further restricts this to just the
+ * one turn right after `selectCards` finishes (issue #318) — otherwise it
+ * stays overlaid on every later actor's own unit-action halos for the rest
+ * of the phase. `purchase` has no such restriction: purchases/declines
+ * aren't secret and keep accumulating turn by turn, so it stays visible for
+ * the whole phase.
  */
 function CardChoiceHistoryPanel({ state, players }: { state: GameState; players: PlayerRow[] }) {
   const eligiblePlayers = state.players.filter((p) => !p.eliminated)
@@ -965,8 +972,8 @@ function CardChoiceHistoryPanel({ state, players }: { state: GameState; players:
   const declined = declinedKindsByPlayerId(state)
   return (
     <div className="flex flex-col gap-2">
-      <CardChoiceHistorySection label="Purchased cards:" players={players} eligiblePlayers={eligiblePlayers} kindsByPlayerId={(playerId) => purchased.get(playerId)} />
       <CardChoiceHistorySection label="Declined cards:" players={players} eligiblePlayers={eligiblePlayers} kindsByPlayerId={(playerId) => declined.get(playerId)} />
+      <CardChoiceHistorySection label="Purchased cards:" players={players} eligiblePlayers={eligiblePlayers} kindsByPlayerId={(playerId) => purchased.get(playerId)} />
     </div>
   )
 }
@@ -1359,10 +1366,16 @@ export function RoundView(props: {
               interactive pick panels above only make sense during live play
               (see the matching `!showHistory` panels above), but a player
               stepping through history still wants to see what everyone chose
-              without an extra click. Only shown for `actions`/`purchase`,
-              once every eligible player's pick for the phase before it is
-              settled — see CardChoiceHistoryPanel's doc comment (issue #316). */}
-          {showHistory && (state.roundPhase === 'actions' || state.roundPhase === 'purchase') && (
+              without an extra click. `purchase` shows for the whole phase —
+              purchases/declines aren't secret and keep accumulating turn by
+              turn (see CardChoiceHistoryPanel's doc comment, issue #316).
+              `actions` shows only on the one turn right after `selectCards`
+              finishes, i.e. exactly where `previousHistoryState` (the state
+              just before this reviewed turn) was still `selectCards` —
+              otherwise it would stay overlaid on top of every later actor's
+              own unit-action halos for the rest of the phase (issue #318). */}
+          {showHistory &&
+            (state.roundPhase === 'purchase' || (state.roundPhase === 'actions' && previousHistoryState?.roundPhase === 'selectCards')) && (
             <div className="pointer-events-none absolute left-2 top-2 z-10 max-w-[calc(100%_-_1rem)] rounded-md border border-neutral-700 bg-neutral-900/90 p-3 shadow-lg">
               <CardChoiceHistoryPanel state={state} players={players} />
             </div>
