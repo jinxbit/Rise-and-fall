@@ -86,18 +86,16 @@ describe('HexBoard — unit markers', () => {
     expect(() => render(<HexBoard board={makeBoard()} units={units} />)).not.toThrow()
   })
 
-  it('draws a gold star badge for a unit whose card is in hand, and none otherwise (issue #305)', () => {
+  it('fills the plate gold for a unit whose card is in hand, and the neutral colour otherwise (issue #305/#311)', () => {
     const units: UnitMarker[] = [
       { coord: { q: 0, r: 0 }, color: '#ef4444', kind: 'city', inHand: true },
       { coord: { q: 1, r: 0 }, color: '#3b82f6', kind: 'nomad' },
     ]
     const { container } = render(<HexBoard board={makeBoard()} units={units} />)
 
-    // A 5-pointed star is drawn as a 10-point polygon, distinct from every
-    // other polygon on the board (glyph shapes use the icon viewBox, not raw pixel coords).
-    const stars = container.querySelectorAll('polygon[fill="#eab308"]')
-    expect(stars).toHaveLength(1)
-    expect(stars[0].getAttribute('points')?.trim().split(/\s+/)).toHaveLength(10)
+    expect(container.querySelectorAll('rect[fill="#eab308"]')).toHaveLength(1)
+    expect(container.querySelectorAll('circle[fill="#eab308"]')).toHaveLength(0)
+    expect(container.querySelectorAll(`circle[fill="${NEUTRAL_PLATE_COLOR}"]`)).toHaveLength(1)
   })
 
   it("greys out a declined unit's glyph instead of the usual near-black fill (issue #305)", () => {

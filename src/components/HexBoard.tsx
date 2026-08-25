@@ -417,7 +417,7 @@ export interface UnitMarker {
   historyDelta?: Partial<Resources>
   /** Mirrors Unit.connectedNeighborCoords (see ../engine/types) — the two neighboring hexes this structure spans between, e.g. Bridge. Drawn as a marker on those two hex sides so it's visible which sides land units may cross onto/from. */
   connectedNeighborCoords?: [Coordinate, Coordinate]
-  /** This unit's card currently sits in its owner's hand (see cards.ts's CardZone) — drawn as a small star badge at the plate's corner (issue #305). Mutually exclusive with `declined` — a card is in exactly one zone at a time. */
+  /** This unit's card currently sits in its owner's hand (see cards.ts's CardZone) — shown by filling the plate gold instead of the usual off-white (issue #305, changed from a corner star badge to a gold plate in issue #311). Mutually exclusive with `declined` — a card is in exactly one zone at a time. */
   inHand?: boolean
   /** This unit's card currently sits in its owner's decline pile (see cards.ts's CardZone) — the glyph is drawn grey with a thin dark outline instead of the usual near-black fill, so a declined unit still on the board reads as visually distinct (issue #305). */
   declined?: boolean
@@ -435,8 +435,8 @@ const UNIT_GLYPH_COLOR = '#14161a'
 const UNIT_GLYPH_DECLINED_COLOR = '#9ca3af'
 /** The marker's fixed backdrop behind the glyph — deliberately NOT the player's colour (see unitIcons.ts's doc comment for why). Ownership shows instead as a small colour bar beneath it. */
 const UNIT_PLATE_COLOR = '#f2f2ef'
-/** Fill for the "card in hand" star badge (see UnitMarker.inHand, issue #305) — gold, echoing HISTORY_HALO_COLOR's income colour so both read as "resource-bearing" at a glance. */
-const UNIT_HAND_STAR_COLOR = '#eab308'
+/** The plate's fill for a unit whose card is in hand (see UnitMarker.inHand, issue #305/#311) — gold, echoing HISTORY_HALO_COLOR's income colour so both read as "resource-bearing" at a glance. */
+const UNIT_HAND_PLATE_COLOR = '#eab308'
 
 /** A unit kind's pictogram, centered at (x, y) at `size` pixels square. Grey with a thin outline while `declined` (see UnitMarker.declined), otherwise the fixed ink colour. */
 function UnitGlyph({ kind, x, y, size, declined }: { kind: string; x: number; y: number; size: number; declined?: boolean }) {
@@ -460,17 +460,6 @@ function UnitGlyph({ kind, x, y, size, declined }: { kind: string; x: number; y:
       })}
     </svg>
   )
-}
-
-/** Points for a regular 5-pointed star centered at (cx, cy), alternating between outerR and innerR — used for the "card in hand" badge (see UnitMarker.inHand). */
-function starPoints(cx: number, cy: number, outerR: number, innerR: number): string {
-  const points: string[] = []
-  for (let i = 0; i < 10; i++) {
-    const r = i % 2 === 0 ? outerR : innerR
-    const angle = (Math.PI / 5) * i - Math.PI / 2
-    points.push(`${cx + r * Math.cos(angle)},${cy + r * Math.sin(angle)}`)
-  }
-  return points.join(' ')
 }
 
 export interface ActionMenuOption {
@@ -1209,12 +1198,19 @@ export function HexBoard(props: {
                 width={plateSize}
                 height={plateSize}
                 rx={plateSize * 0.15}
-                fill={UNIT_PLATE_COLOR}
+                fill={unit.inHand ? UNIT_HAND_PLATE_COLOR : UNIT_PLATE_COLOR}
                 stroke="#000"
                 strokeWidth={1}
               />
             ) : (
-              <circle cx={x} cy={y} r={plateSize / 2} fill={UNIT_PLATE_COLOR} stroke="#000" strokeWidth={1} />
+              <circle
+                cx={x}
+                cy={y}
+                r={plateSize / 2}
+                fill={unit.inHand ? UNIT_HAND_PLATE_COLOR : UNIT_PLATE_COLOR}
+                stroke="#000"
+                strokeWidth={1}
+              />
             )}
             <rect
               x={x - barWidth / 2}
@@ -1227,14 +1223,6 @@ export function HexBoard(props: {
               strokeWidth={0.75}
             />
             <UnitGlyph kind={unit.kind} x={x} y={y} size={glyphSize} declined={unit.declined} />
-            {unit.inHand && (
-              <polygon
-                points={starPoints(x + plateSize / 2 - plateSize * 0.06, y - plateSize / 2 + plateSize * 0.06, plateSize * 0.19, plateSize * 0.075)}
-                fill={UNIT_HAND_STAR_COLOR}
-                stroke="#000"
-                strokeWidth={0.75}
-              />
-            )}
           </g>
         )
       })}

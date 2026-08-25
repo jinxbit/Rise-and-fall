@@ -2035,17 +2035,18 @@ describe('RoundView — map indicator for a unit\'s card zone (issue #305)', () 
 
   const move = { isMobile: true, terrains: [], canCrossCliffs: false }
 
-  it("draws a star badge on the map for a unit whose card is in the owner's hand", () => {
+  it("fills the marker plate gold on the map for a unit whose card is in the owner's hand", () => {
     const state = makeState() // p1's hand is ['nomad', 'ship'] (see makeEnginePlayer)
     state.board = setTile(state.board, { q: 0, r: 0 }, 'plain')
     state.units = [{ id: 'u1', ownerId: 'p1', kind: 'nomad', coord: { q: 0, r: 0 }, movement: move, traits: [] }]
 
     const { container } = renderWithUnits(state)
 
-    expect(container.querySelectorAll('polygon[fill="#eab308"]')).toHaveLength(1)
+    // Nomad is a mobile kind, so its plate is a <circle> (see HexBoard's STATIC_UNIT_KINDS).
+    expect(container.querySelectorAll('circle[fill="#eab308"]')).toHaveLength(1)
   })
 
-  it("greys out the glyph for a unit whose card has been moved to decline, and draws no star", () => {
+  it("greys out the glyph for a unit whose card has been moved to decline, and draws no gold plate", () => {
     const state = makeState()
     state.board = setTile(state.board, { q: 0, r: 0 }, 'plain')
     const p1 = state.players.find((p) => p.id === 'p1')!
@@ -2057,11 +2058,11 @@ describe('RoundView — map indicator for a unit\'s card zone (issue #305)', () 
 
     const { container } = renderWithUnits(state)
 
-    expect(container.querySelectorAll('polygon[fill="#eab308"]')).toHaveLength(0)
+    expect(container.querySelectorAll('circle[fill="#eab308"]')).toHaveLength(0)
     expect(container.querySelectorAll('[fill="#9ca3af"]').length).toBeGreaterThan(0)
   })
 
-  it('shows no star and no grey glyph for a unit whose card is in discard', () => {
+  it('shows no gold plate and no grey glyph for a unit whose card is in discard', () => {
     const state = makeState()
     state.board = setTile(state.board, { q: 0, r: 0 }, 'plain')
     const p1 = state.players.find((p) => p.id === 'p1')!
@@ -2071,7 +2072,7 @@ describe('RoundView — map indicator for a unit\'s card zone (issue #305)', () 
 
     const { container } = renderWithUnits(state)
 
-    expect(container.querySelectorAll('polygon[fill="#eab308"]')).toHaveLength(0)
+    expect(container.querySelectorAll('circle[fill="#eab308"]')).toHaveLength(0)
     expect(container.querySelectorAll('[fill="#9ca3af"]')).toHaveLength(0)
   })
 })
