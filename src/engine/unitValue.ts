@@ -175,7 +175,7 @@ export function calculateUnitValueDetail(
   return detailByPlayerId
 }
 
-export type SpendingCategory = 'unitCreation' | 'transform' | 'convert' | 'tradeResource' | 'declineBuyback'
+export type SpendingCategory = 'unitCreation' | 'transform' | 'convert' | 'tradeResource'
 
 /** Maps a RESOLVE_UNIT_ACTION assignment's effect type to the spending category its cost belongs to — a kind not listed here (move/income/produce/trade/region-unit-count-income) never costs gold. */
 const SPENDING_CATEGORY_BY_ACTION_TYPE: Partial<Record<UnitActionEffect['actionType'], SpendingCategory>> = {
@@ -186,20 +186,28 @@ const SPENDING_CATEGORY_BY_ACTION_TYPE: Partial<Record<UnitActionEffect['actionT
   'trade-resource': 'tradeResource',
 }
 
-export interface SpendingBreakdown {
-  /** Gold spent creating new units (create/site-create effects). */
-  unitCreation: number
-  /** Gold spent transforming a unit into another kind. */
-  transform: number
-  /** Gold spent converting an enemy or own unit. */
-  convert: number
-  /** Gold spent buying wood/stone (a trade-resource effect's buy mode; sell produces gold instead, so it's never counted here). */
-  tradeResource: number
-  /** Gold spent buying cards back from decline (PURCHASE_CARD). */
-  declineBuyback: number
+/** One PURCHASE_CARD action's worth of decline-buyback spending — kept per-purchase rather than summed by kind, so a card bought back more than once shows up that many times in the spending chart (issue #336 follow-up), each with its own card icon. */
+export interface DeclineBuybackPurchase {
+  /** The bought-back card's unit kind, for rendering its icon in the chart. */
+  kind: string
+  /** This purchase's cost, in VP-equivalent points (see calculateGoldSpendingByCategory's doc comment). */
+  cost: number
 }
 
-const EMPTY_SPENDING_BREAKDOWN: SpendingBreakdown = { unitCreation: 0, transform: 0, convert: 0, tradeResource: 0, declineBuyback: 0 }
+export interface SpendingBreakdown {
+  /** Gold spent creating new units (create/site-create effects), in VP-equivalent points. */
+  unitCreation: number
+  /** Gold spent transforming a unit into another kind, in VP-equivalent points. */
+  transform: number
+  /** Gold spent converting an enemy or own unit, in VP-equivalent points. */
+  convert: number
+  /** Gold spent buying wood/stone (a trade-resource effect's buy mode; sell produces gold instead, so it's never counted here), in VP-equivalent points. */
+  tradeResource: number
+  /** Every PURCHASE_CARD action's cost, one entry per purchase (not summed by kind) — see DeclineBuybackPurchase. */
+  declineBuybacks: DeclineBuybackPurchase[]
+}
+
+const EMPTY_SPENDING_BREAKDOWN: SpendingBreakdown = { unitCreation: 0, transform: 0, convert: 0, tradeResource: 0, declineBuybacks: [] }
 
 /**
  * Cumulative gold a player has spent over the whole game, split by what it
@@ -213,10 +221,16 @@ const EMPTY_SPENDING_BREAKDOWN: SpendingBreakdown = { unitCreation: 0, transform
  * excluded, same as any other income effect. A PURCHASE_CARD's cost
  * (calculatePurchaseCost, priced at the moment of purchase since the cost
  * table is indexed by achievements claimed *so far* — see that function's own
- * doc comment) is tracked separately as declineBuyback, since it isn't a
- * RESOLVE_UNIT_ACTION at all. A player who never spent any gold is simply
- * absent from the result, same "absent means zero" convention as
- * calculateGoldProducedByKind.
+ * doc comment) is tracked separately as declineBuybacks, one entry per
+ * purchase, since it isn't a RESOLVE_UNIT_ACTION at all. Every value is
+ * converted to VP-equivalent points at achievementContent.goldPerVictoryPoint
+ * (a further follow-up: "add to the spending graph that it is in VPs"), kept
+ * fractional per category rather than floored, same rationale as
+ * calculateUnitValueDetail's goldProduced — flooring each category
+ * separately could make them add up to less than the true VP-equivalent
+ * total, which would read as "missing" points on the chart. A player who
+ * never spent any gold is simply absent from the result, same "absent means
+ * zero" convention as calculateGoldProducedByKind.
  */
 export function calculateGoldSpendingByCategory(
   genesis: GameState,
@@ -228,8 +242,12 @@ export function calculateGoldSpendingByCategory(
 ): Record<string, SpendingBreakdown> {
   const breakdownByPlayerId: Record<string, SpendingBreakdown> = {}
   const addSpend = (playerId: string, category: SpendingCategory, amount: number) => {
-    const breakdown = breakdownByPlayerId[playerId] ?? { ...EMPTY_SPENDING_BREAKDOWN }
+    const breakdown = breakdownByPlayerId[playerId] ?? { ...EMPTY_SPENDING_BREAKDOWN, declineBuybacks: [] }
     breakdownByPlayerId[playerId] = { ...breakdown, [category]: breakdown[category] + amount }
+  }
+  const addDeclineBuyback = (playerId: string, kind: string, cost: number) => {
+    const breakdown = breakdownByPlayerId[playerId] ?? { ...EMPTY_SPENDING_BREAKDOWN, declineBuybacks: [] }
+    breakdownByPlayerId[playerId] = { ...breakdown, declineBuybacks: [...breakdown.declineBuybacks, { kind, cost }] }
   }
 
   let state = genesis
@@ -261,7 +279,7 @@ export function calculateGoldSpendingByCategory(
       if (card) {
         const achievementsClaimedSoFar = Object.keys(state.claimedByAchievementId).length
         const cost = calculatePurchaseCost(achievementsClaimedSoFar, achievementContent.purchaseCostTable)
-        addSpend(action.playerId, 'declineBuyback', cost)
+        addDeclineBuyback(action.playerId, card.kind, cost)
       }
     }
 
@@ -269,6 +287,18 @@ export function calculateGoldSpendingByCategory(
     const result = applyAction(state, action, unitContent, achievementContent, boardGenerationContent, taleContent, true)
     if (!result.ok) break
     state = result.state
+  }
+
+  const goldPerVictoryPoint = achievementContent.goldPerVictoryPoint
+  const toVP = (gold: number) => (goldPerVictoryPoint ? gold / goldPerVictoryPoint : 0)
+  for (const [playerId, breakdown] of Object.entries(breakdownByPlayerId)) {
+    breakdownByPlayerId[playerId] = {
+      unitCreation: toVP(breakdown.unitCreation),
+      transform: toVP(breakdown.transform),
+      convert: toVP(breakdown.convert),
+      tradeResource: toVP(breakdown.tradeResource),
+      declineBuybacks: breakdown.declineBuybacks.map((purchase) => ({ kind: purchase.kind, cost: toVP(purchase.cost) })),
+    }
   }
 
   return breakdownByPlayerId

@@ -223,7 +223,7 @@ describe('calculateGoldProducedByKind', () => {
 })
 
 describe('calculateGoldSpendingByCategory', () => {
-  const achievementContent: AchievementContent = { ...EMPTY_ACHIEVEMENT_CONTENT, purchaseCostTable: [5, 10, 20] }
+  const achievementContent: AchievementContent = { ...EMPTY_ACHIEVEMENT_CONTENT, purchaseCostTable: [5, 10, 20], goldPerVictoryPoint: 1 }
 
   function makeActiveGame(): GameState {
     const state = createNewGame({
@@ -271,10 +271,60 @@ describe('calculateGoldSpendingByCategory', () => {
     result = applyAction(result.state, { type: 'PURCHASE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'temple') }, undefined, achievementContent)
     if (!result.ok) throw new Error(result.error)
 
-    // 1 achievement already claimed -> costTable[0] = 5 gold.
+    // 1 achievement already claimed -> costTable[0] = 5 gold -> 5 VP at goldPerVictoryPoint 1.
     const spending = calculateGoldSpendingByCategory(genesis, result.state.actionHistory, undefined, achievementContent)
-    expect(spending.p1).toEqual({ unitCreation: 0, transform: 0, convert: 0, tradeResource: 0, declineBuyback: 5 })
+    expect(spending.p1).toEqual({ unitCreation: 0, transform: 0, convert: 0, tradeResource: 0, declineBuybacks: [{ kind: 'temple', cost: 5 }] })
     expect(spending.p2).toBeUndefined()
+  })
+
+  it('records one entry per purchase, not summed by kind — across two rounds since the purchase queue only lets a player buy back one card per round', () => {
+    const base = makeActiveGame()
+    const p1Index = base.players.findIndex((p) => p.id === 'p1')
+    let p1 = { ...base.players[p1Index], resources: { ...base.players[p1Index].resources, gold: 100 } }
+    p1 = moveCard(p1, cardIdFor('p1', 'temple'), 'decline')
+    p1 = moveCard(p1, cardIdFor('p1', 'nomad'), 'decline')
+    const players = [...base.players]
+    players[p1Index] = p1
+    const genesis = { ...base, players, claimedByAchievementId: { 'city-mastery': 'p2' } }
+
+    // Round 1: both play City, both pass actions, p1 buys temple back — the
+    // only pending purchaser, so this empties the queue and chains straight
+    // into round 2's selectCards (see round.test.ts's matching case above).
+    let result = applyAction(genesis, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }, undefined, achievementContent)
+    if (!result.ok) throw new Error(result.error)
+    result = applyAction(result.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') }, undefined, achievementContent)
+    if (!result.ok) throw new Error(result.error)
+    result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p1' }, undefined, achievementContent)
+    if (!result.ok) throw new Error(result.error)
+    result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p2' }, undefined, achievementContent)
+    if (!result.ok) throw new Error(result.error)
+    expect(result.state.roundPhase).toBe('purchase')
+
+    result = applyAction(result.state, { type: 'PURCHASE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'temple') }, undefined, achievementContent)
+    if (!result.ok) throw new Error(result.error)
+    expect(result.state.roundPhase).toBe('selectCards')
+    expect(result.state.turn).toBe(1)
+
+    // Round 2: both play Merchant, both pass actions, p1 buys the
+    // still-declined nomad back.
+    result = applyAction(result.state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'merchant') }, undefined, achievementContent)
+    if (!result.ok) throw new Error(result.error)
+    result = applyAction(result.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'merchant') }, undefined, achievementContent)
+    if (!result.ok) throw new Error(result.error)
+    result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p1' }, undefined, achievementContent)
+    if (!result.ok) throw new Error(result.error)
+    result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p2' }, undefined, achievementContent)
+    if (!result.ok) throw new Error(result.error)
+    expect(result.state.roundPhase).toBe('purchase')
+
+    result = applyAction(result.state, { type: 'PURCHASE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'nomad') }, undefined, achievementContent)
+    if (!result.ok) throw new Error(result.error)
+
+    const spending = calculateGoldSpendingByCategory(genesis, result.state.actionHistory, undefined, achievementContent)
+    expect(spending.p1?.declineBuybacks).toEqual([
+      { kind: 'temple', cost: 5 },
+      { kind: 'nomad', cost: 5 },
+    ])
   })
 
   it("attributes a site-create effect's cost to unitCreation", () => {
@@ -308,7 +358,7 @@ describe('calculateGoldSpendingByCategory', () => {
     expect(result.state.players.find((p) => p.id === 'p1')?.resources.gold).toBe(6)
 
     const spending = calculateGoldSpendingByCategory(genesisWithCityOnPlain, result.state.actionHistory, unitContent, achievementContent)
-    expect(spending.p1).toEqual({ unitCreation: 4, transform: 0, convert: 0, tradeResource: 0, declineBuyback: 0 })
+    expect(spending.p1).toEqual({ unitCreation: 4, transform: 0, convert: 0, tradeResource: 0, declineBuybacks: [] })
   })
 
   it("attributes a trade-resource buy effect's cost to tradeResource, but not a sell (which gains gold)", () => {
@@ -344,7 +394,7 @@ describe('calculateGoldSpendingByCategory', () => {
     if (!result.ok) throw new Error(result.error)
 
     const spending = calculateGoldSpendingByCategory(genesisWithResources, result.state.actionHistory, unitContent, achievementContent)
-    expect(spending.p1).toEqual({ unitCreation: 0, transform: 0, convert: 0, tradeResource: 3, declineBuyback: 0 })
+    expect(spending.p1).toEqual({ unitCreation: 0, transform: 0, convert: 0, tradeResource: 3, declineBuybacks: [] })
   })
 
   it('omits a player who never spent any gold, rather than an all-zero entry', () => {

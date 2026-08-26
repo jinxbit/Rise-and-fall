@@ -328,7 +328,9 @@ export function EndGameView({
 
       {spendingBreakdown && (
         <div className="flex flex-col gap-3" data-testid="spending">
-          <p className="text-sm font-medium text-neutral-200">Spending</p>
+          <p className="text-sm font-medium text-neutral-200">
+            Spending <span className="font-normal text-neutral-500">(in victory points)</span>
+          </p>
           <SpendingChart breakdownByPlayerId={spendingBreakdown} players={players} playerIds={activeIds} />
         </div>
       )}
