@@ -1,6 +1,6 @@
 import type { AchievementContent } from './achievementContent'
 import { EMPTY_ACHIEVEMENT_CONTENT } from './achievementContent'
-import { syncCardZonesWithBoard } from './cards'
+import { moveUnbackedDiscardCardsToSupply, syncCardZonesWithBoard } from './cards'
 import { isDeclineTriggered } from './decline'
 import { eliminatePlayersWithNoCardToDecline, eliminatePlayersWithNoCardToPlay } from './elimination'
 import { calculatePurchaseCost } from './purchaseCost'
@@ -182,8 +182,17 @@ export function finishRound(
   achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT,
   taleContent: TaleContent = EMPTY_TALE_CONTENT,
 ): GameState {
+  // A card played this round represents whatever kind its owner discarded
+  // it as, regardless of whether they still have a unit of that kind by
+  // round end — e.g. a Ship card played the same turn its only Ship
+  // transformed away. Rule 5 says it belongs in supply once nothing backs
+  // it; catch that here, every round end, rather than only when the whole
+  // hand later happens to recycle (see moveUnbackedDiscardCardsToSupply's
+  // doc comment in ./cards.ts).
+  const withSupplyCorrections = moveUnbackedDiscardCardsToSupply(state, companionKindsByCardKind(taleContent))
+
   let recycledCount = 0
-  const players = state.players.map((player) => {
+  const players = withSupplyCorrections.players.map((player) => {
     if (player.handCardIds.length === 0 && player.discardCardIds.length > 0) {
       recycledCount++
       return { ...player, handCardIds: player.discardCardIds, discardCardIds: [] }
@@ -191,17 +200,12 @@ export function finishRound(
     return player
   })
 
-  let nextState: GameState = { ...state, players }
+  let nextState: GameState = { ...withSupplyCorrections, players }
 
   if (recycledCount > 0) {
-    // A card recycled above represents whatever kind its owner discarded
-    // it as, regardless of whether they still have a unit of that kind —
-    // e.g. a Ship card played the same turn its only Ship transformed away
-    // still ends up in discard (see cards.ts's syncCardZonesWithBoard,
-    // which only ever moves hand<->supply, never touches discard).
-    // Re-syncing here catches exactly that: any recycled card for a
-    // now-absent kind moves straight back to supply instead of sitting in
-    // hand as a false choice.
+    // Re-syncs the just-recycled hand against the board — catches any
+    // recycled card for a now-absent kind that moveUnbackedDiscardCardsToSupply
+    // above didn't (e.g. a companion unit lost after that check ran).
     nextState = syncCardZonesWithBoard(nextState, companionKindsByCardKind(taleContent))
 
     const turnOrder =
