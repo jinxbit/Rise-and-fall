@@ -104,6 +104,54 @@ export function calculateTerrainControlDetail(
   return result
 }
 
+/**
+ * Territory-control VP attributed per unit kind instead of per player — for
+ * the end-of-game "unit value" chart (issue #335), which wants to know how
+ * much of a player's terrain-control score any one unit kind is actually
+ * responsible for. Per ruling, a controlled region's VP is split evenly
+ * across every one of the majority owner's units present in it (regardless
+ * of kind), then summed per kind — so a region with 2 Nomads and 1 Ship
+ * gives Nomad 2/3 of the region's VP and Ship 1/3, and the three kinds'
+ * shares for that region always add back up to exactly what
+ * calculateTerrainControlVP would award the owner for it. A region with a
+ * majority owner but 0 hex-VP (terrain missing from terrainVictoryPoints, or
+ * worth 0) contributes nothing, same as calculateTerrainControlVP.
+ */
+export function calculateTerrainControlVPByKind(
+  board: Board,
+  units: Unit[],
+  terrainVictoryPoints: Record<string, number>,
+  terrainScoresAs: Record<string, string> = {},
+): Record<string, Record<string, number>> {
+  const vpByPlayerAndKind: Record<string, Record<string, number>> = {}
+
+  for (const region of findTerrainRegions(board, terrainScoresAs)) {
+    const majorityOwnerId = findMajorityOwner(region, units)
+    if (!majorityOwnerId) continue
+
+    const regionVP = (terrainVictoryPoints[region.terrain] ?? 0) * region.tiles.length
+    if (regionVP === 0) continue
+
+    const coordKeysInRegion = new Set(region.tiles.map((t) => coordKey(t.coord)))
+    const countByKind = new Map<string, number>()
+    let totalFriendlyUnits = 0
+    for (const unit of units) {
+      if (unit.ownerId !== majorityOwnerId || !coordKeysInRegion.has(coordKey(unit.coord))) continue
+      countByKind.set(unit.kind, (countByKind.get(unit.kind) ?? 0) + 1)
+      totalFriendlyUnits += 1
+    }
+    if (totalFriendlyUnits === 0) continue
+
+    const byKind = vpByPlayerAndKind[majorityOwnerId] ?? {}
+    vpByPlayerAndKind[majorityOwnerId] = byKind
+    for (const [kind, count] of countByKind) {
+      byKind[kind] = (byKind[kind] ?? 0) + (regionVP * count) / totalFriendlyUnits
+    }
+  }
+
+  return vpByPlayerAndKind
+}
+
 export interface TerritoryControlHex {
   coord: Coordinate
   ownerId: string

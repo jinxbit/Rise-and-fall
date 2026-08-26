@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createEmptyBoard, setTile } from '../board'
-import { calculateChangedTerritoryHexes, calculateTerrainControlDetail, calculateTerrainControlVP, calculateTerritoryControlByHex } from '../scoring'
+import { calculateChangedTerritoryHexes, calculateTerrainControlDetail, calculateTerrainControlVP, calculateTerrainControlVPByKind, calculateTerritoryControlByHex } from '../scoring'
 import type { Board, Coordinate, Terrain, Unit } from '../types'
 
 function boardOf(cells: Array<[number, number, Terrain]>): Board {
@@ -12,16 +12,20 @@ function boardOf(cells: Array<[number, number, Terrain]>): Board {
 }
 
 let unitCounter = 0
-function unitAt(ownerId: string, coord: Coordinate): Unit {
+function unitOfKindAt(ownerId: string, coord: Coordinate, kind: string): Unit {
   unitCounter += 1
   return {
     id: `test-unit-${unitCounter}`,
     ownerId,
-    kind: 'test-kind',
+    kind,
     coord,
     movement: { isMobile: false, terrains: [], canCrossCliffs: false },
     traits: [],
   }
+}
+
+function unitAt(ownerId: string, coord: Coordinate): Unit {
+  return unitOfKindAt(ownerId, coord, 'test-kind')
 }
 
 describe('calculateTerrainControlVP', () => {
@@ -397,5 +401,65 @@ describe('calculateChangedTerritoryHexes', () => {
       { coord: { q: 0, r: 0 }, ownerId: 'p2', terrain: 'mountain', regionSize: 2 },
       { coord: { q: 1, r: 0 }, ownerId: 'p2', terrain: 'mountain', regionSize: 2 },
     ])
+  })
+})
+
+describe('calculateTerrainControlVPByKind', () => {
+  it("splits a region's VP evenly across the majority owner's units, summed per kind", () => {
+    // 3-hex water region worth 2 VP/hex = 6 VP total, controlled by p1 with
+    // 2 nomads and 1 ship (3 friendly units) -> nomad gets 2/3, ship gets 1/3.
+    const board = boardOf([
+      [0, 0, 'water'],
+      [1, 0, 'water'],
+      [0, 1, 'water'],
+    ])
+    const units = [unitOfKindAt('p1', { q: 0, r: 0 }, 'nomad'), unitOfKindAt('p1', { q: 1, r: 0 }, 'nomad'), unitOfKindAt('p1', { q: 0, r: 1 }, 'ship')]
+
+    const vp = calculateTerrainControlVPByKind(board, units, { water: 2 })
+
+    expect(vp).toEqual({ p1: { nomad: 4, ship: 2 } })
+  })
+
+  it('sums a kind across multiple regions the same player controls', () => {
+    const board = boardOf([
+      [0, 0, 'water'],
+      [10, 10, 'forest'],
+    ])
+    const units = [unitOfKindAt('p1', { q: 0, r: 0 }, 'nomad'), unitOfKindAt('p1', { q: 10, r: 10 }, 'nomad')]
+
+    const vp = calculateTerrainControlVPByKind(board, units, { water: 2, forest: 3 })
+
+    expect(vp).toEqual({ p1: { nomad: 5 } })
+  })
+
+  it('scores nothing for a region with no majority owner', () => {
+    const board = boardOf([[0, 0, 'mountain']])
+    const units = [unitOfKindAt('p1', { q: 0, r: 0 }, 'nomad'), unitOfKindAt('p2', { q: 0, r: 0 }, 'ship')]
+
+    const vp = calculateTerrainControlVPByKind(board, units, { mountain: 5 })
+
+    expect(vp).toEqual({})
+  })
+
+  it('scores nothing for a terrain missing from terrainVictoryPoints', () => {
+    const board = boardOf([[0, 0, 'forest']])
+    const units = [unitOfKindAt('p1', { q: 0, r: 0 }, 'nomad')]
+
+    const vp = calculateTerrainControlVPByKind(board, units, { water: 2 })
+
+    expect(vp).toEqual({})
+  })
+
+  it("ignores the majority owner's units elsewhere on the board when splitting a region's VP", () => {
+    const board = boardOf([
+      [0, 0, 'water'],
+      [5, 5, 'plain'],
+    ])
+    const units = [unitOfKindAt('p1', { q: 0, r: 0 }, 'nomad'), unitOfKindAt('p1', { q: 5, r: 5 }, 'ship')]
+
+    const vp = calculateTerrainControlVPByKind(board, units, { water: 4 })
+
+    // p1's ship is outside the water region entirely, so the region's whole 4 VP goes to nomad alone.
+    expect(vp).toEqual({ p1: { nomad: 4 } })
   })
 })

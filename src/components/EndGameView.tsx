@@ -4,6 +4,7 @@ import type { AchievementContent } from '../engine/achievementContent'
 import type { AchievementClaimEvent, ScoreSnapshot } from '../engine/scoreHistory'
 import { calculateTerritoryControlByHex } from '../engine/scoring'
 import type { TaleContent } from '../engine/taleContent'
+import type { SpendingBreakdown, UnitValueDetail } from '../engine/unitValue'
 import { calculateVPBreakdown, calculateVPDetail } from '../engine/victoryPoints'
 import type { VPDetail } from '../engine/victoryPoints'
 import type { GameState } from '../engine/types'
@@ -13,7 +14,9 @@ import type { UnitMarker } from './HexBoard'
 import { ScoreCategoryChart } from './ScoreCategoryChart'
 import { ScoreOverTimeChart } from './ScoreOverTimeChart'
 import { scoredCategories } from './scoreCategories'
+import { SpendingChart } from './SpendingChart'
 import { UnitIcon } from './UnitIcon'
+import { UnitValueChart } from './UnitValueChart'
 
 const ACHIEVEMENTS = listAchievements()
 const TERRAIN_TYPES = listTerrainTypes()
@@ -173,6 +176,8 @@ export function EndGameView({
   taleContent,
   scoreHistory,
   achievementClaims,
+  unitValueDetail,
+  spendingBreakdown,
 }: {
   state: GameState
   players: PlayerRow[]
@@ -182,6 +187,10 @@ export function EndGameView({
   scoreHistory?: ScoreSnapshot[] | null
   /** Which round each achievement was claimed in (./engine/scoreHistory.ts), for the score chart's per-round claim markers. Undefined/empty simply omits the markers. */
   achievementClaims?: AchievementClaimEvent[] | null
+  /** Per-player, per-unit-kind value breakdown (./engine/unitValue.ts), for the "unit value" stacked bar chart below. Undefined/null (a caller that hasn't derived it, e.g. this component's own tests) simply skips that chart. */
+  unitValueDetail?: Record<string, UnitValueDetail[]> | null
+  /** Per-player gold-spending breakdown by category (./engine/unitValue.ts), for the "Spending" stacked bar chart below. Undefined/null (a caller that hasn't derived it, e.g. this component's own tests) simply skips that chart. */
+  spendingBreakdown?: Record<string, SpendingBreakdown> | null
 }) {
   const detailByPlayerId = calculateVPDetail(state, achievementContent, taleContent)
   const breakdownByPlayerId = calculateVPBreakdown(state, achievementContent, taleContent)
@@ -308,6 +317,22 @@ export function EndGameView({
 
       {scoreHistory && scoreHistory.length > 1 && (
         <ScoreOverTimeChart history={scoreHistory} players={players} playerIds={rankedIds} achievementClaims={achievementClaims ?? []} achievementName={achievementName} />
+      )}
+
+      {unitValueDetail && (
+        <div className="flex flex-col gap-3" data-testid="unit-value">
+          <p className="text-sm font-medium text-neutral-200">Unit value</p>
+          <UnitValueChart detailByPlayerId={unitValueDetail} players={players} playerIds={activeIds} />
+        </div>
+      )}
+
+      {spendingBreakdown && (
+        <div className="flex flex-col gap-3" data-testid="spending">
+          <p className="text-sm font-medium text-neutral-200">
+            Spending <span className="font-normal text-neutral-500">(in victory points)</span>
+          </p>
+          <SpendingChart breakdownByPlayerId={spendingBreakdown} players={players} playerIds={activeIds} />
+        </div>
       )}
 
       <div data-testid="score-breakdown">
