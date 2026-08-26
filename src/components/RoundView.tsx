@@ -586,7 +586,8 @@ function AchievementsPanel({
   )
 }
 
-function LogPanel({ gameLog }: { gameLog: GameEvent[] }) {
+function LogPanel({ gameLog, isAdmin }: { gameLog: GameEvent[]; isAdmin: boolean }) {
+  if (!isAdmin) return null
   const recent = [...gameLog].slice(-8).reverse()
   if (recent.length === 0) return null
   return (
@@ -1047,6 +1048,15 @@ export function RoundView(props: {
   previousHistoryState: GameState | null
   /** The running narration log — derived from actionHistory, see engine/gameLog.ts's buildGameLog. */
   gameLog: GameEvent[]
+  /**
+   * Whether the signed-in user holds the site-admin override (see
+   * useIsAdmin, issue #177's "delete any game" override) — reused here as
+   * the moderator check gating LogPanel below (issue #341): the narration
+   * log is otherwise hidden from regular players. Optional/defaulted to
+   * false so the ~40 RoundView.test.tsx call sites (whose `gameLog={[]}`
+   * already makes LogPanel a no-op) don't all need updating.
+   */
+  isAdmin?: boolean
   onChooseCard: (cardId: string) => void
   onResolveUnit: (unitId: string, actionId: string, target?: Coordinate) => void
   /** Resolves the same no-target action (see actionNeedsTargeting) for every listed unit id in one submission — see ActionsPanel's bulk-action buttons (issue #61). */
@@ -1432,7 +1442,7 @@ export function RoundView(props: {
         )}
       </div>
 
-      <LogPanel gameLog={props.gameLog} />
+      <LogPanel gameLog={props.gameLog} isAdmin={props.isAdmin ?? false} />
     </div>
   )
 }
