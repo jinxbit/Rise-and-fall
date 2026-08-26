@@ -141,6 +141,53 @@ describe('round flow', () => {
     expect(result.state.turn).toBe(1)
   })
 
+  it("logs the round-closing PURCHASE_CARD against the round it actually happened in, not the round finishRound chains straight into (issue #328's follow-up)", () => {
+    // p1 passes purchase (nothing in decline); p2 buys back their one
+    // decline card, which — being the last pending player — empties the
+    // queue and chains straight through finishRound into round 2's
+    // selectCards in this same applyAction call. Both actions genuinely
+    // happened during round 1 (turn 0, pre-increment): the history recap
+    // (RoundView.tsx's kindsByPlayerIdForActionThisTurn) matches purchases/
+    // declines by comparing `turn` against the round being recapped, so a
+    // closing action logged one turn ahead of its own phase would both
+    // vanish from its own round's recap and bleed into the next round's.
+    let state = makeActiveGameWithFullHands()
+    const p2Index = state.players.findIndex((p) => p.id === 'p2')
+    let p2 = { ...state.players[p2Index], resources: { gold: 100, wood: 0, stone: 0 } }
+    p2 = moveCard(p2, cardIdFor('p2', 'temple'), 'decline')
+    const players = [...state.players]
+    players[p2Index] = p2
+    state = { ...state, players }
+
+    let result = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') })
+    if (!result.ok) throw new Error('setup failed')
+    result = applyAction(result.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') })
+    if (!result.ok) throw new Error('setup failed')
+    result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p1' })
+    if (!result.ok) throw new Error('setup failed')
+    result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p2' })
+    if (!result.ok) throw new Error('setup failed')
+    expect(result.state.roundPhase).toBe('purchase')
+    expect(result.state.pendingPlayerIds).toEqual(['p2'])
+
+    result = applyAction(result.state, { type: 'PURCHASE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'temple') }, testUnitContent)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    // Chained straight into round 2.
+    expect(result.state.roundPhase).toBe('selectCards')
+    expect(result.state.turn).toBe(1)
+
+    const closingEntry = result.state.actionHistory.at(-1)
+    expect(closingEntry?.action.type).toBe('PURCHASE_CARD')
+    // The round this action actually resolved (0), not the round it chained into (1).
+    expect(closingEntry?.turn).toBe(0)
+    // Every action from round 1's decline/purchase phase (turn 0) — including the closing PURCHASE_CARD above — must share one consistent turn number.
+    const purchasePhaseTurns = new Set(
+      result.state.actionHistory.filter((e) => e.action.type === 'PASS_ACTIONS' || e.action.type === 'PURCHASE_CARD').map((e) => e.turn),
+    )
+    expect(purchasePhaseTurns).toEqual(new Set([0]))
+  })
+
   it('inserts a decline phase when an achievement was claimed this round, then returns to purchase', () => {
     const base = makeActiveGameWithFullHands()
     const state = { ...base, achievementsClaimedThisRound: 1 }
