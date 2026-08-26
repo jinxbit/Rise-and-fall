@@ -144,6 +144,37 @@ describe('findReviewWindowStart', () => {
   it('returns the full length if the player themselves is the very last actor', () => {
     expect(findReviewWindowStart(historyFor(['p2', 'p1']), 'p1')).toBe(2)
   })
+
+  it(
+    "can return an index that is NOT one of findTurnStops's own boundaries, when that player's last action falls inside a " +
+      "simultaneous selectCards/declinePurchase group immediately before a DIFFERENT player's action within that same group " +
+      '(issue #333) — findTurnStops never splits those groups per actor (see ReviewPhaseGroup\'s doc comment), so callers ' +
+      "that feed findReviewWindowStart's result straight into a findTurnStops-indexed UI (GamePage.tsx's turn-mode " +
+      '"Review history") must snap it forward onto the next real stop themselves, e.g. via ' +
+      '`stops.find((stop) => stop >= rawStart) ?? stops[stops.length - 1]`.',
+    () => {
+      // p1's own last action (PURCHASE_CARD at index 3) is immediately
+      // followed by p2's PASS_PURCHASE (index 4) — both still inside the
+      // one merged declinePurchase stop covering indices [1, 5), so no
+      // boundary exists at 4.
+      const history: LoggedAction[] = [
+        { action: { type: 'PASS_ACTIONS', playerId: 'p1' }, turn: 1, timestamp: '' },
+        { action: { type: 'MOVE_TO_DECLINE', playerId: 'p1', cardId: 'c1' }, turn: 1, timestamp: '' },
+        { action: { type: 'MOVE_TO_DECLINE', playerId: 'p2', cardId: 'c2' }, turn: 1, timestamp: '' },
+        { action: { type: 'PURCHASE_CARD', playerId: 'p1', cardId: 'c1' }, turn: 1, timestamp: '' },
+        { action: { type: 'PASS_PURCHASE', playerId: 'p2' }, turn: 1, timestamp: '' },
+      ]
+      const rawStart = findReviewWindowStart(history, 'p1')
+      expect(rawStart).toBe(4)
+      const stops = findTurnStops(history, 0)
+      expect(stops).toEqual([0, 1, 5])
+      expect(stops).not.toContain(rawStart)
+
+      // The fix: snap forward onto the next real stop instead of using rawStart directly.
+      const snapped = stops.find((stop) => stop >= rawStart) ?? stops[stops.length - 1]
+      expect(snapped).toBe(5)
+    },
+  )
 })
 
 describe('findTurnStops', () => {
