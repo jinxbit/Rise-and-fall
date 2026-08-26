@@ -1040,10 +1040,26 @@ export function HexBoard(props: {
 
   return (
     <div className="relative">
+      {/*
+       * The height cap lives on this wrapper, not the `<svg>` itself. An
+       * `<svg>` sized via `width: 100%` with no explicit `height` derives its
+       * height from `viewBox`'s aspect ratio — capping *that* element's own
+       * `max-height` makes a tall/narrow board's computed height exceed the
+       * cap, which per the CSS replaced-element sizing algorithm shrinks the
+       * `<svg>`'s *width* too (to preserve the aspect ratio), leaving it
+       * narrower than its container with empty space beside it. Bug report:
+       * "on mobile, the victory screen is sometimes scaled incorrectly" (a
+       * board that was tall relative to a narrow mobile viewport's width,
+       * rendering at roughly half width with the other half blank). Capping
+       * this wrapper's height instead leaves the `<svg>` always full width —
+       * a board taller than the cap now scrolls vertically within the
+       * wrapper rather than shrinking horizontally.
+       */}
+      <div className={`overflow-auto ${props.expanded ? 'max-h-[92vh]' : 'max-h-[70vh]'}`}>
       <svg
         viewBox={`${minX} ${minY} ${maxX - minX} ${maxY - minY}`}
         style={{ overflow: 'visible' }}
-        className={`w-full rounded-md border border-neutral-800 bg-neutral-950 ${props.expanded ? 'max-h-[92vh]' : 'max-h-[70vh]'}`}
+        className="block w-full rounded-md border border-neutral-800 bg-neutral-950"
       >
       <defs>
         {/* A region that turned neutral (see territoryControl's `striped` doc comment) renders with
@@ -1362,6 +1378,7 @@ export function HexBoard(props: {
         </foreignObject>
       )}
       </svg>
+      </div>
       {props.analyzing && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-md bg-neutral-950/70">
           <span className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-sm font-medium text-neutral-200">
