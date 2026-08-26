@@ -1491,6 +1491,7 @@ export function GamePage() {
           territoryControlMode={territoryControlMode}
           previousHistoryState={previousTerritoryState}
           gameLog={isReviewingHistory ? reviewGameLog : gameLog}
+          isAdmin={isAdmin}
           onChooseCard={(cardId) => {
             if (!me) return
             void submitAction({ type: 'CHOOSE_CARD', playerId: me.id, cardId })
