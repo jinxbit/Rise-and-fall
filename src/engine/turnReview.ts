@@ -196,6 +196,26 @@ export function roundPhaseForRecap(actionHistory: LoggedAction[], stopEnd: numbe
 }
 
 /**
+ * Which round (`GameState.turn`) a history-review stop's `roundPhaseForRecap`
+ * result is actually describing (issue #331) — usually just `state.turn`
+ * itself, except once `state.roundPhase` has already auto-chained past the
+ * round being recapped (the same "raced ahead" situation `roundPhaseForRecap`
+ * itself has to account for — see its `'actions'`/`'declinePurchase'` forced
+ * branches, and `roundPhaseForRecap`'s own doc comment): a raw `roundPhase`
+ * of `'selectCards'` (or a `'completed'` status) means `finishRound` already
+ * bumped `state.turn` for the *next* round before this log entry was even
+ * produced, so the round actually finishing here is `state.turn - 1`, not
+ * `state.turn`. Needed alongside `roundPhaseForRecap`'s phase string by
+ * `shouldShowCardChoiceRecap`, which otherwise can't tell "this round's
+ * recap, still on screen" from "a different round's recap that happens to
+ * report the identical phase string" — see that function's own doc comment.
+ */
+export function recapTurnFor(state: GameState): number {
+  const stillMidRound = state.roundPhase === 'actions' || state.roundPhase === 'decline' || state.roundPhase === 'purchase'
+  return stillMidRound ? state.turn : state.turn - 1
+}
+
+/**
  * Whether RoundView's card-choice recap overlay (CardChoiceHistoryPanel)
  * should be shown for a history-review stop at `roundPhase` (issue #326
  * follow-up to #314/#316) — never for `selectCards`/`decline` themselves (a
@@ -215,18 +235,32 @@ export function roundPhaseForRecap(actionHistory: LoggedAction[], stopEnd: numbe
  * first stop showing `'actions'`/`'purchase'`" can't be read off *this*
  * stop's own action types (a CHOOSE_CARD-classified stop can itself already
  * be the `'actions'`-phase state) — it has to compare against the roundPhase
- * the PREVIOUS turn-stop actually replayed to. `previousStopRoundPhase` is
- * that comparison point, supplied by the caller (GamePage's replay cache
- * already holds every stop's state) — `null` when there is no previous stop
+ * the PREVIOUS turn-stop actually replayed to. `previousStop` is that
+ * comparison point, supplied by the caller (GamePage's replay cache already
+ * holds every stop's state) — `null` when there is no previous stop
  * (genesis, or reviewing the very first stop in the window), which compares
- * unequal to any real `RoundPhase` and so still shows. Action-by-action
- * ("Review history") mode has no multi-stop group at all, so
- * `historyStepMode !== 'turn'` always passes once the phase itself is right.
+ * unequal to any real stop and so still shows. Action-by-action ("Review
+ * history") mode has no multi-stop group at all, so `historyStepMode !==
+ * 'turn'` always passes once the phase itself is right.
+ *
+ * The comparison also checks `recapTurn` (see `recapTurnFor`), not just
+ * `roundPhase` (issue #331): `roundPhaseForRecap` reports the bare string
+ * `'actions'` both for the tail stop of a round that auto-chained straight
+ * through an empty decline/purchase phase (see its own doc comment) AND,
+ * completely separately, for the very next round's own first `'actions'`
+ * stop once *that* round's picks are in — two different rounds' recaps that
+ * would otherwise look identical to this "already shown?" check and
+ * silently suppress the second one.
  */
-export function shouldShowCardChoiceRecap(roundPhase: RoundPhase, previousStopRoundPhase: RoundPhase | null, historyStepMode: 'action' | 'turn'): boolean {
+export function shouldShowCardChoiceRecap(
+  roundPhase: RoundPhase,
+  recapTurn: number,
+  previousStop: { roundPhase: RoundPhase; recapTurn: number } | null,
+  historyStepMode: 'action' | 'turn',
+): boolean {
   if (roundPhase !== 'actions' && roundPhase !== 'purchase') return false
   if (historyStepMode !== 'turn') return true
-  return previousStopRoundPhase !== roundPhase
+  return previousStop === null || previousStop.roundPhase !== roundPhase || previousStop.recapTurn !== recapTurn
 }
 
 function diffResources(before: Resources, after: Resources): Partial<Resources> {

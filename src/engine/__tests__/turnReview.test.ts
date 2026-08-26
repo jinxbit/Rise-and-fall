@@ -4,7 +4,7 @@ import { createEmptyBoard, setTile } from '../board'
 import { cardIdFor, createPlayerCards, syncCardZonesWithBoard } from '../cards'
 import { createNewGame } from '../createGame'
 import { beginSelectCardsPhase } from '../round'
-import { buildTurnReview, findReviewWindowStart, findTurnStops, reviewPhaseGroupAt, roundPhaseForRecap, shouldShowCardChoiceRecap } from '../turnReview'
+import { buildTurnReview, findReviewWindowStart, findTurnStops, recapTurnFor, reviewPhaseGroupAt, roundPhaseForRecap, shouldShowCardChoiceRecap } from '../turnReview'
 import type { LoggedAction } from '../actions'
 import type { Card, GameState, Player, Terrain, Unit } from '../types'
 import type { UnitAction, UnitContent } from '../unitContent'
@@ -296,35 +296,57 @@ describe('roundPhaseForRecap', () => {
   })
 })
 
+describe('recapTurnFor', () => {
+  const fakeState = (roundPhase: GameState['roundPhase'], turn: number): GameState => ({ roundPhase, turn }) as GameState
+
+  it('is the replayed turn itself while still genuinely mid-round (actions/decline/purchase)', () => {
+    expect(recapTurnFor(fakeState('actions', 3))).toBe(3)
+    expect(recapTurnFor(fakeState('decline', 3))).toBe(3)
+    expect(recapTurnFor(fakeState('purchase', 3))).toBe(3)
+  })
+
+  it("is turn - 1 once the replayed state has already auto-chained into the NEXT round's selectCards, since finishRound bumps turn before that", () => {
+    expect(recapTurnFor(fakeState('selectCards', 4))).toBe(3)
+  })
+})
+
 describe('shouldShowCardChoiceRecap', () => {
   it("never shows for 'selectCards'/'decline' themselves, regardless of step mode", () => {
-    expect(shouldShowCardChoiceRecap('selectCards', null, 'turn')).toBe(false)
-    expect(shouldShowCardChoiceRecap('decline', null, 'turn')).toBe(false)
-    expect(shouldShowCardChoiceRecap('selectCards', 'selectCards', 'action')).toBe(false)
-    expect(shouldShowCardChoiceRecap('decline', 'actions', 'action')).toBe(false)
+    expect(shouldShowCardChoiceRecap('selectCards', 1, null, 'turn')).toBe(false)
+    expect(shouldShowCardChoiceRecap('decline', 1, null, 'turn')).toBe(false)
+    expect(shouldShowCardChoiceRecap('selectCards', 1, { roundPhase: 'selectCards', recapTurn: 1 }, 'action')).toBe(false)
+    expect(shouldShowCardChoiceRecap('decline', 1, { roundPhase: 'actions', recapTurn: 1 }, 'action')).toBe(false)
   })
 
   it('always shows for actions/purchase in action-by-action mode, regardless of the previous stop', () => {
-    expect(shouldShowCardChoiceRecap('actions', 'actions', 'action')).toBe(true)
-    expect(shouldShowCardChoiceRecap('purchase', 'purchase', 'action')).toBe(true)
-    expect(shouldShowCardChoiceRecap('actions', null, 'action')).toBe(true)
+    expect(shouldShowCardChoiceRecap('actions', 1, { roundPhase: 'actions', recapTurn: 1 }, 'action')).toBe(true)
+    expect(shouldShowCardChoiceRecap('purchase', 1, { roundPhase: 'purchase', recapTurn: 1 }, 'action')).toBe(true)
+    expect(shouldShowCardChoiceRecap('actions', 1, null, 'action')).toBe(true)
   })
 
   it("shows for the FIRST turn-stop of 'actions' — right as selectCards flips over — since selectCards's own single stop already replays as roundPhase 'actions' (applyChooseCard's atomic transition)", () => {
-    expect(shouldShowCardChoiceRecap('actions', 'selectCards', 'turn')).toBe(true)
+    expect(shouldShowCardChoiceRecap('actions', 1, { roundPhase: 'selectCards', recapTurn: 1 }, 'turn')).toBe(true)
   })
 
-  it("does NOT keep showing for every subsequent per-player turn-stop within 'actions' (issue #326) — roundPhase stays 'actions' for the whole group, but the previous stop already showed it", () => {
-    expect(shouldShowCardChoiceRecap('actions', 'actions', 'turn')).toBe(false)
+  it("does NOT keep showing for every subsequent per-player turn-stop within 'actions' (issue #326) — roundPhase and recapTurn stay the same for the whole group, but the previous stop already showed it", () => {
+    expect(shouldShowCardChoiceRecap('actions', 1, { roundPhase: 'actions', recapTurn: 1 }, 'turn')).toBe(false)
   })
 
   it("shows for 'declinePurchase' group's single turn-stop, right as 'actions' flips over", () => {
-    expect(shouldShowCardChoiceRecap('purchase', 'actions', 'turn')).toBe(true)
+    expect(shouldShowCardChoiceRecap('purchase', 1, { roundPhase: 'actions', recapTurn: 1 }, 'turn')).toBe(true)
   })
 
   it('shows when there is no previous stop at all (genesis, or the first stop in a windowed review)', () => {
-    expect(shouldShowCardChoiceRecap('actions', null, 'turn')).toBe(true)
-    expect(shouldShowCardChoiceRecap('purchase', null, 'turn')).toBe(true)
+    expect(shouldShowCardChoiceRecap('actions', 1, null, 'turn')).toBe(true)
+    expect(shouldShowCardChoiceRecap('purchase', 1, null, 'turn')).toBe(true)
+  })
+
+  it("shows a NEW round's 'actions' recap even though roundPhaseForRecap reports the same 'actions' string as the PREVIOUS round's auto-chained tail stop (issue #331: a round with no decline/purchase phase auto-chains straight into the next round, and if that next round's own card picks also land on 'actions', the bare phase string alone can't tell the two apart)", () => {
+    expect(shouldShowCardChoiceRecap('actions', 2, { roundPhase: 'actions', recapTurn: 1 }, 'turn')).toBe(true)
+  })
+
+  it("still suppresses the auto-chained tail stop itself against the actions group's earlier per-player stops — same round, so same recapTurn", () => {
+    expect(shouldShowCardChoiceRecap('actions', 1, { roundPhase: 'actions', recapTurn: 1 }, 'turn')).toBe(false)
   })
 })
 
