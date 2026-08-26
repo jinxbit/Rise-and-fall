@@ -111,7 +111,11 @@ function describeCascade(before: GameState, after: GameState, achievementContent
 
   for (const player of after.players) {
     const beforePlayer = before.players.find((p) => p.id === player.id)
-    if (beforePlayer && !beforePlayer.eliminated && player.eliminated) {
+    // Conceding already gets its own primary-action line ("Player X
+    // conceded") above in describePrimaryAction — this cascade line is only
+    // for the automatic no-card-available rule, so skip it here or every
+    // concede would also log a misleading "was eliminated" line right after.
+    if (beforePlayer && !beforePlayer.eliminated && player.eliminated && !player.conceded) {
       events.push({ playerId: player.id, message: `Player ${player.id} was eliminated — no card available to play` })
     }
   }

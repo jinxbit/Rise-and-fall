@@ -217,6 +217,56 @@ describe('buildGameLog', () => {
     expect(messages(log)).toContainEqual('Round 1 begins')
   })
 
+  it('logs a concede as "conceded", not also the auto-elimination cascade\'s misleading "was eliminated" line', () => {
+    // Three players (each with their own unit, so nobody is auto-eliminated
+    // at genesis) so that p1 conceding leaves two players active rather than
+    // ending the game outright (eliminatePlayer's last-player-standing check
+    // in ./elimination.ts).
+    const board = boardOf([
+      [0, 0, 'plain'],
+      [1, 0, 'plain'],
+      [2, 0, 'plain'],
+    ])
+    const p1Cards = createPlayerCards('p1')
+    const p2Cards = createPlayerCards('p2')
+    const p3Cards = createPlayerCards('p3')
+    const cards: Record<string, Card> = {}
+    for (const c of [...p1Cards, ...p2Cards, ...p3Cards]) cards[c.id] = c
+    const lobby = createNewGame({
+      gameId: 'g3',
+      playMode: 'hotseat',
+      board,
+      players: [
+        { id: 'p1', authUserId: null, displayName: 'Alice', color: 'red' },
+        { id: 'p2', authUserId: null, displayName: 'Bob', color: 'blue' },
+        { id: 'p3', authUserId: null, displayName: 'Cleo', color: 'green' },
+      ],
+      resourceBank: { gold: 1000, wood: 1000, stone: 1000 },
+    })
+    const units: Unit[] = [
+      { id: 'city_p1', ownerId: 'p1', kind: 'city', coord: { q: 0, r: 0 }, movement: content.movementByKind.city, traits: [] },
+      { id: 'city_p2', ownerId: 'p2', kind: 'city', coord: { q: 1, r: 0 }, movement: content.movementByKind.city, traits: [] },
+      { id: 'city_p3', ownerId: 'p3', kind: 'city', coord: { q: 2, r: 0 }, movement: content.movementByKind.city, traits: [] },
+    ]
+    const active: GameState = {
+      ...lobby,
+      board,
+      players: [makePlayer('p1', p1Cards), makePlayer('p2', p2Cards), makePlayer('p3', p3Cards)],
+      cards,
+      turnOrder: ['p1', 'p2', 'p3'],
+      units,
+      status: 'active',
+    }
+    const genesis = beginSelectCardsPhase(syncCardZonesWithBoard(active))
+
+    const state = drive(genesis, [{ type: 'CONCEDE', playerId: 'p1' }])
+    expect(state.players.find((p) => p.id === 'p1')?.conceded).toBe(true)
+
+    const log = buildGameLog(genesis, state.actionHistory, content, achievementContent)
+    expect(messages(log)).toContainEqual('Player p1 conceded')
+    expect(messages(log)).not.toContainEqual(expect.stringContaining('was eliminated'))
+  })
+
   it('logs a card zone change caused by converting a different unit than the one acting', () => {
     // p1 plays their City (not their Nomad) this turn, and the City
     // converts the adjacent Nomad into a Merchant. Since it's the City's
