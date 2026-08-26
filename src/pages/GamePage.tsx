@@ -394,12 +394,30 @@ export function GamePage() {
    * Prev can still walk all the way back to genesis (issue #261). An
    * observer has no turn of their own to anchor to, so they start at
    * genesis (0) instead.
+   *
+   * `findReviewWindowStart`'s raw result isn't always one of
+   * `fullTurnStops`'s own values, though: `me`'s own last action can land
+   * inside a simultaneous `selectCards`/`declinePurchase` group (see
+   * `ReviewPhaseGroup`'s doc comment) immediately before a DIFFERENT
+   * player's action within that same group — `findTurnStops` never draws a
+   * boundary there, since those groups intentionally don't split per actor.
+   * Every other bit of turn-mode logic (Prev/Next's `currentTurnPos`, the
+   * halo/recap lookups above) assumes `reviewIndex` is always one of
+   * `fullTurnStops`'s own values, so snap forward to the next real stop —
+   * this can only ever land later within the same still-open group (often
+   * exactly "now", if nothing outside that group followed), never skip past
+   * a turn `me` hasn't reviewed yet (issue #333: this mismatch is what left
+   * "Review history"'s Next button wrongly disabled the instant it opened,
+   * for a finished game where the reviewer's own last action fell inside
+   * the final round's decline/purchase phase).
    */
   const defaultTurnHistoryIndex = useMemo(() => {
     if (!gameState) return 0
-    return me ? findReviewWindowStart(gameState.actionHistory, me.id) : 0
+    const rawStart = me ? findReviewWindowStart(gameState.actionHistory, me.id) : 0
+    if (!fullTurnStops) return rawStart
+    return fullTurnStops.find((stop) => stop >= rawStart) ?? fullTurnStops[fullTurnStops.length - 1]
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gameState?.actionHistory, me?.id])
+  }, [gameState?.actionHistory, me?.id, fullTurnStops])
 
   /**
    * The running narration log (see engine/gameLog.ts) — nothing about it is
