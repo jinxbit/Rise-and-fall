@@ -87,7 +87,17 @@ export function applyAction(
   const result = dispatchAction(resyncUnitMovementFromContent(state, unitContent), action, unitContent, achievementContent, boardGenerationContent, taleContent, trustedReplay)
   if (!result.ok) return result
 
-  const loggedAction: LoggedAction = { action, turn: result.state.turn, timestamp: new Date().toISOString() }
+  // `state.turn` (before dispatch), NOT `result.state.turn` — a decline/
+  // purchase action that happens to be the one that finishes the round
+  // chains straight through finishRound (./round.ts) in this same call,
+  // which increments the turn counter before this log entry is created.
+  // Logging the post-chain value would tag that one action as having
+  // happened on the round it just finished *into* rather than the round it
+  // actually resolved, both misattributing it away from its own round's
+  // recap (issue #328) and, worse, colliding with a genuine action logged
+  // for the new round later on, since both would then share the same
+  // `turn` number.
+  const loggedAction: LoggedAction = { action, turn: state.turn, timestamp: new Date().toISOString() }
   return { ok: true, state: { ...result.state, actionHistory: [...result.state.actionHistory, loggedAction] } }
 }
 
