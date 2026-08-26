@@ -4,17 +4,17 @@ import type { AchievementContent } from '../engine/achievementContent'
 import type { AchievementClaimEvent, ScoreSnapshot } from '../engine/scoreHistory'
 import { calculateTerritoryControlByHex } from '../engine/scoring'
 import type { TaleContent } from '../engine/taleContent'
-import type { DeclinePurchaseDetail, UnitValueDetail } from '../engine/unitValue'
+import type { SpendingBreakdown, UnitValueDetail } from '../engine/unitValue'
 import { calculateVPBreakdown, calculateVPDetail } from '../engine/victoryPoints'
 import type { VPDetail } from '../engine/victoryPoints'
 import type { GameState } from '../engine/types'
 import type { PlayerRow } from '../lib/dbTypes'
-import { DeclinePurchaseChart } from './DeclinePurchaseChart'
 import { HexBoard } from './HexBoard'
 import type { UnitMarker } from './HexBoard'
 import { ScoreCategoryChart } from './ScoreCategoryChart'
 import { ScoreOverTimeChart } from './ScoreOverTimeChart'
 import { scoredCategories } from './scoreCategories'
+import { SpendingChart } from './SpendingChart'
 import { UnitIcon } from './UnitIcon'
 import { UnitValueChart } from './UnitValueChart'
 
@@ -177,7 +177,7 @@ export function EndGameView({
   scoreHistory,
   achievementClaims,
   unitValueDetail,
-  declinePurchaseDetail,
+  spendingBreakdown,
 }: {
   state: GameState
   players: PlayerRow[]
@@ -189,8 +189,8 @@ export function EndGameView({
   achievementClaims?: AchievementClaimEvent[] | null
   /** Per-player, per-unit-kind value breakdown (./engine/unitValue.ts), for the "unit value" stacked bar chart below. Undefined/null (a caller that hasn't derived it, e.g. this component's own tests) simply skips that chart. */
   unitValueDetail?: Record<string, UnitValueDetail[]> | null
-  /** Per-player, per-unit-kind decline-buyback spend (./engine/unitValue.ts), for the "Decline buybacks" bar chart below. Undefined/null (a caller that hasn't derived it, e.g. this component's own tests) simply skips that chart. */
-  declinePurchaseDetail?: Record<string, DeclinePurchaseDetail[]> | null
+  /** Per-player gold-spending breakdown by category (./engine/unitValue.ts), for the "Spending" stacked bar chart below. Undefined/null (a caller that hasn't derived it, e.g. this component's own tests) simply skips that chart. */
+  spendingBreakdown?: Record<string, SpendingBreakdown> | null
 }) {
   const detailByPlayerId = calculateVPDetail(state, achievementContent, taleContent)
   const breakdownByPlayerId = calculateVPBreakdown(state, achievementContent, taleContent)
@@ -326,10 +326,10 @@ export function EndGameView({
         </div>
       )}
 
-      {declinePurchaseDetail && (
-        <div className="flex flex-col gap-3" data-testid="decline-purchases">
-          <p className="text-sm font-medium text-neutral-200">Decline buybacks</p>
-          <DeclinePurchaseChart detailByPlayerId={declinePurchaseDetail} players={players} playerIds={activeIds} />
+      {spendingBreakdown && (
+        <div className="flex flex-col gap-3" data-testid="spending">
+          <p className="text-sm font-medium text-neutral-200">Spending</p>
+          <SpendingChart breakdownByPlayerId={spendingBreakdown} players={players} playerIds={activeIds} />
         </div>
       )}
 

@@ -11,7 +11,7 @@ import type { TaleContent } from './taleContent'
 import type { GameState } from './types'
 import { applyUnitActionEffect } from './unitActions'
 import { EMPTY_UNIT_CONTENT } from './unitContent'
-import type { UnitContent } from './unitContent'
+import type { UnitActionEffect, UnitContent } from './unitContent'
 import { calculateBoardCountDetail } from './victoryPoints'
 
 /**
@@ -175,35 +175,93 @@ export function calculateUnitValueDetail(
   return detailByPlayerId
 }
 
+export type SpendingCategory = 'unitCreation' | 'transform' | 'convert' | 'tradeResource' | 'declineBuyback'
+
+/** Maps a RESOLVE_UNIT_ACTION assignment's effect type to the spending category its cost belongs to — a kind not listed here (move/income/produce/trade/region-unit-count-income) never costs gold. */
+const SPENDING_CATEGORY_BY_ACTION_TYPE: Partial<Record<UnitActionEffect['actionType'], SpendingCategory>> = {
+  create: 'unitCreation',
+  'site-create': 'unitCreation',
+  transform: 'transform',
+  convert: 'convert',
+  'trade-resource': 'tradeResource',
+}
+
+export interface SpendingBreakdown {
+  /** Gold spent creating new units (create/site-create effects). */
+  unitCreation: number
+  /** Gold spent transforming a unit into another kind. */
+  transform: number
+  /** Gold spent converting an enemy or own unit. */
+  convert: number
+  /** Gold spent buying wood/stone (a trade-resource effect's buy mode; sell produces gold instead, so it's never counted here). */
+  tradeResource: number
+  /** Gold spent buying cards back from decline (PURCHASE_CARD). */
+  declineBuyback: number
+}
+
+const EMPTY_SPENDING_BREAKDOWN: SpendingBreakdown = { unitCreation: 0, transform: 0, convert: 0, tradeResource: 0, declineBuyback: 0 }
+
 /**
- * Cumulative gold a player has spent buying cards back from decline, per unit
- * kind (issue #336 follow-up: "contributions in VPs to purchase declined
- * cards") — replays `actionHistory` the same way calculateGoldProducedByKind
- * does, attributing each PURCHASE_CARD's cost (calculatePurchaseCost, priced
- * at the moment of purchase since the cost table is indexed by achievements
- * claimed *so far* — see that function's own doc comment) to the kind of the
- * card bought back.
+ * Cumulative gold a player has spent over the whole game, split by what it
+ * went toward (issue #336 follow-up: "a spending chart, stacked with the
+ * different types of spending amounts, one bar per player") — replays
+ * `actionHistory` the mirror image of calculateGoldProducedByKind: instead of
+ * attributing a RESOLVE_UNIT_ACTION assignment's *positive* gold delta to the
+ * acting card's kind, it attributes a *negative* delta to the resolved
+ * action's effect type (SPENDING_CATEGORY_BY_ACTION_TYPE above) — a
+ * trade-resource *sell* produces a positive delta, so it's naturally
+ * excluded, same as any other income effect. A PURCHASE_CARD's cost
+ * (calculatePurchaseCost, priced at the moment of purchase since the cost
+ * table is indexed by achievements claimed *so far* — see that function's own
+ * doc comment) is tracked separately as declineBuyback, since it isn't a
+ * RESOLVE_UNIT_ACTION at all. A player who never spent any gold is simply
+ * absent from the result, same "absent means zero" convention as
+ * calculateGoldProducedByKind.
  */
-export function calculateDeclinePurchaseCostByKind(
+export function calculateGoldSpendingByCategory(
   genesis: GameState,
   actionHistory: LoggedAction[],
   unitContent: UnitContent = EMPTY_UNIT_CONTENT,
   achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT,
   boardGenerationContent: BoardGenerationContent = EMPTY_BOARD_GENERATION_CONTENT,
   taleContent: TaleContent = EMPTY_TALE_CONTENT,
-): Record<string, Record<string, number>> {
-  const costByPlayerAndKind: Record<string, Record<string, number>> = {}
+): Record<string, SpendingBreakdown> {
+  const breakdownByPlayerId: Record<string, SpendingBreakdown> = {}
+  const addSpend = (playerId: string, category: SpendingCategory, amount: number) => {
+    const breakdown = breakdownByPlayerId[playerId] ?? { ...EMPTY_SPENDING_BREAKDOWN }
+    breakdownByPlayerId[playerId] = { ...breakdown, [category]: breakdown[category] + amount }
+  }
+
   let state = genesis
 
   for (const { action } of actionHistory) {
+    if (action.type === 'RESOLVE_UNIT_ACTION') {
+      const cardId = state.chosenCardIdByPlayerId[action.playerId]
+      const card = cardId ? state.cards[cardId] : undefined
+      if (card) {
+        const actionsForKind = unitContent.actionsByKind[card.kind] ?? []
+        let subState = state
+        for (const assignment of action.unitActions) {
+          const unitAction = actionsForKind.find((a) => a.id === assignment.actionId)
+          if (!unitAction) continue
+          const category = SPENDING_CATEGORY_BY_ACTION_TYPE[unitAction.effect.actionType]
+          const targets = assignment.target ? { [assignment.unitId]: assignment.target } : {}
+          const goldBefore = subState.players.find((p) => p.id === action.playerId)?.resources.gold ?? 0
+          subState = applyUnitActionEffect(subState, action.playerId, card.kind, unitAction, targets, unitContent, [assignment.unitId])
+          const goldAfter = subState.players.find((p) => p.id === action.playerId)?.resources.gold ?? 0
+
+          const delta = goldAfter - goldBefore
+          if (delta < 0 && category) addSpend(action.playerId, category, -delta)
+        }
+      }
+    }
+
     if (action.type === 'PURCHASE_CARD') {
       const card = state.cards[action.cardId]
       if (card) {
         const achievementsClaimedSoFar = Object.keys(state.claimedByAchievementId).length
         const cost = calculatePurchaseCost(achievementsClaimedSoFar, achievementContent.purchaseCostTable)
-        const byKind = costByPlayerAndKind[action.playerId] ?? {}
-        costByPlayerAndKind[action.playerId] = byKind
-        byKind[card.kind] = (byKind[card.kind] ?? 0) + cost
+        addSpend(action.playerId, 'declineBuyback', cost)
       }
     }
 
@@ -213,50 +271,5 @@ export function calculateDeclinePurchaseCostByKind(
     state = result.state
   }
 
-  return costByPlayerAndKind
-}
-
-export interface DeclinePurchaseDetail {
-  kind: string
-  /** Total gold spent buying this kind's card back from decline over the whole game. */
-  cost: number
-  /** `cost` converted to VP-equivalent points at achievementContent.goldPerVictoryPoint — fractional, same convention as UnitValueBreakdown.goldProduced (see calculateUnitValueDetail's doc comment for why). */
-  vp: number
-}
-
-/**
- * Per (player, unit kind) decline-buyback spend, for the end-of-game screen's
- * "Decline buybacks" chart (issue #336 follow-up) — how much of a player's
- * gold went toward buying which kind's card back from decline, expressed in
- * both raw gold and VP-equivalent points so it sits on the same scale as the
- * "Unit value" chart above it. Only kinds a player actually spent gold buying
- * back appear in their list — same "absent means zero" convention as
- * calculateUnitValueDetail — sorted by descending cost.
- */
-export function calculateDeclinePurchaseDetail(
-  state: GameState,
-  genesis: GameState,
-  actionHistory: LoggedAction[],
-  unitContent: UnitContent = EMPTY_UNIT_CONTENT,
-  achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT,
-  boardGenerationContent: BoardGenerationContent = EMPTY_BOARD_GENERATION_CONTENT,
-  taleContent: TaleContent = EMPTY_TALE_CONTENT,
-): Record<string, DeclinePurchaseDetail[]> {
-  const costByPlayerAndKind = calculateDeclinePurchaseCostByKind(genesis, actionHistory, unitContent, achievementContent, boardGenerationContent, taleContent)
-  const goldPerVictoryPoint = achievementContent.goldPerVictoryPoint
-
-  const detailByPlayerId: Record<string, DeclinePurchaseDetail[]> = {}
-  for (const player of state.players) {
-    const byKind = costByPlayerAndKind[player.id] ?? {}
-    const details: DeclinePurchaseDetail[] = Object.entries(byKind).map(([kind, cost]) => ({
-      kind,
-      cost,
-      vp: goldPerVictoryPoint ? cost / goldPerVictoryPoint : 0,
-    }))
-
-    details.sort((a, b) => b.cost - a.cost)
-    detailByPlayerId[player.id] = details
-  }
-
-  return detailByPlayerId
+  return breakdownByPlayerId
 }

@@ -7,7 +7,7 @@ import { cardIdFor, moveCard, UNIT_KINDS } from '../cards'
 import { createNewGame } from '../createGame'
 import type { Coordinate, GameState, Unit } from '../types'
 import type { UnitAction, UnitContent } from '../unitContent'
-import { calculateDeclinePurchaseCostByKind, calculateDeclinePurchaseDetail, calculateGoldProducedByKind, calculateUnitValueDetail } from '../unitValue'
+import { calculateGoldProducedByKind, calculateGoldSpendingByCategory, calculateUnitValueDetail } from '../unitValue'
 
 let unitCounter = 0
 function unitAt(ownerId: string, kind: string, coord: Coordinate = { q: 0, r: 0 }): Unit {
@@ -222,8 +222,8 @@ describe('calculateGoldProducedByKind', () => {
   })
 })
 
-describe('calculateDeclinePurchaseCostByKind / calculateDeclinePurchaseDetail', () => {
-  const achievementContent: AchievementContent = { ...EMPTY_ACHIEVEMENT_CONTENT, purchaseCostTable: [5, 10, 20], goldPerVictoryPoint: 2 }
+describe('calculateGoldSpendingByCategory', () => {
+  const achievementContent: AchievementContent = { ...EMPTY_ACHIEVEMENT_CONTENT, purchaseCostTable: [5, 10, 20] }
 
   function makeActiveGame(): GameState {
     const state = createNewGame({
@@ -249,7 +249,7 @@ describe('calculateDeclinePurchaseCostByKind / calculateDeclinePurchaseDetail', 
     return { ...state, status: 'active', players, units }
   }
 
-  it("attributes a PURCHASE_CARD's cost (priced at the moment of purchase) to the bought-back card's kind, and converts it to VP-equivalent at goldPerVictoryPoint", () => {
+  it("attributes a PURCHASE_CARD's cost (priced at the moment of purchase) to declineBuyback", () => {
     const base = makeActiveGame()
     const p1Index = base.players.findIndex((p) => p.id === 'p1')
     let p1 = { ...base.players[p1Index], resources: { ...base.players[p1Index].resources, gold: 100 } }
@@ -271,18 +271,85 @@ describe('calculateDeclinePurchaseCostByKind / calculateDeclinePurchaseDetail', 
     result = applyAction(result.state, { type: 'PURCHASE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'temple') }, undefined, achievementContent)
     if (!result.ok) throw new Error(result.error)
 
-    // 1 achievement already claimed -> costTable[0] = 5 gold -> 2.5 VP at goldPerVictoryPoint 2.
-    const costByKind = calculateDeclinePurchaseCostByKind(genesis, result.state.actionHistory, undefined, achievementContent)
-    expect(costByKind).toEqual({ p1: { temple: 5 } })
-
-    const detail = calculateDeclinePurchaseDetail(result.state, genesis, result.state.actionHistory, undefined, achievementContent)
-    expect(detail.p1).toEqual([{ kind: 'temple', cost: 5, vp: 2.5 }])
-    expect(detail.p2).toEqual([])
+    // 1 achievement already claimed -> costTable[0] = 5 gold.
+    const spending = calculateGoldSpendingByCategory(genesis, result.state.actionHistory, undefined, achievementContent)
+    expect(spending.p1).toEqual({ unitCreation: 0, transform: 0, convert: 0, tradeResource: 0, declineBuyback: 5 })
+    expect(spending.p2).toBeUndefined()
   })
 
-  it('omits a player who never bought a card back from decline, rather than an all-zero entry', () => {
+  it("attributes a site-create effect's cost to unitCreation", () => {
+    const portActions: UnitAction[] = [
+      { id: 'build-ship', name: 'Build Ship', description: '', effect: { actionType: 'site-create', targetUnit: 'ship', blockedByKinds: [], cost: { gold: 4 } } },
+    ]
+    const unitContent: UnitContent = {
+      actionsByKind: { city: portActions },
+      movementByKind: {},
+      terrainLevels: {},
+      resourceCaps: {},
+      unitSupplyCaps: {},
+      companionKindsByCardKind: {},
+      activationsPerTurnByKind: {},
+    }
+
+    let board = createEmptyBoard('hex')
+    board = setTile(board, { q: 0, r: 0 }, 'plain')
+    const genesis = { ...makeActiveGame(), board, resourceBank: { gold: 100, wood: 100, stone: 100 } }
+    const players = genesis.players.map((player) => (player.id === 'p1' ? { ...player, resources: { ...player.resources, gold: 10 } } : player))
+    const genesisWithGold = { ...genesis, players }
+    const cityUnit = genesisWithGold.units.find((u) => u.ownerId === 'p1' && u.kind === 'city') as Unit
+    const genesisWithCityOnPlain = { ...genesisWithGold, units: genesisWithGold.units.map((u) => (u.id === cityUnit.id ? { ...u, coord: { q: 0, r: 0 } } : u)) }
+
+    let result = applyAction(genesisWithCityOnPlain, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }, unitContent, achievementContent)
+    if (!result.ok) throw new Error(result.error)
+    result = applyAction(result.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'temple') }, unitContent, achievementContent)
+    if (!result.ok) throw new Error(result.error)
+    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [{ unitId: cityUnit.id, actionId: 'build-ship' }] }, unitContent, achievementContent)
+    if (!result.ok) throw new Error(result.error)
+    expect(result.state.players.find((p) => p.id === 'p1')?.resources.gold).toBe(6)
+
+    const spending = calculateGoldSpendingByCategory(genesisWithCityOnPlain, result.state.actionHistory, unitContent, achievementContent)
+    expect(spending.p1).toEqual({ unitCreation: 4, transform: 0, convert: 0, tradeResource: 0, declineBuyback: 0 })
+  })
+
+  it("attributes a trade-resource buy effect's cost to tradeResource, but not a sell (which gains gold)", () => {
+    const merchantActions: UnitAction[] = [
+      { id: 'buy-wood', name: 'Buy Wood', description: '', effect: { actionType: 'trade-resource', resource: 'wood', mode: 'buy', resourceAmount: 1, goldPerResource: 3 } },
+      { id: 'sell-stone', name: 'Sell Stone', description: '', effect: { actionType: 'trade-resource', resource: 'stone', mode: 'sell', resourceAmount: 1, goldPerResource: 2 } },
+    ]
+    const unitContent: UnitContent = {
+      actionsByKind: { merchant: merchantActions },
+      movementByKind: {},
+      terrainLevels: {},
+      resourceCaps: {},
+      unitSupplyCaps: {},
+      companionKindsByCardKind: {},
+      activationsPerTurnByKind: { merchant: 2 },
+    }
+
+    const genesis = { ...makeActiveGame(), resourceBank: { gold: 100, wood: 100, stone: 100 } }
+    const players = genesis.players.map((player) => (player.id === 'p1' ? { ...player, resources: { ...player.resources, gold: 10, stone: 1 } } : player))
+    const genesisWithResources = { ...genesis, players }
+    const merchantUnit = genesisWithResources.units.find((u) => u.ownerId === 'p1' && u.kind === 'merchant') as Unit
+
+    let result = applyAction(genesisWithResources, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'merchant') }, unitContent, achievementContent)
+    if (!result.ok) throw new Error(result.error)
+    result = applyAction(result.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'temple') }, unitContent, achievementContent)
+    if (!result.ok) throw new Error(result.error)
+    result = applyAction(
+      result.state,
+      { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [{ unitId: merchantUnit.id, actionId: 'buy-wood' }, { unitId: merchantUnit.id, actionId: 'sell-stone' }] },
+      unitContent,
+      achievementContent,
+    )
+    if (!result.ok) throw new Error(result.error)
+
+    const spending = calculateGoldSpendingByCategory(genesisWithResources, result.state.actionHistory, unitContent, achievementContent)
+    expect(spending.p1).toEqual({ unitCreation: 0, transform: 0, convert: 0, tradeResource: 3, declineBuyback: 0 })
+  })
+
+  it('omits a player who never spent any gold, rather than an all-zero entry', () => {
     const genesis = makeActiveGame()
-    const detail = calculateDeclinePurchaseDetail(genesis, genesis, [], undefined, achievementContent)
-    expect(detail).toEqual({ p1: [], p2: [] })
+    const spending = calculateGoldSpendingByCategory(genesis, [], undefined, achievementContent)
+    expect(spending).toEqual({})
   })
 })
