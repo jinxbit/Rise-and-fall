@@ -149,3 +149,41 @@ export function syncCardZonesWithBoard(
 
   return { ...state, players }
 }
+
+/**
+ * Round-end companion to syncCardZonesWithBoard, for the `discard` zone
+ * that function deliberately leaves alone (see its doc comment). A player
+ * usually plays only one of their six cards a round, leaving the other
+ * five in hand — so a played card whose kind loses its last unit mid-round
+ * (e.g. Transform [last] Ship into Merchant) sits correctly untouched in
+ * `discard` for the rest of that round, but must not be left there
+ * indefinitely: rule 5 still says it belongs in `supply`, not `discard`,
+ * once nothing backs it. Previously this correction only ever ran as a
+ * side effect of `finishRound`'s rule 10/11 recycle (dumping `discard`
+ * into an emptied `hand`, then re-syncing) — which meant an unbacked
+ * discarded card sat there, wrongly, until its owner happened to empty
+ * their *entire* hand through play, which could take several more rounds.
+ * Call this at every round end instead, before that recycle step, so the
+ * correction isn't gated on it.
+ */
+export function moveUnbackedDiscardCardsToSupply(
+  state: GameState,
+  companionKindsByCardKind: Record<string, string[]> = {},
+): GameState {
+  const players = state.players.map((player) => {
+    let nextPlayer = player
+    for (const cardId of player.discardCardIds) {
+      const card = state.cards[cardId]
+      if (!card) continue
+
+      const equivalentKinds = [card.kind, ...(companionKindsByCardKind[card.kind] ?? [])]
+      const hasUnitOnBoard = state.units.some((u) => u.ownerId === player.id && equivalentKinds.includes(u.kind))
+      if (!hasUnitOnBoard) {
+        nextPlayer = moveCard(nextPlayer, cardId, 'supply')
+      }
+    }
+    return nextPlayer
+  })
+
+  return { ...state, players }
+}

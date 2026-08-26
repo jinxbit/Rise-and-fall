@@ -78,7 +78,19 @@ function makeActiveGameWithFullHands(): GameState {
 
 describe('round flow', () => {
   it('runs select -> actions -> purchase -> next round when no decline is triggered', () => {
-    const state = makeActiveGameWithFullHands()
+    // Both players need a real City unit backing the card they're about to
+    // play: with none, moveUnbackedDiscardCardsToSupply (../cards.ts) would
+    // correctly route the played City card straight to supply at round end
+    // instead of leaving it in discard, which is what this test checks for.
+    let state = makeActiveGameWithFullHands()
+    state = {
+      ...state,
+      units: [
+        ...state.units,
+        { id: 'p1_city', ownerId: 'p1', kind: 'city', coord: { q: 0, r: 0 }, movement: { isMobile: false, terrains: [], canCrossCliffs: false }, traits: [] },
+        { id: 'p2_city', ownerId: 'p2', kind: 'city', coord: { q: 1, r: 0 }, movement: { isMobile: false, terrains: [], canCrossCliffs: false }, traits: [] },
+      ],
+    }
     const p1City = cardIdFor('p1', 'city')
     const p2City = cardIdFor('p2', 'city')
 
@@ -699,5 +711,36 @@ describe('finishRound re-syncs recycled cards against the board (rule 5/6 + rule
     const p1After = result.players.find((p) => p.id === 'p1')!
     expect(p1After.handCardIds).toContain(cardIdFor('p1', 'city'))
     expect(p1After.supplyCardIds).not.toContain(cardIdFor('p1', 'city'))
+  })
+
+  it('sends a just-played card straight to supply at round end when its last backing unit is gone, even though the rest of the hand is still full (issue #339)', () => {
+    // Reproduces the reported bug directly: a player plays their Ship card
+    // and transforms their one and only Ship into a Merchant — losing the
+    // Ship card's only backing unit — but the rest of their hand (five
+    // other cards) is untouched, so it's nowhere near empty. The old
+    // finishRound only ever re-synced discard against the board as a side
+    // effect of a full hand recycle (rule 10/11), so this card would sit
+    // incorrectly in discard, not supply, until the player's whole hand
+    // happened to empty out over several later rounds.
+    let state = makeActiveGameWithFullHands()
+    const p1Index = state.players.findIndex((p) => p.id === 'p1')
+    let p1 = state.players[p1Index]
+    p1 = moveCard(p1, cardIdFor('p1', 'ship'), 'discard')
+    const players = [...state.players]
+    players[p1Index] = p1
+    // The Ship unit makeActiveGameWithFullHands seeded for p1 is gone —
+    // transformed into a Merchant — everything else about the fixture
+    // (the other four hand cards, p1's other seeded units) is untouched.
+    const units = state.units.filter((u) => !(u.ownerId === 'p1' && u.kind === 'ship'))
+    state = { ...state, players, units }
+
+    const result = finishRound(state)
+
+    const p1After = result.players.find((p) => p.id === 'p1')!
+    expect(p1After.supplyCardIds).toContain(cardIdFor('p1', 'ship'))
+    expect(p1After.discardCardIds).not.toContain(cardIdFor('p1', 'ship'))
+    expect(p1After.handCardIds).not.toContain(cardIdFor('p1', 'ship'))
+    // The rest of p1's hand (still full, five cards) is untouched by this correction.
+    expect(p1After.handCardIds).toHaveLength(5)
   })
 })
