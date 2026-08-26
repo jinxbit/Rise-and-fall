@@ -85,6 +85,22 @@ describe('eliminatePlayer', () => {
     expect(next.activePlayerId).toBe('p2')
   })
 
+  it('defaults conceded to false, and only sets it true when the caller passes conceded', () => {
+    const state = makeState({
+      roundPhase: 'actions',
+      turnOrder: ['p1', 'p2', 'p3'],
+      pendingPlayerIds: ['p1', 'p2', 'p3'],
+      activePlayerId: 'p1',
+      players: [makePlayer('p1'), makePlayer('p2'), makePlayer('p3')],
+    })
+
+    const autoEliminated = eliminatePlayer(state, 'p1')
+    expect(autoEliminated.players.find((p) => p.id === 'p1')?.conceded).toBe(false)
+
+    const conceded = eliminatePlayer(state, 'p2', true)
+    expect(conceded.players.find((p) => p.id === 'p2')?.conceded).toBe(true)
+  })
+
   it('returns the eliminated player\'s resources to the bank and zeroes their own holding', () => {
     const state = makeState({
       roundPhase: 'actions',

@@ -54,6 +54,7 @@ export function createNewGame(params: {
       supplyCardIds: playerCards.map((c) => c.id),
       declineCardIds: [],
       eliminated: false,
+      conceded: false,
       resources: { ...EMPTY_RESOURCES },
     }
   })

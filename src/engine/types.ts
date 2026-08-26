@@ -206,6 +206,17 @@ export interface Player {
    */
   eliminated: boolean
   /**
+   * True if `eliminated` was reached via the CONCEDE action rather than the
+   * automatic no-card-available rule (see eliminatePlayer() in
+   * ./elimination.ts). Meaningless while `eliminated` is false. Purely
+   * presentational — concession and automatic elimination are treated
+   * identically everywhere else in the engine (board/turn-order removal,
+   * excluded from winning, resources returned to the bank) — this only lets
+   * the UI (e.g. EndGameView) and game log say "conceded" instead of
+   * "eliminated".
+   */
+  conceded?: boolean
+  /**
    * A player's own resource holdings. Wood/Stone are capped at
    * content/resources.json's `playerCap` (5); Gold is uncapped for a player
    * (playerCap: null) — only the shared bank below limits it. Enforced by

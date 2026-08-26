@@ -40,6 +40,11 @@ function terrainName(terrainId: string): string {
   return TERRAIN_TYPES.find((t) => t.id === terrainId)?.name ?? capitalize(terrainId)
 }
 
+/** "eliminated" or "conceded" — same removal from the game (Player.eliminated), but worth telling apart on the end-game screen (see Player.conceded's doc comment in ../engine/types). */
+function eliminationLabel(player: { conceded?: boolean }): string {
+  return player.conceded ? 'conceded' : 'eliminated'
+}
+
 
 /** "1st"/"2nd"/"3rd"/"4th"... — 11th/12th/13th stay "-th" (the usual English exception to the mod-10 rule). */
 function ordinal(n: number): string {
@@ -241,7 +246,7 @@ export function EndGameView({
                 <span className={`flex-1 ${isWinner ? 'font-semibold text-amber-200' : 'text-neutral-200'}`}>
                   {row?.display_name ?? player.id}
                   {isWinner && <span title="Winner"> 🏆</span>}
-                  {player.eliminated && <span className="text-neutral-500"> (eliminated)</span>}
+                  {player.eliminated && <span className="text-neutral-500"> ({eliminationLabel(player)})</span>}
                 </span>
                 <span className={`font-medium ${isWinner ? 'text-amber-200' : 'text-neutral-200'}`}>
                   {player.eliminated ? '—' : `${detailByPlayerId[player.id]?.total ?? 0} pts`}
@@ -263,7 +268,7 @@ export function EndGameView({
                   {ranked.map((player) => (
                     <th key={player.id} className="px-3 py-1 font-normal text-neutral-400">
                       {players.find((p) => p.id === player.id)?.display_name ?? player.id}
-                      {player.eliminated && <span className="text-neutral-500"> (eliminated)</span>}
+                      {player.eliminated && <span className="text-neutral-500"> ({eliminationLabel(player)})</span>}
                     </th>
                   ))}
                 </tr>
@@ -351,7 +356,7 @@ export function EndGameView({
                         <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: row?.color ?? '#a3a3a3' }} />
                         <span className={isWinner ? 'font-semibold text-amber-200' : 'font-medium text-neutral-200'}>{row?.display_name ?? player.id}</span>
                         {isWinner && <span title="Winner">🏆</span>}
-                        {player.eliminated && <span className="text-neutral-500">(eliminated)</span>}
+                        {player.eliminated && <span className="text-neutral-500">({eliminationLabel(player)})</span>}
                       </span>
                     </th>
                   )
@@ -373,7 +378,7 @@ export function EndGameView({
                   if (player.eliminated) {
                     return (
                       <td key={player.id} data-testid={`breakdown-points-${player.id}`} className="px-3 py-1 text-xs text-neutral-500">
-                        Eliminated
+                        {capitalize(eliminationLabel(player))}
                       </td>
                     )
                   }
@@ -421,7 +426,7 @@ export function EndGameView({
                   <td className="py-1 pr-3 text-neutral-500">Breakdown</td>
                   {ranked.map((player) => (
                     <td key={player.id} className="px-3 py-1 text-xs text-neutral-500">
-                      {player.eliminated ? 'Eliminated' : 'No points scored'}
+                      {player.eliminated ? capitalize(eliminationLabel(player)) : 'No points scored'}
                     </td>
                   ))}
                 </tr>
@@ -431,7 +436,7 @@ export function EndGameView({
                 {ranked.map((player) =>
                   player.eliminated ? (
                     <td key={player.id} data-testid={`breakdown-resources-${player.id}`} className="px-3 py-1 text-xs text-neutral-500">
-                      Eliminated
+                      {capitalize(eliminationLabel(player))}
                     </td>
                   ) : (
                     <td key={player.id} data-testid={`breakdown-resources-${player.id}`} className="px-3 py-1 text-xs text-neutral-400">
@@ -446,7 +451,7 @@ export function EndGameView({
                   if (player.eliminated) {
                     return (
                       <td key={player.id} data-testid={`breakdown-units-${player.id}`} className="px-3 py-1 align-top text-xs text-neutral-500">
-                        Eliminated
+                        {capitalize(eliminationLabel(player))}
                       </td>
                     )
                   }

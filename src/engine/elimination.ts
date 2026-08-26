@@ -20,14 +20,19 @@ import type { GameState, Resources } from './types'
  * been resolved (beginSelectCardsPhase/beginDeclinePhase in ./round.ts,
  * applyMoveToDecline in ./applyAction.ts) must check `status` before doing
  * so — completed here means stop, not "safe to advance."
+ *
+ * `conceded` just stamps Player.conceded for presentation (see its doc
+ * comment in ./types.ts) — applyConcede (./applyAction.ts) passes `true`;
+ * every other caller here is an automatic no-card elimination and leaves it
+ * `false`.
  */
-export function eliminatePlayer(state: GameState, playerId: string): GameState {
+export function eliminatePlayer(state: GameState, playerId: string, conceded = false): GameState {
   const playerIndex = state.players.findIndex((p) => p.id === playerId)
   if (playerIndex === -1 || state.players[playerIndex].eliminated) return state
 
   const eliminated = state.players[playerIndex]
   const players = [...state.players]
-  players[playerIndex] = { ...eliminated, eliminated: true, resources: { gold: 0, wood: 0, stone: 0 } }
+  players[playerIndex] = { ...eliminated, eliminated: true, conceded, resources: { gold: 0, wood: 0, stone: 0 } }
 
   const resourceBank: Resources = {
     gold: state.resourceBank.gold + eliminated.resources.gold,

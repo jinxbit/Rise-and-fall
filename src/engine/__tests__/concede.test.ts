@@ -69,6 +69,7 @@ describe('CONCEDE', () => {
     if (!result.ok) return
 
     expect(result.state.players.find((p) => p.id === 'p1')?.eliminated).toBe(true)
+    expect(result.state.players.find((p) => p.id === 'p1')?.conceded).toBe(true)
     expect(result.state.roundPhase).toBe('selectCards')
     expect(result.state.pendingPlayerIds).toEqual(['p2', 'p3'])
     expect(result.state.turnOrder).toEqual(['p2', 'p3'])

@@ -288,6 +288,26 @@ describe('EndGameView', () => {
     expect(screen.getByTestId('breakdown-resources-p1')).toHaveTextContent('4 Gold, 0 Wood, 0 Stone')
   })
 
+  it('shows "(conceded)"/"Conceded" instead of "(eliminated)"/"Eliminated" for a player who conceded rather than being auto-eliminated', () => {
+    const state = makeState()
+    const concededState: GameState = {
+      ...state,
+      players: state.players.map((p) => (p.id === 'p2' ? { ...p, eliminated: true, conceded: true } : p)),
+    }
+    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
+
+    render(<EndGameView state={concededState} players={players} achievementContent={content} taleContent={EMPTY_TALE_CONTENT} />)
+
+    const finalScore = screen.getByText('Final score').closest('div') as HTMLElement
+    const bobRow = within(finalScore).getByText('Bob').closest('li') as HTMLElement
+    expect(bobRow).toHaveTextContent('(conceded)')
+    expect(bobRow).not.toHaveTextContent('(eliminated)')
+
+    expect(screen.getByTestId('breakdown-points-p2')).toHaveTextContent('Conceded')
+    expect(screen.getByTestId('breakdown-resources-p2')).toHaveTextContent('Conceded')
+    expect(screen.getByTestId('breakdown-units-p2')).toHaveTextContent('Conceded')
+  })
+
   it('renders the "Total score over time" chart once scoreHistory has at least two points, and omits it otherwise', () => {
     const state = makeState()
     const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]

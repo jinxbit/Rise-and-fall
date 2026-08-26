@@ -613,7 +613,7 @@ function applyConcede(state: GameState, playerId: string, achievementContent: Ac
     return { ok: false, error: 'Player is already eliminated' }
   }
 
-  let nextState = eliminatePlayer(state, playerId)
+  let nextState = eliminatePlayer(state, playerId, true)
   if (nextState.status === 'completed' || nextState.pendingPlayerIds.length > 0) {
     return { ok: true, state: nextState }
   }
