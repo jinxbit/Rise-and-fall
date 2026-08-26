@@ -12,7 +12,7 @@ import { buildGameLogFrom, extendGameLog } from '../engine/gameLog'
 import { replayActions } from '../engine/replay'
 import { calculateScoreHistory } from '../engine/scoreHistory'
 import { applyTaleAchievementModifiers, applyTaleModifiers } from '../engine/tales'
-import { calculateUnitValueDetail } from '../engine/unitValue'
+import { calculateDeclinePurchaseDetail, calculateUnitValueDetail } from '../engine/unitValue'
 import type { ActionResult, GameEvent, GameState as EngineGameState, Coordinate } from '../engine/types'
 import { buildTurnReview, findReviewWindowStart, findTurnStops, recapTurnFor, reviewPhaseGroupAt, roundPhaseForRecap, shouldShowCardChoiceRecap } from '../engine/turnReview'
 import type { TurnReview } from '../engine/turnReview'
@@ -754,6 +754,19 @@ export function GamePage() {
   }, [genesis, gameState?.status, gameState?.actionHistory.length, unitContent, achievementContent, boardGenerationContent, taleContent])
 
   /**
+   * Per-player, per-unit-kind decline-buyback spend behind EndGameView's
+   * "Decline buybacks" bar chart (issue #336 follow-up) — same "only once the
+   * game is over, keyed on actionHistory's length" rationale as
+   * unitValueDetail above, since this also replays the whole game
+   * (./engine/unitValue.ts).
+   */
+  const declinePurchaseDetail = useMemo(() => {
+    if (!genesis || !gameState || gameState.status !== 'completed') return null
+    return calculateDeclinePurchaseDetail(gameState, genesis, gameState.actionHistory, unitContent, achievementContent, boardGenerationContent, taleContent)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [genesis, gameState?.status, gameState?.actionHistory.length, unitContent, achievementContent, boardGenerationContent, taleContent])
+
+  /**
    * Writes whatever `computeNext` derives from the current state, retrying
    * against freshly refetched state (up to MAX_WRITE_RETRIES times) if the
    * write loses the optimistic-concurrency race — see MAX_WRITE_RETRIES's
@@ -1458,6 +1471,7 @@ export function GamePage() {
           scoreHistory={scoreHistory?.snapshots}
           achievementClaims={scoreHistory?.achievementClaims}
           unitValueDetail={unitValueDetail}
+          declinePurchaseDetail={declinePurchaseDetail}
         />
       )}
 

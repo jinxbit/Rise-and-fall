@@ -7,7 +7,7 @@ import { cardIdFor, moveCard, UNIT_KINDS } from '../cards'
 import { createNewGame } from '../createGame'
 import type { Coordinate, GameState, Unit } from '../types'
 import type { UnitAction, UnitContent } from '../unitContent'
-import { calculateGoldProducedByKind, calculateUnitValueDetail } from '../unitValue'
+import { calculateDeclinePurchaseCostByKind, calculateDeclinePurchaseDetail, calculateGoldProducedByKind, calculateUnitValueDetail } from '../unitValue'
 
 let unitCounter = 0
 function unitAt(ownerId: string, kind: string, coord: Coordinate = { q: 0, r: 0 }): Unit {
@@ -219,5 +219,70 @@ describe('calculateGoldProducedByKind', () => {
     const gold = calculateGoldProducedByKind(genesisWithTwoCities, result.state.actionHistory, unitContent, achievementContent)
 
     expect(gold).toEqual({ p1: { city: 6 } })
+  })
+})
+
+describe('calculateDeclinePurchaseCostByKind / calculateDeclinePurchaseDetail', () => {
+  const achievementContent: AchievementContent = { ...EMPTY_ACHIEVEMENT_CONTENT, purchaseCostTable: [5, 10, 20], goldPerVictoryPoint: 2 }
+
+  function makeActiveGame(): GameState {
+    const state = createNewGame({
+      gameId: 'game_1',
+      playMode: 'hotseat',
+      board: createEmptyBoard('hex'),
+      players: [
+        { id: 'p1', authUserId: 'auth_1', displayName: 'Alice', color: 'red' },
+        { id: 'p2', authUserId: 'auth_2', displayName: 'Bob', color: 'blue' },
+      ],
+    })
+
+    const players = state.players.map((player) => {
+      let next = player
+      for (const cardId of player.supplyCardIds) next = moveCard(next, cardId, 'hand')
+      return next
+    })
+
+    const units: Unit[] = state.players.flatMap((player, playerIndex) =>
+      UNIT_KINDS.map((kind, kindIndex) => unitAt(player.id, kind, { q: 100 + kindIndex, r: 100 + playerIndex })),
+    )
+
+    return { ...state, status: 'active', players, units }
+  }
+
+  it("attributes a PURCHASE_CARD's cost (priced at the moment of purchase) to the bought-back card's kind, and converts it to VP-equivalent at goldPerVictoryPoint", () => {
+    const base = makeActiveGame()
+    const p1Index = base.players.findIndex((p) => p.id === 'p1')
+    let p1 = { ...base.players[p1Index], resources: { ...base.players[p1Index].resources, gold: 100 } }
+    p1 = moveCard(p1, cardIdFor('p1', 'temple'), 'decline')
+    const players = [...base.players]
+    players[p1Index] = p1
+    const genesis = { ...base, players, claimedByAchievementId: { 'city-mastery': 'p2' } }
+
+    let result = applyAction(genesis, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }, undefined, achievementContent)
+    if (!result.ok) throw new Error(result.error)
+    result = applyAction(result.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') }, undefined, achievementContent)
+    if (!result.ok) throw new Error(result.error)
+    result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p1' }, undefined, achievementContent)
+    if (!result.ok) throw new Error(result.error)
+    result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p2' }, undefined, achievementContent)
+    if (!result.ok) throw new Error(result.error)
+    expect(result.state.roundPhase).toBe('purchase')
+
+    result = applyAction(result.state, { type: 'PURCHASE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'temple') }, undefined, achievementContent)
+    if (!result.ok) throw new Error(result.error)
+
+    // 1 achievement already claimed -> costTable[0] = 5 gold -> 2.5 VP at goldPerVictoryPoint 2.
+    const costByKind = calculateDeclinePurchaseCostByKind(genesis, result.state.actionHistory, undefined, achievementContent)
+    expect(costByKind).toEqual({ p1: { temple: 5 } })
+
+    const detail = calculateDeclinePurchaseDetail(result.state, genesis, result.state.actionHistory, undefined, achievementContent)
+    expect(detail.p1).toEqual([{ kind: 'temple', cost: 5, vp: 2.5 }])
+    expect(detail.p2).toEqual([])
+  })
+
+  it('omits a player who never bought a card back from decline, rather than an all-zero entry', () => {
+    const genesis = makeActiveGame()
+    const detail = calculateDeclinePurchaseDetail(genesis, genesis, [], undefined, achievementContent)
+    expect(detail).toEqual({ p1: [], p2: [] })
   })
 })

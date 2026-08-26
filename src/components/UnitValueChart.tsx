@@ -2,6 +2,7 @@ import { UNIT_KINDS } from '../engine/cards'
 import type { UnitValueBreakdown, UnitValueDetail } from '../engine/unitValue'
 import type { PlayerRow } from '../lib/dbTypes'
 import { niceMax } from './chartScale'
+import { UnitIcon } from './UnitIcon'
 
 const WIDTH = 560
 const HEIGHT = 240
@@ -74,15 +75,14 @@ export function UnitValueChart({ detailByPlayerId, players, playerIds }: { detai
 
         {kinds.map((kind, kindIndex) => {
           const clusterX = MARGIN.left + kindIndex * (clusterWidth + CLUSTER_GAP)
-          const totals = playerIds.map((id) => detailFor(id, kind)?.total ?? 0)
-          const leaderTotal = Math.max(...totals)
+          const iconSize = 16
 
           return (
             <g key={kind}>
               <rect x={clusterX - BAR_GAP} y={MARGIN.top} width={clusterWidth + BAR_GAP * 2} height={PLOT_HEIGHT} rx={3} fill="currentColor" fillOpacity={kindIndex % 2 === 0 ? 0.04 : 0.09} />
-              <text x={clusterX + clusterWidth / 2} y={HEIGHT - MARGIN.bottom + 14} textAnchor="middle" fontSize={9} fill="currentColor">
-                {capitalize(kind)}
-              </text>
+              <svg x={clusterX + clusterWidth / 2 - iconSize / 2} y={HEIGHT - MARGIN.bottom + 9} width={iconSize} height={iconSize}>
+                <UnitIcon kind={kind} className="h-full w-full" title={capitalize(kind)} />
+              </svg>
 
               {playerIds.map((playerId, playerIndex) => {
                 const detail = detailFor(playerId, kind)
@@ -90,7 +90,6 @@ export function UnitValueChart({ detailByPlayerId, players, playerIds }: { detai
                 const x = clusterX + BAR_GAP + playerIndex * (barWidth + BAR_GAP)
                 const playerColor = players.find((p) => p.id === playerId)?.color ?? '#a3a3a3'
                 const playerName = players.find((p) => p.id === playerId)?.display_name ?? playerId
-                const isLeader = total === leaderTotal && total > 0
 
                 let cumulative = 0
                 const segments = FACTORS.map((factor) => ({ ...factor, value: detail?.breakdown[factor.key] ?? 0 })).filter((s) => s.value > 0)
@@ -112,7 +111,7 @@ export function UnitValueChart({ detailByPlayerId, players, playerIds }: { detai
                       )
                     })}
                     <circle cx={x + barWidth / 2} cy={HEIGHT - MARGIN.bottom + 5} r={2} fill={playerColor} />
-                    {isLeader && (
+                    {total > 0 && (
                       <text x={x + barWidth / 2} y={yFor(total) - 3} textAnchor="middle" fontSize={9} fill="currentColor">
                         {formatValue(total)}
                       </text>

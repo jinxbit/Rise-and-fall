@@ -4,6 +4,7 @@ import type { AchievementContent } from './achievementContent'
 import { applyAction } from './applyAction'
 import { EMPTY_BOARD_GENERATION_CONTENT } from './boardGenerationContent'
 import type { BoardGenerationContent } from './boardGenerationContent'
+import { calculatePurchaseCost } from './purchaseCost'
 import { calculateTerrainControlVPByKind } from './scoring'
 import { EMPTY_TALE_CONTENT } from './taleContent'
 import type { TaleContent } from './taleContent'
@@ -168,6 +169,92 @@ export function calculateUnitValueDetail(
     })
 
     details.sort((a, b) => b.total - a.total)
+    detailByPlayerId[player.id] = details
+  }
+
+  return detailByPlayerId
+}
+
+/**
+ * Cumulative gold a player has spent buying cards back from decline, per unit
+ * kind (issue #336 follow-up: "contributions in VPs to purchase declined
+ * cards") — replays `actionHistory` the same way calculateGoldProducedByKind
+ * does, attributing each PURCHASE_CARD's cost (calculatePurchaseCost, priced
+ * at the moment of purchase since the cost table is indexed by achievements
+ * claimed *so far* — see that function's own doc comment) to the kind of the
+ * card bought back.
+ */
+export function calculateDeclinePurchaseCostByKind(
+  genesis: GameState,
+  actionHistory: LoggedAction[],
+  unitContent: UnitContent = EMPTY_UNIT_CONTENT,
+  achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT,
+  boardGenerationContent: BoardGenerationContent = EMPTY_BOARD_GENERATION_CONTENT,
+  taleContent: TaleContent = EMPTY_TALE_CONTENT,
+): Record<string, Record<string, number>> {
+  const costByPlayerAndKind: Record<string, Record<string, number>> = {}
+  let state = genesis
+
+  for (const { action } of actionHistory) {
+    if (action.type === 'PURCHASE_CARD') {
+      const card = state.cards[action.cardId]
+      if (card) {
+        const achievementsClaimedSoFar = Object.keys(state.claimedByAchievementId).length
+        const cost = calculatePurchaseCost(achievementsClaimedSoFar, achievementContent.purchaseCostTable)
+        const byKind = costByPlayerAndKind[action.playerId] ?? {}
+        costByPlayerAndKind[action.playerId] = byKind
+        byKind[card.kind] = (byKind[card.kind] ?? 0) + cost
+      }
+    }
+
+    // trustedReplay: same convention as calculateGoldProducedByKind above.
+    const result = applyAction(state, action, unitContent, achievementContent, boardGenerationContent, taleContent, true)
+    if (!result.ok) break
+    state = result.state
+  }
+
+  return costByPlayerAndKind
+}
+
+export interface DeclinePurchaseDetail {
+  kind: string
+  /** Total gold spent buying this kind's card back from decline over the whole game. */
+  cost: number
+  /** `cost` converted to VP-equivalent points at achievementContent.goldPerVictoryPoint — fractional, same convention as UnitValueBreakdown.goldProduced (see calculateUnitValueDetail's doc comment for why). */
+  vp: number
+}
+
+/**
+ * Per (player, unit kind) decline-buyback spend, for the end-of-game screen's
+ * "Decline buybacks" chart (issue #336 follow-up) — how much of a player's
+ * gold went toward buying which kind's card back from decline, expressed in
+ * both raw gold and VP-equivalent points so it sits on the same scale as the
+ * "Unit value" chart above it. Only kinds a player actually spent gold buying
+ * back appear in their list — same "absent means zero" convention as
+ * calculateUnitValueDetail — sorted by descending cost.
+ */
+export function calculateDeclinePurchaseDetail(
+  state: GameState,
+  genesis: GameState,
+  actionHistory: LoggedAction[],
+  unitContent: UnitContent = EMPTY_UNIT_CONTENT,
+  achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT,
+  boardGenerationContent: BoardGenerationContent = EMPTY_BOARD_GENERATION_CONTENT,
+  taleContent: TaleContent = EMPTY_TALE_CONTENT,
+): Record<string, DeclinePurchaseDetail[]> {
+  const costByPlayerAndKind = calculateDeclinePurchaseCostByKind(genesis, actionHistory, unitContent, achievementContent, boardGenerationContent, taleContent)
+  const goldPerVictoryPoint = achievementContent.goldPerVictoryPoint
+
+  const detailByPlayerId: Record<string, DeclinePurchaseDetail[]> = {}
+  for (const player of state.players) {
+    const byKind = costByPlayerAndKind[player.id] ?? {}
+    const details: DeclinePurchaseDetail[] = Object.entries(byKind).map(([kind, cost]) => ({
+      kind,
+      cost,
+      vp: goldPerVictoryPoint ? cost / goldPerVictoryPoint : 0,
+    }))
+
+    details.sort((a, b) => b.cost - a.cost)
     detailByPlayerId[player.id] = details
   }
 
