@@ -13,7 +13,7 @@ import { replayActions } from '../engine/replay'
 import { calculateScoreHistory } from '../engine/scoreHistory'
 import { applyTaleAchievementModifiers, applyTaleModifiers } from '../engine/tales'
 import type { ActionResult, GameEvent, GameState as EngineGameState, Coordinate } from '../engine/types'
-import { buildTurnReview, findReviewWindowStart, findTurnStops, reviewPhaseGroupAt, roundPhaseForRecap, shouldShowCardChoiceRecap } from '../engine/turnReview'
+import { buildTurnReview, findReviewWindowStart, findTurnStops, recapTurnFor, reviewPhaseGroupAt, roundPhaseForRecap, shouldShowCardChoiceRecap } from '../engine/turnReview'
 import type { TurnReview } from '../engine/turnReview'
 import { currentActorId } from '../engine/turnOrder'
 import { useAuth } from '../hooks/useAuth'
@@ -621,7 +621,8 @@ export function GamePage() {
       }
 
       // The card-choice recap overlay's own "is this the first stop showing
-      // it" check (issue #326 follow-up) needs the roundPhase the PREVIOUS
+      // it" check (issue #326 follow-up, refined by #331) needs the
+      // roundPhase (and round number, see recapTurnFor) the PREVIOUS
       // turn-stop actually replayed to — see shouldShowCardChoiceRecap's doc
       // comment for why that can't be read off this stop's own action types.
       // Computed independently of `previousTerritoryState` above: that one
@@ -633,15 +634,20 @@ export function GamePage() {
       // see that function's doc comment for why a completed `declinePurchase`
       // stop's raw `roundPhase` can't be trusted (issue #326's second
       // follow-up).
-      let previousStopRoundPhase: EngineGameState['roundPhase'] | null = null
+      let previousStop: { roundPhase: EngineGameState['roundPhase']; recapTurn: number } | null = null
       if (historyStepMode === 'turn' && fullTurnStops) {
         const pos = fullTurnStops.indexOf(reviewIndex)
         if (pos > 0) {
           const prevStop = fullTurnStops[pos - 1]
-          previousStopRoundPhase = roundPhaseForRecap(actionHistory, prevStop, cache.states[prevStop])
+          previousStop = { roundPhase: roundPhaseForRecap(actionHistory, prevStop, cache.states[prevStop]), recapTurn: recapTurnFor(cache.states[prevStop]) }
         }
       }
-      const showCardChoiceRecap = shouldShowCardChoiceRecap(roundPhaseForRecap(actionHistory, reviewIndex, cache.states[reviewIndex]), previousStopRoundPhase, historyStepMode)
+      const showCardChoiceRecap = shouldShowCardChoiceRecap(
+        roundPhaseForRecap(actionHistory, reviewIndex, cache.states[reviewIndex]),
+        recapTurnFor(cache.states[reviewIndex]),
+        previousStop,
+        historyStepMode,
+      )
 
       return {
         reviewState: cache.states[reviewIndex],
