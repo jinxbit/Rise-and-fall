@@ -332,6 +332,7 @@ function PlayersStrip({
   achievementContent,
   taleContent,
   resourceDeltaByPlayerId,
+  previousHistoryState,
   unitReserveDisplayMode = DEFAULT_UNIT_RESERVE_DISPLAY_MODE,
 }: {
   state: GameState
@@ -342,11 +343,14 @@ function PlayersStrip({
   taleContent: TaleContent
   /** From TurnReview, only while the history review is toggled on — see RoundView's showHistory. */
   resourceDeltaByPlayerId?: Record<string, Resources> | null
+  /** The state just before the reviewed turn/action, only while history review is toggled on — see RoundView's showHistory. Used to show each player's score change the same way resourceDeltaByPlayerId shows resource changes. */
+  previousHistoryState?: GameState | null
   /** Whether the badge below shows remaining supply, units placed, or both (issue #346) — GamePage resolves the viewer's own profile setting; undefined (e.g. no signed-in viewer) falls back to the original "remaining" behaviour. */
   unitReserveDisplayMode?: UnitReserveDisplayMode
 }) {
   const [expandedPlayerId, setExpandedPlayerId] = useState<string | null>(null)
   const breakdownByPlayerId = calculateVPBreakdown(state, achievementContent, taleContent)
+  const previousBreakdownByPlayerId = previousHistoryState ? calculateVPBreakdown(previousHistoryState, achievementContent, taleContent) : null
 
   return (
     <div className="flex flex-col gap-2">
@@ -378,6 +382,9 @@ function PlayersStrip({
             return [{ kind, count: formatUnitReserveCount(unitReserveDisplayMode, onBoard, remaining) }]
           })
           const delta = resourceDeltaByPlayerId?.[player.id]
+          const scoreDelta = previousBreakdownByPlayerId
+            ? (breakdownByPlayerId[player.id]?.total ?? 0) - (previousBreakdownByPlayerId[player.id]?.total ?? 0)
+            : undefined
           const isExpanded = expandedPlayerId === player.id
           return (
             <Fragment key={player.id}>
@@ -399,7 +406,10 @@ function PlayersStrip({
                     </span>
                   )}
                   {player.eliminated && <span>(eliminated)</span>}
-                  <span className="ml-auto font-medium text-neutral-200">Score {breakdownByPlayerId[player.id]?.total ?? 0}</span>
+                  <span className="ml-auto font-medium text-neutral-200">
+                    Score {breakdownByPlayerId[player.id]?.total ?? 0}
+                    {previousBreakdownByPlayerId && <span className="text-emerald-400">{deltaSuffix(scoreDelta)}</span>}
+                  </span>
                 </span>
                 <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                   {RESOURCE_ORDER.map((key) => (
@@ -1450,6 +1460,7 @@ export function RoundView(props: {
               achievementContent={achievementContent}
               taleContent={taleContent}
               resourceDeltaByPlayerId={showHistory ? turnReview?.resourceDeltaByPlayerId : null}
+              previousHistoryState={showHistory ? previousHistoryState : null}
               unitReserveDisplayMode={unitReserveDisplayMode}
             />
             <AchievementsPanel state={state} players={players} achievementContent={achievementContent} taleContent={taleContent} />
