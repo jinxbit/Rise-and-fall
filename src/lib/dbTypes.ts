@@ -178,6 +178,19 @@ export interface PushSubscriptionRow {
   created_at: string
 }
 
+/**
+ * Simple per-account preferences that don't warrant their own column — a
+ * single JSONB column (profiles.preferences, 0023_unit_reserve_display.sql),
+ * mirroring GameSettings/games.settings above: add a key here (and thread it
+ * through gameApi.ts's getProfilePreferences/saveProfilePreferences) instead
+ * of a migration + dedicated column whenever a new simple profile preference
+ * is needed.
+ */
+export interface ProfilePreferences {
+  /** How PlayersStrip's per-kind unit badge (RoundView.tsx) reports a player's unit supply (issue #346) — see src/lib/unitReserveDisplay.ts. Absent means "use the default" (remaining). */
+  unitReserveDisplay?: string
+}
+
 /** Per-account settings — see supabase/migrations/0005_discord_webhooks.sql. */
 export interface ProfileRow {
   user_id: string
@@ -197,5 +210,7 @@ export interface ProfileRow {
   unit_color_hand: string | null
   unit_color_selected: string | null
   unit_color_discard: string | null
+  /** Simple per-account preferences — see ProfilePreferences above. */
+  preferences: ProfilePreferences
   updated_at: string
 }

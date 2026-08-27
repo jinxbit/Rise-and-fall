@@ -1,6 +1,6 @@
 import { supabase } from './supabase'
 import { nextSeatIndex } from './seatIndex'
-import type { GameRow, GameSettings, GameStateRow, PlayerRow, PushSubscriptionRow } from './dbTypes'
+import type { GameRow, GameSettings, GameStateRow, PlayerRow, ProfilePreferences, PushSubscriptionRow } from './dbTypes'
 import type { MyGameEntry } from './myGamesView'
 import type { PublicRoomEntry } from './publicRoomsView'
 import type { UnitPlateColorOverrides } from './unitColors'
@@ -102,20 +102,42 @@ export async function saveProfileUnitColors(userId: string, colors: UnitPlateCol
 }
 
 /**
- * Reads a user's unit reserve display preference
- * (0023_unit_reserve_display.sql) — `null` (including "no profile row yet")
- * resolves to the default ('remaining'), same null-collapsing pattern as
- * getProfileDisplayName.
+ * Reads the generic `preferences` JSONB blob (0023_unit_reserve_display.sql,
+ * ProfilePreferences) — a missing profile row (never having been written to)
+ * collapses to `{}`, same as every individual key inside it being absent.
+ */
+async function getProfilePreferences(userId: string): Promise<ProfilePreferences> {
+  const { data, error } = await supabase.from('profiles').select('preferences').eq('user_id', userId).maybeSingle()
+  if (error) throw error
+  return data?.preferences ?? {}
+}
+
+/**
+ * Merges `patch` into the user's existing `preferences` blob and writes it
+ * back — read-modify-write so setting one preference never clobbers others
+ * saved independently. Every simple profile preference (see
+ * ProfilePreferences in dbTypes.ts) should go through this instead of its
+ * own column, so adding one doesn't need a migration.
+ */
+async function saveProfilePreferences(userId: string, patch: Partial<ProfilePreferences>): Promise<void> {
+  const current = await getProfilePreferences(userId)
+  const { error } = await supabase.from('profiles').upsert({ user_id: userId, preferences: { ...current, ...patch } })
+  if (error) throw error
+}
+
+/**
+ * Reads a user's unit reserve display preference (issue #346, stored under
+ * `preferences.unitReserveDisplay`) — absent (including "no profile row
+ * yet") resolves to the default ('remaining'), same null-collapsing pattern
+ * as getProfileDisplayName.
  */
 export async function getProfileUnitReserveDisplay(userId: string): Promise<UnitReserveDisplayMode> {
-  const { data, error } = await supabase.from('profiles').select('unit_reserve_display').eq('user_id', userId).maybeSingle()
-  if (error) throw error
-  return resolveUnitReserveDisplayMode(data?.unit_reserve_display)
+  const preferences = await getProfilePreferences(userId)
+  return resolveUnitReserveDisplayMode(preferences.unitReserveDisplay)
 }
 
 export async function saveProfileUnitReserveDisplay(userId: string, mode: UnitReserveDisplayMode): Promise<void> {
-  const { error } = await supabase.from('profiles').upsert({ user_id: userId, unit_reserve_display: mode })
-  if (error) throw error
+  await saveProfilePreferences(userId, { unitReserveDisplay: mode })
 }
 
 /**
