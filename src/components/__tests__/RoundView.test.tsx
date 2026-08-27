@@ -588,6 +588,49 @@ describe('RoundView — player status summary and achievements panel', () => {
     expect(shipCounts).toEqual(['2', '2'])
   })
 
+  it.each([
+    ['placed' as const, ['1', '0']],
+    ['both' as const, ['1/2', '0/3']],
+  ])("issue #346: unitReserveDisplayMode=%s shows placed (and remaining) counts instead of just remaining", (unitReserveDisplayMode, expectedNomadCounts) => {
+    const state = makeState()
+    state.units = [
+      { id: 'u1', ownerId: 'p1', kind: 'nomad', coord: { q: 0, r: 0 }, movement: { isMobile: true, terrains: [], canCrossCliffs: false }, traits: [] },
+    ]
+    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
+    const unitContent: UnitContent = {
+      ...EMPTY_UNIT_CONTENT,
+      unitSupplyCaps: { city: 2, temple: 2, nomad: 3, merchant: 2, mountaineer: 2, ship: 2 },
+    }
+
+    const { container } = render(
+      <RoundView
+        state={state}
+        players={players}
+        myPlayerId="p1"
+        unitContent={unitContent}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
+        unitReserveDisplayMode={unitReserveDisplayMode}
+        turnReview={null}
+        showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
+        gameLog={[]}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+
+    const nomadCounts = [...container.querySelectorAll('span[title="Nomad"]')].map((el) => el.textContent)
+    expect(nomadCounts).toEqual(expectedNomadCounts)
+  })
+
   it("shows each player's current score, computed live from claimed achievements — not just at game end (see the next test for terrain-control)", () => {
     const state = makeState() // claimedByAchievementId: { 'city-mastery': 'p2' }
     const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]

@@ -20,6 +20,7 @@ import { currentActorId } from '../engine/turnOrder'
 import { useAuth } from '../hooks/useAuth'
 import { useIsAdmin } from '../hooks/useIsAdmin'
 import { useUnitPlateColors } from '../hooks/useUnitPlateColors'
+import { useUnitReserveDisplayMode } from '../hooks/useUnitReserveDisplayMode'
 import type { GameRow, PlayerRow } from '../lib/dbTypes'
 import { simpleError, toAppError, type AppError } from '../lib/errors'
 import { buildGenesisState } from '../lib/gameGenesis'
@@ -81,6 +82,7 @@ export function GamePage() {
   const { session, loading: authLoading } = useAuth()
   const isAdmin = useIsAdmin(session?.user ?? null)
   const { colors: unitPlateColors } = useUnitPlateColors(session?.user ?? null)
+  const { mode: unitReserveDisplayMode } = useUnitReserveDisplayMode(session?.user ?? null)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -1484,6 +1486,7 @@ export function GamePage() {
           achievementContent={achievementContent}
           taleContent={taleContent}
           unitPlateColors={unitPlateColors}
+          unitReserveDisplayMode={unitReserveDisplayMode}
           turnReview={turnHalos}
           showHistory={isReviewingHistory}
           showCardChoiceRecap={showCardChoiceRecap}

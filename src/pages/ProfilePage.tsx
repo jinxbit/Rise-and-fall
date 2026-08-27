@@ -3,9 +3,11 @@ import { DiscordWebhookSettings } from '../components/DiscordWebhookSettings'
 import { DisplayNameSettings } from '../components/DisplayNameSettings'
 import { PushNotificationSettings } from '../components/PushNotificationSettings'
 import { UnitColorSettings } from '../components/UnitColorSettings'
+import { UnitReserveDisplaySettings } from '../components/UnitReserveDisplaySettings'
 import { useAuth } from '../hooks/useAuth'
 import { useDisplayName } from '../hooks/useDisplayName'
 import { useUnitPlateColors } from '../hooks/useUnitPlateColors'
+import { useUnitReserveDisplayMode } from '../hooks/useUnitReserveDisplayMode'
 import { signOut } from '../lib/auth'
 import { resolveDisplayName } from '../lib/displayName'
 
@@ -21,6 +23,11 @@ export function ProfilePage() {
     loading: unitColorsLoading,
     setOverrides: setUnitColorOverrides,
   } = useUnitPlateColors(session?.user ?? null)
+  const {
+    mode: unitReserveDisplayMode,
+    loading: unitReserveDisplayLoading,
+    setMode: setUnitReserveDisplayMode,
+  } = useUnitReserveDisplayMode(session?.user ?? null)
 
   if (loading) return <div className="p-8 text-neutral-400">Loading…</div>
 
@@ -68,6 +75,13 @@ export function ProfilePage() {
         overrides={unitColorOverrides}
         loading={unitColorsLoading}
         onSaved={setUnitColorOverrides}
+      />
+
+      <UnitReserveDisplaySettings
+        userId={user.id}
+        value={unitReserveDisplayMode}
+        loading={unitReserveDisplayLoading}
+        onSaved={setUnitReserveDisplayMode}
       />
 
       <DiscordWebhookSettings user={user} />

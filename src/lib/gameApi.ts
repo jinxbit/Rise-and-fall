@@ -4,6 +4,7 @@ import type { GameRow, GameSettings, GameStateRow, PlayerRow, PushSubscriptionRo
 import type { MyGameEntry } from './myGamesView'
 import type { PublicRoomEntry } from './publicRoomsView'
 import type { UnitPlateColorOverrides } from './unitColors'
+import { resolveUnitReserveDisplayMode, type UnitReserveDisplayMode } from './unitReserveDisplay'
 import type { Board, GameState as EngineGameState, PlayMode } from '../engine/types'
 
 /**
@@ -97,6 +98,23 @@ export async function saveProfileUnitColors(userId: string, colors: UnitPlateCol
   const { error } = await supabase
     .from('profiles')
     .upsert({ user_id: userId, unit_color_hand: colors.hand, unit_color_selected: colors.selected, unit_color_discard: colors.discard })
+  if (error) throw error
+}
+
+/**
+ * Reads a user's unit reserve display preference
+ * (0023_unit_reserve_display.sql) — `null` (including "no profile row yet")
+ * resolves to the default ('remaining'), same null-collapsing pattern as
+ * getProfileDisplayName.
+ */
+export async function getProfileUnitReserveDisplay(userId: string): Promise<UnitReserveDisplayMode> {
+  const { data, error } = await supabase.from('profiles').select('unit_reserve_display').eq('user_id', userId).maybeSingle()
+  if (error) throw error
+  return resolveUnitReserveDisplayMode(data?.unit_reserve_display)
+}
+
+export async function saveProfileUnitReserveDisplay(userId: string, mode: UnitReserveDisplayMode): Promise<void> {
+  const { error } = await supabase.from('profiles').upsert({ user_id: userId, unit_reserve_display: mode })
   if (error) throw error
 }
 
