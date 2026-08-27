@@ -25,6 +25,7 @@ import type { Card, Coordinate, GameEvent, GameState, Player, Resources, Unit } 
 import type { UnitAction, UnitContent } from '../engine/unitContent'
 import type { PlayerRow } from '../lib/dbTypes'
 import type { UnitPlateColors } from '../lib/unitColors'
+import { DEFAULT_UNIT_RESERVE_DISPLAY_MODE, formatUnitReserveCount, type UnitReserveDisplayMode } from '../lib/unitReserveDisplay'
 import type { GhostCell, HistoryArrow, HistoryHaloType, UnitMarker } from './HexBoard'
 import { HexBoard } from './HexBoard'
 import { ResourceIcon } from './ResourceIcon'
@@ -240,8 +241,8 @@ function KindIconRow({ kinds, emptyLabel = 'none' }: { kinds: string[]; emptyLab
   )
 }
 
-/** A unit kind's icon paired with a count, e.g. remaining supply or on-board totals — the icon stands in for the kind name entirely. */
-function UnitCountBadge({ kind, count }: { kind: string; count: number }) {
+/** A unit kind's icon paired with a count (or count-like text, e.g. "2/3" for the placed/remaining display mode), e.g. remaining supply or on-board totals — the icon stands in for the kind name entirely. */
+function UnitCountBadge({ kind, count }: { kind: string; count: number | string }) {
   return (
     <span className="inline-flex items-center gap-1" title={capitalize(kind)}>
       <UnitIcon kind={kind} className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
@@ -331,6 +332,7 @@ function PlayersStrip({
   achievementContent,
   taleContent,
   resourceDeltaByPlayerId,
+  unitReserveDisplayMode = DEFAULT_UNIT_RESERVE_DISPLAY_MODE,
 }: {
   state: GameState
   players: PlayerRow[]
@@ -340,6 +342,8 @@ function PlayersStrip({
   taleContent: TaleContent
   /** From TurnReview, only while the history review is toggled on — see RoundView's showHistory. */
   resourceDeltaByPlayerId?: Record<string, Resources> | null
+  /** Whether the badge below shows remaining supply, units placed, or both (issue #346) — GamePage resolves the viewer's own profile setting; undefined (e.g. no signed-in viewer) falls back to the original "remaining" behaviour. */
+  unitReserveDisplayMode?: UnitReserveDisplayMode
 }) {
   const [expandedPlayerId, setExpandedPlayerId] = useState<string | null>(null)
   const breakdownByPlayerId = calculateVPBreakdown(state, achievementContent, taleContent)
@@ -366,11 +370,12 @@ function PlayersStrip({
           )
           const discardKinds = kindsInZone(player.discardCardIds, state.cards)
           const declineKinds = kindsInZone(player.declineCardIds, state.cards)
-          const remainingByKind = UNIT_KINDS.flatMap((kind) => {
+          const reserveByKind = UNIT_KINDS.flatMap((kind) => {
             const cap = unitContent.unitSupplyCaps[kind]
             if (cap === undefined) return []
             const onBoard = state.units.filter((u) => u.ownerId === player.id && u.kind === kind).length
-            return [{ kind, count: Math.max(0, cap - onBoard) }]
+            const remaining = Math.max(0, cap - onBoard)
+            return [{ kind, count: formatUnitReserveCount(unitReserveDisplayMode, onBoard, remaining) }]
           })
           const delta = resourceDeltaByPlayerId?.[player.id]
           const isExpanded = expandedPlayerId === player.id
@@ -425,9 +430,9 @@ function PlayersStrip({
                     <KindIconRow kinds={declineKinds} emptyLabel="empty" />
                   </span>
                 </span>
-                {remainingByKind.length > 0 && (
+                {reserveByKind.length > 0 && (
                   <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                    {remainingByKind.map(({ kind, count }) => (
+                    {reserveByKind.map(({ kind, count }) => (
                       <UnitCountBadge key={kind} kind={kind} count={count} />
                     ))}
                   </span>
@@ -988,6 +993,14 @@ export function RoundView(props: {
   /** Per-card-zone unit plate colours (issue #311 follow-up) — GamePage's `useUnitPlateColors` resolves the viewer's own profile settings against the defaults; undefined (e.g. no signed-in viewer) falls back to DEFAULT_UNIT_PLATE_COLORS inside HexBoard. */
   unitPlateColors?: UnitPlateColors
   /**
+   * Whether PlayersStrip's per-kind unit badge shows remaining supply, units
+   * placed, or both (issue #346) — GamePage's `useUnitReserveDisplayMode`
+   * resolves the viewer's own profile setting; undefined (e.g. no signed-in
+   * viewer) falls back to the original "remaining" behaviour, same pattern
+   * as `unitPlateColors` above.
+   */
+  unitReserveDisplayMode?: UnitReserveDisplayMode
+  /**
    * What happened during the single turn currently shown by GamePage's
    * "Show history" bar (issue #261) — see engine/turnReview.ts's
    * `buildTurnReview`. GamePage computes this fresh for whichever turn its
@@ -1083,6 +1096,7 @@ export function RoundView(props: {
     achievementContent,
     taleContent,
     unitPlateColors,
+    unitReserveDisplayMode,
     turnReview,
     showHistory,
     showCardChoiceRecap = false,
@@ -1436,6 +1450,7 @@ export function RoundView(props: {
               achievementContent={achievementContent}
               taleContent={taleContent}
               resourceDeltaByPlayerId={showHistory ? turnReview?.resourceDeltaByPlayerId : null}
+              unitReserveDisplayMode={unitReserveDisplayMode}
             />
             <AchievementsPanel state={state} players={players} achievementContent={achievementContent} taleContent={taleContent} />
           </div>
