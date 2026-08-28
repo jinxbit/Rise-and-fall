@@ -4,7 +4,7 @@ import { EndGameView } from '../EndGameView'
 import { EMPTY_ACHIEVEMENT_CONTENT } from '../../engine/achievementContent'
 import type { AchievementContent } from '../../engine/achievementContent'
 import { createEmptyBoard } from '../../engine/board'
-import { createPlayerCards } from '../../engine/cards'
+import { cardIdFor, createPlayerCards } from '../../engine/cards'
 import { EMPTY_TALE_CONTENT } from '../../engine/taleContent'
 import type { GameState, Player, Unit } from '../../engine/types'
 import type { PlayerRow } from '../../lib/dbTypes'
@@ -306,6 +306,32 @@ describe('EndGameView', () => {
     expect(screen.getByTestId('breakdown-points-p2')).toHaveTextContent('Conceded')
     expect(screen.getByTestId('breakdown-resources-p2')).toHaveTextContent('Conceded')
     expect(screen.getByTestId('breakdown-units-p2')).toHaveTextContent('Conceded')
+  })
+
+  it('flags a unit kind whose card is in decline (issue #354): still shown "On board", but excluded from board-count VP, plus a new "In decline" row', () => {
+    const state = makeState()
+    const declinedState: GameState = {
+      ...state,
+      players: state.players.map((p) =>
+        p.id === 'p1'
+          ? { ...p, supplyCardIds: p.supplyCardIds.filter((id) => id !== cardIdFor('p1', 'city')), declineCardIds: [cardIdFor('p1', 'city')] }
+          : p,
+      ),
+    }
+    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
+
+    render(<EndGameView state={declinedState} players={players} achievementContent={content} taleContent={EMPTY_TALE_CONTENT} />)
+
+    // The declined City is still counted "On board" (all units stay visible), but no longer scores board-count VP:
+    // Alice's total drops from 6 (3 achievement + 1 board-count + 2 gold) to 5 (board-count's 1 point is gone).
+    expect(screen.getByTestId('breakdown-units-p1')).toHaveTextContent('1')
+    expect(screen.getByTestId('breakdown-units-p1')).toHaveTextContent('(decline)')
+    expect(screen.queryByTestId('breakdown-row-Units-city')).not.toBeInTheDocument()
+    expect(screen.getByTestId('breakdown-points-p1')).toHaveTextContent('5 points')
+
+    // The new "In decline" row lists the declined kind for Alice, and "—" for Bob who has none.
+    expect(screen.getByTestId('breakdown-decline-p1')).not.toHaveTextContent('—')
+    expect(screen.getByTestId('breakdown-decline-p2')).toHaveTextContent('—')
   })
 
   it('renders the "Total score over time" chart once scoreHistory has at least two points, and omits it otherwise', () => {
