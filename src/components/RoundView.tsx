@@ -12,6 +12,7 @@ import {
   neededSupportCandidates,
 } from '../engine/actionTargeting'
 import { cardIdFor, findCardZone, sortCardIdsForDisplay, UNIT_KINDS } from '../engine/cards'
+import { PLAYER_PLACEHOLDER } from '../engine/gameLog'
 import { legalMoveDestinations } from '../engine/movement'
 import { calculatePurchaseCost } from '../engine/purchaseCost'
 import { calculateChangedTerritoryHexes, calculateTerritoryControlByHex } from '../engine/scoring'
@@ -601,15 +602,74 @@ function AchievementsPanel({
   )
 }
 
-function LogPanel({ gameLog, isAdmin }: { gameLog: GameEvent[]; isAdmin: boolean }) {
+/** Minute-resolution local time (issue #358) — a real-time game log has no use for seconds, and an absolute date would be redundant since entries are always viewed close to when they happened. Empty/unparseable timestamps (e.g. buildGameLogFrom's synthetic "Board setup begins" entry, which has no LoggedAction to draw one from) render nothing rather than "Invalid Date". */
+function formatLogTimestamp(timestamp: string): string {
+  const date = new Date(timestamp)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
+/** A single player-coloured name span, same lookup PlayerColorName uses, minus its trailing colon. */
+function LogPlayerName({ players, playerId }: { players: PlayerRow[]; playerId: string }) {
+  const row = players.find((p) => p.id === playerId)
+  return <span style={{ color: row?.color ?? '#a3a3a3' }}>{row?.display_name ?? playerId}</span>
+}
+
+/**
+ * Resolves a gameLog.ts DraftEvent's placeholder tokens (issue #358: log
+ * text should show player names/colours, not raw guids) back into coloured
+ * name spans — `{player}` for `entry.playerId`, or the game-end line's
+ * `{players:id1,id2,...}` for an arbitrary-length winner list (see
+ * gameLog.ts's playersPlaceholder; GameEvent only carries one playerId slot,
+ * so that one spot encodes its own ids rather than needing a second field
+ * threaded through every other event).
+ */
+function renderLogMessage(message: string, playerId: string | null, players: PlayerRow[]) {
+  const multiMatch = message.match(/\{players:([^}]*)\}/)
+  if (multiMatch) {
+    const ids = multiMatch[1].split(',').filter(Boolean)
+    const start = multiMatch.index ?? 0
+    return (
+      <>
+        {message.slice(0, start)}
+        {ids.map((id, i) => (
+          <Fragment key={id}>
+            {i > 0 && ', '}
+            <LogPlayerName players={players} playerId={id} />
+          </Fragment>
+        ))}
+        {message.slice(start + multiMatch[0].length)}
+      </>
+    )
+  }
+  if (playerId && message.includes(PLAYER_PLACEHOLDER)) {
+    const [before, after] = message.split(PLAYER_PLACEHOLDER)
+    return (
+      <>
+        {before}
+        <LogPlayerName players={players} playerId={playerId} />
+        {after}
+      </>
+    )
+  }
+  return message
+}
+
+function LogPanel({ gameLog, isAdmin, players }: { gameLog: GameEvent[]; isAdmin: boolean; players: PlayerRow[] }) {
   if (!isAdmin) return null
   const recent = [...gameLog].slice(-8).reverse()
   if (recent.length === 0) return null
   return (
     <div className="flex flex-col gap-1 rounded-md border border-neutral-800 p-3 text-xs text-neutral-500">
-      {recent.map((entry) => (
-        <p key={entry.id}>{entry.message}</p>
-      ))}
+      {recent.map((entry) => {
+        const time = formatLogTimestamp(entry.timestamp)
+        return (
+          <p key={entry.id}>
+            {time && <span className="text-neutral-600">[{time}] </span>}
+            {renderLogMessage(entry.message, entry.playerId, players)}
+          </p>
+        )
+      })}
     </div>
   )
 }
@@ -1468,7 +1528,7 @@ export function RoundView(props: {
         )}
       </div>
 
-      <LogPanel gameLog={props.gameLog} isAdmin={props.isAdmin ?? false} />
+      <LogPanel gameLog={props.gameLog} isAdmin={props.isAdmin ?? false} players={players} />
     </div>
   )
 }

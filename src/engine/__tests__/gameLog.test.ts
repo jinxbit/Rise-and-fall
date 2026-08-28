@@ -6,7 +6,7 @@ import { createEmptyBoard, setTile } from '../board'
 import type { BoardGenerationContent } from '../boardGenerationContent'
 import { cardIdFor, createPlayerCards, syncCardZonesWithBoard } from '../cards'
 import { createNewGame, startGame } from '../createGame'
-import { buildGameLog, buildGameLogFrom, extendGameLog } from '../gameLog'
+import { buildGameLog, buildGameLogFrom, extendGameLog, PLAYER_PLACEHOLDER } from '../gameLog'
 import { beginSelectCardsPhase } from '../round'
 import type { Card, GameState, Player, Terrain, Unit } from '../types'
 import type { UnitAction, UnitContent } from '../unitContent'
@@ -124,7 +124,8 @@ describe('buildGameLog', () => {
     const state = drive(genesis, [{ type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }])
 
     const log = buildGameLog(genesis, state.actionHistory, content, achievementContent)
-    expect(messages(log)).toContainEqual(expect.stringContaining('Player p1 chose to play city'))
+    expect(messages(log)).toContainEqual(expect.stringContaining(`${PLAYER_PLACEHOLDER} chose to play city`))
+    expect(log.find((e) => e.message.includes('chose to play city'))?.playerId).toBe('p1')
   })
 
   it('reports the actual resource amount a resolved action produced, not just its name', () => {
@@ -177,7 +178,8 @@ describe('buildGameLog', () => {
     ])
 
     const log = buildGameLog(genesis, state.actionHistory, content, achievementContent)
-    expect(messages(log)).toContainEqual('Player p1 passed on resolving further actions')
+    expect(messages(log)).toContainEqual(`${PLAYER_PLACEHOLDER} passed on resolving further actions`)
+    expect(log.find((e) => e.message.includes('passed on resolving'))?.playerId).toBe('p1')
   })
 
   it('logs a newly claimed achievement', () => {
@@ -263,7 +265,8 @@ describe('buildGameLog', () => {
     expect(state.players.find((p) => p.id === 'p1')?.conceded).toBe(true)
 
     const log = buildGameLog(genesis, state.actionHistory, content, achievementContent)
-    expect(messages(log)).toContainEqual('Player p1 conceded')
+    expect(messages(log)).toContainEqual(`${PLAYER_PLACEHOLDER} conceded`)
+    expect(log.find((e) => e.message.includes('conceded'))?.playerId).toBe('p1')
     expect(messages(log)).not.toContainEqual(expect.stringContaining('was eliminated'))
   })
 
@@ -333,7 +336,8 @@ describe('buildGameLog', () => {
     if (!step.ok) throw new Error(step.error)
 
     const log = buildGameLog(genesis, step.state.actionHistory, content, achievementContent, boardGenerationContent)
-    expect(messages(log)).toContainEqual('Player p1 placed a plain tile')
+    expect(messages(log)).toContainEqual(`${PLAYER_PLACEHOLDER} placed a plain tile`)
+    expect(log.find((e) => e.message.includes('placed a plain tile'))?.playerId).toBe('p1')
   })
 })
 

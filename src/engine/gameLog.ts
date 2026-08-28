@@ -19,6 +19,26 @@ interface DraftEvent {
 }
 
 /**
+ * Placeholder substituted into `message` wherever `playerId`'s display name
+ * (and colour, see RoundView's LogPanel) belongs — narration is built here
+ * without access to the player-name/colour lookup table (that's DB-row data
+ * living outside the engine), so the raw guid can't be interpolated directly
+ * without leaking it to players in the rendered log.
+ */
+export const PLAYER_PLACEHOLDER = '{player}'
+
+/**
+ * Same idea as PLAYER_PLACEHOLDER, but for the one spot (the game-end
+ * winners line) that needs an arbitrary-length, comma-joined list of player
+ * names rather than a single `event.playerId` — encodes the guids directly
+ * in the token since GameEvent only carries one `playerId` slot, and
+ * RoundView's LogPanel parses this back out to resolve names/colours.
+ */
+function playersPlaceholder(playerIds: string[]): string {
+  return `{players:${playerIds.join(',')}}`
+}
+
+/**
  * Renders the primary, one-line narration for whatever action was just
  * dispatched — the direct equivalent of what each apply* handler used to
  * write straight into GameState.log. Everything it needs (card names, tile
@@ -35,13 +55,13 @@ function describePrimaryAction(action: Action, before: GameState, after: GameSta
       // one, so the signal is a terrain *change* at a key, not a new key.
       const changedKey = Object.keys(after.board.tiles).find((key) => before.board.tiles[key]?.terrain !== after.board.tiles[key].terrain)
       const terrain = changedKey ? after.board.tiles[changedKey].terrain : 'unknown'
-      return [{ playerId: action.playerId, message: `Player ${action.playerId} placed a ${terrain} tile` }]
+      return [{ playerId: action.playerId, message: `${PLAYER_PLACEHOLDER} placed a ${terrain} tile` }]
     }
     case 'PLACE_UNIT':
-      return [{ playerId: action.playerId, message: `Player ${action.playerId} placed a starting ${action.unitKind}` }]
+      return [{ playerId: action.playerId, message: `${PLAYER_PLACEHOLDER} placed a starting ${action.unitKind}` }]
     case 'CHOOSE_CARD': {
       const name = after.cards[action.cardId]?.name ?? action.cardId
-      return [{ playerId: action.playerId, message: `Player ${action.playerId} chose to play ${name}` }]
+      return [{ playerId: action.playerId, message: `${PLAYER_PLACEHOLDER} chose to play ${name}` }]
     }
     case 'RESOLVE_UNIT_ACTION': {
       const cardId = before.chosenCardIdByPlayerId[action.playerId]
@@ -57,7 +77,7 @@ function describePrimaryAction(action: Action, before: GameState, after: GameSta
       const delta = resourcesBefore && resourcesAfter ? describeResourceDelta(resourcesBefore, resourcesAfter) : ''
       const kindLabel = card?.kind ?? 'unit'
       const events: DraftEvent[] = [
-        { playerId: action.playerId, message: `Player ${action.playerId}'s ${kindLabel} resolved ${actionNames.join(', ')}${delta}` },
+        { playerId: action.playerId, message: `${PLAYER_PLACEHOLDER}'s ${kindLabel} resolved ${actionNames.join(', ')}${delta}` },
       ]
       // Skipped once the round itself has also turned over in this same
       // dispatch (e.g. the last player's last unit closes out the round):
@@ -67,24 +87,24 @@ function describePrimaryAction(action: Action, before: GameState, after: GameSta
       // below already implies their turn ended, so it'd be redundant
       // anyway.
       if (after.turn === before.turn && before.pendingPlayerIds[0] === action.playerId && after.pendingPlayerIds[0] !== action.playerId) {
-        events.push({ playerId: action.playerId, message: `Player ${action.playerId}'s ${kindLabel} finished acting — turn ends` })
+        events.push({ playerId: action.playerId, message: `${PLAYER_PLACEHOLDER}'s ${kindLabel} finished acting — turn ends` })
       }
       return events
     }
     case 'PASS_ACTIONS':
-      return [{ playerId: action.playerId, message: `Player ${action.playerId} passed on resolving further actions` }]
+      return [{ playerId: action.playerId, message: `${PLAYER_PLACEHOLDER} passed on resolving further actions` }]
     case 'MOVE_TO_DECLINE':
-      return [{ playerId: action.playerId, message: `Player ${action.playerId} moved a card into decline` }]
+      return [{ playerId: action.playerId, message: `${PLAYER_PLACEHOLDER} moved a card into decline` }]
     case 'PURCHASE_CARD': {
       const goldBefore = before.players.find((p) => p.id === action.playerId)?.resources.gold ?? 0
       const goldAfter = after.players.find((p) => p.id === action.playerId)?.resources.gold ?? 0
       const cost = goldBefore - goldAfter
-      return [{ playerId: action.playerId, message: `Player ${action.playerId} purchased a card back from decline for ${cost} gold` }]
+      return [{ playerId: action.playerId, message: `${PLAYER_PLACEHOLDER} purchased a card back from decline for ${cost} gold` }]
     }
     case 'PASS_PURCHASE':
-      return [{ playerId: action.playerId, message: `Player ${action.playerId} passed on purchasing` }]
+      return [{ playerId: action.playerId, message: `${PLAYER_PLACEHOLDER} passed on purchasing` }]
     case 'CONCEDE':
-      return [{ playerId: action.playerId, message: `Player ${action.playerId} conceded` }]
+      return [{ playerId: action.playerId, message: `${PLAYER_PLACEHOLDER} conceded` }]
     default: {
       const exhaustive: never = action
       throw new Error(`Unknown action: ${JSON.stringify(exhaustive)}`)
@@ -106,7 +126,7 @@ function describeCascade(before: GameState, after: GameState, achievementContent
   for (const [achievementId, claimantId] of Object.entries(after.claimedByAchievementId)) {
     if (before.claimedByAchievementId[achievementId]) continue
     const kind = achievementContent.unitKindByAchievementId[achievementId] ?? achievementId
-    events.push({ playerId: claimantId, message: `Player ${claimantId} claimed the ${kind} mastery achievement` })
+    events.push({ playerId: claimantId, message: `${PLAYER_PLACEHOLDER} claimed the ${kind} mastery achievement` })
   }
 
   for (const player of after.players) {
@@ -116,7 +136,7 @@ function describeCascade(before: GameState, after: GameState, achievementContent
     // for the automatic no-card-available rule, so skip it here or every
     // concede would also log a misleading "was eliminated" line right after.
     if (beforePlayer && !beforePlayer.eliminated && player.eliminated && !player.conceded) {
-      events.push({ playerId: player.id, message: `Player ${player.id} was eliminated — no card available to play` })
+      events.push({ playerId: player.id, message: `${PLAYER_PLACEHOLDER} was eliminated — no card available to play` })
     }
   }
 
@@ -134,9 +154,9 @@ function describeCascade(before: GameState, after: GameState, achievementContent
       const afterZone = findCardZone(player, cardId)
       if (beforeZone === afterZone) continue
       if (afterZone === 'supply') {
-        events.push({ playerId: null, message: `${player.displayName}'s ${kind} card returned to supply (no units left on the board)` })
+        events.push({ playerId: player.id, message: `${PLAYER_PLACEHOLDER}'s ${kind} card returned to supply (no units left on the board)` })
       } else if (beforeZone === 'supply' && afterZone === 'hand') {
-        events.push({ playerId: null, message: `${player.displayName}'s ${kind} card entered their hand (first unit placed)` })
+        events.push({ playerId: player.id, message: `${PLAYER_PLACEHOLDER}'s ${kind} card entered their hand (first unit placed)` })
       }
     }
   }
@@ -150,7 +170,7 @@ function describeCascade(before: GameState, after: GameState, achievementContent
     // would disambiguate it isn't kept around. Low-value line to lose:
     // the round transition itself is still reported below regardless.)
     if (after.turnOrder.length > 0 && after.turnOrder[0] !== before.turnOrder[0]) {
-      events.push({ playerId: after.turnOrder[0], message: `Player ${after.turnOrder[0]} becomes the first player` })
+      events.push({ playerId: after.turnOrder[0], message: `${PLAYER_PLACEHOLDER} becomes the first player` })
     }
     events.push({ playerId: null, message: `Round ${after.turn} begins` })
   }
@@ -159,7 +179,9 @@ function describeCascade(before: GameState, after: GameState, achievementContent
     const totalAchievementsClaimed = Object.keys(after.claimedByAchievementId).length
     events.push({
       playerId: null,
-      message: `Game ends — ${totalAchievementsClaimed} achievements claimed. Winner(s): ${after.winnerPlayerIds.join(', ') || 'none'}`,
+      message: `Game ends — ${totalAchievementsClaimed} achievements claimed. Winner(s): ${
+        after.winnerPlayerIds.length > 0 ? playersPlaceholder(after.winnerPlayerIds) : 'none'
+      }`,
     })
   }
 
