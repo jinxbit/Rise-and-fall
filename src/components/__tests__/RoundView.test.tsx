@@ -2384,3 +2384,74 @@ describe('RoundView — map indicator for a unit\'s card zone (issue #305)', () 
     expect(container.querySelectorAll(`circle[fill="${HAND_PLATE_COLOR}"]`)).toHaveLength(0)
   })
 })
+
+describe('RoundView — LogPanel (issue #358)', () => {
+  it("resolves a log entry's {player} placeholder to the player's name/colour and shows a minute-resolution timestamp, never the raw guid", () => {
+    const state = makeState()
+    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
+
+    render(
+      <RoundView
+        state={state}
+        players={players}
+        myPlayerId="p1"
+        isAdmin
+        unitContent={EMPTY_UNIT_CONTENT}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
+        turnReview={null}
+        showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
+        gameLog={[{ id: 'evt_1', turn: 1, playerId: 'p1', message: '{player} chose to play Nomad', timestamp: '2026-08-28T14:32:00.000Z' }]}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+
+    const logEntry = screen.getByText('chose to play Nomad', { exact: false }).closest('p')!
+    expect(logEntry.textContent).not.toContain('p1')
+    const nameSpan = within(logEntry).getByText('Alice')
+    expect(nameSpan.style.color).toBe('rgb(255, 0, 0)')
+    // Wall-clock timestamp shown at minute resolution — no seconds.
+    expect(within(logEntry).getByText(/^\[\d{1,2}:\d{2}(\s?[AP]M)?\]\s*$/)).toBeTruthy()
+  })
+
+  it('hides the log panel entirely for non-admins', () => {
+    const state = makeState()
+    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
+
+    render(
+      <RoundView
+        state={state}
+        players={players}
+        myPlayerId="p1"
+        isAdmin={false}
+        unitContent={EMPTY_UNIT_CONTENT}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
+        turnReview={null}
+        showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
+        gameLog={[{ id: 'evt_1', turn: 1, playerId: 'p1', message: '{player} chose to play Nomad', timestamp: '2026-08-28T14:32:00.000Z' }]}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+
+    expect(screen.queryByText('chose to play Nomad', { exact: false })).toBeNull()
+  })
+})
