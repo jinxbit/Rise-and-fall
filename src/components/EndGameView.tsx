@@ -1,6 +1,7 @@
 import { Fragment, useLayoutEffect } from 'react'
 import { listAchievements, listTerrainTypes } from '../content/resolveContent'
 import type { AchievementContent } from '../engine/achievementContent'
+import { cardIdFor, findCardZone, sortCardIdsForDisplay } from '../engine/cards'
 import type { AchievementClaimEvent, ScoreSnapshot } from '../engine/scoreHistory'
 import { calculateTerritoryControlByHex } from '../engine/scoring'
 import type { TaleContent } from '../engine/taleContent'
@@ -80,14 +81,36 @@ function ranksFor(ranked: { id: string }[], totalOf: (id: string) => number): Ma
   return ranks
 }
 
-/** Every unit `playerId` has on the board, grouped by kind — the "what did they build" half of their end-game player details, alongside resources. */
-function unitCountsFor(state: GameState, playerId: string): { kind: string; count: number }[] {
+/**
+ * Every unit `playerId` has on the board, grouped by kind — the "what did
+ * they build" half of their end-game player details, alongside resources.
+ * `declined` flags a kind whose card is currently in `playerId`'s decline
+ * pile (see isCardDeclined in ../engine/victoryPoints.ts): those units are
+ * still on the board and shown here, but per ruling they aren't earning
+ * board-count VP while the card is down, which the caller renders distinctly
+ * so a player can tell why a stack of units isn't adding to their score.
+ */
+function unitCountsFor(state: GameState, playerId: string): { kind: string; count: number; declined: boolean }[] {
   const counts = new Map<string, number>()
   for (const unit of state.units) {
     if (unit.ownerId !== playerId) continue
     counts.set(unit.kind, (counts.get(unit.kind) ?? 0) + 1)
   }
-  return [...counts.entries()].map(([kind, count]) => ({ kind, count }))
+  const owner = state.players.find((p) => p.id === playerId)
+  return [...counts.entries()].map(([kind, count]) => ({
+    kind,
+    count,
+    declined: owner ? findCardZone(owner, cardIdFor(playerId, kind)) === 'decline' : false,
+  }))
+}
+
+/** Unit kinds whose card currently sits in `playerId`'s decline pile, in the same fixed display order used elsewhere (CARD_DISPLAY_ORDER) — for the "In decline" breakdown row. */
+function declinedKindsFor(state: GameState, playerId: string): string[] {
+  const player = state.players.find((p) => p.id === playerId)
+  if (!player) return []
+  return sortCardIdsForDisplay(player.declineCardIds, state.cards)
+    .map((id) => state.cards[id]?.kind)
+    .filter((kind): kind is string => Boolean(kind))
 }
 
 interface BreakdownCell {
@@ -232,12 +255,18 @@ export function EndGameView({
   const categories = scoredCategories(breakdownByPlayerId, activeIds)
   const breakdownGroups = breakdownGroupsFor(detailByPlayerId, activeIds)
 
-  const boardUnits: UnitMarker[] = state.units.map((unit) => ({
-    coord: unit.coord,
-    color: players.find((p) => p.id === unit.ownerId)?.color ?? '#a3a3a3',
-    kind: unit.kind,
-    connectedNeighborCoords: unit.connectedNeighborCoords,
-  }))
+  const boardUnits: UnitMarker[] = state.units.map((unit) => {
+    const owner = state.players.find((p) => p.id === unit.ownerId)
+    return {
+      coord: unit.coord,
+      color: players.find((p) => p.id === unit.ownerId)?.color ?? '#a3a3a3',
+      kind: unit.kind,
+      connectedNeighborCoords: unit.connectedNeighborCoords,
+      // Grey out units whose card is in decline (issue #305's convention),
+      // so the final board also shows why a stack isn't scoring board-count VP.
+      declined: owner ? findCardZone(owner, cardIdFor(unit.ownerId, unit.kind)) === 'decline' : false,
+    }
+  })
 
   const territoryControl = calculateTerritoryControlByHex(state.board, state.units, achievementContent.terrainScoresAs).map((hex) => ({
     coord: hex.coord,
@@ -468,7 +497,7 @@ export function EndGameView({
                   ),
                 )}
               </tr>
-              <tr>
+              <tr className="border-b border-neutral-800/60">
                 <td className="py-1 pr-3 align-top text-neutral-500">On board</td>
                 {ranked.map((player) => {
                   if (player.eliminated) {
@@ -483,11 +512,42 @@ export function EndGameView({
                     <td key={player.id} data-testid={`breakdown-units-${player.id}`} className="px-3 py-1 align-top">
                       {unitCounts.length > 0 ? (
                         <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-neutral-400">
-                          {unitCounts.map(({ kind, count }) => (
-                            <span key={kind} className="inline-flex items-center gap-1" title={capitalize(kind)}>
-                              <UnitIcon kind={kind} className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
+                          {unitCounts.map(({ kind, count, declined }) => (
+                            <span
+                              key={kind}
+                              className={`inline-flex items-center gap-1 ${declined ? 'text-neutral-600' : ''}`}
+                              title={declined ? `${capitalize(kind)} — card in decline, not scoring` : capitalize(kind)}
+                            >
+                              <UnitIcon kind={kind} className={`h-3.5 w-3.5 shrink-0 ${declined ? 'text-neutral-600' : 'text-neutral-400'}`} />
                               <span>{count}</span>
+                              {declined && <span className="text-[10px] text-neutral-600">(decline)</span>}
                             </span>
+                          ))}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-neutral-500">—</span>
+                      )}
+                    </td>
+                  )
+                })}
+              </tr>
+              <tr>
+                <td className="py-1 pr-3 align-top text-neutral-500">In decline</td>
+                {ranked.map((player) => {
+                  if (player.eliminated) {
+                    return (
+                      <td key={player.id} data-testid={`breakdown-decline-${player.id}`} className="px-3 py-1 align-top text-xs text-neutral-500">
+                        {capitalize(eliminationLabel(player))}
+                      </td>
+                    )
+                  }
+                  const declinedKinds = declinedKindsFor(state, player.id)
+                  return (
+                    <td key={player.id} data-testid={`breakdown-decline-${player.id}`} className="px-3 py-1 align-top">
+                      {declinedKinds.length > 0 ? (
+                        <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-neutral-400">
+                          {declinedKinds.map((kind, i) => (
+                            <UnitIcon key={i} kind={kind} title={capitalize(kind)} className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
                           ))}
                         </span>
                       ) : (
