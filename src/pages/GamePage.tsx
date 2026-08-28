@@ -1171,7 +1171,7 @@ export function GamePage() {
                 >
                   {savingMap ? 'Saving map…' : 'Save this map'}
                 </button>
-                {canEditVisibility && (
+                {canEditVisibility ? (
                   <button
                     type="button"
                     role="menuitem"
@@ -1185,6 +1185,19 @@ export function GamePage() {
                   >
                     Make {game.visibility === 'public' ? 'private' : 'public'}
                   </button>
+                ) : (
+                  isAdmin && (
+                    <div
+                      title={
+                        game.visibility === 'public'
+                          ? 'Public — listed on the Public rooms screen'
+                          : 'Private — only reachable via this room’s link/code'
+                      }
+                      className="px-3 py-2 text-left text-neutral-500"
+                    >
+                      {game.visibility === 'public' ? 'Public room' : 'Private room'}
+                    </div>
+                  )
                 )}
                 {canCancel && (
                   <button
