@@ -1,6 +1,7 @@
 import { Analytics } from '@vercel/analytics/react'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { AdminMapsPage } from './pages/AdminMapsPage'
+import { AdminRoomsPage } from './pages/AdminRoomsPage'
 import { CreateGamePage } from './pages/CreateGamePage'
 import { GamePage } from './pages/GamePage'
 import { HomePage } from './pages/HomePage'
@@ -24,6 +25,7 @@ function App() {
           <Route path="/create" element={<CreateGamePage />} />
           <Route path="/map-builder" element={<MapBuilderPage />} />
           <Route path="/admin/maps" element={<AdminMapsPage />} />
+          <Route path="/admin/rooms" element={<AdminRoomsPage />} />
           <Route path="/games" element={<MyGamesPage />} />
           <Route path="/public" element={<PublicRoomsPage />} />
           <Route path="/profile" element={<ProfilePage />} />
