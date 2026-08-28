@@ -1,4 +1,4 @@
-import { Fragment, useEffect } from 'react'
+import { Fragment, useLayoutEffect } from 'react'
 import { listAchievements, listTerrainTypes } from '../content/resolveContent'
 import type { AchievementContent } from '../engine/achievementContent'
 import type { AchievementClaimEvent, ScoreSnapshot } from '../engine/scoreHistory'
@@ -218,7 +218,7 @@ export function EndGameView({
   /** Per-player gold-spending breakdown by category (./engine/unitValue.ts), for the "Spending" stacked bar chart below. Undefined/null (a caller that hasn't derived it, e.g. this component's own tests) simply skips that chart. */
   spendingBreakdown?: Record<string, SpendingBreakdown> | null
 }) {
-  useEffect(() => resetMobileViewportZoom(), [])
+  useLayoutEffect(() => resetMobileViewportZoom(), [])
 
   const detailByPlayerId = calculateVPDetail(state, achievementContent, taleContent)
   const breakdownByPlayerId = calculateVPBreakdown(state, achievementContent, taleContent)
