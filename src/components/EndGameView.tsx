@@ -1,4 +1,4 @@
-import { Fragment } from 'react'
+import { Fragment, useEffect } from 'react'
 import { listAchievements, listTerrainTypes } from '../content/resolveContent'
 import type { AchievementContent } from '../engine/achievementContent'
 import type { AchievementClaimEvent, ScoreSnapshot } from '../engine/scoreHistory'
@@ -167,6 +167,27 @@ function breakdownGroupsFor(detailByPlayerId: Record<string, VPDetail>, activeId
 }
 
 /**
+ * Forces mobile Safari/Chrome to drop whatever pinch-zoom level the player
+ * left the game at back to the page's normal 1x scale — bug report:
+ * "victory screen opens zoomed out, half the screen is blank and everything
+ * is too small." The round view's hex board has no built-in pan/zoom
+ * controls, so a player on a big board commonly pinch-zooms out to see more
+ * of it; since the victory screen swaps in over the same document (no
+ * navigation/reload) rather than as a fresh page, that zoom level otherwise
+ * carries straight over onto a screen that was never laid out with it in
+ * mind. Toggling the viewport meta tag's `content` (any actual change, even
+ * a no-op round-trip back to the original value) is the standard trick for
+ * making mobile browsers recompute the page's zoom from scratch.
+ */
+function resetMobileViewportZoom(): void {
+  const viewport = document.querySelector('meta[name="viewport"]')
+  const content = viewport?.getAttribute('content')
+  if (!viewport || !content) return
+  viewport.setAttribute('content', `${content}, maximum-scale=1`)
+  viewport.setAttribute('content', content)
+}
+
+/**
  * The end-of-game screen: every player, ranked by final total VP, with a
  * full breakdown of what that total is made of — not just the bottom line,
  * but each thing they have and the points it's worth (calculateVPDetail).
@@ -197,6 +218,8 @@ export function EndGameView({
   /** Per-player gold-spending breakdown by category (./engine/unitValue.ts), for the "Spending" stacked bar chart below. Undefined/null (a caller that hasn't derived it, e.g. this component's own tests) simply skips that chart. */
   spendingBreakdown?: Record<string, SpendingBreakdown> | null
 }) {
+  useEffect(() => resetMobileViewportZoom(), [])
+
   const detailByPlayerId = calculateVPDetail(state, achievementContent, taleContent)
   const breakdownByPlayerId = calculateVPBreakdown(state, achievementContent, taleContent)
   const winnerIds = new Set(state.winnerPlayerIds)
