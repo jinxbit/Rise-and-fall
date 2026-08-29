@@ -6,7 +6,7 @@
 
 import type { GameState as EngineGameState } from '../engine/types'
 import type { GameRow, PlayerRow } from './dbTypes'
-import { isMyTurnFor, pendingActorIdsFor } from './gameCardView'
+import { isMyTurnFor, latestUpdatedAt, pendingActorIdsFor } from './gameCardView'
 
 /**
  * One publicly-listed room, plus everything the list view needs to render
@@ -56,6 +56,45 @@ export function pendingActorIds(entry: PublicRoomEntry): string[] {
 export function isMyTurn(entry: PublicRoomEntry, userId: string): boolean {
   const myPlayerIds = entry.players.filter((p) => p.user_id === userId).map((p) => p.id)
   return isMyTurnFor(entry.gameState, myPlayerIds)
+}
+
+/** True if userId is seated in this room, in any seat. */
+export function isMine(entry: PublicRoomEntry, userId: string): boolean {
+  return entry.players.some((p) => p.user_id === userId)
+}
+
+function byLatestUpdatedAsc(a: PublicRoomEntry, b: PublicRoomEntry): number {
+  return (
+    new Date(latestUpdatedAt(a.game, a.gameStateUpdatedAt)).getTime() -
+    new Date(latestUpdatedAt(b.game, b.gameStateUpdatedAt)).getTime()
+  )
+}
+
+function byLatestUpdatedDesc(a: PublicRoomEntry, b: PublicRoomEntry): number {
+  return -byLatestUpdatedAsc(a, b)
+}
+
+/**
+ * Orders a bucket of in-progress rooms for a given viewer (issue #364,
+ * section 1): rooms where it's `userId`'s turn come first, oldest-updated
+ * first (the ones that have been waiting longest for their input), then the
+ * rest of the rooms, most-recently-updated first.
+ */
+export function orderInProgressForUser(entries: PublicRoomEntry[], userId: string): PublicRoomEntry[] {
+  const myTurn = entries.filter((entry) => isMyTurn(entry, userId)).sort(byLatestUpdatedAsc)
+  const rest = entries.filter((entry) => !isMyTurn(entry, userId)).sort(byLatestUpdatedDesc)
+  return [...myTurn, ...rest]
+}
+
+/**
+ * Orders a bucket of not-yet-started rooms for a given viewer (issue #364,
+ * section 2): rooms `userId` is already seated in come first, then every
+ * other room — each group most-recently-updated first.
+ */
+export function orderNotStartedForUser(entries: PublicRoomEntry[], userId: string): PublicRoomEntry[] {
+  const mine = entries.filter((entry) => isMine(entry, userId)).sort(byLatestUpdatedDesc)
+  const others = entries.filter((entry) => !isMine(entry, userId)).sort(byLatestUpdatedDesc)
+  return [...mine, ...others]
 }
 
 /**

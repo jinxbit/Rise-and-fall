@@ -39,6 +39,18 @@ export function formatUpdatedAt(isoTimestamp: string, now: Date = new Date()): s
 }
 
 /**
+ * Absolute "Finished at" label for a completed game (issue #364) — shown
+ * instead of the phase + relative "Updated ... ago" pair once a game is
+ * done, since neither "Finished" nor a relative time is useful once nothing
+ * more will happen. There's no dedicated `finished_at` column (see
+ * dbTypes.ts's GameStateRow); the game_state row's `updated_at` is the
+ * closest proxy, since no further writes happen to it once a game completes.
+ */
+export function formatFinishedAt(isoTimestamp: string): string {
+  return `Finished at ${new Date(isoTimestamp).toLocaleString()}`
+}
+
+/**
  * The real "last activity" timestamp for a game: `games.updated_at` only
  * changes for lobby-era edits (settings, status, visibility — see
  * 0001_init_schema.sql's `games_set_updated_at` trigger), never for

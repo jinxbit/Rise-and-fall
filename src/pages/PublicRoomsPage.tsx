@@ -5,12 +5,14 @@ import { GameOverviewCard } from '../components/GameOverviewCard'
 import { useAuth } from '../hooks/useAuth'
 import { useRefetchOnVisible } from '../hooks/useRefetchOnVisible'
 import { listPublicRooms } from '../lib/gameApi'
-import { buildGameCardSummary, describeGamePhase, formatUpdatedAt, latestUpdatedAt } from '../lib/gameCardView'
+import { buildGameCardSummary, describeGamePhase, formatFinishedAt, formatUpdatedAt, latestUpdatedAt } from '../lib/gameCardView'
 import { toAppError, type AppError } from '../lib/errors'
 import {
   groupPublicRooms,
   isJoinable,
   isMyTurn,
+  orderInProgressForUser,
+  orderNotStartedForUser,
   pendingActorIds,
   publicRoomBucket,
   type PublicRoomEntry,
@@ -67,6 +69,10 @@ export function PublicRoomsPage() {
   }
 
   const { notStarted, inProgress, finished } = groupPublicRooms(entries ?? [])
+  // Section 2: the viewer's own rooms first. Section 1/3: whichever rooms
+  // need the viewer's input first, oldest-waiting first, then the rest.
+  const notStartedOrdered = orderNotStartedForUser(notStarted, session.user.id)
+  const inProgressOrdered = orderInProgressForUser(inProgress, session.user.id)
 
   return (
     <div className="mx-auto flex max-w-lg flex-col gap-8 p-8">
@@ -85,20 +91,20 @@ export function PublicRoomsPage() {
         <div className="text-neutral-400">No public rooms right now.</div>
       )}
 
-      {notStarted.length > 0 && (
+      {notStartedOrdered.length > 0 && (
         <RoomSection
           title="Joinable"
-          entries={notStarted}
+          entries={notStartedOrdered}
           userId={session.user.id}
           onOpen={(entry) => navigate(`/lobby/${entry.game.room_code}`)}
           renderAction={(entry) => (isJoinable(entry) ? 'Join' : 'Full')}
         />
       )}
 
-      {inProgress.length > 0 && (
+      {inProgressOrdered.length > 0 && (
         <RoomSection
           title="In progress"
-          entries={inProgress}
+          entries={inProgressOrdered}
           userId={session.user.id}
           onOpen={(entry) => navigate(`/game/${entry.game.room_code}`)}
           renderAction={(entry) =>
@@ -137,23 +143,27 @@ function RoomSection({
     <section className="flex flex-col gap-3">
       <h2 className="font-medium text-neutral-200">{title}</h2>
       <ul className="flex flex-col gap-2">
-        {entries.map((entry) => (
-          <GameOverviewCard
-            key={entry.game.id}
-            name={entry.game.name}
-            description={publicRoomBucket(entry) === 'notStarted' ? `${entry.players.length}/${entry.game.max_players} players` : undefined}
-            phase={describeGamePhase(entry.game, entry.gameState)}
-            players={entry.players}
-            pendingPlayerIds={pendingActorIds(entry)}
-            isMyTurn={isMyTurn(entry, userId)}
-            isFinished={publicRoomBucket(entry) === 'finished'}
-            isJoinable={isJoinable(entry)}
-            updatedAt={formatUpdatedAt(latestUpdatedAt(entry.game, entry.gameStateUpdatedAt))}
-            action={renderAction(entry)}
-            summary={buildGameCardSummary(entry.game, entry.gameState, entry.players)}
-            onOpen={() => onOpen(entry)}
-          />
-        ))}
+        {entries.map((entry) => {
+          const finished = publicRoomBucket(entry) === 'finished'
+          const updatedAt = latestUpdatedAt(entry.game, entry.gameStateUpdatedAt)
+          return (
+            <GameOverviewCard
+              key={entry.game.id}
+              name={entry.game.name}
+              description={publicRoomBucket(entry) === 'notStarted' ? `${entry.players.length}/${entry.game.max_players} players` : undefined}
+              phase={describeGamePhase(entry.game, entry.gameState)}
+              players={entry.players}
+              pendingPlayerIds={pendingActorIds(entry)}
+              isMyTurn={isMyTurn(entry, userId)}
+              isFinished={finished}
+              isJoinable={isJoinable(entry)}
+              updatedAt={finished ? formatFinishedAt(updatedAt) : formatUpdatedAt(updatedAt)}
+              action={renderAction(entry)}
+              summary={buildGameCardSummary(entry.game, entry.gameState, entry.players)}
+              onOpen={() => onOpen(entry)}
+            />
+          )
+        })}
       </ul>
     </section>
   )

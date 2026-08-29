@@ -3,8 +3,11 @@ import { buildGenesisState } from '../gameGenesis'
 import {
   groupPublicRooms,
   isJoinable,
+  isMine,
   isMyTurn,
   isObservable,
+  orderInProgressForUser,
+  orderNotStartedForUser,
   pendingActorIds,
   publicRoomBucket,
   type PublicRoomEntry,
@@ -180,6 +183,71 @@ describe('isMyTurn', () => {
         'auth_1',
       ),
     ).toBe(false)
+  })
+})
+
+describe('isMine', () => {
+  it('is true when userId is seated in the room', () => {
+    expect(isMine(makeEntry(), 'auth_1')).toBe(true)
+  })
+
+  it('is false when userId is not seated in the room', () => {
+    expect(isMine(makeEntry(), 'auth_9')).toBe(false)
+  })
+})
+
+describe('orderInProgressForUser', () => {
+  it("puts rooms where it's the user's turn first, oldest-updated first", () => {
+    const myTurnNewer = makeEntry({
+      game: makeGame({ id: 'g1', room_code: 'AAAAA', updated_at: '2026-01-02T00:00:00Z' }),
+      gameState: makeActiveState({ roundPhase: 'actions', activePlayerId: 'p1' }),
+    })
+    const myTurnOlder = makeEntry({
+      game: makeGame({ id: 'g2', room_code: 'BBBBB', updated_at: '2026-01-01T00:00:00Z' }),
+      gameState: makeActiveState({ roundPhase: 'actions', activePlayerId: 'p1' }),
+    })
+    const notMyTurn = makeEntry({
+      game: makeGame({ id: 'g3', room_code: 'CCCCC', updated_at: '2026-01-03T00:00:00Z' }),
+      gameState: makeActiveState({ roundPhase: 'actions', activePlayerId: 'p2' }),
+    })
+
+    const ordered = orderInProgressForUser([myTurnNewer, notMyTurn, myTurnOlder], 'auth_1')
+    expect(ordered.map((e) => e.game.id)).toEqual(['g2', 'g1', 'g3'])
+  })
+
+  it('sorts the rest most-recently-updated first', () => {
+    const older = makeEntry({
+      game: makeGame({ id: 'g1', room_code: 'AAAAA', updated_at: '2026-01-01T00:00:00Z' }),
+      gameState: makeActiveState({ roundPhase: 'actions', activePlayerId: 'p2' }),
+    })
+    const newer = makeEntry({
+      game: makeGame({ id: 'g2', room_code: 'BBBBB', updated_at: '2026-01-05T00:00:00Z' }),
+      gameState: makeActiveState({ roundPhase: 'actions', activePlayerId: 'p2' }),
+    })
+
+    const ordered = orderInProgressForUser([older, newer], 'auth_1')
+    expect(ordered.map((e) => e.game.id)).toEqual(['g2', 'g1'])
+  })
+})
+
+describe('orderNotStartedForUser', () => {
+  it("puts the user's own rooms first, each group most-recently-updated first", () => {
+    const mineOlder = makeEntry({
+      game: makeGame({ id: 'g1', room_code: 'AAAAA', status: 'lobby', updated_at: '2026-01-01T00:00:00Z' }),
+      gameState: null,
+    })
+    const othersNewer = makeEntry({
+      game: makeGame({ id: 'g2', room_code: 'BBBBB', status: 'lobby', updated_at: '2026-01-05T00:00:00Z' }),
+      gameState: null,
+      players: makePlayers('g2', 2).map((p) => ({ ...p, user_id: `other_${p.user_id}` })),
+    })
+    const mineNewer = makeEntry({
+      game: makeGame({ id: 'g3', room_code: 'CCCCC', status: 'lobby', updated_at: '2026-01-03T00:00:00Z' }),
+      gameState: null,
+    })
+
+    const ordered = orderNotStartedForUser([mineOlder, othersNewer, mineNewer], 'auth_1')
+    expect(ordered.map((e) => e.game.id)).toEqual(['g3', 'g1', 'g2'])
   })
 })
 
