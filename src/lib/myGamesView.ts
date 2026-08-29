@@ -5,7 +5,7 @@
 
 import type { GameState as EngineGameState } from '../engine/types'
 import type { GameRow, PlayerRow } from './dbTypes'
-import { isMyTurnFor, pendingActorIdsFor } from './gameCardView'
+import { isMyTurnFor, latestUpdatedAt, pendingActorIdsFor } from './gameCardView'
 
 export { describeGamePhase, formatUpdatedAt, latestUpdatedAt } from './gameCardView'
 
@@ -72,7 +72,8 @@ export function groupMyGames(
   const canceled = entries.filter((entry) => isCanceled(entry))
 
   const byUpdatedDesc = (a: MyGameEntry, b: MyGameEntry) =>
-    new Date(b.game.updated_at).getTime() - new Date(a.game.updated_at).getTime()
+    new Date(latestUpdatedAt(b.game, b.gameStateUpdatedAt)).getTime() -
+    new Date(latestUpdatedAt(a.game, a.gameStateUpdatedAt)).getTime()
 
   active.sort((a, b) => Number(isMyTurn(b)) - Number(isMyTurn(a)) || byUpdatedDesc(a, b))
   finished.sort(byUpdatedDesc)
