@@ -4,7 +4,7 @@ import { createEmptyBoard } from '../../engine/board'
 import { createNewGame } from '../../engine/createGame'
 import { calculateVPBreakdown } from '../../engine/victoryPoints'
 import type { GameState as EngineGameState } from '../../engine/types'
-import { buildGameCardSummary, describeGamePhase, latestUpdatedAt } from '../gameCardView'
+import { buildGameCardSummary, describeGamePhase, formatFinishedAt, latestUpdatedAt } from '../gameCardView'
 import type { GameRow, GameSettings, PlayerRow } from '../dbTypes'
 
 function makeSettings(overrides: Partial<GameSettings> = {}): GameSettings {
@@ -179,6 +179,13 @@ describe('latestUpdatedAt', () => {
   it('falls back to games.updated_at when it is the more recent of the two (e.g. a settings edit right after insertGameState)', () => {
     const game = makeGame({ updated_at: '2026-01-05T00:00:00Z' })
     expect(latestUpdatedAt(game, '2026-01-02T00:00:00Z')).toBe('2026-01-05T00:00:00Z')
+  })
+})
+
+describe('formatFinishedAt', () => {
+  it('renders an absolute local date/time prefixed with "Finished at"', () => {
+    const isoTimestamp = '2026-01-02T09:00:00Z'
+    expect(formatFinishedAt(isoTimestamp)).toBe(`Finished at ${new Date(isoTimestamp).toLocaleString()}`)
   })
 })
 

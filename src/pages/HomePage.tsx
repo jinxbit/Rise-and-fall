@@ -10,34 +10,26 @@ import { useAuth } from '../hooks/useAuth'
 import { useDisplayName } from '../hooks/useDisplayName'
 import { useIsAdmin } from '../hooks/useIsAdmin'
 import { useRefetchOnVisible } from '../hooks/useRefetchOnVisible'
-import { getGameByRoomCode, listAllRooms, listMyGames } from '../lib/gameApi'
-import { buildGameCardSummary } from '../lib/gameCardView'
+import { getGameByRoomCode, listAllRooms } from '../lib/gameApi'
+import { buildGameCardSummary, describeGamePhase, formatFinishedAt, formatUpdatedAt, latestUpdatedAt } from '../lib/gameCardView'
 import { paginate } from '../lib/pagination'
 import { consumePendingRedirect } from '../lib/pendingRedirect'
 import { simpleError, toAppError, type AppError } from '../lib/errors'
 import {
-  describeGamePhase,
-  formatUpdatedAt,
-  groupMyGames,
-  isMyTurn,
-  latestUpdatedAt,
-  myGameStatus,
-  pendingActorIds,
-  type MyGameEntry,
-} from '../lib/myGamesView'
-import {
   groupPublicRooms,
   isJoinable,
-  isMyTurn as isMyTurnInPublicRoom,
-  pendingActorIds as pendingActorIdsInPublicRoom,
+  isMine,
+  isMyTurn,
+  orderInProgressForUser,
+  orderNotStartedForUser,
+  pendingActorIds,
   publicRoomBucket,
   type PublicRoomEntry,
 } from '../lib/publicRoomsView'
 
 const PAGE_SIZE = 10
 
-/** Same routing rule as MyGamesPage.tsx's gamePath — no game_state row yet means the room is still in the lobby. */
-function gamePath(entry: MyGameEntry): string {
+function gamePath(entry: PublicRoomEntry): string {
   return entry.gameState === null ? `/lobby/${entry.game.room_code}` : `/game/${entry.game.room_code}`
 }
 
@@ -51,18 +43,17 @@ export function HomePage() {
   const [error, setError] = useState<AppError | null>(null)
   const [busy, setBusy] = useState(false)
 
-  const [myEntries, setMyEntries] = useState<MyGameEntry[] | null>(null)
   // All rooms, public and private (issue #363) — a private room's
   // not-started/lobby state is filtered back out below, before rendering,
-  // since only "Your games" or the room's own link should ever surface that.
+  // since only the room's owner/players or the room's own link should ever
+  // surface that.
   const [roomEntries, setRoomEntries] = useState<PublicRoomEntry[] | null>(null)
   const [loadError, setLoadError] = useState<AppError | null>(null)
 
   const [myGamesPage, setMyGamesPage] = useState(0)
-  const [joinablePage, setJoinablePage] = useState(0)
+  const [notStartedPage, setNotStartedPage] = useState(0)
   const [inProgressPage, setInProgressPage] = useState(0)
   const [finishedPage, setFinishedPage] = useState(0)
-  const [publicFinishedPage, setPublicFinishedPage] = useState(0)
 
   useEffect(() => {
     if (!session) return
@@ -74,11 +65,9 @@ export function HomePage() {
     if (!session) return
     let cancelled = false
     setLoadError(null)
-    Promise.all([listMyGames(session.user.id), listAllRooms()])
-      .then(([myGames, rooms]) => {
-        if (cancelled) return
-        setMyEntries(myGames)
-        setRoomEntries(rooms)
+    listAllRooms()
+      .then((rooms) => {
+        if (!cancelled) setRoomEntries(rooms)
       })
       .catch((err: unknown) => {
         if (!cancelled) setLoadError(toAppError(err, 'Failed to load games'))
@@ -90,11 +79,8 @@ export function HomePage() {
 
   useRefetchOnVisible(() => {
     if (!session) return
-    Promise.all([listMyGames(session.user.id), listAllRooms()])
-      .then(([myGames, rooms]) => {
-        setMyEntries(myGames)
-        setRoomEntries(rooms)
-      })
+    listAllRooms()
+      .then(setRoomEntries)
       .catch((err: unknown) => setLoadError(toAppError(err, 'Failed to load games')))
   })
 
@@ -139,26 +125,27 @@ export function HomePage() {
     }
   }
 
-  const { active: myGamesInProgress, finished: myFinishedGames } = groupMyGames(myEntries ?? [])
-  // In-progress/finished include both public and private rooms (issue #363:
-  // private games stay listed for everyone once they're underway) — only
-  // the notStarted bucket needs a visibility filter, since a private lobby
-  // must never be discoverable/joinable from here, unlike its in-progress or
-  // finished state.
-  const { notStarted, inProgress: roomsInProgress, finished: roomsFinished } = groupPublicRooms(roomEntries ?? [])
-  // "Latest" here means most-recently created — unlike the in-progress list
-  // below, a fresh lobby's updated_at rarely differs from its created_at, but
-  // created_at is the literal reading of "the latest 10 joinable games".
-  const joinablePublic = notStarted
-    .filter((entry) => entry.game.visibility === 'public')
-    .filter(isJoinable)
-    .sort((a, b) => new Date(b.game.created_at).getTime() - new Date(a.game.created_at).getTime())
+  // The four groups from issue #364, in priority order:
+  //  1. My in-progress games — needing my input first (longest-waiting
+  //     first), then the rest most-recently-updated first.
+  //  2. Rooms not started — mine first, then other public joinable rooms.
+  //  3. In-progress games I'm not seated in.
+  //  4. Finished games.
+  const { notStarted, inProgress, finished } = groupPublicRooms(roomEntries ?? [])
+  const myGamesInProgress = orderInProgressForUser(
+    inProgress.filter((entry) => isMine(entry, user.id)),
+    user.id,
+  )
+  const otherGamesInProgress = inProgress.filter((entry) => !isMine(entry, user.id))
+  const notStartedRooms = orderNotStartedForUser(
+    notStarted.filter((entry) => isMine(entry, user.id) || (entry.game.visibility === 'public' && isJoinable(entry))),
+    user.id,
+  )
 
   const myGamesPageItems = paginate(myGamesInProgress, myGamesPage, PAGE_SIZE)
-  const joinablePageItems = paginate(joinablePublic, joinablePage, PAGE_SIZE)
-  const inProgressPageItems = paginate(roomsInProgress, inProgressPage, PAGE_SIZE)
-  const finishedPageItems = paginate(myFinishedGames, finishedPage, PAGE_SIZE)
-  const publicFinishedPageItems = paginate(roomsFinished, publicFinishedPage, PAGE_SIZE)
+  const notStartedPageItems = paginate(notStartedRooms, notStartedPage, PAGE_SIZE)
+  const inProgressPageItems = paginate(otherGamesInProgress, inProgressPage, PAGE_SIZE)
+  const finishedPageItems = paginate(finished, finishedPage, PAGE_SIZE)
 
   return (
     <div className="mx-auto flex max-w-lg flex-col gap-8 p-8">
@@ -218,9 +205,9 @@ export function HomePage() {
         </div>
       </section>
 
-      {myEntries === null && !loadError && <div className="text-neutral-400">Loading your games…</div>}
+      {roomEntries === null && !loadError && <div className="text-neutral-400">Loading your games…</div>}
 
-      {myEntries !== null && (
+      {roomEntries !== null && (
         <section className="flex flex-col gap-3">
           <h2 className="font-medium text-neutral-200">Your games in progress</h2>
           {myGamesInProgress.length === 0 ? (
@@ -228,7 +215,7 @@ export function HomePage() {
           ) : (
             <ul className="flex flex-col gap-2">
               {myGamesPageItems.map((entry) => (
-                <MyGameRow key={entry.game.id} entry={entry} onOpen={() => navigate(gamePath(entry))} />
+                <RoomRow key={entry.game.id} entry={entry} userId={user.id} onOpen={() => navigate(gamePath(entry))} />
               ))}
             </ul>
           )}
@@ -238,104 +225,58 @@ export function HomePage() {
 
       {roomEntries !== null && (
         <section className="flex flex-col gap-3">
-          <h2 className="font-medium text-neutral-200">Public games — joinable</h2>
-          {joinablePublic.length === 0 ? (
-            <p className="text-sm text-neutral-500">No joinable public games right now.</p>
+          <h2 className="font-medium text-neutral-200">Rooms not started</h2>
+          {notStartedRooms.length === 0 ? (
+            <p className="text-sm text-neutral-500">No rooms waiting to start right now.</p>
           ) : (
             <ul className="flex flex-col gap-2">
-              {joinablePageItems.map((entry) => (
+              {notStartedPageItems.map((entry) => (
                 <RoomRow
                   key={entry.game.id}
                   entry={entry}
-                  userId={session.user.id}
-                  action="Join"
+                  userId={user.id}
+                  action={isMine(entry, user.id) ? undefined : 'Join'}
                   onOpen={() => navigate(`/lobby/${entry.game.room_code}`)}
                 />
               ))}
             </ul>
           )}
-          <Pagination page={joinablePage} pageSize={PAGE_SIZE} total={joinablePublic.length} onChange={setJoinablePage} />
+          <Pagination page={notStartedPage} pageSize={PAGE_SIZE} total={notStartedRooms.length} onChange={setNotStartedPage} />
         </section>
       )}
 
       {roomEntries !== null && (
         <section className="flex flex-col gap-3">
           <h2 className="font-medium text-neutral-200">Games in progress</h2>
-          {roomsInProgress.length === 0 ? (
+          {otherGamesInProgress.length === 0 ? (
             <p className="text-sm text-neutral-500">No games in progress right now.</p>
           ) : (
             <ul className="flex flex-col gap-2">
               {inProgressPageItems.map((entry) => (
-                <RoomRow
-                  key={entry.game.id}
-                  entry={entry}
-                  userId={session.user.id}
-                  action={entry.players.some((p) => p.user_id === session.user.id) ? undefined : 'Observe'}
-                  onOpen={() => navigate(`/game/${entry.game.room_code}`)}
-                />
+                <RoomRow key={entry.game.id} entry={entry} userId={user.id} action="Observe" onOpen={() => navigate(`/game/${entry.game.room_code}`)} />
               ))}
             </ul>
           )}
-          <Pagination page={inProgressPage} pageSize={PAGE_SIZE} total={roomsInProgress.length} onChange={setInProgressPage} />
+          <Pagination page={inProgressPage} pageSize={PAGE_SIZE} total={otherGamesInProgress.length} onChange={setInProgressPage} />
         </section>
       )}
 
-      {myEntries !== null && myFinishedGames.length > 0 && (
-        <section className="flex flex-col gap-3">
-          <h2 className="font-medium text-neutral-200">Your finished games</h2>
-          <ul className="flex flex-col gap-2">
-            {finishedPageItems.map((entry) => (
-              <MyGameRow key={entry.game.id} entry={entry} onOpen={() => navigate(gamePath(entry))} />
-            ))}
-          </ul>
-          <Pagination page={finishedPage} pageSize={PAGE_SIZE} total={myFinishedGames.length} onChange={setFinishedPage} />
-        </section>
-      )}
-
-      {roomEntries !== null && (
+      {roomEntries !== null && finished.length > 0 && (
         <section className="flex flex-col gap-3">
           <h2 className="font-medium text-neutral-200">Finished games</h2>
-          {roomsFinished.length === 0 ? (
-            <p className="text-sm text-neutral-500">No finished games yet.</p>
-          ) : (
-            <ul className="flex flex-col gap-2">
-              {publicFinishedPageItems.map((entry) => (
-                <RoomRow
-                  key={entry.game.id}
-                  entry={entry}
-                  userId={session.user.id}
-                  action="View"
-                  onOpen={() => navigate(`/game/${entry.game.room_code}`)}
-                />
-              ))}
-            </ul>
-          )}
-          <Pagination page={publicFinishedPage} pageSize={PAGE_SIZE} total={roomsFinished.length} onChange={setPublicFinishedPage} />
+          <ul className="flex flex-col gap-2">
+            {finishedPageItems.map((entry) => (
+              <RoomRow key={entry.game.id} entry={entry} userId={user.id} action="View" onOpen={() => navigate(`/game/${entry.game.room_code}`)} />
+            ))}
+          </ul>
+          <Pagination page={finishedPage} pageSize={PAGE_SIZE} total={finished.length} onChange={setFinishedPage} />
         </section>
       )}
     </div>
   )
 }
 
-function MyGameRow({ entry, onOpen }: { entry: MyGameEntry; onOpen: () => void }) {
-  const status = myGameStatus(entry)
-
-  return (
-    <GameOverviewCard
-      name={entry.game.name}
-      phase={describeGamePhase(entry.game, entry.gameState)}
-      players={entry.players}
-      pendingPlayerIds={pendingActorIds(entry)}
-      isMyTurn={isMyTurn(entry)}
-      isFinished={status === 'completed'}
-      updatedAt={formatUpdatedAt(latestUpdatedAt(entry.game, entry.gameStateUpdatedAt))}
-      summary={buildGameCardSummary(entry.game, entry.gameState, entry.players)}
-      onOpen={onOpen}
-    />
-  )
-}
-
-/** Renders a room from the mixed public+private list (issue #363) — notStarted entries are always public by the time they reach here (see joinablePublic's filter above), so only the in-progress/finished buckets ever need the "Private" tag. */
+/** Renders a room from the mixed public+private list (issue #363) — notStartedRooms is filtered to public-or-mine before it gets here, so only the in-progress/finished buckets ever need the "Private" tag. */
 function RoomRow({
   entry,
   userId,
@@ -348,6 +289,8 @@ function RoomRow({
   onOpen: () => void
 }) {
   const bucket = publicRoomBucket(entry)
+  const finished = bucket === 'finished'
+  const updatedAt = latestUpdatedAt(entry.game, entry.gameStateUpdatedAt)
   const description =
     bucket === 'notStarted'
       ? `${entry.players.length}/${entry.game.max_players} players`
@@ -360,11 +303,11 @@ function RoomRow({
       description={description}
       phase={describeGamePhase(entry.game, entry.gameState)}
       players={entry.players}
-      pendingPlayerIds={pendingActorIdsInPublicRoom(entry)}
-      isMyTurn={isMyTurnInPublicRoom(entry, userId)}
-      isFinished={bucket === 'finished'}
+      pendingPlayerIds={pendingActorIds(entry)}
+      isMyTurn={isMyTurn(entry, userId)}
+      isFinished={finished}
       isJoinable={isJoinable(entry)}
-      updatedAt={formatUpdatedAt(latestUpdatedAt(entry.game, entry.gameStateUpdatedAt))}
+      updatedAt={finished ? formatFinishedAt(updatedAt) : formatUpdatedAt(updatedAt)}
       action={action}
       summary={buildGameCardSummary(entry.game, entry.gameState, entry.players)}
       onOpen={onOpen}

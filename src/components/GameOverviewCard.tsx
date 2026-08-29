@@ -76,7 +76,8 @@ export function GameOverviewCard({
         </span>
         {summary && <GameCardSummaryLines summary={summary} isFinished={isFinished} />}
         <div className="flex flex-col items-end text-right">
-          <span className={`text-xs ${dimText}`}>{phase}</span>
+          {/* Once finished, updatedAt is already the "Finished at ..." label — the phase line would just repeat "Finished". */}
+          {!isFinished && <span className={`text-xs ${dimText}`}>{phase}</span>}
           <span className={`text-xs ${dimText}`}>{updatedAt}</span>
         </div>
       </button>

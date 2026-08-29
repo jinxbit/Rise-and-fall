@@ -5,7 +5,7 @@ import { GameOverviewCard } from '../components/GameOverviewCard'
 import { useAuth } from '../hooks/useAuth'
 import { useRefetchOnVisible } from '../hooks/useRefetchOnVisible'
 import { listMyGames } from '../lib/gameApi'
-import { buildGameCardSummary } from '../lib/gameCardView'
+import { buildGameCardSummary, formatFinishedAt } from '../lib/gameCardView'
 import { toAppError, type AppError } from '../lib/errors'
 import {
   describeGamePhase,
@@ -129,6 +129,8 @@ export function MyGamesPage() {
 
 function GameRowItem({ entry, onOpen }: { entry: MyGameEntry; onOpen: () => void }) {
   const status = myGameStatus(entry)
+  const finished = status === 'completed'
+  const updatedAt = latestUpdatedAt(entry.game, entry.gameStateUpdatedAt)
 
   return (
     <GameOverviewCard
@@ -137,8 +139,8 @@ function GameRowItem({ entry, onOpen }: { entry: MyGameEntry; onOpen: () => void
       players={entry.players}
       pendingPlayerIds={pendingActorIds(entry)}
       isMyTurn={isMyTurn(entry)}
-      isFinished={status === 'completed'}
-      updatedAt={formatUpdatedAt(latestUpdatedAt(entry.game, entry.gameStateUpdatedAt))}
+      isFinished={finished}
+      updatedAt={finished ? formatFinishedAt(updatedAt) : formatUpdatedAt(updatedAt)}
       summary={buildGameCardSummary(entry.game, entry.gameState, entry.players)}
       onOpen={onOpen}
     />
