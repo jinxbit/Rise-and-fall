@@ -104,12 +104,9 @@ export function orderNotStartedForUser(entries: PublicRoomEntry[], userId: strin
 export function groupPublicRooms(
   entries: PublicRoomEntry[],
 ): { notStarted: PublicRoomEntry[]; inProgress: PublicRoomEntry[]; finished: PublicRoomEntry[] } {
-  const byUpdatedDesc = (a: PublicRoomEntry, b: PublicRoomEntry) =>
-    new Date(b.game.updated_at).getTime() - new Date(a.game.updated_at).getTime()
-
-  const notStarted = entries.filter((entry) => publicRoomBucket(entry) === 'notStarted').sort(byUpdatedDesc)
-  const inProgress = entries.filter((entry) => publicRoomBucket(entry) === 'inProgress').sort(byUpdatedDesc)
-  const finished = entries.filter((entry) => publicRoomBucket(entry) === 'finished').sort(byUpdatedDesc)
+  const notStarted = entries.filter((entry) => publicRoomBucket(entry) === 'notStarted').sort(byLatestUpdatedDesc)
+  const inProgress = entries.filter((entry) => publicRoomBucket(entry) === 'inProgress').sort(byLatestUpdatedDesc)
+  const finished = entries.filter((entry) => publicRoomBucket(entry) === 'finished').sort(byLatestUpdatedDesc)
 
   return { notStarted, inProgress, finished }
 }

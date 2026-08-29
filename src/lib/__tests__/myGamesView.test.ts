@@ -274,4 +274,22 @@ describe('groupMyGames', () => {
 
     expect(finished.map((e) => e.game.id)).toEqual(['g2', 'g1'])
   })
+
+  it('sorts finished games by completion time (gameStateUpdatedAt), not the lobby-era game.updated_at', () => {
+    // g1 started (left the lobby) before g2 but ran longer, so it actually finished after g2.
+    const startedEarlyFinishedLate = makeEntry({
+      game: makeGame({ id: 'g1', room_code: 'AAAAA', updated_at: '2026-01-01T00:00:00Z' }),
+      gameState: makeActiveState({ status: 'completed' }),
+      gameStateUpdatedAt: '2026-01-10T00:00:00Z',
+    })
+    const startedLateFinishedEarly = makeEntry({
+      game: makeGame({ id: 'g2', room_code: 'BBBBB', updated_at: '2026-01-05T00:00:00Z' }),
+      gameState: makeActiveState({ status: 'completed' }),
+      gameStateUpdatedAt: '2026-01-06T00:00:00Z',
+    })
+
+    const { finished } = groupMyGames([startedEarlyFinishedLate, startedLateFinishedEarly])
+
+    expect(finished.map((e) => e.game.id)).toEqual(['g1', 'g2'])
+  })
 })
