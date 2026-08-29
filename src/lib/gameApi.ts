@@ -359,12 +359,17 @@ export async function listPublicRooms(): Promise<PublicRoomEntry[]> {
  * Every room in the system, public or private, excluding 'canceled' for the
  * same reason listPublicRooms excludes it (canceled rooms have no gameState
  * to distinguish "in progress" from "finished" — see publicRoomBucket).
- * Admin-only in the UI (AdminRoomsPage.tsx, gated by useIsAdmin) — not an
- * RLS boundary, since 0001_init_schema.sql's "games are readable by any
+ * Used by AdminRoomsPage.tsx (gated by useIsAdmin) for its "Joinable" bucket
+ * too, and by HomePage.tsx (issue #363) for its in-progress/finished
+ * sections only — a private room's not-started/lobby state must still never
+ * be surfaced as joinable outside "Your games" or the room's own link, so
+ * HomePage filters this list down before rendering. Not an RLS boundary
+ * either way, since 0001_init_schema.sql's "games are readable by any
  * signed-in user" policy already lets any authenticated user select any
- * game row. 0024_admin_read_all_game_state.sql extends that same reach to
- * game_state, so a private room's phase/finished status resolves here the
- * same way it does for public rooms.
+ * game row, and 0021_remove_observers.sql's game_state policy already lets
+ * any signed-in user read a non-lobby game's state regardless of
+ * visibility — so a private room's phase/finished status and score summary
+ * resolve here the same way they do for public rooms.
  */
 export async function listAllRooms(): Promise<PublicRoomEntry[]> {
   const { data: games, error: gamesError } = await supabase
