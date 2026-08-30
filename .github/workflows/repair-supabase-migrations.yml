@@ -1,0 +1,64 @@
+name: Repair Supabase Migration History
+
+# One-off, manually-triggered fix for a specific problem: the remote
+# database already has all of supabase/migrations/*.sql applied (it was
+# originally built up by hand in the Supabase SQL editor), but Supabase's
+# tracking table (supabase_migrations.schema_migrations) has no record of
+# that, so `supabase db push` tries to replay every migration from scratch
+# and fails on the very first statement that already exists.
+#
+# `supabase migration repair --status applied` only inserts rows into that
+# tracking table — it does not run any migration SQL against the database.
+# Before relying on it, use the Supabase dashboard's Table Editor to eyeball
+# that the schema already matches what the migrations define (e.g. profiles
+# has an is_admin column from 0017, map_pool exists from 0016, observers
+# does NOT exist since 0021 dropped it). If some migrations turn out not to
+# be applied yet, do not run this — fix the remote schema (or the
+# migrations) first, then use `supabase db push` normally.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type YES to mark every migration below as applied in the remote history table (no schema SQL is executed)'
+        required: true
+        default: 'no'
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link Supabase project
+        run: supabase link --project-ref "$SUPABASE_PROJECT_ID"
+
+      - name: Show migration status before repair
+        run: supabase migration list
+
+      - name: Mark all local migrations as applied
+        if: ${{ github.event.inputs.confirm == 'YES' }}
+        run: |
+          supabase migration repair --status applied \
+            0001 0002 0003 0004 0005 00051 0006 0007 0008 0009 0010 \
+            0011 0012 0013 0014 0015 0016 0017 0018 0019 0020 0021 \
+            0022 0023 0024
+
+      - name: Show migration status after repair
+        if: ${{ github.event.inputs.confirm == 'YES' }}
+        run: supabase migration list
+
+      - name: Skipped (confirmation not given)
+        if: ${{ github.event.inputs.confirm != 'YES' }}
+        run: |
+          echo "::notice::confirm input was '${{ github.event.inputs.confirm }}', not 'YES' — no repair was performed. Re-run this workflow with confirm=YES once you've verified the remote schema already matches the migrations."

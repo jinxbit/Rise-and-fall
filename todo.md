@@ -2912,7 +2912,7 @@ exists yet to actually turn The Ports on for a real game." Mirrors
 `map_template_id`'s existing shape (`0002_map_template.sql`) exactly,
 since it's the same kind of per-game, creation-time, immutable setting:
 
-- `supabase/migrations/0005_tales_variant.sql`: `games.active_tale_ids`
+- `supabase/migrations/00051_tales_variant.sql`: `games.active_tale_ids`
   (`text[]`, default `'{}'`). `dbTypes.ts`'s `GameRow` gained the matching
   field.
 - `gameApi.ts`'s `createGame()` gained an `activeTaleIds?: string[]`
