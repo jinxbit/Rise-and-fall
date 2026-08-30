@@ -11,7 +11,7 @@ reproduced.
 ## Stack
 
 - **Frontend:** Vite + React + TypeScript, Tailwind CSS v4
-- **Backend:** Supabase (Postgres for game state, Realtime for live sync, Auth with Discord OAuth for identity)
+- **Backend:** Supabase (Postgres for game state, Realtime for live sync, Auth with Discord/Google OAuth for identity)
 - **Hosting:** Vercel (frontend) + Supabase free tier (backend)
 
 ## Architecture
@@ -151,6 +151,56 @@ across live/async/hotseat sessions.
 
 Once that's done, "Sign in with Discord" on the home page should work end
 to end.
+
+## Google OAuth setup (do this yourself)
+
+This uses Supabase Auth's built-in Google provider as an alternative to
+Discord — a player's Google name/avatar becomes their in-game identity, with
+a stable account across live/async/hotseat sessions, same as Discord.
+
+**1. Create OAuth credentials in Google Cloud**
+
+- Go to the [Google Cloud Console credentials page](https://console.cloud.google.com/apis/credentials)
+  and select or create a project.
+- Click **Create Credentials → OAuth client ID**. If prompted, configure the
+  **OAuth consent screen** first (External is fine for testing).
+- Application type: **Web application**. Name it whatever you like (e.g.
+  "Rise & Fall").
+- Note the **Client ID** and **Client Secret** — you'll paste both into
+  Supabase in step 3.
+
+**2. Get your Supabase callback URL**
+
+- In the Supabase dashboard: **Authentication → Providers → Google**.
+- Supabase shows a **Callback URL (for OAuth)** field, something like:
+  `https://<your-project-ref>.supabase.co/auth/v1/callback`
+- Copy it exactly.
+
+**3. Register the redirect URL in Google Cloud**
+
+- Back in the Google Cloud Console, edit the OAuth client from step 1, and
+  under **Authorized redirect URIs**, add the Supabase callback URL from
+  step 2.
+- Save changes.
+
+**4. Enable the provider in Supabase**
+
+- In **Authentication → Providers → Google**, toggle it on, paste in the
+  **Client ID** and **Client Secret** from step 1, and save.
+
+**5. Add your app's redirect URLs**
+
+- In **Authentication → URL Configuration**, add the URLs your app will
+  actually run on to the allow list, e.g.:
+  - `http://localhost:5173` (local dev)
+  - your Vercel deployment URL, once you have one
+- (Skip this if you've already added them for Discord — it's the same list.)
+- The app calls `signInWithOAuth` with `redirectTo: window.location.origin`,
+  so whatever origin the user is on when they click "Sign in with Google"
+  needs to be in this list.
+
+Once that's done, "Sign in with Google" on the home page should work end to
+end.
 
 ## Discord turn notifications (optional, per player)
 

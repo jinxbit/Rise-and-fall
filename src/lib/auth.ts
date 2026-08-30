@@ -10,6 +10,16 @@ export async function signInWithDiscord() {
   if (error) throw error
 }
 
+export async function signInWithGoogle() {
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: {
+      redirectTo: window.location.origin,
+    },
+  })
+  if (error) throw error
+}
+
 /**
  * Testing-only bypass for Discord sign-in — creates a real (anonymous)
  * Supabase session, so RLS/`auth.uid()` and the rest of the app work
