@@ -1,6 +1,6 @@
 -- Consolidates the growing set of per-game, creation-time settings
 -- (0002_map_template.sql's map_template_id, 0004_hotseat_skip_pass_gate.
--- sql's skip_hotseat_pass_gate, 0005_tales_variant.sql's active_tale_ids,
+-- sql's skip_hotseat_pass_gate, 00051_tales_variant.sql's active_tale_ids,
 -- 0006_game_length.sql's game_length) into a single JSONB column, so a new
 -- pregame configuration knob no longer needs its own migration — see
 -- src/lib/dbTypes.ts's GameSettings for the shape this column now holds.
