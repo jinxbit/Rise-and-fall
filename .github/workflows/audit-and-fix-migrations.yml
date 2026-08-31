@@ -1,0 +1,150 @@
+name: Audit and Fix Supabase Migrations
+
+# The earlier "Repair Supabase Migration History" workflow marked all 25
+# local migrations as applied based on a handful of spot-checked tables
+# (profiles.is_admin, map_pool, games.settings, observers absent). That
+# sample missed 0020_push_subscriptions.sql, which was never actually run
+# despite being marked applied — the app didn't notice until "Turn off"
+# hit PostgREST error PGRST205 ("Could not find the table
+# 'public.push_subscriptions' in the schema cache").
+#
+# This workflow checks every migration's actual effect (not a sample) by
+# dumping the live public schema and grepping for one solid, migration-file-
+# specific marker per migration (a table, a uniquely-named constraint/
+# index/trigger, or a policy name) — chosen so its presence proves the
+# whole migration file committed, since Supabase runs each migration file
+# in its own transaction. A handful of superseded/pure-cleanup migrations
+# (0002, 0004, 0006, 00051 — folded into games.settings by 0007; 0010,
+# 0014, 0019 — superseded by 0021) are intentionally not checked
+# individually; their effect is fully captured by checking the migration
+# that superseded them.
+#
+# Always dumps + reports (read-only, safe). Only reverts tracking + re-runs
+# `db push` for migrations the audit actually found missing when
+# confirm=YES — never touches ones already confirmed present.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type YES to actually revert + re-apply any migration this audit finds missing. Leave "no" to just see the report.'
+        required: true
+        default: 'no'
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link Supabase project
+        run: supabase link --project-ref "$SUPABASE_PROJECT_ID"
+
+      - name: Dump live public schema
+        run: supabase db dump --linked -f /tmp/schema.sql
+
+      - name: Audit every migration against the live schema
+        id: audit
+        run: |
+          set -euo pipefail
+          schema=/tmp/schema.sql
+          missing_versions=""
+          {
+            echo "## Supabase migration audit"
+            echo
+            echo "| Migration | What it should have created | Found? |"
+            echo "|---|---|---|"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # id|description|grep pattern|mode(present/absent)|fix versions (space-separated)
+          checks='
+          0001|table public.games|CREATE TABLE public.games|present|0001
+          0003|players delete-own-row policy|users can delete their own player row|present|0003
+          0005|table public.profiles|CREATE TABLE public.profiles|present|0005
+          0007|games.settings column (also covers 0002/0004/0006/00051)|settings jsonb|present|0002 0004 00051 0006 0007
+          0008|games_status_check constraint (canceled status)|games_status_check|present|0008
+          0009|games_bump_config_version trigger|games_bump_config_version|present|0009
+          0011|games_public_idx index|games_public_idx|present|0011
+          0012|games_name_length constraint|games_name_length|present|0012
+          0013|co-players webhook policy removed|co-players can read each other'"'"'s webhook url|absent|0013
+          0015|profiles.display_name column|display_name|present|0015
+          0016|table public.map_pool|CREATE TABLE public.map_pool|present|0016
+          0017|profiles.is_admin column|is_admin|present|0017
+          0018|admin map-pool delete policy|admins can delete any map from the pool|present|0018
+          0020|table public.push_subscriptions|CREATE TABLE public.push_subscriptions|present|0020
+          0021|current game_state select policy|seated players and any signed-in user can read non-lobby game state|present|0021
+          0022|profiles_unit_color_hand_format constraint|profiles_unit_color_hand_format|present|0022
+          0023|profiles.preferences column|preferences jsonb|present|0023
+          0024|admin game_state read policy|admins can read any game state|present|0024
+          '
+
+          while IFS='|' read -r id desc pattern mode fixvers; do
+            [ -z "$id" ] && continue
+            if grep -qF "$pattern" "$schema"; then found=yes; else found=no; fi
+            if [ "$mode" = "absent" ]; then
+              # inverted: "found" the old artifact means the cleanup migration did NOT run
+              if [ "$found" = "yes" ]; then ok=no; else ok=yes; fi
+            else
+              ok="$found"
+            fi
+            if [ "$ok" = "yes" ]; then
+              echo "| $id | $desc | ✅ |" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "| $id | $desc | ❌ MISSING |" >> "$GITHUB_STEP_SUMMARY"
+              missing_versions="$missing_versions $fixvers"
+            fi
+          done <<< "$checks"
+
+          # Informational only, not auto-fixed (dropping it could discard real rows).
+          if grep -qF 'CREATE TABLE public.observers' "$schema"; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "⚠️ \`public.observers\` still exists — 0021_remove_observers.sql's table drop hasn't run even though its policy marker was found, or this is stale data. Not auto-fixed since dropping it could discard real rows; investigate before running 0021 again." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          # Dedupe while preserving order, e.g. "0002 0004 00051 0006 0007 0020" -> unique list
+          unique_missing="$(echo "$missing_versions" | tr ' ' '\n' | awk 'NF && !seen[$0]++' | tr '\n' ' ')"
+          echo "missing=$unique_missing" >> "$GITHUB_OUTPUT"
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [ -z "$(echo "$unique_missing" | tr -d '[:space:]')" ]; then
+            echo "**Result: every checked migration is present. Nothing to fix.**" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "**Result: missing migrations →** \`$unique_missing\`" >> "$GITHUB_STEP_SUMMARY"
+            if [ "${{ github.event.inputs.confirm }}" != "YES" ]; then
+              echo "" >> "$GITHUB_STEP_SUMMARY"
+              echo "Re-run with confirm=YES to revert their tracking status and apply them for real." >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+
+      - name: Revert tracking for missing migrations
+        if: ${{ github.event.inputs.confirm == 'YES' && steps.audit.outputs.missing != '' }}
+        run: |
+          set -euo pipefail
+          supabase migration repair --status reverted ${{ steps.audit.outputs.missing }}
+
+      - name: Apply the now-pending migrations
+        if: ${{ github.event.inputs.confirm == 'YES' && steps.audit.outputs.missing != '' }}
+        run: supabase db push --yes
+
+      - name: Re-dump and report post-fix status
+        if: ${{ github.event.inputs.confirm == 'YES' && steps.audit.outputs.missing != '' }}
+        run: |
+          set -euo pipefail
+          supabase db dump --linked -f /tmp/schema-after.sql
+          {
+            echo ""
+            echo "## After applying: \`supabase migration list\`"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          supabase migration list >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
