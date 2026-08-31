@@ -1,5 +1,7 @@
 import type { User } from '@supabase/supabase-js'
 import { useEffect, useState } from 'react'
+import { ErrorBanner } from './ErrorBanner'
+import { type AppError, toAppError } from '../lib/errors'
 import { deletePushSubscription, savePushSubscription } from '../lib/gameApi'
 import { getExistingPushSubscription, isPushSupported, subscribeToPush, unsubscribeFromPush } from '../lib/pushNotify'
 
@@ -20,7 +22,7 @@ export function PushNotificationSettings({ user }: { user: User }) {
   const [subscription, setSubscription] = useState<PushSubscription | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<AppError | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -45,13 +47,13 @@ export function PushNotificationSettings({ user }: { user: User }) {
     try {
       const sub = await subscribeToPush(vapidPublicKey)
       if (!sub) {
-        setError('Notification permission was not granted.')
+        setError({ message: 'Notification permission was not granted.', details: 'Notification permission was not granted.' })
         return
       }
       await savePushSubscription(user.id, sub.toJSON())
       setSubscription(sub)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to enable notifications')
+      setError(toAppError(err, 'Failed to enable notifications'))
     } finally {
       setBusy(false)
     }
@@ -66,7 +68,7 @@ export function PushNotificationSettings({ user }: { user: User }) {
       await unsubscribeFromPush(subscription)
       setSubscription(null)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to disable notifications')
+      setError(toAppError(err, 'Failed to disable notifications'))
     } finally {
       setBusy(false)
     }
@@ -81,7 +83,7 @@ export function PushNotificationSettings({ user }: { user: User }) {
         <p className="text-neutral-400">
           Get a system notification on this device when it's your turn in an async game — no Discord setup needed.
         </p>
-        {error && <p className="text-red-400">{error}</p>}
+        {error && <ErrorBanner message={error.message} details={error.details} onDismiss={() => setError(null)} />}
         <div>
           {subscription ? (
             <button
