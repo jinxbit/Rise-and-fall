@@ -5,8 +5,8 @@ name: Set Up Web Push Notifications
 # (optional, per player)" section. Automates everything that's safely
 # scriptable with the Supabase CLI:
 #   - deploying the notify-web-push Edge Function
-#   - generating a VAPID keypair
-#   - generating the webhook shared secret
+#   - generating a VAPID keypair (only when regenerate_vapid_keys=YES)
+#   - generating the webhook shared secret (every run)
 #   - setting all of the above as Supabase function secrets
 #
 # Two steps from the README are NOT automated here, because they have no
@@ -21,16 +21,23 @@ name: Set Up Web Push Notifications
 #
 # IMPORTANT: generating a new VAPID keypair invalidates every existing push
 # subscription (they're tied to the public key used when the browser
-# subscribed) until every player re-enables push. Treat this as a one-time
-# setup, not something to re-run casually. The private key and webhook
-# secret are never printed and cannot be read back afterward — save the
-# public key and webhook secret from the job summary when this runs.
+# subscribed) until every player re-enables push. That's why it's gated
+# separately behind regenerate_vapid_keys — leave that 'no' to safely
+# re-run this workflow later just to rotate/re-reveal the webhook secret
+# without disturbing VAPID keys already wired into your frontend host.
+# The private key is never printed and can't be read back afterward; the
+# webhook secret IS printed (deliberately, unmasked) each run since you
+# need to paste it into the Supabase dashboard.
 
 on:
   workflow_dispatch:
     inputs:
       confirm:
-        description: 'Type YES to generate a new VAPID keypair + webhook secret, deploy notify-web-push, and set its secrets'
+        description: 'Type YES to deploy notify-web-push, (re)generate the webhook secret, and set secrets'
+        required: true
+        default: 'no'
+      regenerate_vapid_keys:
+        description: 'Type YES to ALSO generate a new VAPID keypair. Leave "no" if VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY are already set and your frontend already has VITE_VAPID_PUBLIC_KEY — this invalidates every existing push subscription otherwise.'
         required: true
         default: 'no'
       site_url:
@@ -64,9 +71,16 @@ jobs:
         if: ${{ github.event.inputs.confirm == 'YES' }}
         run: supabase functions deploy notify-web-push
 
-      - name: Generate VAPID keypair and webhook secret
+      - name: Generate webhook secret
         if: ${{ github.event.inputs.confirm == 'YES' }}
-        id: gen
+        id: webhook
+        run: |
+          set -euo pipefail
+          echo "secret=$(openssl rand -hex 32)" >> "$GITHUB_OUTPUT"
+
+      - name: Generate VAPID keypair
+        if: ${{ github.event.inputs.confirm == 'YES' && github.event.inputs.regenerate_vapid_keys == 'YES' }}
+        id: vapid
         run: |
           set -euo pipefail
           mkdir -p /tmp/vapid-keygen && cd /tmp/vapid-keygen
@@ -81,30 +95,30 @@ jobs:
 
           public_key="$(grep '^public=' keys.txt | cut -d= -f2-)"
           private_key="$(grep '^private=' keys.txt | cut -d= -f2-)"
-          webhook_secret="$(openssl rand -hex 32)"
           rm -f keys.txt
 
-          # Never let the private key or webhook secret land in plain logs.
+          # The private key is never printed anywhere — mask it as a defensive habit.
           echo "::add-mask::$private_key"
-          echo "::add-mask::$webhook_secret"
 
           echo "public_key=$public_key" >> "$GITHUB_OUTPUT"
           echo "private_key=$private_key" >> "$GITHUB_OUTPUT"
-          echo "webhook_secret=$webhook_secret" >> "$GITHUB_OUTPUT"
 
       - name: Set Supabase function secrets
         if: ${{ github.event.inputs.confirm == 'YES' }}
         env:
-          VAPID_PUBLIC_KEY: ${{ steps.gen.outputs.public_key }}
-          VAPID_PRIVATE_KEY: ${{ steps.gen.outputs.private_key }}
-          PUSH_NOTIFY_WEBHOOK_SECRET: ${{ steps.gen.outputs.webhook_secret }}
+          PUSH_NOTIFY_WEBHOOK_SECRET: ${{ steps.webhook.outputs.secret }}
+          REGEN_VAPID: ${{ github.event.inputs.regenerate_vapid_keys }}
+          VAPID_PUBLIC_KEY: ${{ steps.vapid.outputs.public_key }}
+          VAPID_PRIVATE_KEY: ${{ steps.vapid.outputs.private_key }}
           SITE_URL: ${{ github.event.inputs.site_url }}
           VAPID_CONTACT: ${{ github.event.inputs.vapid_contact }}
         run: |
           set -euo pipefail
-          supabase secrets set VAPID_PUBLIC_KEY="$VAPID_PUBLIC_KEY"
-          supabase secrets set VAPID_PRIVATE_KEY="$VAPID_PRIVATE_KEY"
           supabase secrets set PUSH_NOTIFY_WEBHOOK_SECRET="$PUSH_NOTIFY_WEBHOOK_SECRET"
+          if [ "$REGEN_VAPID" = "YES" ]; then
+            supabase secrets set VAPID_PUBLIC_KEY="$VAPID_PUBLIC_KEY"
+            supabase secrets set VAPID_PRIVATE_KEY="$VAPID_PRIVATE_KEY"
+          fi
           if [ -n "$SITE_URL" ]; then
             supabase secrets set SITE_URL="$SITE_URL"
           fi
@@ -115,31 +129,39 @@ jobs:
       - name: Print remaining manual steps
         if: ${{ github.event.inputs.confirm == 'YES' }}
         env:
-          PUBLIC_KEY: ${{ steps.gen.outputs.public_key }}
-          WEBHOOK_SECRET: ${{ steps.gen.outputs.webhook_secret }}
+          REGEN_VAPID: ${{ github.event.inputs.regenerate_vapid_keys }}
+          PUBLIC_KEY: ${{ steps.vapid.outputs.public_key }}
+          WEBHOOK_SECRET: ${{ steps.webhook.outputs.secret }}
         run: |
           {
             echo "## Push notification backend: done"
             echo
-            echo "Function deployed and secrets set. Two manual steps left — save the values below now, they cannot be retrieved again after this run:"
-            echo
-            echo "### 1. Frontend env var (wherever you host the frontend, e.g. Vercel → Project → Settings → Environment Variables)"
-            echo
-            echo "Set \`VITE_VAPID_PUBLIC_KEY\` to:"
-            echo '```'
-            echo "$PUBLIC_KEY"
-            echo '```'
-            echo "Then redeploy the frontend so the build picks it up."
-            echo
+            if [ "$REGEN_VAPID" = "YES" ]; then
+              echo "New VAPID keypair generated. Save the public key now — it can't be retrieved again:"
+              echo
+              echo "### 1. Frontend env var (wherever you host the frontend, e.g. Vercel → Project → Settings → Environment Variables)"
+              echo
+              echo "Set \`VITE_VAPID_PUBLIC_KEY\` to:"
+              echo '```'
+              echo "$PUBLIC_KEY"
+              echo '```'
+              echo "Then redeploy the frontend so the build picks it up. Every existing push subscription is now invalid until players re-enable push."
+              echo
+            else
+              echo "VAPID keys were left unchanged (regenerate_vapid_keys was not YES) — nothing to update on the frontend."
+              echo
+            fi
             echo "### 2. Supabase dashboard → Database → Webhooks"
             echo
-            echo "Create a new hook (or add a target to the existing game_state one from Discord setup):"
+            echo "Create a new hook (or edit the existing notify-web-push target's header if you already made one):"
             echo "- Table: \`game_state\`, Events: \`Update\`"
             echo "- Type: **Supabase Edge Functions**, targeting \`notify-web-push\`"
             echo "- HTTP header \`x-webhook-secret\` set to:"
             echo '```'
             echo "$WEBHOOK_SECRET"
             echo '```'
+            echo
+            echo "This secret was just rotated — if a webhook already existed pointing at notify-web-push, update its header to this new value or it will start getting rejected."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Skipped (confirmation not given)
