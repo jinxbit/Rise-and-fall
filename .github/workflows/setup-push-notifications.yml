@@ -1,0 +1,148 @@
+name: Set Up Web Push Notifications
+
+# One-time (manually-triggered) backend setup for the optional PWA push
+# notifications feature described in README.md's "Push notifications
+# (optional, per player)" section. Automates everything that's safely
+# scriptable with the Supabase CLI:
+#   - deploying the notify-web-push Edge Function
+#   - generating a VAPID keypair
+#   - generating the webhook shared secret
+#   - setting all of the above as Supabase function secrets
+#
+# Two steps from the README are NOT automated here, because they have no
+# CLI/API equivalent and are dashboard-only, mobile-friendly actions:
+#   1. Setting VITE_VAPID_PUBLIC_KEY wherever the frontend is built/hosted
+#      (this repo's frontend deploys via Vercel, not this repo's Actions,
+#      so there's nothing here that could set it) and redeploying.
+#   2. Supabase dashboard -> Database -> Webhooks -> creating the hook on
+#      game_state/Update targeting notify-web-push with the printed
+#      webhook secret as the x-webhook-secret header.
+# This workflow prints exactly what to paste into both.
+#
+# IMPORTANT: generating a new VAPID keypair invalidates every existing push
+# subscription (they're tied to the public key used when the browser
+# subscribed) until every player re-enables push. Treat this as a one-time
+# setup, not something to re-run casually. The private key and webhook
+# secret are never printed and cannot be read back afterward — save the
+# public key and webhook secret from the job summary when this runs.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type YES to generate a new VAPID keypair + webhook secret, deploy notify-web-push, and set its secrets'
+        required: true
+        default: 'no'
+      site_url:
+        description: 'Optional: deployed site origin (e.g. https://your-app.vercel.app) for the notification deep link. Leave blank to keep SITE_URL as already set (e.g. from Discord webhook setup).'
+        required: false
+        default: ''
+      vapid_contact:
+        description: 'Optional: mailto: address for VAPID_CONTACT. Leave blank to keep the default placeholder.'
+        required: false
+        default: ''
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link Supabase project
+        run: supabase link --project-ref "$SUPABASE_PROJECT_ID"
+
+      - name: Deploy notify-web-push edge function
+        if: ${{ github.event.inputs.confirm == 'YES' }}
+        run: supabase functions deploy notify-web-push
+
+      - name: Generate VAPID keypair and webhook secret
+        if: ${{ github.event.inputs.confirm == 'YES' }}
+        id: gen
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/vapid-keygen && cd /tmp/vapid-keygen
+          npm init -y >/dev/null
+          npm install --no-save web-push >/dev/null
+
+          node -e "
+            const { publicKey, privateKey } = require('web-push').generateVAPIDKeys();
+            console.log('public=' + publicKey);
+            console.log('private=' + privateKey);
+          " > keys.txt
+
+          public_key="$(grep '^public=' keys.txt | cut -d= -f2-)"
+          private_key="$(grep '^private=' keys.txt | cut -d= -f2-)"
+          webhook_secret="$(openssl rand -hex 32)"
+          rm -f keys.txt
+
+          # Never let the private key or webhook secret land in plain logs.
+          echo "::add-mask::$private_key"
+          echo "::add-mask::$webhook_secret"
+
+          echo "public_key=$public_key" >> "$GITHUB_OUTPUT"
+          echo "private_key=$private_key" >> "$GITHUB_OUTPUT"
+          echo "webhook_secret=$webhook_secret" >> "$GITHUB_OUTPUT"
+
+      - name: Set Supabase function secrets
+        if: ${{ github.event.inputs.confirm == 'YES' }}
+        env:
+          VAPID_PUBLIC_KEY: ${{ steps.gen.outputs.public_key }}
+          VAPID_PRIVATE_KEY: ${{ steps.gen.outputs.private_key }}
+          PUSH_NOTIFY_WEBHOOK_SECRET: ${{ steps.gen.outputs.webhook_secret }}
+          SITE_URL: ${{ github.event.inputs.site_url }}
+          VAPID_CONTACT: ${{ github.event.inputs.vapid_contact }}
+        run: |
+          set -euo pipefail
+          supabase secrets set VAPID_PUBLIC_KEY="$VAPID_PUBLIC_KEY"
+          supabase secrets set VAPID_PRIVATE_KEY="$VAPID_PRIVATE_KEY"
+          supabase secrets set PUSH_NOTIFY_WEBHOOK_SECRET="$PUSH_NOTIFY_WEBHOOK_SECRET"
+          if [ -n "$SITE_URL" ]; then
+            supabase secrets set SITE_URL="$SITE_URL"
+          fi
+          if [ -n "$VAPID_CONTACT" ]; then
+            supabase secrets set VAPID_CONTACT="$VAPID_CONTACT"
+          fi
+
+      - name: Print remaining manual steps
+        if: ${{ github.event.inputs.confirm == 'YES' }}
+        env:
+          PUBLIC_KEY: ${{ steps.gen.outputs.public_key }}
+          WEBHOOK_SECRET: ${{ steps.gen.outputs.webhook_secret }}
+        run: |
+          {
+            echo "## Push notification backend: done"
+            echo
+            echo "Function deployed and secrets set. Two manual steps left — save the values below now, they cannot be retrieved again after this run:"
+            echo
+            echo "### 1. Frontend env var (wherever you host the frontend, e.g. Vercel → Project → Settings → Environment Variables)"
+            echo
+            echo "Set \`VITE_VAPID_PUBLIC_KEY\` to:"
+            echo '```'
+            echo "$PUBLIC_KEY"
+            echo '```'
+            echo "Then redeploy the frontend so the build picks it up."
+            echo
+            echo "### 2. Supabase dashboard → Database → Webhooks"
+            echo
+            echo "Create a new hook (or add a target to the existing game_state one from Discord setup):"
+            echo "- Table: \`game_state\`, Events: \`Update\`"
+            echo "- Type: **Supabase Edge Functions**, targeting \`notify-web-push\`"
+            echo "- HTTP header \`x-webhook-secret\` set to:"
+            echo '```'
+            echo "$WEBHOOK_SECRET"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Skipped (confirmation not given)
+        if: ${{ github.event.inputs.confirm != 'YES' }}
+        run: |
+          echo "::notice::confirm input was '${{ github.event.inputs.confirm }}', not 'YES' — nothing was generated or deployed. Re-run with confirm=YES when ready. Note: supabase/migrations/0020_push_subscriptions.sql must already be applied (see the Deploy Supabase / Repair Supabase Migration History workflows) before push notifications will work end-to-end."
