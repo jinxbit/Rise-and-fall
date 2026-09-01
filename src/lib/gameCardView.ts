@@ -136,7 +136,12 @@ export function buildGameCardSummary(game: GameRow, gameState: EngineGameState |
   let scores: GameCardScore[] | null = null
   const winnerNames: string[] = []
 
-  if (gameState) {
+  // gameState.players is normally always populated once a game_state row
+  // exists (see engine/createGame.ts), but a handful of pre-existing rows
+  // predate that guarantee (issue #389 — "t.players.length" crashed the
+  // whole room list on page load for one malformed row) — fall back to []
+  // instead of trusting the EngineGameState type of an unchecked DB read.
+  if (gameState && Array.isArray(gameState.players)) {
     const achievementContent = resolveAchievementContent(gameState.gameLength)
     const taleContent = resolveTaleContent(gameState.activeTaleIds, gameState.players.length)
     const breakdown = calculateVPBreakdown(gameState, achievementContent, taleContent)
