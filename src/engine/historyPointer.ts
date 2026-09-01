@@ -1,7 +1,7 @@
 import { EMPTY_ACHIEVEMENT_CONTENT } from './achievementContent'
 import type { AchievementContent } from './achievementContent'
 import type { Action, LoggedAction } from './actions'
-import { applyAction } from './applyAction'
+import { applyActionAndFastForwardTiles } from './applyAction'
 import { EMPTY_BOARD_GENERATION_CONTENT } from './boardGenerationContent'
 import type { BoardGenerationContent } from './boardGenerationContent'
 import { replayActions } from './replay'
@@ -74,11 +74,11 @@ export interface PointerActionResult {
  * "submitting a new action while pointer < tip prunes the abandoned tail
  * ... authorized exactly like any other live action submission: normal
  * apply-action validation ... against the state replayed as of the
- * pointer." Concretely this just means calling the ordinary applyAction()
- * against `stateAtPointer()` instead of the tip state — since that replayed
- * state's own `actionHistory` is already `history.slice(0, pointer)`,
- * applyAction() appending its one new entry to it *is* "prune the tail and
- * append", with no separate history-splicing step needed.
+ * pointer." Concretely this just means calling the ordinary
+ * applyActionAndFastForwardTiles() against `stateAtPointer()` instead of the
+ * tip state — since that replayed state's own `actionHistory` is already
+ * `history.slice(0, pointer)`, appending its new entries to it *is* "prune
+ * the tail and append", with no separate history-splicing step needed.
  */
 export function applyActionAtPointer(
   genesis: GameState,
@@ -91,7 +91,7 @@ export function applyActionAtPointer(
   taleContent: TaleContent = EMPTY_TALE_CONTENT,
 ): PointerActionResult {
   const before = stateAtPointer(genesis, history, pointer, unitContent, achievementContent, boardGenerationContent, taleContent)
-  const result = applyAction(before, action, unitContent, achievementContent, boardGenerationContent, taleContent)
+  const result = applyActionAndFastForwardTiles(before, action, unitContent, achievementContent, boardGenerationContent, taleContent)
   return { result, archivedTail: result.ok ? history.slice(pointer) : [] }
 }
 
