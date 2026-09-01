@@ -10,6 +10,7 @@ import { MapBuilderPage } from './pages/MapBuilderPage'
 import { MyGamesPage } from './pages/MyGamesPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { PublicRoomsPage } from './pages/PublicRoomsPage'
+import { ResetPasswordPage } from './pages/ResetPasswordPage'
 import { UpdateBanner } from './components/UpdateBanner'
 import { useAppUpdateAvailable } from './hooks/useAppUpdateAvailable'
 
@@ -29,6 +30,7 @@ function App() {
           <Route path="/games" element={<MyGamesPage />} />
           <Route path="/public" element={<PublicRoomsPage />} />
           <Route path="/profile" element={<ProfilePage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/lobby/:roomCode" element={<LobbyPage />} />
           <Route path="/game/:roomCode" element={<GamePage />} />
         </Routes>

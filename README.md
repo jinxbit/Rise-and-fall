@@ -110,6 +110,14 @@ project has **Confirm email** turned on (Authentication → Providers →
 Email), a new account can't sign in until the player clicks the
 confirmation link sent to their inbox.
 
+**Forgot password:** "Forgot password?" on the sign-in form emails a reset
+link (Supabase's `resetPasswordForEmail`) that lands on `/reset-password`,
+where the player sets a new password. That path needs to be reachable from
+the allow list in **Authentication → URL Configuration → Redirect URLs** —
+add `<your-origin>/reset-password` (e.g. `http://localhost:5173/reset-password`
+for local dev) alongside the plain origins already added for Discord/Google
+OAuth above, or use a wildcard like `http://localhost:5173/**` to cover both.
+
 ## Discord OAuth setup (do this yourself)
 
 This uses Supabase Auth's built-in Discord provider, so a player's Discord

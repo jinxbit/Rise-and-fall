@@ -44,6 +44,24 @@ export async function signInWithEmail(email: string, password: string) {
 }
 
 /**
+ * Sends a password-reset email (issue #386). The link lands back on
+ * `/reset-password`, which Supabase turns into a temporary "recovery"
+ * session (see ResetPasswordPage) that `updatePassword` below then uses.
+ */
+export async function requestPasswordReset(email: string) {
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${window.location.origin}/reset-password`,
+  })
+  if (error) throw error
+}
+
+/** Sets a new password for the signed-in user — used by ResetPasswordPage once the recovery-link session is active. */
+export async function updatePassword(newPassword: string) {
+  const { error } = await supabase.auth.updateUser({ password: newPassword })
+  if (error) throw error
+}
+
+/**
  * Testing-only bypass for Discord sign-in — creates a real (anonymous)
  * Supabase session, so RLS/`auth.uid()` and the rest of the app work
  * unmodified. Requires "Allow anonymous sign-ins" enabled in the Supabase
