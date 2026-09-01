@@ -19,6 +19,15 @@ name: Audit and Fix Supabase Migrations
 # individually; their effect is fully captured by checking the migration
 # that superseded them.
 #
+# Patterns are matched against `supabase db dump`'s actual output, not
+# assumed formatting — pg_dump double-quotes every identifier
+# ("public"."games", "settings" "jsonb") and Postgres silently truncates
+# identifiers over 63 bytes (0021's full policy name did), both of which
+# broke an earlier version of this audit and produced false positives on
+# 0001/0005/0007/0016/0021/0023 (confirmed by re-running against a real
+# dump). Verify any future pattern change against real dump output before
+# trusting it — a plausible-looking pattern is not the same as a tested one.
+#
 # Always dumps + reports (read-only, safe). Only reverts tracking + re-runs
 # `db push` for migrations the audit actually found missing when
 # confirm=YES — never touches ones already confirmed present.
@@ -53,15 +62,20 @@ jobs:
       - name: Dump live public schema
         run: supabase db dump --linked -f /tmp/schema.sql
 
-      - name: Show raw dump (diagnostic — confirmed the grep-based audit below has false positives)
+      - name: Show raw dump (diagnostic; secrets redacted)
         run: |
+          # supabase_functions.http_request trigger definitions (Database Webhooks)
+          # embed their shared secret header values in plaintext — pg_dump only
+          # masks the Authorization header, not custom ones like x-webhook-secret.
+          # Strip those lines before this ever gets displayed anywhere.
+          sed -E 's/^(CREATE OR REPLACE TRIGGER .*"http_request".*)$/-- [REDACTED: webhook trigger definition embeds a shared secret header value, omitted here]/' /tmp/schema.sql > /tmp/schema-redacted.sql
           {
-            echo "## Raw schema dump (for debugging the audit patterns below)"
+            echo "## Raw schema dump (for debugging the audit patterns below; webhook trigger secrets redacted)"
             echo
             echo "<details><summary>Click to expand — full \`supabase db dump --linked\` output</summary>"
             echo
             echo '```sql'
-            cat /tmp/schema.sql
+            cat /tmp/schema-redacted.sql
             echo '```'
             echo "</details>"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -80,24 +94,29 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
           # id|description|grep pattern|mode(present/absent)|fix versions (space-separated)
+          #
+          # pg_dump double-quotes every identifier ("public"."games", "settings"
+          # "jsonb") and Postgres silently truncates identifiers over 63 bytes
+          # (bit 0021's full policy name) — patterns below account for both,
+          # confirmed against a real dump rather than assumed.
           checks='
-          0001|table public.games|CREATE TABLE public.games|present|0001
+          0001|table public.games|"public"."games"|present|0001
           0003|players delete-own-row policy|users can delete their own player row|present|0003
-          0005|table public.profiles|CREATE TABLE public.profiles|present|0005
-          0007|games.settings column (also covers 0002/0004/0006/00051)|settings jsonb|present|0002 0004 00051 0006 0007
+          0005|table public.profiles|"public"."profiles"|present|0005
+          0007|games.settings column (also covers 0002/0004/0006/00051)|"settings" "jsonb"|present|0002 0004 00051 0006 0007
           0008|games_status_check constraint (canceled status)|games_status_check|present|0008
           0009|games_bump_config_version trigger|games_bump_config_version|present|0009
           0011|games_public_idx index|games_public_idx|present|0011
           0012|games_name_length constraint|games_name_length|present|0012
           0013|co-players webhook policy removed|co-players can read each other'"'"'s webhook url|absent|0013
           0015|profiles.display_name column|display_name|present|0015
-          0016|table public.map_pool|CREATE TABLE public.map_pool|present|0016
+          0016|table public.map_pool|"public"."map_pool"|present|0016
           0017|profiles.is_admin column|is_admin|present|0017
           0018|admin map-pool delete policy|admins can delete any map from the pool|present|0018
-          0020|table public.push_subscriptions|CREATE TABLE public.push_subscriptions|present|0020
-          0021|current game_state select policy|seated players and any signed-in user can read non-lobby game state|present|0021
+          0020|table public.push_subscriptions|"public"."push_subscriptions"|present|0020
+          0021|current game_state select policy|seated players and any signed-in user can read non-lobby|present|0021
           0022|profiles_unit_color_hand_format constraint|profiles_unit_color_hand_format|present|0022
-          0023|profiles.preferences column|preferences jsonb|present|0023
+          0023|profiles.preferences column|"preferences" "jsonb"|present|0023
           0024|admin game_state read policy|admins can read any game state|present|0024
           '
 
@@ -119,7 +138,7 @@ jobs:
           done <<< "$checks"
 
           # Informational only, not auto-fixed (dropping it could discard real rows).
-          if grep -qF 'CREATE TABLE public.observers' "$schema"; then
+          if grep -qF '"public"."observers"' "$schema"; then
             echo "" >> "$GITHUB_STEP_SUMMARY"
             echo "⚠️ \`public.observers\` still exists — 0021_remove_observers.sql's table drop hasn't run even though its policy marker was found, or this is stale data. Not auto-fixed since dropping it could discard real rows; investigate before running 0021 again." >> "$GITHUB_STEP_SUMMARY"
           fi
