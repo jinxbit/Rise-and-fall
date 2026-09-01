@@ -21,6 +21,47 @@ export async function signInWithGoogle() {
 }
 
 /**
+ * Registers a new account with email/password (issue #384) — an alternative
+ * to Discord/Google for players who'd rather not use OAuth. `username`
+ * becomes the account's `full_name` metadata, same field Discord/Google
+ * populate, so resolveDisplayName picks it up with no extra profile write.
+ * If the Supabase project requires email confirmation, `data.session` comes
+ * back null and the caller should tell the user to check their inbox.
+ */
+export async function signUpWithEmail(email: string, password: string, username: string) {
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: { data: { full_name: username } },
+  })
+  if (error) throw error
+  return { needsEmailConfirmation: data.session === null }
+}
+
+export async function signInWithEmail(email: string, password: string) {
+  const { error } = await supabase.auth.signInWithPassword({ email, password })
+  if (error) throw error
+}
+
+/**
+ * Sends a password-reset email (issue #386). The link lands back on
+ * `/reset-password`, which Supabase turns into a temporary "recovery"
+ * session (see ResetPasswordPage) that `updatePassword` below then uses.
+ */
+export async function requestPasswordReset(email: string) {
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${window.location.origin}/reset-password`,
+  })
+  if (error) throw error
+}
+
+/** Sets a new password for the signed-in user — used by ResetPasswordPage once the recovery-link session is active. */
+export async function updatePassword(newPassword: string) {
+  const { error } = await supabase.auth.updateUser({ password: newPassword })
+  if (error) throw error
+}
+
+/**
  * Testing-only bypass for Discord sign-in — creates a real (anonymous)
  * Supabase session, so RLS/`auth.uid()` and the rest of the app work
  * unmodified. Requires "Allow anonymous sign-ins" enabled in the Supabase

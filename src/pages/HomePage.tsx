@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { DiscordSignIn } from '../components/DiscordSignIn'
+import { EmailPasswordAuth } from '../components/EmailPasswordAuth'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { GameOverviewCard } from '../components/GameOverviewCard'
 import { GoogleSignIn } from '../components/GoogleSignIn'
@@ -95,7 +96,7 @@ export function HomePage() {
         <h1 className="text-3xl font-semibold">Rise &amp; Fall</h1>
         <SupportBanner />
         <p className="max-w-sm text-neutral-400">
-          Sign in with Discord or Google to create or join a game with your friends.
+          Sign in with Discord, Google, or an email and password to create or join a game with your friends.
         </p>
         {error && <ErrorBanner message={error.message} details={error.details} onDismiss={() => setError(null)} />}
         <div className="flex flex-col items-center gap-3">
@@ -103,6 +104,12 @@ export function HomePage() {
           <GoogleSignIn onError={setError} />
           {import.meta.env.VITE_ALLOW_GUEST_AUTH === 'true' && <GuestSignIn onError={setError} />}
         </div>
+        <div className="flex w-full max-w-xs items-center gap-3 text-xs text-neutral-500">
+          <div className="h-px flex-1 bg-neutral-800" />
+          or
+          <div className="h-px flex-1 bg-neutral-800" />
+        </div>
+        <EmailPasswordAuth onError={setError} />
       </div>
     )
   }
