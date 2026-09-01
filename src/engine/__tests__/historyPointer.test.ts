@@ -8,6 +8,13 @@ import { beginSelectCardsPhase } from '../round'
 import type { Card, GameState, Player } from '../types'
 import type { UnitContent } from '../unitContent'
 
+function stripTimestamps(state: GameState) {
+  return {
+    ...state,
+    actionHistory: state.actionHistory.map((entry) => ({ ...entry, timestamp: '' })),
+  }
+}
+
 const unitContent: UnitContent = {
   actionsByKind: {},
   movementByKind: {
@@ -97,14 +104,14 @@ describe('stateAtPointer', () => {
   it('pointer 0 reconstructs genesis exactly', () => {
     const genesis = makeGenesis()
     const state = choose(genesis, 'p1')
-    expect(stateAtPointer(genesis, state.actionHistory, 0, unitContent)).toEqual(genesis)
+    expect(stripTimestamps(stateAtPointer(genesis, state.actionHistory, 0, unitContent))).toEqual(stripTimestamps(genesis))
   })
 
   it('pointer at the tip reconstructs the current state', () => {
     const genesis = makeGenesis()
     const afterP1 = choose(genesis, 'p1')
     const tip = choose(afterP1, 'p2')
-    expect(stateAtPointer(genesis, tip.actionHistory, tip.actionHistory.length, unitContent)).toEqual(tip)
+    expect(stripTimestamps(stateAtPointer(genesis, tip.actionHistory, tip.actionHistory.length, unitContent))).toEqual(stripTimestamps(tip))
   })
 
   it('a pointer behind the tip reconstructs an earlier state, undoing later entries non-destructively', () => {
@@ -113,7 +120,7 @@ describe('stateAtPointer', () => {
     const tip = choose(afterP1, 'p2')
 
     const rewound = stateAtPointer(genesis, tip.actionHistory, 1, unitContent)
-    expect(rewound).toEqual(afterP1)
+    expect(stripTimestamps(rewound)).toEqual(stripTimestamps(afterP1))
     // The full history is untouched by rewinding the read — nothing was deleted.
     expect(tip.actionHistory).toHaveLength(2)
   })
