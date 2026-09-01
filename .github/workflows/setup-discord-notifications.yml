@@ -1,0 +1,104 @@
+name: Set Up Discord Notifications
+
+# One-time setup AND secret rotation for README.md's "Discord turn
+# notifications" backend. Deploys notify-discord-turn and (re)generates
+# DISCORD_NOTIFY_WEBHOOK_SECRET — safe to re-run any time you need to
+# rotate that secret (e.g. after it's been exposed somewhere it
+# shouldn't have been), since rotating it doesn't break anything for
+# players the way rotating VAPID keys does for push notifications; it
+# only requires updating the Database Webhook's header to match.
+#
+# Two steps have no CLI/API equivalent and stay manual (dashboard-only,
+# mobile-friendly):
+#   1. Supabase dashboard -> Database -> Webhooks -> creating/updating the
+#      hook on game_state/Update targeting notify-discord-turn with the
+#      x-webhook-secret header this workflow prints.
+#   2. Each player pastes their own Discord channel webhook URL into the
+#      app's Profile -> Discord notifications screen — that's per-player
+#      data, not backend config, and isn't touched by this workflow.
+#
+# Prerequisite: supabase/migrations/0005_discord_webhooks.sql and
+# 0013_discord_notify_backend.sql must already be applied (see the Deploy
+# Supabase / Repair Supabase Migration History / Audit and Fix Supabase
+# Migrations workflows).
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type YES to deploy notify-discord-turn and (re)generate DISCORD_NOTIFY_WEBHOOK_SECRET'
+        required: true
+        default: 'no'
+      site_url:
+        description: 'Optional: deployed site origin (e.g. https://your-app.vercel.app) for the notification deep link. Leave blank to keep SITE_URL as already set (e.g. from push notification setup).'
+        required: false
+        default: ''
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link Supabase project
+        run: supabase link --project-ref "$SUPABASE_PROJECT_ID"
+
+      - name: Deploy notify-discord-turn edge function
+        if: ${{ github.event.inputs.confirm == 'YES' }}
+        run: supabase functions deploy notify-discord-turn
+
+      - name: Generate webhook secret
+        if: ${{ github.event.inputs.confirm == 'YES' }}
+        id: webhook
+        run: |
+          set -euo pipefail
+          echo "secret=$(openssl rand -hex 32)" >> "$GITHUB_OUTPUT"
+
+      - name: Set Supabase function secrets
+        if: ${{ github.event.inputs.confirm == 'YES' }}
+        env:
+          DISCORD_NOTIFY_WEBHOOK_SECRET: ${{ steps.webhook.outputs.secret }}
+          SITE_URL: ${{ github.event.inputs.site_url }}
+        run: |
+          set -euo pipefail
+          supabase secrets set DISCORD_NOTIFY_WEBHOOK_SECRET="$DISCORD_NOTIFY_WEBHOOK_SECRET"
+          if [ -n "$SITE_URL" ]; then
+            supabase secrets set SITE_URL="$SITE_URL"
+          fi
+
+      - name: Print remaining manual step
+        if: ${{ github.event.inputs.confirm == 'YES' }}
+        env:
+          WEBHOOK_SECRET: ${{ steps.webhook.outputs.secret }}
+        run: |
+          {
+            echo "## Discord notification backend: done"
+            echo
+            echo "Function deployed and secret set. One manual step left:"
+            echo
+            echo "### Supabase dashboard → Database → Webhooks"
+            echo
+            echo "Create a new hook (or edit the existing notify-discord-turn target's header if one already exists):"
+            echo "- Table: \`game_state\`, Events: \`Update\`"
+            echo "- Type: **Supabase Edge Functions**, targeting \`notify-discord-turn\`"
+            echo "- HTTP header \`x-webhook-secret\` set to:"
+            echo '```'
+            echo "$WEBHOOK_SECRET"
+            echo '```'
+            echo
+            echo "This secret was just (re)generated — if a webhook already existed pointing at notify-discord-turn, update its header to this new value or it will start getting rejected."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Skipped (confirmation not given)
+        if: ${{ github.event.inputs.confirm != 'YES' }}
+        run: |
+          echo "::notice::confirm input was '${{ github.event.inputs.confirm }}', not 'YES' — nothing was generated or deployed. Re-run with confirm=YES when ready. Note: supabase/migrations/0005_discord_webhooks.sql and 0013_discord_notify_backend.sql must already be applied first."
