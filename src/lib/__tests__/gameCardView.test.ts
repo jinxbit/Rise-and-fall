@@ -94,6 +94,16 @@ describe('buildGameCardSummary', () => {
     expect(summary.roundNumber).toBe(3)
   })
 
+  it('does not crash and reports no scores when a persisted GameState is missing its players array (issue #389)', () => {
+    const game = makeGame()
+    const state = makeGameState()
+    const malformedState = { ...state, players: undefined } as unknown as EngineGameState
+    const summary = buildGameCardSummary(game, malformedState, [])
+
+    expect(summary.scores).toBeNull()
+    expect(summary.winnerNames).toEqual([])
+  })
+
   it('resolves active Tale ids to their names, falling back to the id for an unknown one', () => {
     const game = makeGame({}, { activeTaleIds: ['the-capital', 'not-a-real-tale'] })
     const summary = buildGameCardSummary(game, null, [])
