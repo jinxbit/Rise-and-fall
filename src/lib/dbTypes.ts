@@ -3,7 +3,8 @@
 // is stored/queried, not the rules-engine's in-memory GameState shape. The
 // game_state.state column holds a serialized engine GameState.
 
-import type { Board, PlayMode, GameState as EngineGameState } from '../engine/types'
+import type { Board, PlayMode } from '../engine/types'
+import type { StoredGameState } from './gameStateCompression'
 
 /**
  * Per-game, creation-time configuration — a single JSONB column
@@ -151,7 +152,7 @@ export interface PlayerRow {
 
 export interface GameStateRow {
   game_id: string
-  state: EngineGameState
+  state: StoredGameState
   turn: number
   active_player_id: string | null
   version: number

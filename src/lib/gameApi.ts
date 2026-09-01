@@ -5,6 +5,7 @@ import type { MyGameEntry } from './myGamesView'
 import type { PublicRoomEntry } from './publicRoomsView'
 import type { UnitPlateColorOverrides } from './unitColors'
 import { resolveUnitReserveDisplayMode, type UnitReserveDisplayMode } from './unitReserveDisplay'
+import { compressGameStateForStorage, decompressGameStateFromStorage, type StoredGameState } from './gameStateCompression'
 import type { Board, GameState as EngineGameState, PlayMode } from '../engine/types'
 
 /**
@@ -317,10 +318,12 @@ export async function listMyGames(userId: string): Promise<MyGameEntry[]> {
 
   const stateByGame = new Map<string, EngineGameState>()
   const stateUpdatedAtByGame = new Map<string, string>()
-  for (const row of states as { game_id: string; state: EngineGameState; updated_at: string }[]) {
-    stateByGame.set(row.game_id, row.state)
-    stateUpdatedAtByGame.set(row.game_id, row.updated_at)
-  }
+  await Promise.all(
+    (states as { game_id: string; state: StoredGameState; updated_at: string }[]).map(async (row) => {
+      stateByGame.set(row.game_id, await decompressGameStateFromStorage(row.state))
+      stateUpdatedAtByGame.set(row.game_id, row.updated_at)
+    }),
+  )
 
   return (games as GameRow[]).map((game) => {
     const gamePlayers = (playersByGame.get(game.id) ?? []).sort((a, b) => a.seat_index - b.seat_index)
@@ -405,10 +408,12 @@ async function roomEntriesForGames(gameRows: GameRow[]): Promise<PublicRoomEntry
 
   const stateByGame = new Map<string, EngineGameState>()
   const stateUpdatedAtByGame = new Map<string, string>()
-  for (const row of states as { game_id: string; state: EngineGameState; updated_at: string }[]) {
-    stateByGame.set(row.game_id, row.state)
-    stateUpdatedAtByGame.set(row.game_id, row.updated_at)
-  }
+  await Promise.all(
+    (states as { game_id: string; state: StoredGameState; updated_at: string }[]).map(async (row) => {
+      stateByGame.set(row.game_id, await decompressGameStateFromStorage(row.state))
+      stateUpdatedAtByGame.set(row.game_id, row.updated_at)
+    }),
+  )
 
   return gameRows.map((game) => ({
     game,
@@ -606,9 +611,10 @@ export interface GameStateSnapshot {
  * game" is ever clicked twice in a race.
  */
 export async function insertGameState(gameId: string, state: EngineGameState): Promise<void> {
+  const storedState = await compressGameStateForStorage(state)
   const { error } = await supabase
     .from('game_state')
-    .insert({ game_id: gameId, state, turn: state.turn, active_player_id: state.activePlayerId })
+    .insert({ game_id: gameId, state: storedState, turn: state.turn, active_player_id: state.activePlayerId })
   if (error && error.code !== '23505') throw error
 }
 
@@ -616,7 +622,7 @@ export async function getGameState(gameId: string): Promise<GameStateSnapshot | 
   const { data, error } = await supabase.from('game_state').select('state, version').eq('game_id', gameId).maybeSingle()
   if (error) throw error
   if (!data) return null
-  return { state: data.state as EngineGameState, version: data.version }
+  return { state: await decompressGameStateFromStorage(data.state as StoredGameState), version: data.version }
 }
 
 /**
@@ -627,9 +633,10 @@ export async function getGameState(gameId: string): Promise<GameStateSnapshot | 
  * caller should refetch via getGameState and let the player retry.
  */
 export async function writeGameState(gameId: string, state: EngineGameState, expectedVersion: number): Promise<boolean> {
+  const storedState = await compressGameStateForStorage(state)
   const { data, error } = await supabase
     .from('game_state')
-    .update({ state, turn: state.turn, active_player_id: state.activePlayerId, version: expectedVersion + 1 })
+    .update({ state: storedState, turn: state.turn, active_player_id: state.activePlayerId, version: expectedVersion + 1 })
     .eq('game_id', gameId)
     .eq('version', expectedVersion)
     .select('version')
@@ -645,7 +652,7 @@ export function subscribeToGameState(gameId: string, onChange: (snapshot: GameSt
       { event: '*', schema: 'public', table: 'game_state', filter: `game_id=eq.${gameId}` },
       (payload) => {
         const row = payload.new as GameStateRow
-        onChange({ state: row.state, version: row.version })
+        void decompressGameStateFromStorage(row.state).then((state) => onChange({ state, version: row.version }))
       },
     )
     .subscribe()
