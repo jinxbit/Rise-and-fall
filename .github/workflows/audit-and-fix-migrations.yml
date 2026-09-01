@@ -53,6 +53,19 @@ jobs:
       - name: Dump live public schema
         run: supabase db dump --linked -f /tmp/schema.sql
 
+      - name: Show raw dump (diagnostic — confirmed the grep-based audit below has false positives)
+        run: |
+          {
+            echo "## Raw schema dump (for debugging the audit patterns below)"
+            echo
+            echo "<details><summary>Click to expand — full \`supabase db dump --linked\` output</summary>"
+            echo
+            echo '```sql'
+            cat /tmp/schema.sql
+            echo '```'
+            echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Audit every migration against the live schema
         id: audit
         run: |
