@@ -11,7 +11,7 @@ reproduced.
 ## Stack
 
 - **Frontend:** Vite + React + TypeScript, Tailwind CSS v4
-- **Backend:** Supabase (Postgres for game state, Realtime for live sync, Auth with Discord/Google OAuth for identity)
+- **Backend:** Supabase (Postgres for game state, Realtime for live sync, Auth with Discord/Google OAuth or email/password for identity)
 - **Hosting:** Vercel (frontend) + Supabase free tier (backend)
 
 ## Architecture
@@ -98,6 +98,17 @@ Function-specific secrets (`DISCORD_NOTIFY_WEBHOOK_SECRET`, VAPID keys, etc.)
 still need to be set once per project with `supabase secrets set`, as
 described in each function's setup section below — the workflow only
 deploys code, not secrets.
+
+## Email/password sign-in
+
+Supabase's built-in Email provider is enabled by default, so no extra setup
+is required beyond a fresh Supabase project — the home page's "or" divider
+lets a player register with a username, email, and password, or sign back in
+with the same email/password. The username becomes the account's display
+name (`full_name`), same as the Discord/Google flows. If the Supabase
+project has **Confirm email** turned on (Authentication → Providers →
+Email), a new account can't sign in until the player clicks the
+confirmation link sent to their inbox.
 
 ## Discord OAuth setup (do this yourself)
 

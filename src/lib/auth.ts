@@ -21,6 +21,29 @@ export async function signInWithGoogle() {
 }
 
 /**
+ * Registers a new account with email/password (issue #384) — an alternative
+ * to Discord/Google for players who'd rather not use OAuth. `username`
+ * becomes the account's `full_name` metadata, same field Discord/Google
+ * populate, so resolveDisplayName picks it up with no extra profile write.
+ * If the Supabase project requires email confirmation, `data.session` comes
+ * back null and the caller should tell the user to check their inbox.
+ */
+export async function signUpWithEmail(email: string, password: string, username: string) {
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: { data: { full_name: username } },
+  })
+  if (error) throw error
+  return { needsEmailConfirmation: data.session === null }
+}
+
+export async function signInWithEmail(email: string, password: string) {
+  const { error } = await supabase.auth.signInWithPassword({ email, password })
+  if (error) throw error
+}
+
+/**
  * Testing-only bypass for Discord sign-in — creates a real (anonymous)
  * Supabase session, so RLS/`auth.uid()` and the rest of the app work
  * unmodified. Requires "Allow anonymous sign-ins" enabled in the Supabase
