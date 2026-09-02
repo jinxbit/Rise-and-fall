@@ -655,8 +655,7 @@ function renderLogMessage(message: string, playerId: string | null, players: Pla
   return message
 }
 
-function LogPanel({ gameLog, isAdmin, players }: { gameLog: GameEvent[]; isAdmin: boolean; players: PlayerRow[] }) {
-  if (!isAdmin) return null
+function LogPanel({ gameLog, players }: { gameLog: GameEvent[]; players: PlayerRow[] }) {
   const recent = [...gameLog].slice(-8).reverse()
   if (recent.length === 0) return null
   return (
@@ -1129,17 +1128,14 @@ export function RoundView(props: {
    * mode.
    */
   previousHistoryState: GameState | null
-  /** The running narration log — derived from actionHistory, see engine/gameLog.ts's buildGameLog. */
-  gameLog: GameEvent[]
   /**
-   * Whether the signed-in user holds the site-admin override (see
-   * useIsAdmin, issue #177's "delete any game" override) — reused here as
-   * the moderator check gating LogPanel below (issue #341): the narration
-   * log is otherwise hidden from regular players. Optional/defaulted to
-   * false so the ~40 RoundView.test.tsx call sites (whose `gameLog={[]}`
-   * already makes LogPanel a no-op) don't all need updating.
+   * The running narration log — derived from actionHistory, see
+   * engine/gameLog.ts's buildGameLog. Visible to every player (issue #399
+   * lifted issue #341's admin-only gate now that the caller redacts this
+   * per-viewer before it ever reaches RoundView — see GamePage.tsx's
+   * visibleGameLog and engine/redaction.ts's redactGameLog).
    */
-  isAdmin?: boolean
+  gameLog: GameEvent[]
   onChooseCard: (cardId: string) => void
   onResolveUnit: (unitId: string, actionId: string, target?: Coordinate) => void
   /** Resolves the same no-target action (see actionNeedsTargeting) for every listed unit id in one submission — see ActionsPanel's bulk-action buttons (issue #61). */
@@ -1528,7 +1524,7 @@ export function RoundView(props: {
         )}
       </div>
 
-      <LogPanel gameLog={props.gameLog} isAdmin={props.isAdmin ?? false} players={players} />
+      <LogPanel gameLog={props.gameLog} players={players} />
     </div>
   )
 }

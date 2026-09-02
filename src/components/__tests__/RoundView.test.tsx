@@ -2395,7 +2395,6 @@ describe('RoundView — LogPanel (issue #358)', () => {
         state={state}
         players={players}
         myPlayerId="p1"
-        isAdmin
         unitContent={EMPTY_UNIT_CONTENT}
         achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
         taleContent={EMPTY_TALE_CONTENT}
@@ -2423,7 +2422,7 @@ describe('RoundView — LogPanel (issue #358)', () => {
     expect(within(logEntry).getByText(/^\[\d{1,2}:\d{2}(\s?[AP]M)?\]\s*$/)).toBeTruthy()
   })
 
-  it('hides the log panel entirely for non-admins', () => {
+  it('shows the log panel to every player, not just admins (issue #399)', () => {
     const state = makeState()
     const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
 
@@ -2431,8 +2430,7 @@ describe('RoundView — LogPanel (issue #358)', () => {
       <RoundView
         state={state}
         players={players}
-        myPlayerId="p1"
-        isAdmin={false}
+        myPlayerId="p2"
         unitContent={EMPTY_UNIT_CONTENT}
         achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
         taleContent={EMPTY_TALE_CONTENT}
@@ -2452,6 +2450,6 @@ describe('RoundView — LogPanel (issue #358)', () => {
       />,
     )
 
-    expect(screen.queryByText('chose to play Nomad', { exact: false })).toBeNull()
+    expect(screen.getByText('chose to play Nomad', { exact: false })).toBeTruthy()
   })
 })

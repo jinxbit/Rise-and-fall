@@ -9,6 +9,7 @@ import type { Action, LoggedAction } from '../engine/actions'
 import { applyActionAndFastForwardTiles } from '../engine/applyAction'
 import { stripOccupants } from '../engine/board'
 import { buildGameLogFrom, extendGameLog } from '../engine/gameLog'
+import { redactGameLog } from '../engine/redaction'
 import { replayActions } from '../engine/replay'
 import { calculateScoreHistory } from '../engine/scoreHistory'
 import { applyTaleAchievementModifiers, applyTaleModifiers } from '../engine/tales'
@@ -783,6 +784,27 @@ export function GamePage() {
     fullTurnStops,
     defaultTurnHistoryIndex,
   ])
+
+  /**
+   * Per-viewer redacted copy of the narration log (issue #399) —
+   * `gameLog`/`reviewGameLog` above are the fully-revealing narration, kept
+   * shared/cached since they never differ by viewer; this applies
+   * redactGameLog against whichever state the log is currently sourced from
+   * (the live game, or `reviewState` while scrubbing history) so a
+   * still-secret CHOOSE_CARD pick reads as redacted for anyone but the
+   * player who made it, and automatically reveals once that round's
+   * selectCards phase resolves — see redactGameLog's own doc comment for why
+   * that can't just be decided once at narration time. Site admins (see
+   * useIsAdmin) keep seeing the unredacted log, the same carve-out
+   * BACKEND_ENFORCEMENT_SPEC.md §4.4 already grants admin mode elsewhere.
+   */
+  const visibleGameLog = useMemo(() => {
+    const source = isReviewingHistory ? reviewGameLog : gameLog
+    if (isAdmin) return source
+    const redactionState = isReviewingHistory ? reviewState : gameState
+    if (!redactionState) return source
+    return redactGameLog(source, redactionState, me?.id ?? null)
+  }, [isReviewingHistory, reviewGameLog, gameLog, isAdmin, reviewState, gameState, me?.id])
 
   /** The action most recently applied as of `reviewIndex`, for the review banner's label — null at genesis (reviewIndex 0). */
   const reviewActionMeta = reviewIndex !== null && reviewIndex > 0 ? (gameState?.actionHistory[reviewIndex - 1] ?? null) : null
@@ -1635,8 +1657,7 @@ export function GamePage() {
           onExitHistory={() => setReviewIndex(null)}
           territoryControlMode={territoryControlMode}
           previousHistoryState={previousTerritoryState}
-          gameLog={isReviewingHistory ? reviewGameLog : gameLog}
-          isAdmin={isAdmin}
+          gameLog={visibleGameLog}
           onChooseCard={(cardId) => {
             if (!me) return
             void submitAction({ type: 'CHOOSE_CARD', playerId: me.id, cardId })

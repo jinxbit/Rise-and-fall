@@ -16,6 +16,8 @@ import type { UnitContent } from './unitContent'
 interface DraftEvent {
   playerId: string | null
   message: string
+  /** Carried straight through onto the stamped GameEvent — see its doc comment in ./types.ts. */
+  secret?: { turn: number; redactedMessage: string }
 }
 
 /**
@@ -61,7 +63,13 @@ function describePrimaryAction(action: Action, before: GameState, after: GameSta
       return [{ playerId: action.playerId, message: `${PLAYER_PLACEHOLDER} placed a starting ${action.unitKind}` }]
     case 'CHOOSE_CARD': {
       const name = after.cards[action.cardId]?.name ?? action.cardId
-      return [{ playerId: action.playerId, message: `${PLAYER_PLACEHOLDER} chose to play ${name}` }]
+      return [
+        {
+          playerId: action.playerId,
+          message: `${PLAYER_PLACEHOLDER} chose to play ${name}`,
+          secret: { turn: after.turn, redactedMessage: `${PLAYER_PLACEHOLDER} chose a card` },
+        },
+      ]
     }
     case 'RESOLVE_UNIT_ACTION': {
       const cardId = before.chosenCardIdByPlayerId[action.playerId]
@@ -227,7 +235,14 @@ export function extendGameLog(
       ...describeCascade(before, after, achievementContent),
     ]
     for (const draft of drafts) {
-      events.push({ id: `evt_${id++}`, turn: after.turn, playerId: draft.playerId, message: draft.message, timestamp: logged.timestamp })
+      events.push({
+        id: `evt_${id++}`,
+        turn: after.turn,
+        playerId: draft.playerId,
+        message: draft.message,
+        timestamp: logged.timestamp,
+        secret: draft.secret,
+      })
     }
 
     state = after

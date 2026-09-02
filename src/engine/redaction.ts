@@ -1,4 +1,4 @@
-import type { GameState, Player } from './types'
+import type { GameEvent, GameState, Player } from './types'
 
 /**
  * A player's simultaneous-phase card pick (GameState.chosenCardIdByPlayerId),
@@ -72,6 +72,37 @@ export function redactStateForPlayer(state: GameState, viewerId: string): Redact
   })
 
   return { ...state, chosenCardIdByPlayerId, players }
+}
+
+/**
+ * Read-side view of a narration log (see GameEvent/gameLog.ts) for a
+ * specific viewer (`viewerId`, null for a non-player observer) — masks the
+ * same still-secret-pick window `redactStateForPlayer` masks in
+ * `chosenCardIdByPlayerId` (issue #399): while `roundPhase === 'selectCards'`
+ * and any player is still pending, another player's CHOOSE_CARD line says
+ * only that a card was chosen, not which one.
+ *
+ * Deliberately re-evaluated against `state` — the *current* state, not
+ * whatever it was right after the event's own action applied — on every
+ * call rather than baked into the event once at narration time: an entry
+ * that was secret when logged (some players still picking) needs to read as
+ * revealed once the round's selectCards phase actually resolves, and that
+ * can only be known once later actions (other players' own picks) have
+ * happened. `event.secret.turn` guards against a *new* round's still-secret
+ * picks being mistaken for this event's already-settled one once `turn`
+ * has moved on.
+ *
+ * `events` themselves are never mutated — everything else (the fully-
+ * revealing log ./gameLog.ts builds) stays the shared, cacheable source of
+ * truth; this returns a per-viewer copy for display only.
+ */
+export function redactGameLog(events: GameEvent[], state: GameState, viewerId: string | null): GameEvent[] {
+  const hideChosenCards = state.roundPhase === 'selectCards' && state.pendingPlayerIds.length > 0
+  return events.map((event) => {
+    if (!event.secret || event.playerId === viewerId) return event
+    if (!hideChosenCards || event.secret.turn !== state.turn) return event
+    return { ...event, message: event.secret.redactedMessage }
+  })
 }
 
 /**

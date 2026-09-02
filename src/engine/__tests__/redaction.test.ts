@@ -3,7 +3,8 @@ import { applyAction } from '../applyAction'
 import { createEmptyBoard } from '../board'
 import { cardIdFor, moveCard, UNIT_KINDS } from '../cards'
 import { createNewGame } from '../createGame'
-import { redactStateForPlayer } from '../redaction'
+import { buildGameLog, PLAYER_PLACEHOLDER } from '../gameLog'
+import { redactGameLog, redactStateForPlayer } from '../redaction'
 import type { GameState, Unit } from '../types'
 
 /**
@@ -200,5 +201,70 @@ describe('redactStateForPlayer', () => {
       const asP2 = redactStateForPlayer(state, 'p2')
       expect(asP2.players.find((p) => p.id === 'p1')!.declineCardIds).toEqual([cardIdFor('p1', 'nomad')])
     })
+  })
+})
+
+describe('redactGameLog (issue #399)', () => {
+  it("hides another player's chosen card name while they're still pending, but shows the viewer their own choice", () => {
+    const genesis = makeActiveGameWithFullHands()
+    const state = requireOk(applyAction(genesis, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }))
+    expect(state.roundPhase).toBe('selectCards')
+    expect(state.pendingPlayerIds).toEqual(['p2'])
+    const log = buildGameLog(genesis, state.actionHistory)
+
+    const asP2 = redactGameLog(log, state, 'p2')
+    const p1Entry = asP2.find((e) => e.playerId === 'p1' && e.message.includes('chose'))!
+    expect(p1Entry.message).toBe(`${PLAYER_PLACEHOLDER} chose a card`)
+
+    const asP1 = redactGameLog(log, state, 'p1')
+    const ownEntry = asP1.find((e) => e.playerId === 'p1' && e.message.includes('chose'))!
+    expect(ownEntry.message).toBe(`${PLAYER_PLACEHOLDER} chose to play city`)
+
+    // An unseated observer gets the same treatment as any player who isn't p1.
+    const asObserver = redactGameLog(log, state, null)
+    expect(asObserver.find((e) => e.playerId === 'p1' && e.message.includes('chose'))!.message).toBe(`${PLAYER_PLACEHOLDER} chose a card`)
+  })
+
+  it('reveals both picks to every viewer once the selectCards phase resolves and moves on', () => {
+    const genesis = makeActiveGameWithFullHands()
+    let state = requireOk(applyAction(genesis, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }))
+    state = requireOk(applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') }))
+    expect(state.roundPhase).toBe('actions')
+    const log = buildGameLog(genesis, state.actionHistory)
+
+    const asP2 = redactGameLog(log, state, 'p2')
+    expect(asP2.find((e) => e.playerId === 'p1' && e.message.includes('chose'))!.message).toBe(`${PLAYER_PLACEHOLDER} chose to play city`)
+  })
+
+  it("keeps an earlier round's resolved pick revealed even while a later round's selectCards phase is back in progress", () => {
+    const genesis = makeActiveGameWithFullHands()
+    let state = requireOk(applyAction(genesis, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }))
+    state = requireOk(applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') }))
+    const firstRoundTurn = state.turn
+
+    // Simulate a later round back in its own still-in-progress selectCards
+    // window, without needing to fully replay an entire round of unit
+    // actions/purchases to get there for real.
+    const actionHistory = state.actionHistory
+    state = { ...state, turn: firstRoundTurn + 1, roundPhase: 'selectCards', pendingPlayerIds: ['p2'] }
+    const log = buildGameLog(genesis, actionHistory)
+
+    const asP2 = redactGameLog(log, state, 'p2')
+    // The earlier, already-resolved round's CHOOSE_CARD line is unaffected
+    // by the new round's in-progress phase — only an event logged against
+    // *this* round's turn number would be masked.
+    expect(asP2.find((e) => e.playerId === 'p1' && e.message.includes('chose'))!.message).toBe(`${PLAYER_PLACEHOLDER} chose to play city`)
+  })
+
+  it('passes through every non-secret event (playerId mismatch or no secret at all) unchanged', () => {
+    const genesis = makeActiveGameWithFullHands()
+    const state = requireOk(applyAction(genesis, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }))
+    const log = buildGameLog(genesis, state.actionHistory)
+
+    const redacted = redactGameLog(log, state, 'p2')
+    const nonChooseEvents = log.filter((e) => !e.secret)
+    for (const event of nonChooseEvents) {
+      expect(redacted.find((e) => e.id === event.id)).toEqual(event)
+    }
   })
 })
