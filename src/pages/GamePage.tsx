@@ -113,6 +113,16 @@ export function GamePage() {
   const [undoing, setUndoing] = useState(false)
   const [redoing, setRedoing] = useState(false)
   /**
+   * Admin mode (issue #391): lets the room owner or a site admin act on
+   * behalf of whichever player the game is currently waiting on — e.g. to
+   * unstick a game where someone's stepped away. Only ever changes *which*
+   * player `me` resolves to (see below); it doesn't grant any new action
+   * type or bypass engine legality, so it's safe under today's fully
+   * client-trusted model. Not persisted — resets to off on reload, same as
+   * every other page-local UI toggle here.
+   */
+  const [adminOverrideEnabled, setAdminOverrideEnabled] = useState(false)
+  /**
    * Actions popped off actionHistory by Undo, most-recently-undone last —
    * Redo pops from the end and re-submits it through the normal action
    * path, which naturally restores multi-step undos in the right order
@@ -304,6 +314,13 @@ export function GamePage() {
   const canEditVisibility = isCreator && game?.status !== 'canceled'
   const isHotseat = game?.play_mode === 'hotseat'
   const isSeatedPlayer = players.some((p) => p.user_id === session?.user.id)
+  /**
+   * Who may switch on admin mode (issue #391): the room owner or a site
+   * admin. Hotseat is excluded — it already lets one local device act as
+   * whoever's turn it is (pendingActorId-driven `me`, the same mechanism
+   * admin mode reuses below), so the toggle would be redundant there.
+   */
+  const canAdminOverride = (isCreator || isAdmin) && !isHotseat
 
   /**
    * Open spectating in history review mode (issue #105), not live — a
@@ -326,16 +343,30 @@ export function GamePage() {
   const skipHotseatGate = game?.settings.skipHotseatPassGate ?? false
   /**
    * Whichever seated player must act next (see engine/turnOrder.ts) — used
-   * to know who the pass-the-device gate should hand the shared device to.
-   * Only meaningful for hotseat; live/async each run on their own device,
-   * so there's nothing to gate.
+   * to know who the pass-the-device gate should hand the shared device to
+   * in hotseat, and who admin mode (below) should act as in live/async.
    */
   const pendingActorId = gameState ? currentActorId(gameState) : null
   const needsHotseatGate = isHotseat && !skipHotseatGate && pendingActorId !== null && pendingActorId !== hotseatActivePlayerId
 
+  /**
+   * `me` is "which seated player does this browser act on behalf of" — the
+   * one identity every submitted action's `playerId` and every panel's
+   * interactivity gate (`myPlayerId` throughout RoundView/BoardSetupView)
+   * derives from. Hotseat already makes this follow whoever must act next
+   * rather than a fixed signed-in identity (one shared device, many seats).
+   * Admin mode (issue #391) reuses exactly that mechanism for live/async:
+   * while enabled, the room owner or a site admin's `me` follows
+   * `pendingActorId` the same way, so every existing action panel — no
+   * changes needed there — lets them take the current turn on behalf of
+   * whichever player the game is waiting on. Falls back to the admin's own
+   * seat (or none) once nobody is pending, e.g. between rounds.
+   */
   const me = isHotseat
     ? players.find((p) => p.id === (skipHotseatGate ? pendingActorId : hotseatActivePlayerId))
-    : players.find((p) => p.user_id === session?.user.id)
+    : adminOverrideEnabled && canAdminOverride && pendingActorId
+      ? (players.find((p) => p.id === pendingActorId) ?? players.find((p) => p.user_id === session?.user.id))
+      : players.find((p) => p.user_id === session?.user.id)
   // Concede (issue #172): only a seated player, in a game that's actually
   // under way, who hasn't already been eliminated — mirrors CONCEDE's own
   // engine-side rejection of an unknown/already-eliminated player
@@ -1284,6 +1315,19 @@ export function GamePage() {
           >
             {isReviewingHistory ? 'Exit review' : 'Review history'}
           </button>
+          {canAdminOverride && (
+            <button
+              type="button"
+              onClick={() => setAdminOverrideEnabled((v) => !v)}
+              title="Admin mode: act on behalf of whichever player the game is currently waiting on — for unsticking a game where someone's stepped away. Only available to the room owner and site admins."
+              aria-pressed={adminOverrideEnabled}
+              className={`rounded-md border px-3 py-1 text-sm hover:border-neutral-500 ${
+                adminOverrideEnabled ? 'border-amber-500 text-amber-400' : 'border-neutral-700'
+              }`}
+            >
+              {adminOverrideEnabled ? 'Admin mode: ON' : 'Admin mode'}
+            </button>
+          )}
         </div>
       </header>
 
@@ -1443,6 +1487,12 @@ export function GamePage() {
       )}
 
       {actionError && <ErrorBanner message={actionError.message} details={actionError.details} onDismiss={() => setActionError(null)} />}
+
+      {adminOverrideEnabled && canAdminOverride && !isReviewingHistory && pendingActorId && me?.id === pendingActorId && (
+        <div className="rounded-md border border-amber-700 bg-amber-950/40 px-3 py-2 text-sm text-amber-300">
+          Admin mode: acting as <span className="font-medium">{me.display_name}</span>.
+        </div>
+      )}
 
       {!gameState && <p className="text-neutral-400">Setting up the game…</p>}
 
