@@ -181,7 +181,7 @@ describe('GameOverviewCard', () => {
   })
 
   function emptySummary(): GameCardSummary {
-    return { playerRange: null, mapBuildStyle: null, moduleNames: [], roundNumber: null, scores: null, winnerNames: [] }
+    return { playerRange: null, mapBuildStyle: null, moduleNames: [], roundNumber: null, scores: null }
   }
 
   it('shows the player range and map build style on a joinable card', () => {
@@ -240,8 +240,8 @@ describe('GameOverviewCard', () => {
             ...emptySummary(),
             roundNumber: 3,
             scores: [
-              { playerId: 'p1', name: 'Alice', color: '#ef4444', score: 12 },
-              { playerId: 'p2', name: 'Bob', color: '#3b82f6', score: 7 },
+              { playerId: 'p1', name: 'Alice', color: '#ef4444', score: 12, isWinner: false },
+              { playerId: 'p2', name: 'Bob', color: '#3b82f6', score: 7, isWinner: false },
             ],
           }}
           onOpen={() => {}}
@@ -253,13 +253,13 @@ describe('GameOverviewCard', () => {
     expect(screen.getByText((_, el) => el?.textContent === 'Alice: 12, Bob: 7')).toBeInTheDocument()
   })
 
-  it('shows the winner with a crown and combines the player list with final scores, but no round number', () => {
+  it('marks the winner with a crown on the score row and combines the player list with final scores, but no round number', () => {
     render(
       <ul>
         <GameOverviewCard
           name="Test room"
           phase="Finished"
-          players={[makePlayer('p1', 'Alice')]}
+          players={[makePlayer('p1', 'Alice'), makePlayer('p2', 'Bob')]}
           pendingPlayerIds={[]}
           isMyTurn={false}
           isFinished
@@ -267,16 +267,18 @@ describe('GameOverviewCard', () => {
           summary={{
             ...emptySummary(),
             roundNumber: 8,
-            winnerNames: ['Alice'],
-            scores: [{ playerId: 'p1', name: 'Alice', color: '#ef4444', score: 20 }],
+            scores: [
+              { playerId: 'p1', name: 'Alice', color: '#ef4444', score: 20, isWinner: true },
+              { playerId: 'p2', name: 'Bob', color: '#3b82f6', score: 12, isWinner: false },
+            ],
           }}
           onOpen={() => {}}
         />
       </ul>,
     )
 
-    expect(screen.getByText('👑 Alice')).toBeInTheDocument()
-    expect(screen.getByText('Alice: 20')).toBeInTheDocument()
+    expect(screen.getByText((_, el) => el?.textContent === '👑 Alice: 20')).toBeInTheDocument()
+    expect(screen.getByText((_, el) => el?.textContent === ', Bob: 12')).toBeInTheDocument()
     expect(screen.queryByText('Round 8')).not.toBeInTheDocument()
   })
 

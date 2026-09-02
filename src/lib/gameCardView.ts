@@ -47,7 +47,7 @@ export function formatUpdatedAt(isoTimestamp: string, now: Date = new Date()): s
  * closest proxy, since no further writes happen to it once a game completes.
  */
 export function formatFinishedAt(isoTimestamp: string): string {
-  return `Finished at ${new Date(isoTimestamp).toLocaleString()}`
+  return `Finished at ${new Date(isoTimestamp).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`
 }
 
 /**
@@ -91,6 +91,8 @@ export interface GameCardScore {
   name: string
   color: string
   score: number
+  /** True once the game is finished and this player is one of its winners (GameState.winnerPlayerIds). */
+  isWinner: boolean
 }
 
 /**
@@ -99,8 +101,8 @@ export interface GameCardScore {
  * dbTypes.ts's GameSettings comment: settings stop being read once a
  * game_state row exists), so both are null once `gameState` is non-null.
  * `scores`/`roundNumber` are the reverse — null until there's a GameState to
- * read them from. `winnerNames` is only ever non-empty once the game has
- * actually finished (GameState.winnerPlayerIds).
+ * read them from. Each score's `isWinner` is only ever true once the game
+ * has actually finished (GameState.winnerPlayerIds).
  */
 export interface GameCardSummary {
   playerRange: string | null
@@ -109,7 +111,6 @@ export interface GameCardSummary {
   moduleNames: string[]
   roundNumber: number | null
   scores: GameCardScore[] | null
-  winnerNames: string[]
 }
 
 function mapBuildStyleLabel(settings: GameSettings): string {
@@ -134,7 +135,6 @@ export function buildGameCardSummary(game: GameRow, gameState: EngineGameState |
   const moduleNames = game.settings.activeTaleIds.map((id) => listTales().find((t) => t.id === id)?.name ?? id)
 
   let scores: GameCardScore[] | null = null
-  const winnerNames: string[] = []
 
   // gameState.players is normally always populated once a game_state row
   // exists (see engine/createGame.ts), but a handful of pre-existing rows
@@ -152,13 +152,8 @@ export function buildGameCardSummary(game: GameRow, gameState: EngineGameState |
       name: players.find((row) => row.id === player.id)?.display_name ?? player.displayName,
       color: players.find((row) => row.id === player.id)?.color ?? player.color,
       score: breakdown[player.id]?.total ?? 0,
+      isWinner: winnerIds.has(player.id),
     }))
-
-    for (const player of gameState.players) {
-      if (winnerIds.has(player.id)) {
-        winnerNames.push(players.find((row) => row.id === player.id)?.display_name ?? player.displayName)
-      }
-    }
   }
 
   return {
@@ -167,6 +162,5 @@ export function buildGameCardSummary(game: GameRow, gameState: EngineGameState |
     moduleNames,
     roundNumber: gameState ? gameState.turn : null,
     scores,
-    winnerNames,
   }
 }

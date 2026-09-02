@@ -81,7 +81,6 @@ describe('buildGameCardSummary', () => {
     expect(summary.mapBuildStyle).toBe('Interactive (built together)')
     expect(summary.roundNumber).toBeNull()
     expect(summary.scores).toBeNull()
-    expect(summary.winnerNames).toEqual([])
   })
 
   it('clears pregame info once a GameState exists, and reports the round number instead', () => {
@@ -101,7 +100,6 @@ describe('buildGameCardSummary', () => {
     const summary = buildGameCardSummary(game, malformedState, [])
 
     expect(summary.scores).toBeNull()
-    expect(summary.winnerNames).toEqual([])
   })
 
   it('resolves active Tale ids to their names, falling back to the id for an unknown one', () => {
@@ -150,8 +148,8 @@ describe('buildGameCardSummary', () => {
     const expectedBreakdown = calculateVPBreakdown(state, achievementContent, taleContent)
 
     expect(summary.scores).toEqual([
-      { playerId: 'p1', name: 'Alice Row', color: '#ef4444', score: expectedBreakdown.p1.total },
-      { playerId: 'p2', name: 'Bob Row', color: '#3b82f6', score: expectedBreakdown.p2.total },
+      { playerId: 'p1', name: 'Alice Row', color: '#ef4444', score: expectedBreakdown.p1.total, isWinner: false },
+      { playerId: 'p2', name: 'Bob Row', color: '#3b82f6', score: expectedBreakdown.p2.total, isWinner: false },
     ])
   })
 
@@ -163,15 +161,15 @@ describe('buildGameCardSummary', () => {
     expect(summary.scores?.map((s) => s.name)).toEqual(['Alice', 'Bob'])
   })
 
-  it('lists winner names once the game has finished, and leaves them empty otherwise', () => {
+  it('marks the winning score(s) once the game has finished, and marks none otherwise', () => {
     const game = makeGame()
     const players = [makePlayerRow('p1', 'Alice Row'), makePlayerRow('p2', 'Bob Row')]
 
     const inProgress = makeGameState({ winnerPlayerIds: [] })
-    expect(buildGameCardSummary(game, inProgress, players).winnerNames).toEqual([])
+    expect(buildGameCardSummary(game, inProgress, players).scores?.map((s) => s.isWinner)).toEqual([false, false])
 
     const finished = makeGameState({ status: 'completed', winnerPlayerIds: ['p2'] })
-    expect(buildGameCardSummary(game, finished, players).winnerNames).toEqual(['Bob Row'])
+    expect(buildGameCardSummary(game, finished, players).scores?.map((s) => s.isWinner)).toEqual([false, true])
   })
 })
 
@@ -193,9 +191,11 @@ describe('latestUpdatedAt', () => {
 })
 
 describe('formatFinishedAt', () => {
-  it('renders an absolute local date/time prefixed with "Finished at"', () => {
+  it('renders an absolute local date/time prefixed with "Finished at", without seconds', () => {
     const isoTimestamp = '2026-01-02T09:00:00Z'
-    expect(formatFinishedAt(isoTimestamp)).toBe(`Finished at ${new Date(isoTimestamp).toLocaleString()}`)
+    const expected = new Date(isoTimestamp).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
+    expect(formatFinishedAt(isoTimestamp)).toBe(`Finished at ${expected}`)
+    expect(formatFinishedAt(isoTimestamp)).not.toMatch(/:\d{2}:\d{2}\s/)
   })
 })
 
