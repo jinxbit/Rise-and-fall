@@ -1163,6 +1163,7 @@ export function GamePage() {
                     Concede
                   </button>
                 )}
+                <div role="separator" className="my-1 border-t border-neutral-800" />
                 <button
                   type="button"
                   role="menuitem"
@@ -1189,6 +1190,7 @@ export function GamePage() {
                 >
                   {showStateJson ? 'Hide' : 'Show'} game state JSON
                 </button>
+                <div role="separator" className="my-1 border-t border-neutral-800" />
                 <button
                   type="button"
                   role="menuitem"
@@ -1230,6 +1232,24 @@ export function GamePage() {
                     </div>
                   )
                 )}
+                {canAdminOverride && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    aria-pressed={adminOverrideEnabled}
+                    onClick={() => {
+                      setMenuOpen(false)
+                      setAdminOverrideEnabled((v) => !v)
+                    }}
+                    title="Admin mode: act on behalf of whichever player the game is currently waiting on — for unsticking a game where someone's stepped away. Only available to the room owner and site admins."
+                    className={`px-3 py-2 text-left hover:bg-neutral-800 ${
+                      adminOverrideEnabled ? 'text-amber-400' : ''
+                    }`}
+                  >
+                    {adminOverrideEnabled ? 'Admin mode: ON' : 'Admin mode'}
+                  </button>
+                )}
+                {(canCancel || canDelete) && <div role="separator" className="my-1 border-t border-neutral-800" />}
                 {canCancel && (
                   <button
                     type="button"
@@ -1315,19 +1335,6 @@ export function GamePage() {
           >
             {isReviewingHistory ? 'Exit review' : 'Review history'}
           </button>
-          {canAdminOverride && (
-            <button
-              type="button"
-              onClick={() => setAdminOverrideEnabled((v) => !v)}
-              title="Admin mode: act on behalf of whichever player the game is currently waiting on — for unsticking a game where someone's stepped away. Only available to the room owner and site admins."
-              aria-pressed={adminOverrideEnabled}
-              className={`rounded-md border px-3 py-1 text-sm hover:border-neutral-500 ${
-                adminOverrideEnabled ? 'border-amber-500 text-amber-400' : 'border-neutral-700'
-              }`}
-            >
-              {adminOverrideEnabled ? 'Admin mode: ON' : 'Admin mode'}
-            </button>
-          )}
         </div>
       </header>
 
