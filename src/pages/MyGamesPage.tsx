@@ -10,6 +10,7 @@ import { toAppError, type AppError } from '../lib/errors'
 import {
   describeGamePhase,
   formatUpdatedAt,
+  gamePath,
   groupMyGames,
   isMyTurn,
   latestUpdatedAt,
@@ -17,17 +18,6 @@ import {
   pendingActorIds,
   type MyGameEntry,
 } from '../lib/myGamesView'
-
-/**
- * Where clicking a game row should go. Keyed off whether a game_state row
- * exists yet, not `games.status === 'lobby'` — a room canceled before it
- * ever started has `status: 'canceled'` with no `gameState`, and still
- * belongs on the lobby screen (LobbyPage shows the canceled banner/Delete
- * there), not GamePage.
- */
-function gamePath(entry: MyGameEntry): string {
-  return entry.gameState === null ? `/lobby/${entry.game.room_code}` : `/game/${entry.game.room_code}`
-}
 
 export function MyGamesPage() {
   const { session, loading: authLoading } = useAuth()
