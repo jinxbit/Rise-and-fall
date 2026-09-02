@@ -296,8 +296,9 @@ export interface BoardSetupState {
  * begins", etc. Not stored on GameState (nothing about it survives a
  * player's turn beyond what's already implied by actionHistory): derived on
  * demand from actionHistory by ./gameLog.ts's buildGameLog, the same way
- * ./turnReview.ts derives its per-turn summary. See GameState.actionHistory's
- * doc comment for why the game has no hidden information to protect here.
+ * ./turnReview.ts derives its per-turn summary. `message` here is always the
+ * fully-revealing narration — see `secret` below and ./redaction.ts's
+ * redactGameLog for how a specific viewer's copy gets masked (issue #399).
  */
 export interface GameEvent {
   id: string
@@ -305,6 +306,19 @@ export interface GameEvent {
   playerId: string | null
   message: string
   timestamp: string
+  /**
+   * Present only when `message` reveals something that may still be secret
+   * from other viewers at the moment this event is rendered — today, just
+   * CHOOSE_CARD's card name (mirrors chosenCardIdByPlayerId's own hidden
+   * window, see redactStateForPlayer in ./redaction.ts). `turn` is the round
+   * this pick belongs to: redactGameLog only masks it while the *current*
+   * state is still that same round's selectCards phase with players
+   * pending, so a later round (or this round once everyone's chosen)
+   * automatically reveals it — this can't be decided once and baked into
+   * `message` at narration time, since the reveal happens on a later
+   * action than this one.
+   */
+  secret?: { turn: number; redactedMessage: string }
 }
 
 export interface GameState {
