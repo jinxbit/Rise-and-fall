@@ -194,6 +194,67 @@ per-action attribution needed) tracks the current position:
   to enable the Redo button, derived from `historyPointer < tip`), never
   the payload source for a network call.
 
+### 4.5 Admin / room-owner privileges (issue #391)
+
+Two distinct asks, tracked separately because they land on different sides
+of the trust boundary this document is about:
+
+- **"Take a turn for another player."** Already safe under *today's* fully
+  client-trusted model (no §4.1 enforcement exists yet, so nothing
+  server-side distinguishes who submitted an action anyway) — implemented
+  directly in `GamePage.tsx` without waiting on the rest of this plan. An
+  "Admin mode" toggle, gated on `isCreator || isAdmin` (reusing
+  `games.created_by` and `profiles.is_admin`, the same checks `canDelete`
+  already uses) and excluded for hotseat (which already has this property
+  by construction — one shared device cycles `me` through every seat via
+  `pendingActorId`, see below). While enabled, `me` — the single identity
+  every submitted action's `playerId` and every panel's interactivity gate
+  (`myPlayerId` throughout `RoundView`/`BoardSetupView`) already derives
+  from — follows `pendingActorId` (`engine/turnOrder.ts`'s `currentActorId`)
+  instead of the signed-in user's own seat, exactly mirroring the mechanism
+  hotseat already uses to let one device act as a rotating cast of players.
+  No changes needed to any action panel. **Once §4.1 lands**, `apply-action`
+  must carve out the equivalent server-side: allow `action.playerId !==
+  callerSeat` when the caller is the room owner or `profiles.is_admin`,
+  checked from the DB, not trusted from the client — otherwise this feature
+  silently breaks (or, if naively left as a client-only bypass, becomes a
+  real impersonation hole) the moment enforcement ships.
+- **"Redo with overwrite" — force a stale redo through, discarding
+  whatever else happened since the undo.** Deliberately *not* implemented
+  as a hack on top of today's `redoStack`/in-place-truncation model: today,
+  undoing already permanently truncates `actionHistory`, so a subsequent
+  redo is "resubmit this stored action against whatever the current tip
+  now is," and if another player acted in between there's no record of
+  where the undone branch actually forked from — reconstructing "overwrite"
+  correctly would mean silently discarding a real player's move with no
+  archive and no way to tell, from the log alone, that it happened. That's
+  exactly the failure mode §4.4's pointer-based history + tail-archiving
+  exists to prevent. This capability is the owner-override case §4.4
+  already specs ("if branching would discard at least one action whose
+  `playerId` differs from the caller's, require the room owner...") —
+  **this issue additionally asks to extend that same override to
+  `profiles.is_admin`, not just `games.created_by`** — implement it there,
+  as part of §4.4's `apply-action`/pointer work (phase 6, §8), not before.
+  The `redoStack` UI already becomes a courtesy hint at that point (§4.4),
+  so admin mode's "force it through" is just: submit the branching action
+  through the normal owner-override path with the admin flag instead of
+  (or in addition to) the ownership check.
+
+**Hidden-information interaction:** today, admin mode changes nothing here
+either — there's no redaction yet (§5), so admin already sees exactly what
+every other player's client already receives (the known gap issue #37
+exists to close). Once §5's `get_game_state` redaction ships, admin mode
+needs an explicit carve-out there too: a viewer who is the room owner or
+`profiles.is_admin` should receive the **unredacted** state (skip the
+`selectCards`/`decline` masking in §5.1) so that acting on another
+player's still-secret in-progress choice via admin mode actually works —
+otherwise admin mode would let them click a card-choice button whose
+contents they can't see. This is a deliberate, logged-as-"admin mode"
+trust boundary (the room owner and any site admin can already see/do
+almost everything else in this app), not an oversight — call it out
+explicitly in the `get_game_state` implementation (§8 phase 5) so it isn't
+missed.
+
 ## 5. Redaction
 
 ### 5.1 `redactStateForPlayer(state, viewerId)`
@@ -359,3 +420,8 @@ earlier ones being merged.
 - Edge Function cold-start/latency impact on perceived responsiveness in
   live mode — expected to be negligible for a turn-based game, but worth
   confirming during phase 9 verification.
+- §4.5's admin/owner carve-outs (server-side `playerId` override in
+  `apply-action`, `profiles.is_admin` added to §4.4's owner-override redo
+  condition, unredacted `get_game_state` for admin/owner) need to land
+  *with* phases 5–6, not after — otherwise admin mode either breaks or
+  becomes an unreviewed impersonation hole the moment enforcement ships.
