@@ -40,7 +40,7 @@ export function GameOverviewCard({
   onOpen,
 }: GameOverviewCardProps) {
   const dimText = isFinished ? 'text-yellow-600' : 'text-neutral-500'
-  const scoreByPlayerId = new Map((summary?.scores ?? []).map((s) => [s.playerId, s.score]))
+  const scoreByPlayerId = new Map((summary?.scores ?? []).map((s) => [s.playerId, s]))
 
   return (
     <li>
@@ -66,13 +66,17 @@ export function GameOverviewCard({
           {description && <>{description} · </>}
           {players.length === 0
             ? 'no players yet'
-            : players.map((p, i) => (
-                <span key={p.id} className={pendingPlayerIds.includes(p.id) ? 'font-semibold text-neutral-100' : undefined}>
-                  {i > 0 && ', '}
-                  {p.display_name}
-                  {scoreByPlayerId.has(p.id) && `: ${scoreByPlayerId.get(p.id)}`}
-                </span>
-              ))}
+            : players.map((p, i) => {
+                const score = scoreByPlayerId.get(p.id)
+                return (
+                  <span key={p.id} className={pendingPlayerIds.includes(p.id) ? 'font-semibold text-neutral-100' : undefined}>
+                    {i > 0 && ', '}
+                    {score?.isWinner && '👑 '}
+                    {p.display_name}
+                    {score && `: ${score.score}`}
+                  </span>
+                )
+              })}
         </span>
         {summary && <GameCardSummaryLines summary={summary} isFinished={isFinished} />}
         <div className="flex flex-col items-end text-right">
@@ -93,7 +97,7 @@ export function GameOverviewCard({
 function GameCardSummaryLines({ summary, isFinished }: { summary: GameCardSummary; isFinished: boolean }) {
   const hasPregameInfo = summary.playerRange !== null || summary.mapBuildStyle !== null
 
-  if (!hasPregameInfo && summary.moduleNames.length === 0 && summary.roundNumber === null && summary.winnerNames.length === 0) {
+  if (!hasPregameInfo && summary.moduleNames.length === 0 && summary.roundNumber === null) {
     return null
   }
 
@@ -108,7 +112,6 @@ function GameCardSummaryLines({ summary, isFinished }: { summary: GameCardSummar
       )}
       {summary.moduleNames.length > 0 && <span>Modules: {summary.moduleNames.join(', ')}</span>}
       {!isFinished && summary.roundNumber !== null && <span>Round {summary.roundNumber}</span>}
-      {isFinished && summary.winnerNames.length > 0 && <span>👑 {summary.winnerNames.join(', ')}</span>}
     </div>
   )
 }
