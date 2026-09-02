@@ -1357,7 +1357,6 @@ export function GamePage() {
           >
             Next game
           </button>
-          <p className="text-sm text-neutral-500">Room {game.room_code}</p>
           <ul className="flex flex-wrap gap-3 text-sm text-neutral-400">
             {players.map((p) => (
               <li key={p.id} className="flex items-center gap-1">
