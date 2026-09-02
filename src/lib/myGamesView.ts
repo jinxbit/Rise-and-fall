@@ -60,6 +60,17 @@ export function isMyTurn(entry: MyGameEntry): boolean {
 }
 
 /**
+ * Where clicking this game should go. Keyed off whether a game_state row
+ * exists yet, not `games.status === 'lobby'` — a room canceled before it
+ * ever started has `status: 'canceled'` with no `gameState`, and still
+ * belongs on the lobby screen (LobbyPage shows the canceled banner/Delete
+ * there), not GamePage.
+ */
+export function gamePath(entry: MyGameEntry): string {
+  return entry.gameState === null ? `/lobby/${entry.game.room_code}` : `/game/${entry.game.room_code}`
+}
+
+/**
  * Splits into active/finished/canceled and sorts each: active games where
  * it's the user's turn float to the top (then most-recently-updated first);
  * finished and canceled games are each most-recently-updated first.

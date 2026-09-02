@@ -19,6 +19,7 @@ import type { TurnReview } from '../engine/turnReview'
 import { currentActorId } from '../engine/turnOrder'
 import { useAuth } from '../hooks/useAuth'
 import { useIsAdmin } from '../hooks/useIsAdmin'
+import { useRefetchOnVisible } from '../hooks/useRefetchOnVisible'
 import { useUnitPlateColors } from '../hooks/useUnitPlateColors'
 import { useUnitReserveDisplayMode } from '../hooks/useUnitReserveDisplayMode'
 import type { GameRow, PlayerRow } from '../lib/dbTypes'
@@ -29,6 +30,7 @@ import {
   deleteGame,
   getGameByRoomCode,
   getGameState,
+  listMyGames,
   listPlayers,
   setGameVisibility,
   subscribeToGame,
@@ -38,6 +40,7 @@ import {
 } from '../lib/gameApi'
 import { encodeGameStateExport } from '../lib/gameStateExport'
 import { saveMapToPool } from '../lib/mapPoolApi'
+import { gamePath, isFinished as isMyGameFinished, isCanceled as isMyGameCanceled, isMyTurn as isMyGameTurn, latestUpdatedAt as latestMyGameUpdatedAt, type MyGameEntry } from '../lib/myGamesView'
 import { setPendingRedirect } from '../lib/pendingRedirect'
 
 /**
@@ -188,6 +191,15 @@ export function GamePage() {
   const [lifecycleBusy, setLifecycleBusy] = useState(false)
   const [lifecycleError, setLifecycleError] = useState<AppError | null>(null)
   /**
+   * Other games (any status) the signed-in user is seated in, refreshed
+   * whenever this room loads and whenever the tab regains visibility — see
+   * `nextGameNeedingInput` below, which is what the "Next game" header
+   * button (issue #396) actually acts on. A one-shot fetch like
+   * MyGamesPage.tsx's, not a live subscription — gameApi.ts has no
+   * "all my games" realtime channel, only per-game ones.
+   */
+  const [otherMyGames, setOtherMyGames] = useState<MyGameEntry[]>([])
+  /**
    * Guards against re-running the auto-enter-review effect below more than
    * once per room load (issue #105).
    */
@@ -240,6 +252,28 @@ export function GamePage() {
       cancelled = true
     }
   }, [roomCode])
+
+  useEffect(() => {
+    if (!session) return
+    let cancelled = false
+    listMyGames(session.user.id)
+      .then((entries) => {
+        if (!cancelled) setOtherMyGames(entries)
+      })
+      .catch(() => {
+        // Best-effort: the "Next game" button just stays disabled if this fails.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [session, game?.id])
+
+  useRefetchOnVisible(() => {
+    if (!session) return
+    listMyGames(session.user.id)
+      .then(setOtherMyGames)
+      .catch(() => {})
+  })
 
   useEffect(() => {
     if (!game) return
@@ -535,6 +569,28 @@ export function GamePage() {
 
   const reviewMaxIndex = gameState?.actionHistory.length ?? 0
   const isReviewingHistory = reviewIndex !== null
+
+  /**
+   * Which other game (if any) to jump to via the header's "Next game"
+   * button (issue #396) — the most recently updated one, among the user's
+   * other games, that's actually waiting on one of their seats right now.
+   * Recomputed from `otherMyGames` (see the fetch effect above), which only
+   * refreshes on room load and tab-visibility change, so this can go stale
+   * while this tab sits open and another game's turn arrives — acceptable
+   * for a "something else needs you" nudge, same tradeoff MyGamesPage.tsx
+   * already makes for its turn highlighting.
+   */
+  const nextGameNeedingInput = useMemo(() => {
+    const candidates = otherMyGames.filter(
+      (entry) => entry.game.id !== game?.id && !isMyGameFinished(entry) && !isMyGameCanceled(entry) && isMyGameTurn(entry),
+    )
+    candidates.sort(
+      (a, b) =>
+        new Date(latestMyGameUpdatedAt(b.game, b.gameStateUpdatedAt)).getTime() -
+        new Date(latestMyGameUpdatedAt(a.game, a.gameStateUpdatedAt)).getTime(),
+    )
+    return candidates[0] ?? null
+  }, [otherMyGames, game?.id])
 
   /**
    * The state (for BoardSetupView/RoundView) and narration log (see
@@ -1295,6 +1351,23 @@ export function GamePage() {
           </ul>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            disabled={!nextGameNeedingInput}
+            onClick={() => {
+              if (nextGameNeedingInput) navigate(gamePath(nextGameNeedingInput))
+            }}
+            title={
+              nextGameNeedingInput
+                ? `${nextGameNeedingInput.game.name} is waiting on you — click to switch to it.`
+                : "No other game is waiting on you right now."
+            }
+            className={`rounded-md border px-3 py-1 text-sm hover:border-neutral-500 disabled:opacity-50 ${
+              nextGameNeedingInput ? 'border-amber-500 text-amber-400' : 'border-neutral-700'
+            }`}
+          >
+            Next game
+          </button>
           <button
             type="button"
             disabled={undoing || isReviewingHistory || !gameState || gameState.actionHistory.length === 0}
