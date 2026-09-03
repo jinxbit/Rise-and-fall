@@ -276,6 +276,26 @@ export function GamePage() {
       .catch(() => {})
   })
 
+  // Realtime subscriptions (below) miss anything that changed while the
+  // tab was backgrounded and its socket dropped, and this room's own
+  // `game`/`gameState`/`players` weren't covered by the "other games" list
+  // refetch above — e.g. a "your turn" push notification firing while the
+  // tab is stale otherwise leaves the board showing the wrong turn until
+  // something else forces a refetch (issue #405).
+  useRefetchOnVisible(() => {
+    if (!roomCode || !game) return
+    void getGameByRoomCode(roomCode).then((fresh) => {
+      if (fresh) setGame(fresh)
+    })
+    void getGameState(game.id).then((snapshot) => {
+      if (snapshot) {
+        setGameState(snapshot.state)
+        setVersion(snapshot.version)
+      }
+    })
+    void listPlayers(game.id).then(setPlayers)
+  })
+
   useEffect(() => {
     if (!game) return
     let cancelled = false

@@ -1,5 +1,5 @@
 import { renderHook } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { useRefetchOnVisible } from '../useRefetchOnVisible'
 
 function setVisibility(state: DocumentVisibilityState) {
@@ -7,6 +7,13 @@ function setVisibility(state: DocumentVisibilityState) {
 }
 
 describe('useRefetchOnVisible', () => {
+  // jsdom doesn't implement navigator.serviceWorker — stand in with a plain
+  // EventTarget so the hook's `message` listener has something real to
+  // (un)subscribe from, matching how sw.ts posts { type: 'REFRESH_DATA' }.
+  beforeAll(() => {
+    Object.defineProperty(navigator, 'serviceWorker', { value: new EventTarget(), configurable: true })
+  })
+
   afterEach(() => {
     setVisibility('visible')
   })
@@ -51,6 +58,34 @@ describe('useRefetchOnVisible', () => {
     unmount()
     setVisibility('visible')
     document.dispatchEvent(new Event('visibilitychange'))
+
+    expect(refetch).not.toHaveBeenCalled()
+  })
+
+  it('calls refetch on a REFRESH_DATA message from the service worker', () => {
+    const refetch = vi.fn()
+    renderHook(() => useRefetchOnVisible(refetch))
+
+    navigator.serviceWorker.dispatchEvent(new MessageEvent('message', { data: { type: 'REFRESH_DATA' } }))
+
+    expect(refetch).toHaveBeenCalledOnce()
+  })
+
+  it('ignores service worker messages of another type', () => {
+    const refetch = vi.fn()
+    renderHook(() => useRefetchOnVisible(refetch))
+
+    navigator.serviceWorker.dispatchEvent(new MessageEvent('message', { data: { type: 'SOMETHING_ELSE' } }))
+
+    expect(refetch).not.toHaveBeenCalled()
+  })
+
+  it('stops listening for service worker messages after unmount', () => {
+    const refetch = vi.fn()
+    const { unmount } = renderHook(() => useRefetchOnVisible(refetch))
+
+    unmount()
+    navigator.serviceWorker.dispatchEvent(new MessageEvent('message', { data: { type: 'REFRESH_DATA' } }))
 
     expect(refetch).not.toHaveBeenCalled()
   })
