@@ -217,6 +217,85 @@ describe('applyAction', () => {
   })
 })
 
+describe('RETRACT_CHOICE (BACKEND_ENFORCEMENT_SPEC.md §4.4)', () => {
+  let state: GameState
+
+  beforeEach(() => {
+    state = makeActiveGame()
+  })
+
+  it('rejects retracting before a card has been chosen this round', () => {
+    const result = applyAction(state, { type: 'RETRACT_CHOICE', playerId: 'p1' })
+    expect(result.ok).toBe(false)
+  })
+
+  it('clears the pick and puts the player back in pendingPlayerIds', () => {
+    const chosen = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'ship') })
+    if (!chosen.ok) throw new Error('setup failed')
+    expect(chosen.state.pendingPlayerIds).toEqual(['p2'])
+
+    const retracted = applyAction(chosen.state, { type: 'RETRACT_CHOICE', playerId: 'p1' })
+    expect(retracted.ok).toBe(true)
+    if (!retracted.ok) return
+    expect(retracted.state.chosenCardIdByPlayerId.p1).toBeNull()
+    expect(retracted.state.pendingPlayerIds).toEqual(['p2', 'p1'])
+    expect(retracted.state.roundPhase).toBe('selectCards')
+  })
+
+  it('rejects retracting the same pick twice in a row', () => {
+    const chosen = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'ship') })
+    if (!chosen.ok) throw new Error('setup failed')
+    const retracted = applyAction(chosen.state, { type: 'RETRACT_CHOICE', playerId: 'p1' })
+    if (!retracted.ok) throw new Error('setup failed')
+
+    const secondRetract = applyAction(retracted.state, { type: 'RETRACT_CHOICE', playerId: 'p1' })
+    expect(secondRetract.ok).toBe(false)
+  })
+
+  it('leaves another still-pending player untouched, including their own not-yet-resolved pick', () => {
+    const p1Chosen = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'ship') })
+    if (!p1Chosen.ok) throw new Error('setup failed')
+    const p2Chosen = applyAction(p1Chosen.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'ship') })
+    if (!p2Chosen.ok) throw new Error('setup failed')
+    // Both chose, so the phase already resolved — reset back to a state
+    // where p2 has chosen but p1 is still pending, to exercise p1 retracting
+    // p2's untouched sibling entry.
+    const bothPending: GameState = {
+      ...p1Chosen.state,
+      chosenCardIdByPlayerId: { ...p1Chosen.state.chosenCardIdByPlayerId, p2: cardIdFor('p2', 'ship') },
+    }
+
+    const retracted = applyAction(bothPending, { type: 'RETRACT_CHOICE', playerId: 'p1' })
+    expect(retracted.ok).toBe(true)
+    if (!retracted.ok) return
+    expect(retracted.state.chosenCardIdByPlayerId.p2).toBe(cardIdFor('p2', 'ship'))
+  })
+
+  it('allows choosing again after retracting — redo is just CHOOSE_CARD, no separate endpoint', () => {
+    const chosen = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'ship') })
+    if (!chosen.ok) throw new Error('setup failed')
+    const retracted = applyAction(chosen.state, { type: 'RETRACT_CHOICE', playerId: 'p1' })
+    if (!retracted.ok) throw new Error('setup failed')
+
+    const rechosen = applyAction(retracted.state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'ship') })
+    expect(rechosen.ok).toBe(true)
+    if (!rechosen.ok) return
+    expect(rechosen.state.chosenCardIdByPlayerId.p1).toBe(cardIdFor('p1', 'ship'))
+    expect(rechosen.state.pendingPlayerIds).toEqual(['p2'])
+  })
+
+  it('rejects retracting outside the select-cards phase', () => {
+    const p1Chosen = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'ship') })
+    if (!p1Chosen.ok) throw new Error('setup failed')
+    const p2Chosen = applyAction(p1Chosen.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'ship') })
+    if (!p2Chosen.ok) throw new Error('setup failed')
+    expect(p2Chosen.state.roundPhase).toBe('actions')
+
+    const result = applyAction(p2Chosen.state, { type: 'RETRACT_CHOICE', playerId: 'p1' })
+    expect(result.ok).toBe(false)
+  })
+})
+
 describe('applyAction — resyncs unit movement from unitContent before dispatching', () => {
   // Regression: a reported game had a Merchant whose movement.canCrossCliffs
   // was stamped false at creation time, from before a content rules fix

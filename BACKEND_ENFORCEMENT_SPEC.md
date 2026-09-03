@@ -481,13 +481,32 @@ Each phase should land as its own PR/commit set; later phases depend on
 earlier ones being merged.
 
 1. **This document.** Record scope/design decisions (done — this file).
-2. **`redactStateForPlayer()` + exhaustive unit tests** in `src/engine/`.
+2. **`redactStateForPlayer()` + exhaustive unit tests** in `src/engine/`
+   (done — `src/engine/redaction.ts`, `src/engine/__tests__/redaction.test.ts`).
    No behavior change to production code paths yet — purely additive and
    independently testable, same pattern as the rest of `src/engine/__tests__/`.
 3. **`historyPointer` model**: engine-side support for an immutable
    `actionHistory` + pointer (replay from pointer instead of always from
-   tip; branch = prune-and-append), with unit tests. Still no network/DB
-   change — this is engine logic first, wiring second.
+   tip; branch = prune-and-append), with unit tests (done —
+   `src/engine/historyPointer.ts`, `src/engine/__tests__/historyPointer.test.ts`).
+   Still no network/DB change — this is engine logic first, wiring second.
+   This phase's two open items from §4.4/§5.3 are now also settled and
+   implemented, engine-side only:
+   - **§5.3's reveal high-water mark** is `computeRevealedPhaseMarks()`
+     (`historyPointer.ts`) — deliberately *not* separately persisted/mutable
+     state, since it's a pure function of the tip `actionHistory` (replay it
+     once, record every `(turn, roundPhase)` whose `pendingPlayerIds` hit
+     zero); "deleted on branch" falls out for free because a pruned
+     resolving entry just isn't in the new tip anymore, no explicit delete
+     step needed. `redactStateForPlayerAtPointer()` (`redaction.ts`) is the
+     pointer-aware entry point that consults it.
+   - **§4.4's `RETRACT_CHOICE`** (`actions.ts`/`applyAction.ts`) is
+     implemented for the `selectCards` case, which turned out to be the
+     unambiguous half of the open item: `chosenCardIdByPlayerId` is a flat
+     map and the card never leaves the player's hand at pick time, so
+     retracting is just clearing the map entry and re-adding the player to
+     `pendingPlayerIds` — no data beyond `playerId` needed on the action.
+     **`RETRACT_DECLINE` is deliberately not implemented yet** — see §10.
 4. **DB migration**: `game_state_meta` (or chosen equivalent), archived-
    tail storage, `historyPointer` column, and updated RLS locking
    `game_state` to service-role-only.
@@ -539,14 +558,38 @@ earlier ones being merged.
 
 - Exact storage shape for the archived branch-pruning tail (§6) — side
   table vs. JSON array column — to be settled in phase 4.
-- Exact storage shape for the reveal high-water mark (§5.3/§6) — to be
-  settled alongside `historyPointer` in phase 4.
-- Exact engine action shape for "retract own pending pick" (§4.4) — a new
-  `Action` variant (e.g. `RETRACT_CHOICE`/`RETRACT_DECLINE`) vs. reusing
-  `CHOOSE_CARD`/`MOVE_TO_DECLINE` with different legality when the caller
-  is already resolved for the phase — to be settled during phase 3's
-  `historyPointer` engine work (§8), alongside the reveal high-water mark's
-  set/delete lifecycle.
+- Exact storage shape for the reveal high-water mark (§5.3/§6) — **partly
+  resolved**: engine-side (phase 3, §8) it needs no storage at all, since
+  `computeRevealedPhaseMarks()` derives it on demand from the tip
+  `actionHistory`. Phase 4 still needs to decide whether the DB layer
+  persists this (e.g. to avoid replaying a long game's full history on
+  every `get_game_state` call) or just calls the equivalent logic
+  server-side per read — a performance choice, not a correctness one, given
+  a small friend group's game lengths.
+- **`RETRACT_CHOICE` implemented (§4.4, phase 3, §8); `RETRACT_DECLINE`
+  still open**, and turns out to need one more design decision, not just
+  the same treatment as `RETRACT_CHOICE`: `CHOOSE_CARD` never moves the
+  picked card out of the player's hand (only `chosenCardIdByPlayerId`
+  changes), so retracting it is a pure map edit. `MOVE_TO_DECLINE`
+  (`applyMoveToDecline`, `applyAction.ts`) *does* move the card immediately,
+  via `moveCard()` (`cards.ts`), out of whichever zone it actually came from
+  — hand or discard, callers may supply either. Reversing that move needs
+  to know which zone to put the card back in, and nothing on the logged
+  action records it today (`MoveToDeclineAction` only carries `cardId`).
+  Recommended fix, to decide alongside `RETRACT_DECLINE`'s implementation:
+  determine the source zone by looking up where `cardId` sat in
+  `actionHistory`-derived state immediately before that specific
+  `MOVE_TO_DECLINE` entry (`stateAtPointer` up to that index already gives
+  this for free, no new stored field needed) — same "derive, don't persist"
+  approach `computeRevealedPhaseMarks` above just validated. A second,
+  smaller wrinkle: a player who owes more than one decline card
+  (`beginDeclinePhase`, `round.ts`) appears more than once in
+  `pendingPlayerIds`; §4.4's text ("they're not in `pendingPlayerIds` for
+  this phase") describes the `selectCards` case cleanly but doesn't say
+  whether a player who has submitted one of two owed cards (still pending
+  for the second) should already be able to retract the first, or only once
+  fully caught up — needs an explicit answer before implementing, since it
+  changes the legality check `applyRetractDecline` would use.
 - ~~Whether a pruned, abandoned branch that already crossed a reveal
   transition leaves that information revealed forever~~ — **resolved**: no,
   per jinxbit's 2026-09-03 answer, the reveal high-water mark is deleted

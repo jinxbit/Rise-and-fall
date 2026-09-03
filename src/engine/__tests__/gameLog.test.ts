@@ -167,6 +167,27 @@ describe('buildGameLog', () => {
     expect(messages(log)).toContainEqual(expect.stringContaining('finished acting — turn ends'))
   })
 
+  it('logs a retracted choice without naming the card that was chosen', () => {
+    // p2 needs a real unit of their own too, same as the "finished acting"
+    // case above — otherwise they're auto-eliminated at genesis and p1's
+    // lone CHOOSE_CARD immediately resolves the phase, leaving nothing to
+    // retract from.
+    const board = boardOf([
+      [0, 0, 'plain'],
+      [1, 0, 'plain'],
+    ])
+    const city: Unit = { id: 'city_a', ownerId: 'p1', kind: 'city', coord: { q: 0, r: 0 }, movement: content.movementByKind.city, traits: [] }
+    const otherNomad: Unit = { id: 'nomad_p2', ownerId: 'p2', kind: 'nomad', coord: { q: 1, r: 0 }, movement: content.movementByKind.nomad, traits: [] }
+    const genesis = makeGenesis([city, otherNomad], board)
+    const state = drive(genesis, [
+      { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') },
+      { type: 'RETRACT_CHOICE', playerId: 'p1' },
+    ])
+
+    const log = buildGameLog(genesis, state.actionHistory, content, achievementContent)
+    expect(messages(log)).toContainEqual(expect.stringContaining('retracted their card choice'))
+  })
+
   it('logs an explicit pass', () => {
     const board = boardOf([[0, 0, 'plain']])
     const city: Unit = { id: 'city_a', ownerId: 'p1', kind: 'city', coord: { q: 0, r: 0 }, movement: content.movementByKind.city, traits: [] }

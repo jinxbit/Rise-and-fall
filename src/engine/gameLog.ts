@@ -71,6 +71,12 @@ function describePrimaryAction(action: Action, before: GameState, after: GameSta
         },
       ]
     }
+    case 'RETRACT_CHOICE':
+      // Never needs a `secret` redaction like CHOOSE_CARD's above: it
+      // doesn't reveal which card was chosen, only that the earlier
+      // "chose a card" line (already itself masked while still secret) no
+      // longer holds.
+      return [{ playerId: action.playerId, message: `${PLAYER_PLACEHOLDER} retracted their card choice` }]
     case 'RESOLVE_UNIT_ACTION': {
       const cardId = before.chosenCardIdByPlayerId[action.playerId]
       const card = cardId ? before.cards[cardId] : undefined
