@@ -61,6 +61,11 @@ self.addEventListener('notificationclick', (event: NotificationEvent) => {
       for (const client of clientsList) {
         if (client.url === target && 'focus' in client) {
           await client.focus()
+          // The tab was already open, possibly backgrounded long enough for
+          // its Supabase Realtime socket to drop — `focus()` alone doesn't
+          // tell the page anything changed, so nudge it to refetch rather
+          // than trust the page to notice on its own (issue #405).
+          client.postMessage({ type: 'REFRESH_DATA' })
           return
         }
       }
