@@ -6,6 +6,11 @@ the same way `PROJECT_PLAN.md` tracks the rest of the project. It supersedes
 the plan text scattered across the issue's comment history; that history is
 the design rationale, this file is the current state of the plan.
 
+[Issue #407](https://github.com/jinxbit/Rise-and-fall/issues/407) refined the
+undo/redo and reveal semantics below (§4.4, §5.3) after this document
+already existed — those sections carry that refinement's rationale inline
+rather than being restated as a separate proposal.
+
 ## 1. Problem statement
 
 `applyAction()` (`src/engine/applyAction.ts`) is pure, dependency-free
@@ -194,6 +199,51 @@ per-action attribution needed) tracks the current position:
   to enable the Redo button, derived from `historyPointer < tip`), never
   the payload source for a network call.
 
+**Refinement (per jinxbit, issue #407, 2026-09-03): a plain pointer
+decrement is the wrong model while a simultaneous phase
+(`selectCards`/`decline`, §2) is still open.** `chosenCardIdByPlayerId`
+entries for different players interleave in `actionHistory` in submission
+order, not turn order — they're independent, commuting writes (each
+`CHOOSE_CARD`/`MOVE_TO_DECLINE` only ever touches the acting player's own
+slot). If player A submits, then player B submits, A calling "undo" must
+not silently undo B's still-secret pick just because B's entry happens to
+sit at the tip. Concretely:
+
+- **While the caller has an unresolved pick of their own in the
+  currently-open phase** (they're not in `pendingPlayerIds` for this phase,
+  and the phase hasn't resolved), "undo" retracts **only that entry** —
+  implemented as a new compensating action (e.g. `RETRACT_CHOICE`), not a
+  pointer move, so it's a normal `apply-action` submission authorized like
+  any other (§4.1: `action.playerId === callerSeat`) and requires no
+  owner-override (it only ever discards the caller's own entry). It puts
+  the caller back in `pendingPlayerIds` and leaves every other player's
+  pending entry — visible or still-secret — untouched, appended after it in
+  the (still append-only) log.
+- **Redo, in this state, is just submitting `CHOOSE_CARD` again** — no
+  special endpoint, consistent with the no-redo-payload rule above.
+  Because the retraction didn't touch other players' entries, this can
+  never "void the other player's selection."
+- **Once the caller has nothing left of their own to retract in the open
+  phase, the next undo falls back to ordinary shared-pointer semantics** —
+  it walks the pointer back across the phase boundary into the previous,
+  already-resolved phase, exactly as §4.4's original model describes.
+- **If information has already been revealed** (the phase resolved — every
+  player chose, `pendingPlayerIds` emptied and the round advanced) **and a
+  later ordinary pointer-rewind undo goes back into that resolved phase**,
+  submitting a different `CHOOSE_CARD` there is an ordinary
+  submit-while-`pointer < tip` branch (the existing rule above): the pruned
+  tail necessarily includes every other player's now-revealed pick for that
+  phase and the transition that resolved it, so `branchDiscardsAnotherPlayersAction`
+  is true and the **existing owner-override gate already covers this case**
+  — no new authorization concept needed. The practical effect the issue
+  asked for — "selecting a new card should force the other players to
+  reselect" — falls out for free: since their `CHOOSE_CARD` entries are
+  gone from the pruned history, replaying from the pointer naturally shows
+  them back in `pendingPlayerIds`, owing a fresh pick. See §5.3 for the one
+  piece this doesn't give for free: keeping their *already-revealed* pick
+  from flickering back to secret for a client that saw it, right up until
+  someone actually branches.
+
 ### 4.5 Admin / room-owner privileges (issue #391)
 
 Two distinct asks, tracked separately because they land on different sides
@@ -305,6 +355,66 @@ subsumes `game_state_meta`'s existing purpose today (see
 `0019_public_game_state_visible.sql`'s public-room read path, which reads
 full state and would need reworking either way).
 
+### 5.3 Sticky reveal across undo — the reveal high-water mark
+
+[Issue #407](https://github.com/jinxbit/Rise-and-fall/issues/407) proposed
+moving hidden fields into a dedicated column that's cleared into the public
+state transactionally on reveal, specifically so that "once information is
+revealed, it stays revealed, even if undo was used to go back to previous
+phases/rounds." Discussion on the issue concluded that literally relocating
+data isn't necessary — §5.1's field-masking (`redactStateForPlayer`) stays
+the mechanism — but the *stickiness* requirement is real and §5.1 as
+written doesn't provide it, since `hideChosenCards`/`declineAdditionsThisPhase`
+are derived fresh from `state.roundPhase`/`pendingPlayerIds` at whatever
+point `stateAtPointer` replayed to. That's a genuine gap, confirmed against
+`stateAtPointer` (`src/engine/historyPointer.ts:34`): rewinding the pointer
+back into an already-resolved `selectCards`/`decline` phase — with **no
+branch**, purely to review an earlier moment — reconstructs a state where
+that phase's picks are still pending, and `redactStateForPlayer` masks them
+again for a viewer whose client already rendered the real values before the
+rewind. Re-masking already-seen data is a flicker, not a leak, but it's a
+real inconsistency the issue is right to want closed.
+
+**Decision (per jinxbit, 2026-09-03): approved as a deliberate break from
+pure-replay determinism.** Redaction for a given simultaneous phase is no
+longer solely a function of `stateAtPointer(pointer).roundPhase`/
+`pendingPlayerIds`. A separate **reveal high-water mark** is introduced —
+persisted per phase instance (keyed by `turn` + phase, since a round has at
+most one `selectCards` and one `decline` phase, matching the original
+issue's point 5: never more than one such window open, and never more than
+one such mark relevant, at a time):
+
+- **Set** when that phase actually resolves on the live tip (the
+  `pendingPlayerIds.length === 0` transition genuinely happens, e.g.
+  `beginActionsPhase`, `src/engine/round.ts:35`) — independent of wherever
+  `historyPointer` sits afterward.
+- **Consulted instead of the replayed phase state** when redacting a read
+  at any pointer position that still lies within the *same, unpruned*
+  history: a plain undo/redo that only moves the pointer, without
+  submitting a new action, never touches this mark, so a phase already
+  revealed stays unmasked through review-only rewinds. No flicker.
+- **Deleted** — per jinxbit's explicit answer to this document's prior open
+  question — exactly when a branch (§4.4: submitting a new action at
+  `pointer < tip`) prunes away the action that produced that resolution.
+  This is the same tail-prune already computed for
+  `branchDiscardsAnotherPlayersAction`/`archivedTail`
+  (`src/engine/historyPointer.ts:95`,`107`) — no separate detection pass:
+  if the resolving transition falls inside `archivedTail`, its mark goes
+  with it. This is what makes §4.4's "branch after reveal forces the other
+  players to reselect" hold *for redaction too*, not just for
+  `pendingPlayerIds`: once the mark is gone, `redactStateForPlayer` goes
+  back to deriving strictly from the (now genuinely-unresolved) replayed
+  state, so their old picks are masked again exactly as if that phase had
+  never resolved — because, per this rule, for redaction purposes it
+  didn't.
+
+Net effect: "revealed" is now a small piece of persisted, monotonic-until-
+branched state, not a pure function of the pointer — deliberately, to match
+real epistemic reality (a client that already saw a value doesn't un-know
+it just because someone is reviewing history), while still resetting
+cleanly the moment that revelation's own causal history is actually
+discarded.
+
 ## 6. Data model changes
 
 - **`game_state` (existing table):** stays the single authoritative row
@@ -321,6 +431,16 @@ full state and would need reworking either way).
 - **New: `historyPointer`** — one int per game (a column on `game_state`
   or a new one-row-per-game table), moved by `undo`/`redo`, read by
   `apply-action`/`get_game_state` to know where "current" is.
+- **New: reveal high-water mark (§5.3)** — at most one live entry per
+  simultaneous phase (`selectCards`/`decline`), keyed by `turn` + phase,
+  recording that phase's resolution as sticky-revealed independent of
+  `historyPointer`. Given §2's confirmed scope (never more than one
+  simultaneous-secret window open at a time), this never needs more than a
+  single "currently sticky" row per game, though prior turns' marks may be
+  worth retaining for audit/debugging even after they stop affecting
+  redaction. Deleted (or superseded) when the resolving action it refers to
+  is pruned by a branch (§4.4/§5.3) — exact shape (column on `game_state`
+  vs. its own table) TBD in phase 4 (§8), alongside `historyPointer`.
 - **Archived/pruned tail:** discarded `actionHistory` entries from a
   branch (§4.4) are archived, not deleted — likely a side table
   (`action_history_archive` or similar) rather than mutating the
@@ -398,7 +518,14 @@ earlier ones being merged.
   `decline`) and confirming everything else passes through unchanged;
   pointer-based undo/redo/branch unit tests including the owner-override
   condition; fast-forward tests for forced single-choice `CHOOSE_CARD`/
-  `MOVE_TO_DECLINE`.
+  `MOVE_TO_DECLINE`; §4.4/§5.3 refinement cases specifically — retracting
+  only the caller's own pending pick leaves other players'
+  visible-or-secret picks untouched; a plain review-only pointer rewind
+  into an already-resolved phase does not re-mask it (no flicker); a
+  branch that prunes a phase's resolving action both reopens
+  `pendingPlayerIds` for every player whose pick was discarded **and**
+  deletes that phase's reveal high-water mark so redaction re-masks it;
+  cross-player pruning here still requires the owner-override gate.
 - **Edge Function level:** requires a live Supabase project — out of reach
   in this sandbox (no credentials/Docker), consistent with existing
   `todo.md` notes about board-setup/round-view verification. Maintainer
@@ -412,6 +539,19 @@ earlier ones being merged.
 
 - Exact storage shape for the archived branch-pruning tail (§6) — side
   table vs. JSON array column — to be settled in phase 4.
+- Exact storage shape for the reveal high-water mark (§5.3/§6) — to be
+  settled alongside `historyPointer` in phase 4.
+- Exact engine action shape for "retract own pending pick" (§4.4) — a new
+  `Action` variant (e.g. `RETRACT_CHOICE`/`RETRACT_DECLINE`) vs. reusing
+  `CHOOSE_CARD`/`MOVE_TO_DECLINE` with different legality when the caller
+  is already resolved for the phase — to be settled during phase 3's
+  `historyPointer` engine work (§8), alongside the reveal high-water mark's
+  set/delete lifecycle.
+- ~~Whether a pruned, abandoned branch that already crossed a reveal
+  transition leaves that information revealed forever~~ — **resolved**: no,
+  per jinxbit's 2026-09-03 answer, the reveal high-water mark is deleted
+  when the branch that produced it is pruned (§5.3), so a discarded branch
+  never leaves a permanent leak.
 - Whether `game_state_meta` subsumes or coexists with the public-room
   status-visibility fix in `0019_public_game_state_visible.sql` — likely
   subsumes it, but the migration needs to preserve that bug's fix (public
