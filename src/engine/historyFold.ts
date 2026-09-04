@@ -14,6 +14,24 @@ export interface ResolvedHistory {
   effective: LoggedAction[]
   /** Whether REDO_ACTION has anything left to advance into. */
   canRedo: boolean
+  /**
+   * Every substantive (non-undo/redo) action still reachable in `history` —
+   * i.e. `effective` plus whatever a REDO_ACTION could still advance back
+   * onto, NOT truncated to wherever the pointer currently sits. Only
+   * shrinks when a later substantive action actually branches (submitted
+   * while the pointer sits behind this array's own tip, pruning everything
+   * from the pointer onward — see the loop's `substantive.length = pointer`
+   * below); a plain UNDO_ACTION/REDO_ACTION never removes anything from it,
+   * only from `effective`. This is what
+   * BACKEND_ENFORCEMENT_SPEC.md §5.3's reveal high-water mark
+   * (computeRevealedPhaseMarks, ./historyPointer.ts) needs to walk instead
+   * of `effective`: a phase that genuinely resolved should stay "revealed"
+   * across a plain undo (which only moves the pointer, leaving this array
+   * untouched), and only actually stop being revealed once the resolving
+   * action is truly pruned by a branch — exactly this array's own shrink
+   * condition.
+   */
+  substantive: LoggedAction[]
 }
 
 /**
@@ -50,5 +68,5 @@ export function resolveHistory(history: LoggedAction[]): ResolvedHistory {
       pointer += 1
     }
   }
-  return { effective: substantive.slice(0, pointer), canRedo: pointer < substantive.length }
+  return { effective: substantive.slice(0, pointer), canRedo: pointer < substantive.length, substantive }
 }

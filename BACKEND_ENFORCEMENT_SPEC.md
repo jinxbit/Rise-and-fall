@@ -444,6 +444,52 @@ it just because someone is reviewing history), while still resetting
 cleanly the moment that revelation's own causal history is actually
 discarded.
 
+**Bug found and fixed while scoping phase 5 (2026-09-04):**
+`computeRevealedPhaseMarks()` (`src/engine/historyPointer.ts`) walked
+`resolveHistory(history).effective` — but `.effective` is truncated to
+wherever the pointer currently sits, and issue #412's real, shipped undo
+mechanism (`applyUndoAction`, `src/engine/undoRedo.ts` — a plain
+`UNDO_ACTION` logged into `actionHistory` itself, see §4.4's update above)
+is exactly "move the pointer back." A scratch reproduction confirmed this
+concretely: after a real `applyUndoAction()` rolled a resolved `selectCards`
+phase back to "still pending," walking `.effective` found **no mark at
+all** — the exact flicker bug #407/§5.3 exist to prevent, silently
+reintroduced for the one undo path players actually use (the explicit-
+pointer test coverage this document's phase-3 checklist already had never
+exercised this, since it drives `applyActionAtPointer`, a separate,
+not-yet-wired-up pointer model — see below).
+`resolveHistory`'s `ResolvedHistory` (`src/engine/historyFold.ts`) now also
+exposes `substantive`: every substantive action still reachable, which a
+plain undo/redo never shrinks (only an actual branch — a new substantive
+action submitted behind the tip — does, via the same `substantive.length =
+pointer` truncation `.effective` was already computed from).
+`computeRevealedPhaseMarks()` now walks `.substantive` instead, which is
+identical to `.effective` whenever `history` has no undo/redo entries (so
+every existing test kept passing unmodified) and strictly fixes the case
+where it does. Two new regression tests in `redaction.test.ts` exercise the
+real `applyUndoAction()` path directly (not just `applyActionAtPointer`):
+one confirms the mark now survives a genuine undo, one confirms it's still
+correctly cleared once a genuine subsequent branch (an ordinary new action
+submitted after undoing past the resolution) prunes it for real.
+
+**A second, separate thing this surfaced:** `historyPointer.ts`'s
+explicit-integer-pointer API (`stateAtPointer`, `applyActionAtPointer`,
+`branchDiscardsAnotherPlayersAction`, and `computeRevealedPhaseMarks` itself)
+is not actually the same mechanism as issue #412's shipped undo/redo
+(`applyUndoAction`/`applyRedoAction`, an implicit pointer folded from logged
+`UNDO_ACTION`/`REDO_ACTION` entries via `resolveHistory`) — they're two
+different pointer models that happen to compose (an explicit `pointer` into
+`history` can itself contain implicit-model undo/redo entries within its
+prefix) but were never exercised together by this document's own test
+coverage until the fix above. `historyPointer.ts`'s explicit model remains
+unused by any production call site today (only `applyUndoAction`/
+`applyRedoAction` are wired into `GamePage.tsx`) — kept for phase 6's
+branch-authorization check and a possible future "browse to an arbitrary
+historical point" feature, neither of which exist yet. §4.4's still-open
+question ("whether phase 6 still wants its own persisted `historyPointer`
+column... or can just reuse `resolveHistory`") is unaffected by this fix
+either way.
+
 ## 6. Data model changes
 
 **Update (2026-09-04, phase 4, §8): smaller than originally scoped.**
@@ -560,7 +606,14 @@ earlier ones being merged.
      zero); "deleted on branch" falls out for free because a pruned
      resolving entry just isn't in the new tip anymore, no explicit delete
      step needed. `redactStateForPlayerAtPointer()` (`redaction.ts`) is the
-     pointer-aware entry point that consults it.
+     pointer-aware entry point that consults it. **Bug fixed 2026-09-04 (see
+     §5.3):** this originally walked the wrong internal array
+     (`resolveHistory`'s pointer-truncated `.effective` instead of its
+     branch-pruned-but-pointer-independent `.substantive`), which meant it
+     silently lost the mark the moment a real player used the real Undo
+     button (issue #412's shipped mechanism) — verified correct now against
+     that actual path, not just the not-yet-wired-up explicit-pointer model
+     its original tests exercised.
    - **§4.4's `RETRACT_CHOICE`** (`actions.ts`/`applyAction.ts`) is
      implemented for the `selectCards` case, which turned out to be the
      unambiguous half of the open item: `chosenCardIdByPlayerId` is a flat
@@ -653,20 +706,28 @@ earlier ones being merged.
 - Exact storage shape for the reveal high-water mark (§5.3/§6) — **engine
   side (phase 3, §8) needs no storage at all** (unchanged from before):
   `computeRevealedPhaseMarks()` derives it on demand from the tip
-  `actionHistory`. **New tension found while scoping phase 5 (2026-09-04):**
-  §5.2 characterizes `get_game_state` as pure "field-nulling, not game
-  rules," implementable as a plain SQL/plpgsql `SECURITY DEFINER` RPC — but
-  `computeRevealedPhaseMarks()` isn't field-nulling, it's a full replay of
-  every logged action through `applyAction()` (the actual rules engine) to
-  find which simultaneous phases resolved. Reimplementing that in SQL would
-  duplicate rule logic outside `src/engine/` — exactly what §3 chose Edge
-  Functions to avoid in the first place. Two ways to resolve this, needs a
-  decision before phase 5 is implemented:
+  `actionHistory` — and, as of the 2026-09-04 fix documented in §5.3 above,
+  now does so *correctly* against the real, shipped undo/redo mechanism
+  (issue #412), not just the not-yet-wired-up explicit-pointer model its
+  existing tests happened to exercise. **Tension found while scoping phase 5
+  (2026-09-04), still open:** §5.2 characterizes `get_game_state` as pure
+  "field-nulling, not game rules," implementable as a plain SQL/plpgsql
+  `SECURITY DEFINER` RPC — but `computeRevealedPhaseMarks()` isn't
+  field-nulling, it's a full replay of every logged action through
+  `applyAction()` (the actual rules engine) to find which simultaneous
+  phases resolved. Reimplementing that in SQL would duplicate rule logic
+  outside `src/engine/` — exactly what §3 chose Edge Functions to avoid in
+  the first place. Two ways to resolve this, needs a decision before phase 5
+  is implemented:
   a. `get_game_state` does §5.1's plain (non-sticky) redaction only, in SQL,
      as originally scoped, and §5.3's stickiness either waits for a later
      increment or is computed a different way (e.g. cached alongside
      `game_state` by whichever Edge Function call last resolved a phase,
-     rather than recomputed per read); or
+     rather than recomputed per read). Concretely regresses issue #407's own
+     ask the moment it ships (a real player using the real Undo button would
+     see other players' already-revealed picks flicker back to hidden) —
+     not a security leak (§5.3), but a real, user-visible step backward from
+     behavior #407 already fixed, not just a hypothetical gap; or
   b. `get_game_state` is actually implemented as an Edge Function (Deno/TS,
      reusing `src/engine/`'s `computeRevealedPhaseMarks()`/
      `redactStateForPlayerAtPointer()` unmodified) despite the "Postgres
@@ -674,10 +735,38 @@ earlier ones being merged.
      at the cost of one more Deno cold start per state read (mitigated by
      §3's own "negligible for a turn-based game" expectation, same as
      `apply-action`).
-  (b) is closer to this document's own stated principles (§3: reuse
-  `src/engine/` unmodified, no rule-logic duplication) and is the current
-  lean, but this needs an explicit decision, not an assumption, before
-  phase 5 starts.
+  **New consideration against assuming (b) is low-risk (2026-09-04):** the
+  one Edge Function precedent that already exists,
+  `supabase/functions/notify-discord-turn/index.ts`, does NOT import
+  `src/engine/` — its own comment says why: "Deno Edge Functions run in an
+  isolated runtime that can't import the app's Vite-aliased TypeScript
+  sources directly," so it keeps a small, explicitly-flagged "deliberate,
+  minimal copy" of the pure logic it needs instead. Checked directly:
+  `src/engine/` itself has no Vite path aliases at all (pure relative
+  imports throughout — confirmed via `tsconfig.json`/`vite.config.ts`, no
+  `paths` config, and `grep`ing `src/engine/` for `from '@`), so that
+  specific claim doesn't describe an actual obstacle in this codebase as it
+  stands today — but this sandbox has no Deno CLI and no way to run
+  `supabase functions deploy` or a local Postgres/Docker stack (`docker
+  info` needs interactive approval this non-interactive session can't give)
+  to actually verify an Edge Function importing `src/engine/` bundles and
+  deploys cleanly (in particular, whether `resolveContent.ts`'s direct
+  `.json` imports need a Deno `with { type: "json" }` import assertion, and
+  whether `supabase functions deploy`'s bundler resolves a relative import
+  three directories outside `supabase/functions/` at all). Getting this
+  wrong isn't cheap to discover: `.github/workflows/deploy-supabase.yml`
+  runs a bare `supabase functions deploy` (every function, no names listed)
+  on every push touching `supabase/migrations/**` or `supabase/functions/**`
+  — an Edge Function that fails to bundle would fail that step on every
+  subsequent push touching either path, not just its own, until someone
+  notices and fixes or reverts it. (b) is still closer to this document's
+  own stated principles (§3: reuse `src/engine/` unmodified, no rule-logic
+  duplication) and remains the better answer *if* it deploys — but "if it
+  deploys" is now flagged as a real, checkable-only-against-a-live-project
+  unknown rather than assumed away, so this still needs an explicit decision
+  (and ideally a maintainer's own `supabase functions deploy --dry-run` or
+  equivalent smoke test against a real project) before phase 5 starts,
+  not an assumption either way.
 - **`RETRACT_CHOICE` and `RETRACT_DECLINE` both implemented (§4.4, phase 3,
   §8).** `RETRACT_DECLINE` turned out to need two design decisions beyond
   `RETRACT_CHOICE`'s treatment, both now resolved (2026-09-04):

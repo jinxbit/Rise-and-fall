@@ -7,6 +7,7 @@ import { buildGameLog, PLAYER_PLACEHOLDER } from '../gameLog'
 import { applyActionAtPointer } from '../historyPointer'
 import { redactGameLog, redactStateForPlayer, redactStateForPlayerAtPointer } from '../redaction'
 import type { GameState, Unit } from '../types'
+import { applyUndoAction } from '../undoRedo'
 
 /**
  * Same shape as round.test.ts's own fixture of the same name — an active
@@ -244,6 +245,54 @@ describe('redactStateForPlayerAtPointer (§5.3 reveal high-water mark)', () => {
     expect(result.state.roundPhase).toBe('selectCards')
 
     const asP2 = redactStateForPlayerAtPointer(genesis, result.state.actionHistory, result.state.actionHistory.length, 'p2')
+    expect(asP2.chosenCardIdByPlayerId.p1).toEqual({ chosen: true, cardId: null })
+  })
+
+  it('stays revealed after a real UNDO_ACTION rolls the phase back (issue #412\'s actual shipped undo path, not just the explicit-pointer one)', () => {
+    // Regression test for a real bug found while scoping BACKEND_ENFORCEMENT_SPEC.md
+    // phase 5: computeRevealedPhaseMarks used to walk resolveHistory(...).effective,
+    // which is pointer-truncated — a plain UNDO_ACTION (the actual mechanism
+    // GamePage.tsx's Undo button and applyUndoAction, ./undoRedo.ts, use) drops the
+    // undone entry from .effective, so the mark was silently lost the moment anyone
+    // undid past it, defeating §5.3 entirely for the one path real players actually
+    // use. Fixed by walking .substantive instead (historyFold.ts), which a plain
+    // undo never shrinks — see its own doc comment.
+    const genesis = makeActiveGameWithFullHands()
+    const afterP1 = requireOk(applyAction(genesis, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }))
+    const tip = requireOk(applyAction(afterP1, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') }))
+    expect(tip.roundPhase).toBe('actions')
+
+    const afterUndo = requireOk(applyUndoAction(genesis, tip, 'p1'))
+    expect(afterUndo.roundPhase).toBe('selectCards')
+    expect(afterUndo.pendingPlayerIds).toEqual(['p2'])
+
+    const asP2 = redactStateForPlayerAtPointer(genesis, afterUndo.actionHistory, afterUndo.actionHistory.length, 'p2')
+    expect(asP2.roundPhase).toBe('selectCards')
+    // Without the fix, this would flicker back to null — p2's client already
+    // legitimately saw p1's real pick before the undo happened.
+    expect(asP2.chosenCardIdByPlayerId.p1).toEqual({ chosen: true, cardId: cardIdFor('p1', 'city') })
+  })
+
+  it('re-masks once a real branch (an ordinary new action submitted after undoing past the resolution) actually prunes it', () => {
+    const genesis = makeActiveGameWithFullHands()
+    const afterP1 = requireOk(applyAction(genesis, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }))
+    const tip = requireOk(applyAction(afterP1, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') }))
+    expect(tip.roundPhase).toBe('actions')
+
+    // Undo twice: first rolls back p2's pick, second rolls back p1's — both
+    // players pending again, purely via the real (logged) undo mechanism.
+    const afterUndo1 = requireOk(applyUndoAction(genesis, tip, 'p1'))
+    const afterUndo2 = requireOk(applyUndoAction(genesis, afterUndo1, 'p1'))
+    expect(afterUndo2.roundPhase).toBe('selectCards')
+    expect(afterUndo2.pendingPlayerIds).toEqual(['p1', 'p2'])
+
+    // p1 picks again for real — an ordinary live submission, not a
+    // pointer-explicit branch — which prunes both original picks.
+    const rebranched = requireOk(applyAction(afterUndo2, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }))
+    expect(rebranched.roundPhase).toBe('selectCards')
+    expect(rebranched.pendingPlayerIds).toEqual(['p2'])
+
+    const asP2 = redactStateForPlayerAtPointer(genesis, rebranched.actionHistory, rebranched.actionHistory.length, 'p2')
     expect(asP2.chosenCardIdByPlayerId.p1).toEqual({ chosen: true, cardId: null })
   })
 

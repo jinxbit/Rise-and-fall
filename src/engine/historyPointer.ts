@@ -139,6 +139,22 @@ export function revealMarkKey(turn: number, phase: RevealablePhase): string {
  * way; unlike stateAtPointer this always walks the *whole* history (the
  * tip), independent of wherever `historyPointer` currently sits (§5.3:
  * "independent of wherever historyPointer sits afterward").
+ *
+ * **Walks `resolveHistory(history).substantive`, deliberately NOT
+ * `.effective`** (fixed 2026-09-04 — see historyFold.ts's ResolvedHistory
+ * doc comment): `.effective` is truncated to wherever the pointer currently
+ * sits, which for the real, shipped undo/redo mechanism (issue #412 —
+ * UNDO_ACTION/REDO_ACTION logged into `history` itself, folded by
+ * resolveHistory) means a plain undo removes its target entry from
+ * `.effective` outright — walking that would make this function forget a
+ * phase ever resolved the moment someone undoes past it, defeating §5.3's
+ * entire point (confirmed by a scratch reproduction: after
+ * applyUndoAction() rolls back a resolved selectCards phase, walking
+ * `.effective` here found no mark at all). `.substantive` isn't
+ * pointer-truncated — a bare undo/redo never shrinks it, only an actual
+ * branch does — so this always sees every substantive action that's
+ * genuinely still reachable, in the order it was originally applied,
+ * regardless of where the pointer has since been moved back to.
  */
 export function computeRevealedPhaseMarks(
   genesis: GameState,
@@ -150,7 +166,7 @@ export function computeRevealedPhaseMarks(
 ): Set<string> {
   const revealed = new Set<string>()
   let state = genesis
-  for (const entry of resolveHistory(history).effective) {
+  for (const entry of resolveHistory(history).substantive) {
     const turnBefore = state.turn
     const phaseBefore = state.roundPhase
     const wasOpen = (phaseBefore === 'selectCards' || phaseBefore === 'decline') && state.pendingPlayerIds.length > 0

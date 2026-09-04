@@ -14,17 +14,24 @@ function redo(playerId: string | null = null): LoggedAction {
 }
 
 describe('resolveHistory', () => {
-  it('with no undo/redo entries, effective is the whole history and redo is unavailable', () => {
+  it('with no undo/redo entries, effective and substantive are both the whole history and redo is unavailable', () => {
     const history = [entry('a'), entry('b')]
-    expect(resolveHistory(history)).toEqual({ effective: history, canRedo: false })
+    expect(resolveHistory(history)).toEqual({ effective: history, canRedo: false, substantive: history })
   })
 
-  it('one UNDO_ACTION drops the last substantive entry from effective, and makes it redoable', () => {
+  it('one UNDO_ACTION drops the last substantive entry from effective, and makes it redoable, but leaves substantive untouched', () => {
     const a = entry('a')
     const b = entry('b')
     const resolved = resolveHistory([a, b, undo()])
     expect(resolved.effective).toEqual([a])
     expect(resolved.canRedo).toBe(true)
+    // Unlike `effective`, `substantive` isn't pointer-truncated — a plain
+    // undo only moves the pointer, so `b` is still reachable (via REDO_ACTION)
+    // and still present here. This is what lets computeRevealedPhaseMarks
+    // (./historyPointer.ts) keep §5.3's reveal high-water mark sticky across
+    // a real undo instead of losing it the moment the pointer moves behind
+    // the resolving entry.
+    expect(resolved.substantive).toEqual([a, b])
   })
 
   it('REDO_ACTION restores the undone entry', () => {
@@ -57,6 +64,10 @@ describe('resolveHistory', () => {
     expect(resolved.effective).toEqual([a, c])
     expect(resolved.canRedo).toBe(false)
     expect(history).toContain(b) // nothing was ever deleted
+    // Unlike a plain undo, an actual branch (a new substantive action
+    // submitted behind the tip) DOES shrink `substantive` — `b` is no
+    // longer reachable at all, by REDO_ACTION or otherwise.
+    expect(resolved.substantive).toEqual([a, c])
   })
 
   it('branching after multiple undos only abandons what the pointer had rewound past', () => {
