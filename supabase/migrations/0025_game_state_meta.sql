@@ -39,7 +39,9 @@ begin
   insert into public.game_state_meta (game_id, status, round_phase, turn, version, updated_at)
   values (
     new.game_id,
-    new.state ->> 'status',
+    -- state->>'status' should always be present, but fall back rather than
+    -- error the write for any legacy/malformed row missing it.
+    coalesce(new.state ->> 'status', 'unknown'),
     new.state ->> 'roundPhase',
     coalesce((new.state ->> 'turn')::int, 0),
     new.version,
@@ -63,7 +65,7 @@ create trigger game_state_sync_meta
 -- Backfill existing rows so games created before this migration get a
 -- game_state_meta row too, without waiting on their next write.
 insert into public.game_state_meta (game_id, status, round_phase, turn, version, updated_at)
-select game_id, state ->> 'status', state ->> 'roundPhase', coalesce((state ->> 'turn')::int, 0), version, now()
+select game_id, coalesce(state ->> 'status', 'unknown'), state ->> 'roundPhase', coalesce((state ->> 'turn')::int, 0), version, now()
 from public.game_state
 on conflict (game_id) do nothing;
 
