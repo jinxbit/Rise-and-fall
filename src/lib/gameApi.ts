@@ -254,6 +254,68 @@ export async function createGame(params: {
   return { game: game as GameRow, player: player as PlayerRow }
 }
 
+/**
+ * "Duplicate as hotseat" (issue #414): clones an existing room's settings
+ * and seated players into a brand-new hotseat room for the caller, sitting
+ * in the lobby ready to start — a shortcut for replaying the same setup
+ * pass-and-play on one device instead of recreating it by hand via
+ * CreateGamePage. Purely additive: the source game/players are never
+ * touched. Every seat (including one that was originally the caller's own)
+ * becomes a local player under hostUserId, same as addLocalPlayer, since
+ * hotseat has exactly one signed-in identity per device; seat indices are
+ * reassigned contiguously from 0 in case the source had gaps (removed
+ * players). soloBuilderId/soloBuilderTurnOrder are cleared even if the
+ * source had already resolved them, since those reference the source's
+ * player row ids, which don't exist in the new room — buildGenesisState's
+ * resolveSoloBuildMap re-resolves them fresh when this room starts.
+ */
+export async function duplicateGameAsHotseat(params: {
+  game: GameRow
+  players: PlayerRow[]
+  hostUserId: string
+}): Promise<GameRow> {
+  const roomCode = generateRoomCode()
+  const suffix = ' (hotseat copy)'
+  const name =
+    params.game.name.length + suffix.length <= 60
+      ? params.game.name + suffix
+      : params.game.name.slice(0, 60 - suffix.length) + suffix
+
+  const settings: GameSettings = { ...params.game.settings, soloBuilderId: null, soloBuilderTurnOrder: null }
+
+  const { data: game, error: gameError } = await supabase
+    .from('games')
+    .insert({
+      room_code: roomCode,
+      name,
+      play_mode: 'hotseat',
+      created_by: params.hostUserId,
+      min_players: params.game.min_players,
+      max_players: Math.max(params.game.max_players, params.players.length),
+      settings,
+      visibility: 'private',
+    })
+    .select()
+    .single()
+
+  if (gameError) throw gameError
+
+  const { error: playersError } = await supabase.from('players').insert(
+    params.players.map((p, seatIndex) => ({
+      game_id: game.id,
+      user_id: params.hostUserId,
+      display_name: p.display_name,
+      avatar_url: null,
+      seat_index: seatIndex,
+      color: PLAYER_COLORS[seatIndex % PLAYER_COLORS.length],
+    })),
+  )
+
+  if (playersError) throw playersError
+
+  return game as GameRow
+}
+
 export async function getGameByRoomCode(roomCode: string): Promise<GameRow | null> {
   const { data, error } = await supabase
     .from('games')

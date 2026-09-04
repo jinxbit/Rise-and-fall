@@ -14,6 +14,7 @@ import { setPendingRedirect } from '../lib/pendingRedirect'
 import {
   addLocalPlayer,
   deleteGame,
+  duplicateGameAsHotseat,
   getGameByRoomCode,
   getGameState,
   insertGameState,
@@ -313,6 +314,26 @@ export function LobbyPage() {
     setTimeout(() => setLinkCopied(false), 1500)
   }
 
+  /**
+   * "Duplicate as hotseat" (issue #414): any signed-in visitor to this room
+   * (not just the owner/seated players — games are readable by any
+   * signed-in user, see dbTypes.ts's GameRow comment) can spin up their own
+   * pass-and-play copy with the same settings and players, without
+   * affecting this room at all.
+   */
+  async function handleDuplicate() {
+    if (!game) return
+    setError(null)
+    setBusy(true)
+    try {
+      const duplicate = await duplicateGameAsHotseat({ game, players, hostUserId: user.id })
+      navigate(`/lobby/${duplicate.room_code}`)
+    } catch (err) {
+      setError(toAppError(err, 'Failed to duplicate game'))
+      setBusy(false)
+    }
+  }
+
   async function handleDelete() {
     if (!game) return
     setBusy(true)
@@ -415,6 +436,15 @@ export function LobbyPage() {
               className="rounded-md border border-neutral-700 px-3 py-2 text-sm font-medium text-neutral-300 hover:border-indigo-400 hover:text-indigo-300"
             >
               {linkCopied ? 'Link copied!' : 'Copy room link'}
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void handleDuplicate()}
+              title="Create a new hot seat room with this room's settings and players, for pass-and-play on this device."
+              className="rounded-md border border-neutral-700 px-3 py-2 text-sm font-medium text-neutral-300 hover:border-indigo-400 hover:text-indigo-300 disabled:opacity-50"
+            >
+              Duplicate as hot seat
             </button>
           </div>
         </div>
