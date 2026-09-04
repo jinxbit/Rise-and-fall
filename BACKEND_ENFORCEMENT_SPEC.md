@@ -444,6 +444,28 @@ it just because someone is reviewing history), while still resetting
 cleanly the moment that revelation's own causal history is actually
 discarded.
 
+**Update (2026-09-04, resolving §10's phase-5 tension, per jinxbit):**
+phase 3's `computeRevealedPhaseMarks()` (`src/engine/historyPointer.ts`)
+derives the mark by replaying the tip of `actionHistory` through the real
+engine — fine for the engine/optimistic-client use it was built for, but
+not something `get_game_state` can do if it stays a plain SQL RPC (§5.2),
+since that would mean duplicating rules-engine replay logic in SQL. The
+resolution: the mark `get_game_state` actually consults is **persisted at
+write time**, not recomputed at read time. `apply-action` already runs
+`applyAction()` for the submitted action and already knows the exact
+instant a phase's `pendingPlayerIds` empties out — at that moment it
+writes the (turn, phase) mark directly, instead of leaving it to be
+re-derived by a later read-side replay. `get_game_state` then only ever
+needs to check whether a mark is set, which genuinely is field-nulling and
+can stay plain SQL, as §5.2 originally assumed. The trade-off: "deleted on
+branch" no longer falls out for free (that only worked when the mark was
+a pure function of the tip). `apply-action`'s branch-handling path — the
+same code that already computes `archivedTail`/
+`branchDiscardsAnotherPlayersAction` (§4.4) to prune a superseded tail —
+must now also explicitly delete any mark whose resolving entry falls
+inside that pruned tail. See §6 and §10 for the storage shape and updated
+open-item status.
+
 ## 6. Data model changes
 
 **Update (2026-09-04, phase 4, §8): smaller than originally scoped.**
@@ -485,16 +507,22 @@ bullet).
   (`state.actionHistory`, inside the existing `game_state.state` jsonb).
   `get_game_state`/`apply-action` (phases 5-6) can compute it the same way
   `resolveHistory()`/`stateAtPointer()` already do, with no new column.
-- ~~**New: reveal high-water mark (§5.3)**~~ — **also unnecessary as
-  persisted state**, for the same reason: `computeRevealedPhaseMarks()`
-  (`src/engine/historyPointer.ts`) is already "deliberately a pure function
-  of `history` rather than separately persisted, mutable state" (its own
-  doc comment) — a mark can't outlive the resolving entry that produced it,
-  since it's recomputed from `actionHistory` on every call. §10 has a new
-  open item on what this means for `get_game_state`'s implementation,
-  though: computing it requires replaying the *engine*, not just
-  field-nulling, which is more than the "field-nulling, not game rules"
-  characterization §5.2 gives `get_game_state` accounted for.
+- **New: reveal high-water mark (§5.3) — reopened, 2026-09-04.** Phase 3's
+  `computeRevealedPhaseMarks()` (`src/engine/historyPointer.ts`) is a pure
+  function of `actionHistory`, needing no storage of its own, and stays
+  exactly as-is for engine/optimistic-client use. But §10's phase-5 tension
+  (`get_game_state` can't afford to replay the engine in plain SQL) is
+  resolved in favor of persisting the mark that `get_game_state` actually
+  reads, written at write time by `apply-action` instead of derived at read
+  time. Concretely: a new `revealed_phase_marks jsonb` column on
+  `game_state` (sibling to the existing `state`/`version` columns, not
+  nested inside the replayed `state` blob — it must survive pointer rewind,
+  same reasoning as §5.3), a small map keyed by `"${turn}:${phase}"`.
+  `apply-action` sets an entry the moment `pendingPlayerIds` empties for
+  that phase on the live tip, and deletes an entry when its branch-pruning
+  path (§4.4's `archivedTail` check) discards the action that produced it.
+  `get_game_state`'s SQL only ever reads this column field-nulling-style —
+  no engine replay required there.
 - ~~**Archived/pruned tail**~~ — **also unnecessary.** §4.4's original
   "submitting a new action while `pointer < tip` prunes the abandoned
   tail" language predates issue #412's actual implementation:
@@ -560,7 +588,11 @@ earlier ones being merged.
      zero); "deleted on branch" falls out for free because a pruned
      resolving entry just isn't in the new tip anymore, no explicit delete
      step needed. `redactStateForPlayerAtPointer()` (`redaction.ts`) is the
-     pointer-aware entry point that consults it.
+     pointer-aware entry point that consults it. **This remains the
+     engine/optimistic-client-side derivation only** — per §6/§10's
+     2026-09-04 resolution, `get_game_state`'s server-side redaction
+     instead consults a genuinely persisted mark, written by `apply-action`
+     at write time (phase 6), not this function re-run at read time.
    - **§4.4's `RETRACT_CHOICE`** (`actions.ts`/`applyAction.ts`) is
      implemented for the `selectCards` case, which turned out to be the
      unambiguous half of the open item: `chosenCardIdByPlayerId` is a flat
@@ -586,14 +618,17 @@ earlier ones being merged.
    remaining part of this phase, intentionally deferred to land together
    with phase 8 (§6's `game_state` bullet explains why).
 5. **`get_game_state` SQL RPC** (read-side redaction, §5.1–5.2) + migration
-   — **open design question first, see §10:** §5.3's reveal high-water mark
-   needs a full engine replay (`computeRevealedPhaseMarks()`), not the plain
-   field-nulling §5.2 originally scoped this RPC as, which is a real tension
-   with implementing it as plain SQL/plpgsql instead of an Edge Function.
+   — **design question resolved (2026-09-04, §6/§10):** stays a plain
+   SQL/plpgsql `SECURITY DEFINER` RPC doing §5.1's field-nulling, and reads
+   §5.3's stickiness from the new `revealed_phase_marks` column (§6) rather
+   than replaying the engine — no Edge Function needed for this RPC.
 6. **`apply-action` / `undo-action` / `redo-action` Edge Functions**,
    reusing the engine as-is: seat resolution from JWT, `action.playerId`
    enforcement (§4.1), fast-forwarding (§4.3), pointer-based undo/redo
-   with owner-override pruning (§4.4), version compare-and-swap on write.
+   with owner-override pruning (§4.4), version compare-and-swap on write —
+   plus, per §6's resolution, writing a `revealed_phase_marks` entry the
+   moment a phase resolves on the live tip, and deleting any entry whose
+   resolving action falls inside a branch's pruned tail.
 7. **CI deploy workflow** (§7) — done ahead of order, out of phase sequence
    (`.github/workflows/deploy-supabase.yml`, added directly by a human with
    workflow-edit rights since Claude's GitHub App permissions can't touch
@@ -650,34 +685,27 @@ earlier ones being merged.
   (issue #412) never deletes or moves `actionHistory` entries — a branch is
   just later `UNDO_ACTION`/`REDO_ACTION` entries no longer being able to
   reach the superseded ones. The existing column already is the archive.
-- Exact storage shape for the reveal high-water mark (§5.3/§6) — **engine
-  side (phase 3, §8) needs no storage at all** (unchanged from before):
-  `computeRevealedPhaseMarks()` derives it on demand from the tip
-  `actionHistory`. **New tension found while scoping phase 5 (2026-09-04):**
-  §5.2 characterizes `get_game_state` as pure "field-nulling, not game
-  rules," implementable as a plain SQL/plpgsql `SECURITY DEFINER` RPC — but
-  `computeRevealedPhaseMarks()` isn't field-nulling, it's a full replay of
-  every logged action through `applyAction()` (the actual rules engine) to
-  find which simultaneous phases resolved. Reimplementing that in SQL would
-  duplicate rule logic outside `src/engine/` — exactly what §3 chose Edge
-  Functions to avoid in the first place. Two ways to resolve this, needs a
-  decision before phase 5 is implemented:
-  a. `get_game_state` does §5.1's plain (non-sticky) redaction only, in SQL,
-     as originally scoped, and §5.3's stickiness either waits for a later
-     increment or is computed a different way (e.g. cached alongside
-     `game_state` by whichever Edge Function call last resolved a phase,
-     rather than recomputed per read); or
-  b. `get_game_state` is actually implemented as an Edge Function (Deno/TS,
-     reusing `src/engine/`'s `computeRevealedPhaseMarks()`/
-     `redactStateForPlayerAtPointer()` unmodified) despite the "Postgres
-     RPC" framing in §5.2 — consistent with §3's reuse-the-engine rationale,
-     at the cost of one more Deno cold start per state read (mitigated by
-     §3's own "negligible for a turn-based game" expectation, same as
-     `apply-action`).
-  (b) is closer to this document's own stated principles (§3: reuse
-  `src/engine/` unmodified, no rule-logic duplication) and is the current
-  lean, but this needs an explicit decision, not an assumption, before
-  phase 5 starts.
+- ~~Exact storage shape for the reveal high-water mark, and the resulting
+  `get_game_state` SQL-vs-Edge-Function tension (§5.3/§6)~~ — **resolved,
+  2026-09-04, per jinxbit: the write-time-persistence variant.** Engine
+  side (phase 3, §8) is unchanged — `computeRevealedPhaseMarks()` still
+  derives the mark on demand from the tip `actionHistory`, for
+  engine/optimistic-client use. But the mark `get_game_state` reads is a
+  genuinely persisted value: `apply-action` already runs the engine and
+  already knows the instant a phase's `pendingPlayerIds` empties, so it
+  writes that fact directly — a new `revealed_phase_marks jsonb` column on
+  `game_state` (§6), keyed by `"${turn}:${phase}"` — instead of leaving it
+  to be re-derived by a read-time replay. `get_game_state` then only checks
+  whether a mark is set, which is plain field-nulling and can stay a SQL
+  RPC exactly as §5.2 originally scoped it — no Edge Function needed for
+  this RPC after all, resolving the tension in favor of option (a) rather
+  than (b). The one thing this reopens: "deleted on branch" no longer falls
+  out for free the way it did for the engine-side pure-function version —
+  `apply-action`'s branch-pruning path (the same `archivedTail` check
+  already used for §4.4's owner-override gate) must now explicitly delete
+  any mark whose resolving entry falls inside the pruned tail. This is
+  scoped into phase 5 (RPC + migration) and phase 6 (`apply-action`
+  read/write of the column) in §8.
 - **`RETRACT_CHOICE` and `RETRACT_DECLINE` both implemented (§4.4, phase 3,
   §8).** `RETRACT_DECLINE` turned out to need two design decisions beyond
   `RETRACT_CHOICE`'s treatment, both now resolved (2026-09-04):
