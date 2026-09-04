@@ -91,7 +91,8 @@ that don't map to any actual requirement here. Edge Functions:
 - Get JWT verification and a service-role DB client for free, colocated
   with Postgres (no extra network hop).
 - Match an existing precedent already in this repo
-  (`supabase/functions/notify-discord-turn/index.ts`).
+  (`supabase/functions/notify-discord-turn/index.ts`, and since,
+  `supabase/functions/notify-web-push/index.ts`).
 - Keep the stack at two platforms (Vercel + Supabase), both with existing
   auto-deploy-on-push precedent to extend (see §7).
 
@@ -483,25 +484,29 @@ discarded.
 
 ## 7. Deploy automation
 
-Both existing Supabase artifacts in this repo are deployed manually today:
-migrations (`README.md`: "run manually in the Supabase SQL editor") and the
-one existing Edge Function, `notify-discord-turn`
-(`README.md`: `supabase functions deploy notify-discord-turn`, run by
-hand). `ci.yml` only lints/tests/builds the frontend — there's no Supabase
-deploy step, unlike Vercel which already auto-deploys on push.
+**Update (2026-09-04): done, and landed ahead of the functions/RPC it was
+originally scoped to wait for.** Migrations and Edge Functions can still be
+applied by hand (SQL editor / `supabase` CLI), but also deploy automatically
+on every push to `main` via
+[`.github/workflows/deploy-supabase.yml`](.github/workflows/deploy-supabase.yml)
+— a human with workflow-edit rights added it directly (Claude's GitHub App
+permissions still exclude editing `.github/workflows/*`, so this one
+couldn't have shipped through the same path as the rest of this plan). It
+triggers on a push touching `supabase/migrations/**` or `supabase/functions/**`
+(or manual dispatch from the Actions tab), links the Supabase CLI to the
+project, runs `supabase db push` for migrations, then plain
+`supabase functions deploy` (no function names listed) to redeploy every
+Edge Function in the repo. Authenticated via `SUPABASE_ACCESS_TOKEN`/
+`SUPABASE_PROJECT_ID`/`SUPABASE_DB_PASSWORD` repo secrets, documented in
+`README.md`'s "Deploying Supabase changes" section — same shape as Vercel's
+existing auto-deploy. This also fixed the pre-existing manual-deploy
+friction for `notify-discord-turn` (and now `notify-web-push` too).
 
-**Plan:** a GitHub Actions job using the Supabase CLI
-(`supabase/setup-cli` action), triggered on push to `main` when
-`supabase/**` changes, running `supabase db push` for migrations and
-`supabase functions deploy apply-action undo-action redo-action
-notify-discord-turn` for functions, authenticated via
-`SUPABASE_ACCESS_TOKEN`/`SUPABASE_PROJECT_REF` repo secrets — same shape as
-Vercel's existing auto-deploy. This also fixes the pre-existing manual-
-deploy friction for `notify-discord-turn`.
-
-**Caveat:** Claude's GitHub App permissions exclude editing
-`.github/workflows/*`, so this step needs to be added by a human with
-workflow-edit rights once the functions/RPC below exist (§8, phase 7).
+Deploying *every* function rather than naming `apply-action`/`undo-action`/
+`redo-action` explicitly (this document's original plan) was a deliberate
+simplification: it means this workflow needs no edit when those functions
+are added in phase 6 below, or if a future function is added later —
+one less thing for a human-with-workflow-rights to remember to touch.
 
 ## 8. Execution plan (phased)
 
@@ -554,7 +559,12 @@ earlier ones being merged.
    reusing the engine as-is: seat resolution from JWT, `action.playerId`
    enforcement (§4.1), fast-forwarding (§4.3), pointer-based undo/redo
    with owner-override pruning (§4.4), version compare-and-swap on write.
-7. **CI deploy workflow** (§7) — needs a human with workflow-edit rights.
+7. **CI deploy workflow** (§7) — done ahead of order, out of phase sequence
+   (`.github/workflows/deploy-supabase.yml`, added directly by a human with
+   workflow-edit rights since Claude's GitHub App permissions can't touch
+   `.github/workflows/*`). Safe to land early because it deploys generically
+   (`supabase functions deploy` with no names) rather than depending on
+   phase 6's specific functions existing yet.
 8. **Rewire `gameApi.ts`** and every call site (`GamePage.tsx`,
    `LobbyPage.tsx`, `RoundView.tsx`, `BoardSetupView.tsx`) from direct
    `game_state` reads/writes onto `get_game_state`/`apply-action`/
