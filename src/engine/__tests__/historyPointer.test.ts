@@ -3,7 +3,7 @@ import { applyAction } from '../applyAction'
 import { createEmptyBoard, setTile } from '../board'
 import { cardIdFor, createPlayerCards, syncCardZonesWithBoard } from '../cards'
 import { createNewGame } from '../createGame'
-import { applyActionAtPointer, branchDiscardsAnotherPlayersAction, clampPointer, stateAtPointer } from '../historyPointer'
+import { applyActionAtPointer, branchDiscardsAnotherPlayersAction, clampPointer, computeRevealedPhaseMarks, revealMarkKey, stateAtPointer } from '../historyPointer'
 import { beginSelectCardsPhase } from '../round'
 import type { Card, GameState, Player } from '../types'
 import type { UnitContent } from '../unitContent'
@@ -211,5 +211,42 @@ describe('branchDiscardsAnotherPlayersAction', () => {
     const afterP1 = choose(genesis, 'p1')
     const tip = choose(afterP1, 'p2')
     expect(branchDiscardsAnotherPlayersAction(tip.actionHistory, tip.actionHistory.length, 'p1')).toBe(false)
+  })
+})
+
+describe('computeRevealedPhaseMarks (§5.3)', () => {
+  it('has no mark while the selectCards phase still has a pending player', () => {
+    const genesis = makeGenesis()
+    const afterP1 = choose(genesis, 'p1')
+    const marks = computeRevealedPhaseMarks(genesis, afterP1.actionHistory, unitContent)
+    expect(marks.has(revealMarkKey(genesis.turn, 'selectCards'))).toBe(false)
+  })
+
+  it('marks the phase revealed once every player has chosen and it resolves', () => {
+    const genesis = makeGenesis()
+    const afterP1 = choose(genesis, 'p1')
+    const tip = choose(afterP1, 'p2')
+    expect(tip.roundPhase).toBe('actions')
+
+    const marks = computeRevealedPhaseMarks(genesis, tip.actionHistory, unitContent)
+    expect(marks.has(revealMarkKey(genesis.turn, 'selectCards'))).toBe(true)
+  })
+
+  it('a branch that leaves the phase genuinely unresolved produces no mark for it (§5.3: deleted when the resolving entry is pruned)', () => {
+    const genesis = makeGenesis()
+    const afterP1 = choose(genesis, 'p1')
+    const tip = choose(afterP1, 'p2')
+    expect(computeRevealedPhaseMarks(genesis, tip.actionHistory, unitContent).has(revealMarkKey(genesis.turn, 'selectCards'))).toBe(true)
+
+    // p1 rewinds all the way to genesis and retracts nothing — just
+    // re-picks their own card, discarding p2's real pick entirely and
+    // leaving p2 pending again.
+    const { result } = applyActionAtPointer(genesis, tip.actionHistory, 0, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }, unitContent)
+    if (!result.ok) throw new Error('setup failed')
+    expect(result.state.roundPhase).toBe('selectCards')
+    expect(result.state.pendingPlayerIds).toEqual(['p2'])
+
+    const marksAfterBranch = computeRevealedPhaseMarks(genesis, result.state.actionHistory, unitContent)
+    expect(marksAfterBranch.has(revealMarkKey(genesis.turn, 'selectCards'))).toBe(false)
   })
 })

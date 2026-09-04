@@ -50,6 +50,24 @@ export interface ChooseCardAction {
   cardId: string
 }
 
+/**
+ * Retracts the caller's own already-made `selectCards` pick while at least
+ * one other player is still pending (BACKEND_ENFORCEMENT_SPEC.md §4.4's
+ * refinement) — the "undo" a player reaches for mid-phase instead of the
+ * shared `historyPointer` rewind, since a plain pointer move would also
+ * undo whichever other players' entries happen to sit after theirs in
+ * `actionHistory`. Legal only while `roundPhase === 'selectCards'` and the
+ * caller has a non-null `chosenCardIdByPlayerId` entry (once the phase
+ * resolves, `roundPhase` moves on and this is no longer submittable). Puts
+ * the caller back in `pendingPlayerIds`; redo is just choosing again, no
+ * separate endpoint. No `cardId` payload — there's only ever one thing to
+ * retract, the caller's own current pick.
+ */
+export interface RetractChoiceAction {
+  type: 'RETRACT_CHOICE'
+  playerId: string
+}
+
 /** One acting unit's chosen action (an id from content/units.json's actions[] for the played card's kind) and, if that action needs one, its target hex. */
 export interface UnitActionAssignment {
   unitId: string
@@ -130,6 +148,7 @@ export type Action =
   | PlaceTileAction
   | PlaceUnitAction
   | ChooseCardAction
+  | RetractChoiceAction
   | ResolveUnitActionAction
   | PassActionsAction
   | MoveToDeclineAction

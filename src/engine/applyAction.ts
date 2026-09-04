@@ -212,6 +212,8 @@ function dispatchAction(
   switch (action.type) {
     case 'CHOOSE_CARD':
       return applyChooseCard(state, action.playerId, action.cardId)
+    case 'RETRACT_CHOICE':
+      return applyRetractChoice(state, action.playerId)
     case 'RESOLVE_UNIT_ACTION':
       return applyResolveUnitAction(state, action.playerId, action.unitActions, unitContent, achievementContent, taleContent)
     case 'PASS_ACTIONS':
@@ -261,6 +263,31 @@ function applyChooseCard(state: GameState, playerId: string, cardId: string): Ac
 
   if (nextState.pendingPlayerIds.length === 0) {
     nextState = beginActionsPhase(nextState)
+  }
+  return { ok: true, state: nextState }
+}
+
+/**
+ * See RetractChoiceAction (./actions.ts) for the "why" — this is the
+ * compensating action §4.4 calls for instead of a shared pointer rewind.
+ * Legal exactly while the caller has a pick standing from this same
+ * `selectCards` phase: `roundPhase === 'selectCards'` already implies the
+ * phase hasn't resolved (the moment the last pending player chooses,
+ * applyChooseCard above flips it to `'actions'`), so the only other check
+ * needed is that this player actually has something to retract.
+ */
+function applyRetractChoice(state: GameState, playerId: string): ActionResult {
+  if (state.roundPhase !== 'selectCards') {
+    return { ok: false, error: 'Cards can only be retracted during the select-cards phase' }
+  }
+  if (state.chosenCardIdByPlayerId[playerId] == null) {
+    return { ok: false, error: 'This player has not chosen a card yet this round' }
+  }
+
+  const nextState: GameState = {
+    ...state,
+    chosenCardIdByPlayerId: { ...state.chosenCardIdByPlayerId, [playerId]: null },
+    pendingPlayerIds: [...state.pendingPlayerIds, playerId],
   }
   return { ok: true, state: nextState }
 }

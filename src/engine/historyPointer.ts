@@ -1,7 +1,7 @@
 import { EMPTY_ACHIEVEMENT_CONTENT } from './achievementContent'
 import type { AchievementContent } from './achievementContent'
 import type { Action, LoggedAction } from './actions'
-import { applyActionAndFastForwardTiles } from './applyAction'
+import { applyAction, applyActionAndFastForwardTiles } from './applyAction'
 import { EMPTY_BOARD_GENERATION_CONTENT } from './boardGenerationContent'
 import type { BoardGenerationContent } from './boardGenerationContent'
 import { replayActions } from './replay'
@@ -106,4 +106,68 @@ export function applyActionAtPointer(
  */
 export function branchDiscardsAnotherPlayersAction(history: LoggedAction[], pointer: number, callerPlayerId: string): boolean {
   return history.slice(pointer).some((entry) => entry.action.playerId !== callerPlayerId)
+}
+
+/** A simultaneous-phase instance a reveal mark can key on — see §5.3, computeRevealedPhaseMarks below. */
+export type RevealablePhase = 'selectCards' | 'decline'
+
+/** The key computeRevealedPhaseMarks' returned Set uses, and redactStateForPlayerAtPointer (./redaction.ts) consults it by. */
+export function revealMarkKey(turn: number, phase: RevealablePhase): string {
+  return `${turn}:${phase}`
+}
+
+/**
+ * §5.3's "reveal high-water mark": which (turn, roundPhase) simultaneous-
+ * phase instances have actually resolved somewhere in `history` — i.e. a
+ * moment existed where every player still owed a pick in that phase
+ * finished owing one, whether that happened via the phase's own action
+ * (CHOOSE_CARD/MOVE_TO_DECLINE) or an eliminating one (CONCEDE and its
+ * cascades, ./elimination.ts) clearing the last pending player some other
+ * way. Once true, redaction should stop masking that phase even if a later
+ * *review-only* pointer rewind (no branch) replays back into it — see
+ * redactStateForPlayerAtPointer.
+ *
+ * Deliberately a pure function of `history` rather than separately
+ * persisted, mutable state: nothing here needs an explicit "delete on
+ * branch" step (§5.3 spells out the mark must vanish once the branch that
+ * produced it is pruned) because a mark can only ever be present if the
+ * resolving entry is still actually in `history` — call this again after a
+ * branch with the new (pruned) tip history and a mark whose resolving
+ * action got discarded simply doesn't reappear. `genesis`/pointer-shaped
+ * inputs mirror stateAtPointer's own signature since both replay the same
+ * way; unlike stateAtPointer this always walks the *whole* history (the
+ * tip), independent of wherever `historyPointer` currently sits (§5.3:
+ * "independent of wherever historyPointer sits afterward").
+ */
+export function computeRevealedPhaseMarks(
+  genesis: GameState,
+  history: LoggedAction[],
+  unitContent: UnitContent = EMPTY_UNIT_CONTENT,
+  achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT,
+  boardGenerationContent: BoardGenerationContent = EMPTY_BOARD_GENERATION_CONTENT,
+  taleContent: TaleContent = EMPTY_TALE_CONTENT,
+): Set<string> {
+  const revealed = new Set<string>()
+  let state = genesis
+  for (const entry of history) {
+    const turnBefore = state.turn
+    const phaseBefore = state.roundPhase
+    const wasOpen = (phaseBefore === 'selectCards' || phaseBefore === 'decline') && state.pendingPlayerIds.length > 0
+
+    const result = applyAction(state, entry.action, unitContent, achievementContent, boardGenerationContent, taleContent, true)
+    if (!result.ok) {
+      throw new Error(`computeRevealedPhaseMarks: replay failed at ${JSON.stringify(entry.action)}: ${result.error}`)
+    }
+    state = result.state
+
+    // A resolution either moves roundPhase on (the ordinary case) or ends
+    // the game outright via an elimination cascade mid-phase (status flips
+    // to 'completed' before roundPhase would otherwise have changed) —
+    // either way, nobody is left with anything of this phase-instance still
+    // to hide.
+    if (wasOpen && (state.roundPhase !== phaseBefore || state.status !== 'active')) {
+      revealed.add(revealMarkKey(turnBefore, phaseBefore as RevealablePhase))
+    }
+  }
+  return revealed
 }

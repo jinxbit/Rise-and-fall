@@ -75,6 +75,7 @@ function reviewPhaseGroupFor(action: Action, precedingGroup: ReviewPhaseGroup): 
     case 'PLACE_UNIT':
       return 'boardSetup'
     case 'CHOOSE_CARD':
+    case 'RETRACT_CHOICE':
       return 'selectCards'
     case 'RESOLVE_UNIT_ACTION':
     case 'PASS_ACTIONS':
