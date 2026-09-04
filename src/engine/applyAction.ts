@@ -220,6 +220,8 @@ function dispatchAction(
       return applyPassActions(state, action.playerId, achievementContent, taleContent)
     case 'MOVE_TO_DECLINE':
       return applyMoveToDecline(state, action.playerId, action.cardId, achievementContent, taleContent)
+    case 'RETRACT_DECLINE':
+      return applyRetractDecline(state, action.playerId, action.cardId)
     case 'PURCHASE_CARD':
       return applyPurchaseCard(state, action.playerId, action.cardId, achievementContent, taleContent)
     case 'PASS_PURCHASE':
@@ -514,12 +516,21 @@ function applyMoveToDecline(
   if (!player.handCardIds.includes(cardId) && !player.discardCardIds.includes(cardId)) {
     return { ok: false, error: 'Card moved to decline must come from hand or discard' }
   }
+  const fromZone: 'hand' | 'discard' = player.handCardIds.includes(cardId) ? 'hand' : 'discard'
 
   const nextPlayer = moveCard(player, cardId, 'decline')
   const players = [...state.players]
   players[playerIndex] = nextPlayer
 
-  let nextState: GameState = { ...state, players, pendingPlayerIds: removeOneOccurrence(state.pendingPlayerIds, playerId) }
+  let nextState: GameState = {
+    ...state,
+    players,
+    pendingPlayerIds: removeOneOccurrence(state.pendingPlayerIds, playerId),
+    // See RetractDeclineAction (./actions.ts) for why this is tracked: it's
+    // what lets a later RETRACT_DECLINE put the card back where it actually
+    // came from.
+    declineSourceZoneByCardId: { ...state.declineSourceZoneByCardId, [cardId]: fromZone },
+  }
   // This player (or another still-pending one) might now have nothing left
   // to decline for a required card they haven't supplied yet.
   nextState = eliminatePlayersWithNoCardToDecline(nextState)
@@ -530,6 +541,53 @@ function applyMoveToDecline(
   // post-elimination chain points.
   if (nextState.status !== 'completed' && nextState.pendingPlayerIds.length === 0) {
     nextState = beginPurchasePhase(nextState, achievementContent, taleContent)
+  }
+  return { ok: true, state: nextState }
+}
+
+/**
+ * See RetractDeclineAction (./actions.ts) for the "why" — decline's
+ * counterpart to applyRetractChoice above, complicated by a player being
+ * able to owe (and so have already moved) more than one card this phase.
+ * Legal exactly while `cardId` is one of the caller's own additions still
+ * standing from the *currently open* decline phase: `declineCardIds`
+ * confirms it's genuinely still there (not already bought back in some
+ * earlier round, nor already retracted), and
+ * `declineSourceZoneByCardId[cardId]` — populated by applyMoveToDecline,
+ * reset fresh every beginDeclinePhase (./round.ts) — confirms it was
+ * *this* phase's addition rather than an already-public prior round's
+ * (which has no entry and so isn't retractable).
+ */
+function applyRetractDecline(state: GameState, playerId: string, cardId: string): ActionResult {
+  if (state.roundPhase !== 'decline') {
+    return { ok: false, error: 'Decline can only be retracted during the decline phase' }
+  }
+
+  const playerIndex = state.players.findIndex((p) => p.id === playerId)
+  if (playerIndex === -1) {
+    return { ok: false, error: `Unknown player: ${playerId}` }
+  }
+  const player = state.players[playerIndex]
+  if (!player.declineCardIds.includes(cardId)) {
+    return { ok: false, error: "This card is not currently in this player's decline" }
+  }
+  const fromZone = state.declineSourceZoneByCardId?.[cardId]
+  if (!fromZone) {
+    return { ok: false, error: 'This card was not added to decline during the current phase' }
+  }
+
+  const nextPlayer = moveCard(player, cardId, fromZone)
+  const players = [...state.players]
+  players[playerIndex] = nextPlayer
+
+  const declineSourceZoneByCardId = { ...state.declineSourceZoneByCardId }
+  delete declineSourceZoneByCardId[cardId]
+
+  const nextState: GameState = {
+    ...state,
+    players,
+    pendingPlayerIds: [...state.pendingPlayerIds, playerId],
+    declineSourceZoneByCardId,
   }
   return { ok: true, state: nextState }
 }

@@ -3,7 +3,7 @@ import { applyAction, applyActionAndFastForwardTiles } from '../applyAction'
 import { createEmptyBoard, getTile, setTile } from '../board'
 import type { BoardGenerationContent } from '../boardGenerationContent'
 import { EMPTY_BOARD_GENERATION_CONTENT } from '../boardGenerationContent'
-import { cardIdFor, syncCardZonesWithBoard } from '../cards'
+import { UNIT_KINDS, cardIdFor, moveCard, syncCardZonesWithBoard } from '../cards'
 import { createNewGame, startGame } from '../createGame'
 import { beginSelectCardsPhase } from '../round'
 import type { Coordinate, GameState, Unit } from '../types'
@@ -293,6 +293,172 @@ describe('RETRACT_CHOICE (BACKEND_ENFORCEMENT_SPEC.md §4.4)', () => {
 
     const result = applyAction(p2Chosen.state, { type: 'RETRACT_CHOICE', playerId: 'p1' })
     expect(result.ok).toBe(false)
+  })
+})
+
+/**
+ * Every card kind in hand for both players (unlike makeActiveGame above,
+ * whose units only back a 'ship' card) — needed to reach the decline phase
+ * with more than one real, distinctly-sourced card available per player:
+ * one in `discard` (whatever they play this round) and several still in
+ * `hand` (declinable straight from there), which is exactly the
+ * distinction RETRACT_DECLINE's source-zone tracking exists to preserve.
+ */
+function makeActiveGameWithFullHands(): GameState {
+  const lobby = createNewGame({
+    gameId: 'game_1',
+    playMode: 'hotseat',
+    board: createEmptyBoard('hex'),
+    players: [
+      { id: 'p1', authUserId: 'auth_1', displayName: 'Alice', color: 'red' },
+      { id: 'p2', authUserId: 'auth_2', displayName: 'Bob', color: 'blue' },
+    ],
+  })
+
+  const players = lobby.players.map((player) => {
+    let next = player
+    for (const cardId of player.supplyCardIds) {
+      next = moveCard(next, cardId, 'hand')
+    }
+    return next
+  })
+
+  const units: Unit[] = lobby.players.flatMap((player, playerIndex) =>
+    UNIT_KINDS.map((kind, kindIndex) => ({
+      id: `${player.id}_seed_${kind}`,
+      ownerId: player.id,
+      kind,
+      coord: { q: 100 + kindIndex, r: 100 + playerIndex },
+      movement: { isMobile: false, terrains: [], canCrossCliffs: false },
+      traits: [],
+    })),
+  )
+
+  return { ...lobby, status: 'active', players, units }
+}
+
+/** Drives `state` through select-cards and actions to reach the decline phase, with `achievementsClaimedThisRound` owed cards per player. p1 plays 'city' (which ends up in discard) and p2 plays 'ship'. */
+function reachDeclinePhase(state: GameState, achievementsClaimedThisRound = 1): GameState {
+  const withClaims: GameState = { ...state, achievementsClaimedThisRound }
+  let result = applyAction(withClaims, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') })
+  if (!result.ok) throw new Error('setup failed')
+  result = applyAction(result.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'ship') })
+  if (!result.ok) throw new Error('setup failed')
+  result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p1' })
+  if (!result.ok) throw new Error('setup failed')
+  result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p2' })
+  if (!result.ok) throw new Error('setup failed')
+  if (result.state.roundPhase !== 'decline') throw new Error('setup did not reach the decline phase')
+  return result.state
+}
+
+describe('RETRACT_DECLINE (BACKEND_ENFORCEMENT_SPEC.md §10)', () => {
+  it('rejects retracting a card never moved to decline this phase', () => {
+    const state = reachDeclinePhase(makeActiveGameWithFullHands())
+    const result = applyAction(state, { type: 'RETRACT_DECLINE', playerId: 'p1', cardId: cardIdFor('p1', 'temple') })
+    expect(result.ok).toBe(false)
+  })
+
+  it('rejects retracting outside the decline phase', () => {
+    const state: GameState = { ...reachDeclinePhase(makeActiveGameWithFullHands()), roundPhase: 'purchase' }
+    const result = applyAction(state, { type: 'RETRACT_DECLINE', playerId: 'p1', cardId: cardIdFor('p1', 'temple') })
+    expect(result.ok).toBe(false)
+  })
+
+  it('returns a hand-sourced card to hand and re-adds the player to pendingPlayerIds', () => {
+    const declineState = reachDeclinePhase(makeActiveGameWithFullHands())
+    const templeId = cardIdFor('p1', 'temple')
+    const declined = applyAction(declineState, { type: 'MOVE_TO_DECLINE', playerId: 'p1', cardId: templeId })
+    if (!declined.ok) throw new Error('setup failed')
+    expect(declined.state.pendingPlayerIds).not.toContain('p1')
+
+    const retracted = applyAction(declined.state, { type: 'RETRACT_DECLINE', playerId: 'p1', cardId: templeId })
+    expect(retracted.ok).toBe(true)
+    if (!retracted.ok) return
+    const p1 = retracted.state.players.find((p) => p.id === 'p1')!
+    expect(p1.handCardIds).toContain(templeId)
+    expect(p1.declineCardIds).not.toContain(templeId)
+    expect(retracted.state.pendingPlayerIds).toContain('p1')
+  })
+
+  it("returns this round's played card to discard, not hand", () => {
+    const declineState = reachDeclinePhase(makeActiveGameWithFullHands())
+    const cityId = cardIdFor('p1', 'city')
+    const p1Before = declineState.players.find((p) => p.id === 'p1')!
+    expect(p1Before.discardCardIds).toContain(cityId)
+
+    const declined = applyAction(declineState, { type: 'MOVE_TO_DECLINE', playerId: 'p1', cardId: cityId })
+    if (!declined.ok) throw new Error('setup failed')
+
+    const retracted = applyAction(declined.state, { type: 'RETRACT_DECLINE', playerId: 'p1', cardId: cityId })
+    expect(retracted.ok).toBe(true)
+    if (!retracted.ok) return
+    const p1 = retracted.state.players.find((p) => p.id === 'p1')!
+    expect(p1.discardCardIds).toContain(cityId)
+    expect(p1.handCardIds).not.toContain(cityId)
+  })
+
+  it('does not require catching up on every owed card first — one of two owed cards is retractable while the other is still pending', () => {
+    const declineState = reachDeclinePhase(makeActiveGameWithFullHands(), 2)
+    const templeId = cardIdFor('p1', 'temple')
+    const declined = applyAction(declineState, { type: 'MOVE_TO_DECLINE', playerId: 'p1', cardId: templeId })
+    if (!declined.ok) throw new Error('setup failed')
+    // p1 owed 2, declined 1 -> still owes 1 more.
+    expect(declined.state.pendingPlayerIds.filter((id) => id === 'p1')).toHaveLength(1)
+
+    const retracted = applyAction(declined.state, { type: 'RETRACT_DECLINE', playerId: 'p1', cardId: templeId })
+    expect(retracted.ok).toBe(true)
+    if (!retracted.ok) return
+    expect(retracted.state.players.find((p) => p.id === 'p1')!.handCardIds).toContain(templeId)
+    expect(retracted.state.pendingPlayerIds.filter((id) => id === 'p1')).toHaveLength(2)
+  })
+
+  it("rejects retracting a card sitting in decline from an earlier, already-resolved round (not this phase's own addition)", () => {
+    let state = reachDeclinePhase(makeActiveGameWithFullHands())
+    const nomadId = cardIdFor('p1', 'nomad')
+    const declined = applyAction(state, { type: 'MOVE_TO_DECLINE', playerId: 'p1', cardId: nomadId })
+    if (!declined.ok) throw new Error('setup failed')
+    // Simulate that decline having resolved into a later phase, where
+    // declineSourceZoneByCardId has since been reset (a fresh decline phase
+    // started) but the card is still sitting in declineCardIds, unbought-back.
+    state = { ...declined.state, declineSourceZoneByCardId: {} }
+
+    const result = applyAction(state, { type: 'RETRACT_DECLINE', playerId: 'p1', cardId: nomadId })
+    expect(result.ok).toBe(false)
+  })
+
+  it('allows re-declining after retracting', () => {
+    const declineState = reachDeclinePhase(makeActiveGameWithFullHands())
+    const templeId = cardIdFor('p1', 'temple')
+    const declined = applyAction(declineState, { type: 'MOVE_TO_DECLINE', playerId: 'p1', cardId: templeId })
+    if (!declined.ok) throw new Error('setup failed')
+    const retracted = applyAction(declined.state, { type: 'RETRACT_DECLINE', playerId: 'p1', cardId: templeId })
+    if (!retracted.ok) throw new Error('setup failed')
+
+    const redeclined = applyAction(retracted.state, { type: 'MOVE_TO_DECLINE', playerId: 'p1', cardId: templeId })
+    expect(redeclined.ok).toBe(true)
+    if (!redeclined.ok) return
+    expect(redeclined.state.players.find((p) => p.id === 'p1')!.declineCardIds).toContain(templeId)
+  })
+
+  it("leaves the other player's own still-secret decline addition untouched", () => {
+    // Both owe 2 so the phase is still open (roundPhase stays 'decline')
+    // after each has declined only one — otherwise p1 and p2 each declining
+    // their one owed card would resolve the phase before the retraction
+    // below gets a chance to run.
+    const declineState = reachDeclinePhase(makeActiveGameWithFullHands(), 2)
+    const templeId = cardIdFor('p1', 'temple')
+    const p2ShipId = cardIdFor('p2', 'ship')
+    let result = applyAction(declineState, { type: 'MOVE_TO_DECLINE', playerId: 'p1', cardId: templeId })
+    if (!result.ok) throw new Error('setup failed')
+    result = applyAction(result.state, { type: 'MOVE_TO_DECLINE', playerId: 'p2', cardId: p2ShipId })
+    if (!result.ok) throw new Error('setup failed')
+
+    const retracted = applyAction(result.state, { type: 'RETRACT_DECLINE', playerId: 'p1', cardId: templeId })
+    expect(retracted.ok).toBe(true)
+    if (!retracted.ok) return
+    const p2 = retracted.state.players.find((p) => p.id === 'p2')!
+    expect(p2.declineCardIds).toContain(p2ShipId)
   })
 })
 
