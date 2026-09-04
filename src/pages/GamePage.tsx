@@ -10,9 +10,9 @@ import { applyActionAndFastForwardTiles } from '../engine/applyAction'
 import { stripOccupants } from '../engine/board'
 import { buildGameLogFrom, extendGameLog } from '../engine/gameLog'
 import { redactGameLog } from '../engine/redaction'
-import { replayActions } from '../engine/replay'
 import { calculateScoreHistory } from '../engine/scoreHistory'
 import { applyTaleAchievementModifiers, applyTaleModifiers } from '../engine/tales'
+import { applyRedoAction, applyUndoAction, resolveHistory } from '../engine/undoRedo'
 import { calculateGoldSpendingByCategory, calculateUnitValueDetail } from '../engine/unitValue'
 import type { ActionResult, GameEvent, GameState as EngineGameState, Coordinate } from '../engine/types'
 import { buildTurnReview, findReviewWindowStart, findTurnStops, recapTurnFor, reviewPhaseGroupAt, roundPhaseForRecap, shouldShowCardChoiceRecap } from '../engine/turnReview'
@@ -127,18 +127,16 @@ export function GamePage() {
    */
   const [adminOverrideEnabled, setAdminOverrideEnabled] = useState(false)
   /**
-   * Actions popped off actionHistory by Undo, most-recently-undone last —
-   * Redo pops from the end and re-submits it through the normal action
-   * path, which naturally restores multi-step undos in the right order
-   * (undo A then B leaves [B, A]; redo pops A first, then B). Cleared
-   * whenever a fresh player action is submitted, since that's a new
-   * branch of history the undone actions no longer fit onto. Not
-   * persisted anywhere — like the undo stack event-sourcing replaces, this
-   * is just local UI state, so it resets on refresh and isn't shared
-   * between players (each player's own undo/redo history, same as e.g.
-   * their browser's back button).
+   * Undo/redo availability (design change, issue #412): UNDO_ACTION/
+   * REDO_ACTION are now logged entries in `actionHistory` itself (see
+   * UndoAction's doc comment, engine/actions.ts) instead of a client-local,
+   * unpersisted `redoStack` — so unlike that stack, both buttons' enabled
+   * state below is just a pure read of the shared, persisted game state
+   * (`effective`: is there anything left to undo; `canRedo`: is there
+   * anything to redo), identical for every client and unaffected by
+   * reloading mid-review.
    */
-  const [redoStack, setRedoStack] = useState<Action[]>([])
+  const historyPointer = useMemo(() => (gameState ? resolveHistory(gameState.actionHistory) : { effective: [], canRedo: false }), [gameState])
   /**
    * History review (issue #63): lets anyone step through past points in the
    * game — genesis plus every action since — without touching the live,
@@ -562,7 +560,7 @@ export function GamePage() {
       if (cacheCoversPrefix && cache) {
         const newActions = actionHistory.slice(cache.actionHistory.length)
         if (newActions.length === 0) return cache.events
-        const extended = extendGameLog(cache.state, newActions, cache.events.length + 1, unitContent, achievementContent, boardGenerationContent, taleContent)
+        const extended = extendGameLog(genesis, cache.actionHistory, cache.state, newActions, cache.events.length + 1, unitContent, achievementContent, boardGenerationContent, taleContent)
         const events = [...cache.events, ...extended.events]
         gameLogCacheRef.current = { ...cache, actionHistory, state: extended.state, events }
         return events
@@ -698,6 +696,8 @@ export function GamePage() {
       while (cache.states.length - 1 < reviewIndex) {
         const fromIndex = cache.states.length - 1
         const extended = extendGameLog(
+          genesis,
+          actionHistory.slice(0, fromIndex),
           cache.states[fromIndex],
           [actionHistory[fromIndex]],
           cache.events.length + 1,
@@ -742,7 +742,16 @@ export function GamePage() {
         const pos = fullTurnStops.indexOf(reviewIndex)
         if (pos > 0) {
           const prevStop = fullTurnStops[pos - 1]
-          turnHalos = buildTurnReview(cache.states[prevStop], actionHistory.slice(prevStop, reviewIndex), unitContent, achievementContent, boardGenerationContent, taleContent)
+          turnHalos = buildTurnReview(
+            cache.states[prevStop],
+            actionHistory.slice(prevStop, reviewIndex),
+            unitContent,
+            achievementContent,
+            boardGenerationContent,
+            taleContent,
+            genesis,
+            actionHistory.slice(0, prevStop),
+          )
           previousTerritoryState = cache.states[prevStop]
         }
       } else if (historyStepMode === 'action' && reviewIndex > 0) {
@@ -946,7 +955,6 @@ export function GamePage() {
 
   async function submitAction(action: Action) {
     const result = await writeWithRetry((state) => applyActionAndFastForwardTiles(state, action, unitContent, achievementContent, boardGenerationContent, taleContent))
-    if (result.ok) setRedoStack([])
     setActionError(result.ok ? null : simpleError(result.error))
   }
 
@@ -1001,18 +1009,22 @@ export function GamePage() {
    * Genesis isn't stored anywhere (see GameState.actionHistory's doc
    * comment) — it's deterministically rebuilt from the game's row + seated
    * players (buildGenesisState, same logic LobbyPage.tsx used to start the
-   * game) and every logged action except the last one is replayed on top of
-   * it (replayActions), which is exactly what event sourcing buys us here:
-   * "step back one action" needs no separate undo stack, just a shorter
-   * replay — including unwinding `status: 'completed'` back to `'active'`
-   * when the undone action was the one that ended the game, since that
-   * status lives on the replayed GameState like everything else. The log
-   * itself needs no separate note about what got undone — it's derived
-   * fresh from actionHistory (see gameLog above), so a shorter history just
-   * naturally narrates one fewer step. Recomputed fresh on each
-   * writeWithRetry attempt (not just once up front), since a retry replays
-   * against newer state than what `gameState` held when the button was
-   * clicked.
+   * game), since undoing needs it: unlike every other action, "step back
+   * one action" isn't a forward step from the current state, it's a shorter
+   * replay from the start (applyUndoAction, engine/undoRedo.ts) — which
+   * naturally unwinds `status: 'completed'` back to `'active'` when the
+   * undone action was the one that ended the game, since that status lives
+   * on the replayed GameState like everything else.
+   *
+   * Design change, issue #412: UNDO_ACTION is now a logged entry appended to
+   * `actionHistory` (see UndoAction's doc comment, engine/actions.ts)
+   * instead of truncating the array and stashing the popped entry in a
+   * client-local `redoStack` — so every client sees the same undo/redo
+   * state, surviving a reload or a different device, and the log itself
+   * needs no separate note about what got undone: gameLog.ts narrates the
+   * UNDO_ACTION entry directly. Recomputed fresh on each writeWithRetry
+   * attempt (not just once up front), since a retry replays against newer
+   * state than what `gameState` held when the button was clicked.
    *
    * "One action" can mean more than one actionHistory entry: see
    * wasForcedCardChoice below.
@@ -1020,16 +1032,10 @@ export function GamePage() {
   async function handleUndo() {
     if (!game) return
     setUndoing(true)
-    let undoneActions: Action[] = []
     try {
       const result = await writeWithRetry((state) => {
-        if (state.actionHistory.length === 0) {
-          return { ok: false, error: 'Nothing left to undo.' }
-        }
         const genesis = buildGenesisState(game, players)
-        undoneActions = []
-        let history = state.actionHistory
-        let undoneState: EngineGameState
+        let current = state
         // A CHOOSE_CARD submitted for a one-card hand (SelectCardsPanel's
         // auto-choose, RoundView.tsx) wasn't a real decision — stepping back
         // past just that one action would land right back on the same
@@ -1037,22 +1043,22 @@ export function GamePage() {
         // Undo look like a no-op (issue #131). Keep walking back past any
         // number of these until an action the player actually chose is
         // reached, or history runs out.
-        do {
-          const lastAction = history[history.length - 1].action
-          undoneActions.push(lastAction)
-          history = history.slice(0, -1)
-          undoneState = replayActions(genesis, history, unitContent, achievementContent, boardGenerationContent, taleContent)
-        } while (history.length > 0 && wasForcedCardChoice(undoneState, undoneActions[undoneActions.length - 1]))
-        return { ok: true, state: undoneState }
+        for (;;) {
+          const undoneAction = resolveHistory(current.actionHistory).effective.at(-1)?.action ?? null
+          if (!undoneAction) {
+            return current === state ? { ok: false, error: 'Nothing left to undo.' } : { ok: true, state: current }
+          }
+          const undone = applyUndoAction(genesis, current, me?.id ?? null, unitContent, achievementContent, boardGenerationContent, taleContent)
+          if (!undone.ok) return current === state ? undone : { ok: true, state: current }
+          current = undone.state
+          if (!wasForcedCardChoice(current, undoneAction)) return { ok: true, state: current }
+        }
       })
-      if (result.ok && undoneActions.length > 0) {
-        setRedoStack((stack) => [...stack, ...undoneActions])
-      }
       setActionError(result.ok ? null : simpleError(result.error))
     } catch (err) {
-      // replayActions (./gameGenesis.ts's buildGenesisState + ../engine/
-      // replay.ts) throws "Replay failed at action ...: <reason>" if some
-      // earlier action in this game's history no longer replays cleanly —
+      // applyUndoAction (../engine/undoRedo.ts) replays via ../engine/
+      // replay.ts, which throws "Replay failed at action ...: <reason>" if
+      // some earlier action in this game's history no longer replays cleanly —
       // e.g. a rules change landed on the live site while this particular
       // game was in progress, so an action genuinely accepted back then no
       // longer validates against today's rules. That JSON-dump message is
@@ -1074,20 +1080,23 @@ export function GamePage() {
   }
 
   /**
-   * Redo: re-submits the most recently undone action through the same
-   * applyActionAndFastForwardTiles path a live player action takes (not a
-   * raw history append), so if the game has moved on since the undo (e.g.
-   * another player acted) it's validated fresh against current state and
-   * fails cleanly rather than silently grafting a stale action onto the
-   * wrong point in history.
+   * Redo: appends a REDO_ACTION (see applyUndoAction's doc comment above and
+   * UndoAction's, engine/actions.ts) instead of resubmitting a stashed
+   * action payload — so if the game has moved on since the undo (e.g.
+   * another player branched off a new action, or someone else already
+   * redid/undid further), `applyRedoAction`'s own "is there anything to redo
+   * right now" check runs fresh against whatever `state` this
+   * writeWithRetry attempt actually sees, and fails cleanly rather than
+   * grafting a stale payload onto the wrong point in history.
    */
   async function handleRedo() {
-    if (!game || redoStack.length === 0) return
-    const action = redoStack[redoStack.length - 1]
+    if (!game) return
     setRedoing(true)
-    setRedoStack((stack) => stack.slice(0, -1))
     try {
-      const result = await writeWithRetry((state) => applyActionAndFastForwardTiles(state, action, unitContent, achievementContent, boardGenerationContent, taleContent))
+      const result = await writeWithRetry((state) => {
+        const genesis = buildGenesisState(game, players)
+        return applyRedoAction(genesis, state, me?.id ?? null, unitContent, achievementContent, boardGenerationContent, taleContent)
+      })
       setActionError(result.ok ? null : simpleError(result.error))
     } catch (err) {
       setActionError(toAppError(err, 'Failed to redo'))
@@ -1411,7 +1420,7 @@ export function GamePage() {
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            disabled={undoing || isReviewingHistory || !gameState || gameState.actionHistory.length === 0}
+            disabled={undoing || isReviewingHistory || !gameState || historyPointer.effective.length === 0}
             onClick={() => void handleUndo()}
             title="Undo the last action — any player can do this, at any time, even after the game has ended."
             className="rounded-md border border-neutral-700 px-3 py-1 text-sm hover:border-neutral-500 disabled:opacity-50"
@@ -1420,7 +1429,7 @@ export function GamePage() {
           </button>
           <button
             type="button"
-            disabled={redoing || isReviewingHistory || redoStack.length === 0}
+            disabled={redoing || isReviewingHistory || !historyPointer.canRedo}
             onClick={() => void handleRedo()}
             title="Redo the last undone action."
             className="rounded-md border border-neutral-700 px-3 py-1 text-sm hover:border-neutral-500 disabled:opacity-50"

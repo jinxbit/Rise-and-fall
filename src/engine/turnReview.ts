@@ -4,6 +4,7 @@ import type { AchievementContent } from './achievementContent'
 import { applyAction } from './applyAction'
 import { EMPTY_BOARD_GENERATION_CONTENT } from './boardGenerationContent'
 import type { BoardGenerationContent } from './boardGenerationContent'
+import { replayActions } from './replay'
 import { EMPTY_TALE_CONTENT } from './taleContent'
 import type { TaleContent } from './taleContent'
 import type { Coordinate, GameState, Resources, RoundPhase } from './types'
@@ -86,6 +87,11 @@ function reviewPhaseGroupFor(action: Action, precedingGroup: ReviewPhaseGroup): 
     case 'PASS_PURCHASE':
       return 'declinePurchase'
     case 'CONCEDE':
+    case 'UNDO_ACTION':
+    case 'REDO_ACTION':
+      // Undo/redo (design change, issue #412) can happen at any point too —
+      // same "inherits whichever group precedes it" treatment as CONCEDE, so
+      // a rewind mid-phase doesn't itself force a new review stop.
       return precedingGroup
   }
 }
@@ -358,6 +364,17 @@ function recordAssignmentEvents(
  * purely to see what each individual unit did — the official dispatch
  * only returns the *combined* before/after, which isn't enough to tell
  * two different units' effects apart within the same submission.
+ *
+ * `genesis`/`historyBeforeWindow` (default `stateAtWindowStart`/`[]`,
+ * correct whenever the window genuinely starts at genesis, as every
+ * pre-issue-#412 caller's does) exist for UNDO_ACTION/REDO_ACTION entries
+ * that can now appear inside the window (design change, issue #412):
+ * unlike every other entry, those aren't a forward step from `state` via
+ * applyAction — see resolveHistory (./historyFold.ts) — so this falls back
+ * to a full replayActions() over everything before and within the window
+ * walked so far. No per-unit halo event is produced for the rewind itself
+ * (there's no unit-level diff for "the pointer moved"); `state` just needs
+ * to stay correct for whatever comes next in the window.
  */
 export function buildTurnReview(
   stateAtWindowStart: GameState,
@@ -366,12 +383,22 @@ export function buildTurnReview(
   achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT,
   boardGenerationContent: BoardGenerationContent = EMPTY_BOARD_GENERATION_CONTENT,
   taleContent: TaleContent = EMPTY_TALE_CONTENT,
+  genesis: GameState = stateAtWindowStart,
+  historyBeforeWindow: LoggedAction[] = [],
 ): TurnReview {
   const events: UnitReviewEvent[] = []
   let state = stateAtWindowStart
+  let history = historyBeforeWindow
 
-  for (const { action } of actionsInWindow) {
+  for (const logged of actionsInWindow) {
+    const { action } = logged
     const beforeState = state
+    history = [...history, logged]
+
+    if (action.type === 'UNDO_ACTION' || action.type === 'REDO_ACTION') {
+      state = replayActions(genesis, history, unitContent, achievementContent, boardGenerationContent, taleContent)
+      continue
+    }
 
     if (action.type === 'RESOLVE_UNIT_ACTION') {
       const cardId = beforeState.chosenCardIdByPlayerId[action.playerId]

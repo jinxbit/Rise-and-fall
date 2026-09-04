@@ -168,6 +168,36 @@ export interface ConcedeAction {
   playerId: string
 }
 
+/**
+ * Rolls the game back by one already-logged action (design change, issue
+ * #412: undo/redo used to work by truncating `actionHistory` client-side and
+ * stashing what got popped in a client-local, unpersisted `redoStack` —
+ * meaning a page reload, a different device, or another player's client
+ * could never see or continue a pending redo, and the "undone" action was
+ * gone from the log for good). Appended to `actionHistory` like any other
+ * action instead — nothing is ever removed from the log, so every client
+ * sees the same undo/redo state, and reloading mid-review changes nothing.
+ * See ./undoRedo.ts for how the log's actually-in-effect prefix (and thus
+ * `GameState` itself) is derived from a history that now may contain these.
+ *
+ * Like CONCEDE, submittable at any point once the game exists — not tied to
+ * any particular round phase or turn order, and (per GamePage.tsx's
+ * handleUndo doc comment) not even to a specific seated player: `playerId`
+ * is null when nobody in particular is "acting" (e.g. clicked after the game
+ * has ended, when no seat is the active one), and otherwise is purely for
+ * narration ("Alice undid the last action") — never checked for legality.
+ */
+export interface UndoAction {
+  type: 'UNDO_ACTION'
+  playerId: string | null
+}
+
+/** Re-applies the most recently undone action — see UndoAction above. No payload: there's only ever one thing to redo, whatever undo/branch history currently points at. */
+export interface RedoAction {
+  type: 'REDO_ACTION'
+  playerId: string | null
+}
+
 export type Action =
   | PlaceTileAction
   | PlaceUnitAction
@@ -180,6 +210,8 @@ export type Action =
   | PurchaseCardAction
   | PassPurchaseAction
   | ConcedeAction
+  | UndoAction
+  | RedoAction
 
 /**
  * One entry in `GameState.actionHistory` — event sourcing: every action

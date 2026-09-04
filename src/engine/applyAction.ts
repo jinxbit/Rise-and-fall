@@ -228,6 +228,16 @@ function dispatchAction(
       return applyPassPurchase(state, action.playerId, achievementContent, taleContent)
     case 'CONCEDE':
       return applyConcede(state, action.playerId, achievementContent, taleContent)
+    case 'UNDO_ACTION':
+    case 'REDO_ACTION':
+      // Unlike every other action, undo/redo aren't a forward step from
+      // `state` — they're a shorter/longer replay from genesis (see
+      // UndoAction's doc comment in ./actions.ts and resolveHistory in
+      // ./historyFold.ts). applyAction() has no genesis to do that with;
+      // live callers submit these via applyUndoAction/applyRedoAction
+      // (./undoRedo.ts) instead, which append the entry and re-derive state
+      // via replayActions() — the one place that knows how to fold these in.
+      return { ok: false, error: `${action.type} must be submitted via applyUndoAction/applyRedoAction, not applyAction` }
     default: {
       const exhaustive: never = action
       return { ok: false, error: `Unknown action: ${JSON.stringify(exhaustive)}` }
