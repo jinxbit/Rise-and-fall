@@ -4,6 +4,7 @@ import type { AchievementContent } from './achievementContent'
 import { applyAction } from './applyAction'
 import { EMPTY_BOARD_GENERATION_CONTENT } from './boardGenerationContent'
 import type { BoardGenerationContent } from './boardGenerationContent'
+import { resolveHistory } from './historyFold'
 import { calculatePurchaseCost } from './purchaseCost'
 import { calculateTerrainControlVPByKind } from './scoring'
 import { EMPTY_TALE_CONTENT } from './taleContent'
@@ -36,6 +37,11 @@ import { calculateBoardCountDetail } from './victoryPoints'
  * convention as buildTurnReview — a companion piece's own gold gain is
  * folded into the card's kind rather than the companion's, matching how the
  * engine's own turn-review already treats it.
+ *
+ * Like calculateScoreHistory, filters `actionHistory` down to
+ * resolveHistory's `.effective` (./historyFold.ts) up front, so an
+ * UNDO_ACTION/REDO_ACTION entry (design change, issue #412) neither breaks
+ * this loop nor counts gold from a branch that got undone away.
  */
 export function calculateGoldProducedByKind(
   genesis: GameState,
@@ -48,7 +54,7 @@ export function calculateGoldProducedByKind(
   const goldByPlayerAndKind: Record<string, Record<string, number>> = {}
   let state = genesis
 
-  for (const { action } of actionHistory) {
+  for (const { action } of resolveHistory(actionHistory).effective) {
     if (action.type === 'RESOLVE_UNIT_ACTION') {
       const cardId = state.chosenCardIdByPlayerId[action.playerId]
       const card = cardId ? state.cards[cardId] : undefined
@@ -252,7 +258,7 @@ export function calculateGoldSpendingByCategory(
 
   let state = genesis
 
-  for (const { action } of actionHistory) {
+  for (const { action } of resolveHistory(actionHistory).effective) {
     if (action.type === 'RESOLVE_UNIT_ACTION') {
       const cardId = state.chosenCardIdByPlayerId[action.playerId]
       const card = cardId ? state.cards[cardId] : undefined

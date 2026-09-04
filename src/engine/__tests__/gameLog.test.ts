@@ -9,6 +9,7 @@ import { createNewGame, startGame } from '../createGame'
 import { buildGameLog, buildGameLogFrom, extendGameLog, PLAYER_PLACEHOLDER } from '../gameLog'
 import { beginSelectCardsPhase } from '../round'
 import type { Card, GameState, Player, Terrain, Unit } from '../types'
+import { applyRedoAction, applyUndoAction } from '../undoRedo'
 import type { UnitAction, UnitContent } from '../unitContent'
 
 function makePlayer(id: string, cards: Card[]): Player {
@@ -391,9 +392,93 @@ describe('extendGameLog / buildGameLogFrom', () => {
 
     for (let splitAt = 0; splitAt <= state.actionHistory.length; splitAt++) {
       const firstHalf = buildGameLogFrom(genesis, state.actionHistory.slice(0, splitAt), content, achievementContent)
-      const extended = extendGameLog(firstHalf.state, state.actionHistory.slice(splitAt), firstHalf.events.length + 1, content, achievementContent)
+      const extended = extendGameLog(
+        genesis,
+        state.actionHistory.slice(0, splitAt),
+        firstHalf.state,
+        state.actionHistory.slice(splitAt),
+        firstHalf.events.length + 1,
+        content,
+        achievementContent,
+      )
       const resumedLog = [...firstHalf.events, ...extended.events]
       expect(resumedLog).toEqual(fullLog)
     }
+  })
+
+  // Design change, issue #412: UNDO_ACTION/REDO_ACTION are now logged
+  // entries, so the narration log needs its own line for them instead of
+  // (as with the old truncation-based undo) the history simply getting
+  // shorter with no trace left in the log at all.
+  describe('undo/redo narration', () => {
+    it('narrates an UNDO_ACTION attributed to whoever clicked it', () => {
+      const board = boardOf([[0, 0, 'plain']])
+      const city: Unit = { id: 'city_a', ownerId: 'p1', kind: 'city', coord: { q: 0, r: 0 }, movement: content.movementByKind.city, traits: [] }
+      const genesis = makeGenesis([city], board)
+      const afterChoose = drive(genesis, [{ type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }])
+      const undone = applyUndoAction(genesis, afterChoose, 'p1', content, achievementContent)
+      if (!undone.ok) throw new Error(undone.error)
+
+      const log = buildGameLog(genesis, undone.state.actionHistory, content, achievementContent)
+      const undoEvent = log.find((e) => e.message.includes('undid the last action'))
+      expect(undoEvent?.playerId).toBe('p1')
+    })
+
+    it('narrates an UNDO_ACTION with no attributed player generically, without crashing', () => {
+      const board = boardOf([[0, 0, 'plain']])
+      const city: Unit = { id: 'city_a', ownerId: 'p1', kind: 'city', coord: { q: 0, r: 0 }, movement: content.movementByKind.city, traits: [] }
+      const genesis = makeGenesis([city], board)
+      const afterChoose = drive(genesis, [{ type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }])
+      const undone = applyUndoAction(genesis, afterChoose, null, content, achievementContent)
+      if (!undone.ok) throw new Error(undone.error)
+
+      const log = buildGameLog(genesis, undone.state.actionHistory, content, achievementContent)
+      expect(messages(log)).toContainEqual(expect.stringContaining('was undone'))
+    })
+
+    it('a redo right after an undo continues the log correctly, and the earlier narration (e.g. the choice itself) is unaffected', () => {
+      const board = boardOf([[0, 0, 'plain']])
+      const city: Unit = { id: 'city_a', ownerId: 'p1', kind: 'city', coord: { q: 0, r: 0 }, movement: content.movementByKind.city, traits: [] }
+      const genesis = makeGenesis([city], board)
+      const afterChoose = drive(genesis, [{ type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }])
+      const undone = applyUndoAction(genesis, afterChoose, 'p1', content, achievementContent)
+      if (!undone.ok) throw new Error(undone.error)
+      const redone = applyRedoAction(genesis, undone.state, 'p1', content, achievementContent)
+      if (!redone.ok) throw new Error(redone.error)
+
+      const log = buildGameLog(genesis, redone.state.actionHistory, content, achievementContent)
+      expect(messages(log)).toEqual([
+        expect.stringContaining('chose to play city'),
+        expect.stringContaining('undid the last action'),
+        expect.stringContaining('redid the previously undone action'),
+      ])
+    })
+
+    it('extendGameLog resumed partway through still agrees with a full rebuild once undo/redo entries are involved', () => {
+      const board = boardOf([[0, 0, 'plain']])
+      const city: Unit = { id: 'city_a', ownerId: 'p1', kind: 'city', coord: { q: 0, r: 0 }, movement: content.movementByKind.city, traits: [] }
+      const genesis = makeGenesis([city], board)
+      const afterChoose = drive(genesis, [{ type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }])
+      const undone = applyUndoAction(genesis, afterChoose, 'p1', content, achievementContent)
+      if (!undone.ok) throw new Error(undone.error)
+      const redone = applyRedoAction(genesis, undone.state, 'p1', content, achievementContent)
+      if (!redone.ok) throw new Error(redone.error)
+
+      const fullLog = buildGameLog(genesis, redone.state.actionHistory, content, achievementContent)
+
+      for (let splitAt = 0; splitAt <= redone.state.actionHistory.length; splitAt++) {
+        const firstHalf = buildGameLogFrom(genesis, redone.state.actionHistory.slice(0, splitAt), content, achievementContent)
+        const extended = extendGameLog(
+          genesis,
+          redone.state.actionHistory.slice(0, splitAt),
+          firstHalf.state,
+          redone.state.actionHistory.slice(splitAt),
+          firstHalf.events.length + 1,
+          content,
+          achievementContent,
+        )
+        expect([...firstHalf.events, ...extended.events]).toEqual(fullLog)
+      }
+    })
   })
 })

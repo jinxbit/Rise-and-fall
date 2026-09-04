@@ -4,6 +4,7 @@ import type { Action, LoggedAction } from './actions'
 import { applyAction, applyActionAndFastForwardTiles } from './applyAction'
 import { EMPTY_BOARD_GENERATION_CONTENT } from './boardGenerationContent'
 import type { BoardGenerationContent } from './boardGenerationContent'
+import { resolveHistory } from './historyFold'
 import { replayActions } from './replay'
 import { EMPTY_TALE_CONTENT } from './taleContent'
 import type { TaleContent } from './taleContent'
@@ -149,7 +150,7 @@ export function computeRevealedPhaseMarks(
 ): Set<string> {
   const revealed = new Set<string>()
   let state = genesis
-  for (const entry of history) {
+  for (const entry of resolveHistory(history).effective) {
     const turnBefore = state.turn
     const phaseBefore = state.roundPhase
     const wasOpen = (phaseBefore === 'selectCards' || phaseBefore === 'decline') && state.pendingPlayerIds.length > 0

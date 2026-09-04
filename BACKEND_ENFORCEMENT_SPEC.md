@@ -161,13 +161,41 @@ client that's slow to, or never does, auto-submit the courtesy action.
 
 ### 4.4 Undo / Redo — pointer-based history, replacing the client-local redo stack
 
-Today: `actionHistory` (`src/engine/types.ts`) is truncated in place by
-`handleUndo()` (`src/pages/GamePage.tsx`), and the only record of what was
-undone is a **client-local, unpersisted** `redoStack` state
-(`src/pages/GamePage.tsx`) — `handleRedo()` resubmits that stored `Action`
-object, `playerId` and all. Once §4.1 lands, that becomes a live
-impersonation hole: nothing stops a client from calling the redo path with
-a *fabricated* action claiming another player's `playerId`.
+**Update (issue #412, 2026-09-04):** the "today" paragraph immediately below
+is now historical — `handleUndo()`/`handleRedo()` (`src/pages/GamePage.tsx`)
+no longer truncate `actionHistory` or keep a client-local `redoStack`.
+`UNDO_ACTION`/`REDO_ACTION` are real logged entries now, appended to
+`actionHistory` like any other action (`UndoAction`/`RedoAction`,
+`src/engine/actions.ts`); `src/engine/historyFold.ts`'s `resolveHistory()`
+folds them back into "what's actually in effect" (the substantive prefix
+`GameState` is derived from) by maintaining the exact same pointer this
+section specs — it's just derived from the log itself on every read instead
+of living in a separate persisted `historyPointer` column. That happens to
+satisfy this section's two central asks (append-only history; no
+separate redo-payload endpoint) **without needing schema/RLS changes at
+all**, so it shipped now rather than waiting on phase 6 — but it's still
+entirely client-trusted (no §4.1 enforcement exists yet, same caveat as
+everything else pre-phase-6), it doesn't yet implement the
+owner-override/cross-player-pruning authorization below (a rewind that
+prunes another player's action is unrestricted, exactly as destructive
+today as before this change), and RETRACT_CHOICE/§5.3's simultaneous-phase
+refinement below is unaffected (already implemented separately, see phase
+3 in §8). Whether phase 6 still wants its own persisted `historyPointer`
+column (e.g. for a server-side authorization check that doesn't want to
+refold the whole log on every request) or can just reuse `resolveHistory`
+against the same `actionHistory` it already reads is an open question for
+that phase, not resolved here.
+
+Today (pre-#412, kept for the design rationale below): `actionHistory`
+(`src/engine/types.ts`) was truncated in place by `handleUndo()`
+(`src/pages/GamePage.tsx`), and the only record of what was undone was a
+**client-local, unpersisted** `redoStack` state (`src/pages/GamePage.tsx`)
+— `handleRedo()` resubmitted that stored `Action` object, `playerId` and
+all. Once §4.1 lands, that would have become a live impersonation hole:
+nothing stops a client from calling the redo path with a *fabricated*
+action claiming another player's `playerId` — issue #412's append-only
+redesign closes that specific hole today (redo has no payload at all
+anymore) even ahead of §4.1's own enforcement.
 
 **Design (per jinxbit, 2026-08-14):** `actionHistory` becomes **immutable
 and append-only**. A single shared `historyPointer` (an int, no

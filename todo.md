@@ -3463,3 +3463,94 @@ anywhere in this codebase); `tsc -b`/`oxlint`/`vitest run`/`npm run
 build` all clean. Not covered by an automated test: the mobile layout
 fix and full-game Prev/Next scrubbing, both GamePage-only — needs a
 manual check in a live game.
+
+## 70. Undo/redo design change: logged as actions in `actionHistory`, not a client-local redo stack (issue #412)
+
+Requested: "Handle undo and redo as actions that are part of game state and
+are added to the history." Today's `handleUndo()`/`handleRedo()`
+(`GamePage.tsx`) truncated `actionHistory` in place and stashed whatever got
+popped in a `redoStack` React state — client-local and unpersisted, so a
+page reload, a different device/tab, or another player's client could never
+see a pending redo, and the undone entry was gone from the log for good
+(the exact "impersonation hole" `BACKEND_ENFORCEMENT_SPEC.md` §4.4 already
+flagged for once §4.1 lands, since `handleRedo()` resubmitted the stashed
+`Action` object, `playerId` and all, with nothing stopping a fabricated
+one).
+
+New design: `UNDO_ACTION`/`REDO_ACTION` are real entries in `Action`
+(`engine/actions.ts`), appended to `actionHistory` like any other action —
+nothing is ever deleted from the log. `engine/historyFold.ts`'s new
+`resolveHistory()` is the one place that interprets them: folding raw
+history into the substantive (non-undo/redo) prefix currently "in effect"
+(what `GameState` is actually derived from) by maintaining an implicit
+pointer — UNDO_ACTION moves it back, REDO_ACTION moves it forward, and a
+new substantive action submitted behind the tip branches (drops the
+un-redone tail from `effective`, same as today's behavior, but the
+abandoned entries stay in the raw array — nothing physically removed).
+`engine/undoRedo.ts`'s `applyUndoAction`/`applyRedoAction` are the live
+entry points `GamePage.tsx` now calls instead of truncating: each appends
+one entry and re-derives the whole state via `replayActions`, which now
+runs the fold internally (`replay.ts`) and always returns the raw `history`
+passed in as `.actionHistory` verbatim, so a further undo/redo/action keeps
+extending the same append-only log.
+
+Every other engine consumer that used to walk `actionHistory` directly via
+`applyAction` needed a matching update, since `applyAction` itself now
+rejects `UNDO_ACTION`/`REDO_ACTION` outright (they aren't a forward step —
+undoing is a shorter replay from genesis, which `applyAction` has no
+genesis to do). Two different fixes, depending on what each consumer
+actually needed: `scoreHistory.ts`/`unitValue.ts` (whole-game-from-genesis
+replays with no windowing) just filter to `resolveHistory().effective`
+up front, since they only ever want "what's in effect now" — unaffected by
+undo/redo history existing at all. `gameLog.ts`'s `extendGameLog`/
+`buildGameLogFrom` and `turnReview.ts`'s `buildTurnReview`, which narrate/
+diff a *window* that can itself have undo/redo entries appear partway
+through, needed real awareness: both gained `genesis`/history-so-far
+parameters so an UNDO_ACTION/REDO_ACTION entry inside the window falls back
+to a full `replayActions()` instead of `applyAction()` (gameLog narrates it
+as "{player} undid the last action" / "... redid the previously undone
+action", with a generic message when `playerId` is null; turnReview emits
+no per-unit halo for the rewind itself, just keeps its running state
+correct for whatever comes next in the window). `turnReview.ts`'s
+`reviewPhaseGroupFor` maps both new types to `precedingGroup`, same
+treatment as CONCEDE — a rewind mid-phase doesn't force a new review stop.
+`historyPointer.ts`'s `computeRevealedPhaseMarks` (unused in production —
+prep for phase 6's separately-persisted-pointer design, §4.4) got the same
+`.effective`-filtering fix for consistency, though nothing live exercises
+it yet.
+
+`GamePage.tsx`: `redoStack` state is gone; a new `historyPointer` memo
+(`resolveHistory(gameState.actionHistory)`) drives both buttons' `disabled`
+directly off the shared, persisted state. `handleUndo` keeps its existing
+"skip past forced single-card auto-choices" loop (issue #131) but now calls
+`applyUndoAction` per step instead of slicing the array; `handleRedo` calls
+`applyRedoAction` fresh against whatever state the current `writeWithRetry`
+attempt sees, so a redo that's gone stale (another player branched or
+redid/undid further in the meantime) fails cleanly instead of grafting a
+stashed payload onto the wrong point in history.
+
+Updated `BACKEND_ENFORCEMENT_SPEC.md` §4.4 with a dated note: this
+satisfies that section's two central asks (append-only history; no
+separate redo-payload endpoint) without the separately-persisted
+`historyPointer` column or schema/RLS changes that section originally
+specced — but it's still entirely client-trusted (no §4.1 enforcement),
+doesn't implement the owner-override/cross-player-pruning authorization
+§4.4 describes, and leaves open whether phase 6 still wants its own
+persisted pointer or can just reuse `resolveHistory` against the same
+`actionHistory` it already reads.
+
+Added `engine/historyFold.test.ts` (pure `resolveHistory` fold cases:
+plain undo, redo, rewinding past empty, redoing past the tip, branching
+after one or several undos) and `engine/undoRedo.test.ts`
+(`applyUndoAction`/`applyRedoAction` against a real genesis: nothing-to-
+undo/redo rejections, a null `playerId`, unwinding `status: 'completed'`
+back to `'active'`, a branch permanently dropping the redo option without
+deleting the abandoned entry, and a multi-undo/multi-redo round trip);
+extended `gameLog.test.ts` with undo/redo narration cases including the
+`extendGameLog`-resumed-partway-through-agrees-with-a-full-rebuild check
+now that undo/redo entries can appear in either half. 1041 tests total (was
+1021); `tsc -b`/`oxlint`/`vitest run`/`npm run build` all clean. Not
+covered by an automated test (GamePage.tsx isn't unit tested anywhere in
+this codebase): the Undo/Redo buttons themselves in a live game, and
+reviewing history (`fullTurnStops`/`buildTurnReview`) across a game that
+actually used undo/redo — needs a manual check.

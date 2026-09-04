@@ -5,6 +5,7 @@ import { applyAction } from './applyAction'
 import { EMPTY_BOARD_GENERATION_CONTENT } from './boardGenerationContent'
 import type { BoardGenerationContent } from './boardGenerationContent'
 import { UNIT_KINDS, cardIdFor, findCardZone } from './cards'
+import { replayActions } from './replay'
 import { describeResourceDelta } from './resources'
 import { EMPTY_TALE_CONTENT } from './taleContent'
 import type { TaleContent } from './taleContent'
@@ -119,6 +120,18 @@ function describePrimaryAction(action: Action, before: GameState, after: GameSta
       return [{ playerId: action.playerId, message: `${PLAYER_PLACEHOLDER} passed on purchasing` }]
     case 'CONCEDE':
       return [{ playerId: action.playerId, message: `${PLAYER_PLACEHOLDER} conceded` }]
+    case 'UNDO_ACTION':
+      return [
+        action.playerId
+          ? { playerId: action.playerId, message: `${PLAYER_PLACEHOLDER} undid the last action` }
+          : { playerId: null, message: 'The last action was undone' },
+      ]
+    case 'REDO_ACTION':
+      return [
+        action.playerId
+          ? { playerId: action.playerId, message: `${PLAYER_PLACEHOLDER} redid the previously undone action` }
+          : { playerId: null, message: 'The previously undone action was redone' },
+      ]
     default: {
       const exhaustive: never = action
       throw new Error(`Unknown action: ${JSON.stringify(exhaustive)}`)
@@ -214,8 +227,19 @@ function describeCascade(before: GameState, after: GameState, achievementContent
  * re-deriving the entire history on every single action). `nextEventId`
  * seeds the running `evt_N` counter so ids stay unique/increasing across a
  * caller's earlier and newly-appended halves.
+ *
+ * `genesis`/`historySoFar` (the raw entries already reflected in `state`)
+ * are only actually needed for UNDO_ACTION/REDO_ACTION entries (design
+ * change, issue #412) among `actions`: those aren't a forward step from
+ * `state` via applyAction() like every other entry — see resolveHistory
+ * (./historyFold.ts) — so narrating one means re-deriving `state` via a full
+ * replayActions() over `historySoFar` plus everything walked so far in this
+ * call, the same way applyUndoAction/applyRedoAction (./undoRedo.ts) do for
+ * a live submission.
  */
 export function extendGameLog(
+  genesis: GameState,
+  historySoFar: LoggedAction[],
   state: GameState,
   actions: LoggedAction[],
   nextEventId: number,
@@ -226,20 +250,28 @@ export function extendGameLog(
 ): { state: GameState; events: GameEvent[] } {
   const events: GameEvent[] = []
   let id = nextEventId
+  let history = historySoFar
 
   for (const logged of actions) {
     const before = state
-    // trustedReplay: `logged` was already validated once, when originally
-    // submitted (see applyAction's own doc comment) — narrating it again
-    // doesn't need PLACE_TILE's expensive room-search recheck.
-    const result = applyAction(before, logged.action, unitContent, achievementContent, boardGenerationContent, taleContent, true)
-    if (!result.ok) break // a validly-logged action should never fail to reapply; bail defensively rather than throw mid-log
-    const after = result.state
+    history = [...history, logged]
 
-    const drafts = [
-      ...describePrimaryAction(logged.action, before, after, unitContent),
-      ...describeCascade(before, after, achievementContent),
-    ]
+    let after: GameState
+    let primaryDrafts: DraftEvent[]
+    if (logged.action.type === 'UNDO_ACTION' || logged.action.type === 'REDO_ACTION') {
+      after = replayActions(genesis, history, unitContent, achievementContent, boardGenerationContent, taleContent)
+      primaryDrafts = describePrimaryAction(logged.action, before, after, unitContent)
+    } else {
+      // trustedReplay: `logged` was already validated once, when originally
+      // submitted (see applyAction's own doc comment) — narrating it again
+      // doesn't need PLACE_TILE's expensive room-search recheck.
+      const result = applyAction(before, logged.action, unitContent, achievementContent, boardGenerationContent, taleContent, true)
+      if (!result.ok) break // a validly-logged action should never fail to reapply; bail defensively rather than throw mid-log
+      after = result.state
+      primaryDrafts = describePrimaryAction(logged.action, before, after, unitContent)
+    }
+
+    const drafts = [...primaryDrafts, ...describeCascade(before, after, achievementContent)]
     for (const draft of drafts) {
       events.push({
         id: `evt_${id++}`,
@@ -284,6 +316,8 @@ export function buildGameLogFrom(
   }
 
   const { state, events } = extendGameLog(
+    genesis,
+    [],
     genesis,
     actionHistory,
     initial.length + 1,

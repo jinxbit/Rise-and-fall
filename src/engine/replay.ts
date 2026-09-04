@@ -7,6 +7,7 @@ import type { LoggedAction } from './actions'
 import { EMPTY_TALE_CONTENT } from './taleContent'
 import type { TaleContent } from './taleContent'
 import type { GameState } from './types'
+import { resolveHistory } from './historyFold'
 import { EMPTY_UNIT_CONTENT } from './unitContent'
 import type { UnitContent } from './unitContent'
 
@@ -32,6 +33,17 @@ import type { UnitContent } from './unitContent'
  * bounded combinatorial room-search, by far the most expensive check this
  * engine has), so this always replays `trustedReplay: true` (see
  * applyAction's own doc comment in ./applyAction.ts).
+ *
+ * `history` may contain UNDO_ACTION/REDO_ACTION entries (design change,
+ * issue #412 — see UndoAction's doc comment in ./actions.ts) interleaved
+ * with substantive ones: resolveHistory (./historyFold.ts) folds those into
+ * the substantive prefix currently "in effect", which is what actually gets
+ * replayed below — undo/redo entries themselves are never fed to
+ * applyAction(), since rewinding isn't a forward step. The returned state's
+ * `actionHistory` is always exactly the raw `history` passed in (not just
+ * whatever the effective replay happened to accumulate), so a caller
+ * appending a further action, or another undo/redo, keeps extending the
+ * same append-only log.
  */
 export function replayActions(
   genesis: GameState,
@@ -42,12 +54,12 @@ export function replayActions(
   taleContent: TaleContent = EMPTY_TALE_CONTENT,
 ): GameState {
   let state = genesis
-  for (const entry of history) {
+  for (const entry of resolveHistory(history).effective) {
     const result = applyAction(state, entry.action, unitContent, achievementContent, boardGenerationContent, taleContent, true)
     if (!result.ok) {
       throw new Error(`Replay failed at action ${JSON.stringify(entry.action)}: ${result.error}`)
     }
     state = result.state
   }
-  return state
+  return { ...state, actionHistory: history }
 }

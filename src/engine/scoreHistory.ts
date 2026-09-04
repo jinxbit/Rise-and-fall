@@ -7,6 +7,7 @@ import type { BoardGenerationContent } from './boardGenerationContent'
 import { EMPTY_TALE_CONTENT } from './taleContent'
 import type { TaleContent } from './taleContent'
 import type { GameState } from './types'
+import { resolveHistory } from './historyFold'
 import { EMPTY_UNIT_CONTENT } from './unitContent'
 import type { UnitContent } from './unitContent'
 import { calculateVPBreakdown } from './victoryPoints'
@@ -62,7 +63,7 @@ export function calculateScoreHistory(
   const snapshots: ScoreSnapshot[] = [snapshotOf(state, achievementContent, taleContent)]
   const achievementClaims: AchievementClaimEvent[] = []
 
-  for (const entry of actionHistory) {
+  for (const entry of resolveHistory(actionHistory).effective) {
     const result = applyAction(state, entry.action, unitContent, achievementContent, boardGenerationContent, taleContent, true)
     if (!result.ok) break
     const previousState = state
