@@ -76,6 +76,10 @@ export function beginDeclinePhase(
     roundPhase: 'decline',
     pendingPlayerIds: state.turnOrder.flatMap((id) => Array<string>(cardsPerPlayer).fill(id)),
     activePlayerId: null,
+    // Fresh per phase — only this phase's own additions are ever
+    // retractable (RETRACT_DECLINE, ./applyAction.ts), so a prior phase's
+    // now-irrelevant entries shouldn't linger.
+    declineSourceZoneByCardId: {},
   }
   const afterEliminations = eliminatePlayersWithNoCardToDecline(started)
   // See beginSelectCardsPhase's matching comment: a just-completed game

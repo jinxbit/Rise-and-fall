@@ -81,6 +81,7 @@ function reviewPhaseGroupFor(action: Action, precedingGroup: ReviewPhaseGroup): 
     case 'PASS_ACTIONS':
       return 'actions'
     case 'MOVE_TO_DECLINE':
+    case 'RETRACT_DECLINE':
     case 'PURCHASE_CARD':
     case 'PASS_PURCHASE':
       return 'declinePurchase'

@@ -458,6 +458,25 @@ export interface GameState {
    * stand.
    */
   actionHistory: LoggedAction[]
+  /**
+   * Which zone (`hand` or `discard`) each card currently sitting in
+   * someone's `declineCardIds` *because of this round's still-open decline
+   * phase* actually came from — needed by RETRACT_DECLINE
+   * (BACKEND_ENFORCEMENT_SPEC.md §10) to put a retracted card back where it
+   * belongs. `cardId` alone can't answer this: a card can sit unrecycled in
+   * `discard` across several rounds (see moveUnbackedDiscardCardsToSupply's
+   * doc comment, ./cards.ts), so "was this the currently-played card" isn't
+   * a reliable test either. Populated by applyMoveToDecline (./applyAction.ts)
+   * at the moment a card actually leaves hand/discard, reset to `{}` at the
+   * start of every new decline phase (beginDeclinePhase, ./round.ts) since
+   * only the *current* phase's additions are ever retractable, and the key
+   * is deleted again by applyRetractDecline once consumed. Optional and
+   * absent outside an open decline phase — this is live scratch state for
+   * "what to do right now," not part of the replayable action log, so
+   * nothing derived from history (gameLog/turnReview/redaction) needs to
+   * read it.
+   */
+  declineSourceZoneByCardId?: Record<string, CardZone>
 }
 
 /**

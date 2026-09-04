@@ -109,6 +109,8 @@ function describePrimaryAction(action: Action, before: GameState, after: GameSta
       return [{ playerId: action.playerId, message: `${PLAYER_PLACEHOLDER} passed on resolving further actions` }]
     case 'MOVE_TO_DECLINE':
       return [{ playerId: action.playerId, message: `${PLAYER_PLACEHOLDER} moved a card into decline` }]
+    case 'RETRACT_DECLINE':
+      return [{ playerId: action.playerId, message: `${PLAYER_PLACEHOLDER} retracted a card from decline` }]
     case 'PURCHASE_CARD': {
       const goldBefore = before.players.find((p) => p.id === action.playerId)?.resources.gold ?? 0
       const goldAfter = after.players.find((p) => p.id === action.playerId)?.resources.gold ?? 0

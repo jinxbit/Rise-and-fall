@@ -118,6 +118,30 @@ export interface MoveToDeclineAction {
   cardId: string
 }
 
+/**
+ * Retracts one of the caller's own cards moved to decline earlier in the
+ * still-open decline phase — decline's counterpart to RetractChoiceAction
+ * above (BACKEND_ENFORCEMENT_SPEC.md §10's "RETRACT_DECLINE"). Unlike a
+ * `selectCards` pick, a player may owe (and so have already moved) more
+ * than one card this phase (see beginDeclinePhase, ./round.ts), so this
+ * needs `cardId` to say which one — any of the caller's own still-open
+ * additions from this phase, not necessarily the most recent, and not
+ * gated on having caught up on every card still owed (retracting one
+ * doesn't require having nothing else left to decide). Puts `cardId` back
+ * wherever it actually came from — hand or discard, per
+ * GameState.declineSourceZoneByCardId, which MOVE_TO_DECLINE populates for
+ * exactly this purpose — and adds the caller back to `pendingPlayerIds`
+ * once. Legal only while `roundPhase === 'decline'` and `cardId` is one of
+ * the caller's own additions still standing from *this* phase; an
+ * already-public prior round's decline card (never bought back) has no
+ * `declineSourceZoneByCardId` entry and so isn't retractable.
+ */
+export interface RetractDeclineAction {
+  type: 'RETRACT_DECLINE'
+  playerId: string
+  cardId: string
+}
+
 export interface PurchaseCardAction {
   type: 'PURCHASE_CARD'
   playerId: string
@@ -152,6 +176,7 @@ export type Action =
   | ResolveUnitActionAction
   | PassActionsAction
   | MoveToDeclineAction
+  | RetractDeclineAction
   | PurchaseCardAction
   | PassPurchaseAction
   | ConcedeAction

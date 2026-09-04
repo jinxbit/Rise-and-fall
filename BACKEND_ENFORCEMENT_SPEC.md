@@ -506,7 +506,18 @@ earlier ones being merged.
      map and the card never leaves the player's hand at pick time, so
      retracting is just clearing the map entry and re-adding the player to
      `pendingPlayerIds` — no data beyond `playerId` needed on the action.
-     **`RETRACT_DECLINE` is deliberately not implemented yet** — see §10.
+   - **§4.4's `RETRACT_DECLINE`** (`actions.ts`/`applyAction.ts`, resolving
+     the open item this document previously left here — see §10's now-
+     resolved entry) is implemented for both the "which zone did this card
+     come from" and "can I retract before catching up on every owed card"
+     questions §10 raised. It's a compensating action, symmetric with
+     `RETRACT_CHOICE`, but needs a `cardId` payload (unlike `RETRACT_CHOICE`,
+     a player can owe, and so already have declined, more than one card this
+     phase — see `beginDeclinePhase`, `round.ts` — so "the" single thing to
+     retract isn't well-defined without saying which). Legal for any of the
+     caller's own still-open additions from the *current* decline phase,
+     regardless of whether they've caught up on everything else they still
+     owe.
 4. **DB migration**: `game_state_meta` (or chosen equivalent), archived-
    tail storage, `historyPointer` column, and updated RLS locking
    `game_state` to service-role-only.
@@ -539,9 +550,14 @@ earlier ones being merged.
   condition; fast-forward tests for forced single-choice `CHOOSE_CARD`/
   `MOVE_TO_DECLINE`; §4.4/§5.3 refinement cases specifically — retracting
   only the caller's own pending pick leaves other players'
-  visible-or-secret picks untouched; a plain review-only pointer rewind
-  into an already-resolved phase does not re-mask it (no flicker); a
-  branch that prunes a phase's resolving action both reopens
+  visible-or-secret picks untouched; `RETRACT_DECLINE` returning a card to
+  its actual source zone (hand vs. discard, including this round's played
+  card) rather than always defaulting to one, remaining retractable
+  regardless of whether the caller has caught up on every card they still
+  owe, and rejecting a card that isn't this phase's own addition; a plain
+  review-only pointer rewind into an already-resolved phase does not
+  re-mask it (no flicker); a branch that prunes a phase's resolving action
+  both reopens
   `pendingPlayerIds` for every player whose pick was discarded **and**
   deletes that phase's reveal high-water mark so redaction re-masks it;
   cross-player pruning here still requires the owner-override gate.
@@ -566,30 +582,46 @@ earlier ones being merged.
   every `get_game_state` call) or just calls the equivalent logic
   server-side per read — a performance choice, not a correctness one, given
   a small friend group's game lengths.
-- **`RETRACT_CHOICE` implemented (§4.4, phase 3, §8); `RETRACT_DECLINE`
-  still open**, and turns out to need one more design decision, not just
-  the same treatment as `RETRACT_CHOICE`: `CHOOSE_CARD` never moves the
-  picked card out of the player's hand (only `chosenCardIdByPlayerId`
-  changes), so retracting it is a pure map edit. `MOVE_TO_DECLINE`
-  (`applyMoveToDecline`, `applyAction.ts`) *does* move the card immediately,
-  via `moveCard()` (`cards.ts`), out of whichever zone it actually came from
-  — hand or discard, callers may supply either. Reversing that move needs
-  to know which zone to put the card back in, and nothing on the logged
-  action records it today (`MoveToDeclineAction` only carries `cardId`).
-  Recommended fix, to decide alongside `RETRACT_DECLINE`'s implementation:
-  determine the source zone by looking up where `cardId` sat in
-  `actionHistory`-derived state immediately before that specific
-  `MOVE_TO_DECLINE` entry (`stateAtPointer` up to that index already gives
-  this for free, no new stored field needed) — same "derive, don't persist"
-  approach `computeRevealedPhaseMarks` above just validated. A second,
-  smaller wrinkle: a player who owes more than one decline card
-  (`beginDeclinePhase`, `round.ts`) appears more than once in
-  `pendingPlayerIds`; §4.4's text ("they're not in `pendingPlayerIds` for
-  this phase") describes the `selectCards` case cleanly but doesn't say
-  whether a player who has submitted one of two owed cards (still pending
-  for the second) should already be able to retract the first, or only once
-  fully caught up — needs an explicit answer before implementing, since it
-  changes the legality check `applyRetractDecline` would use.
+- **`RETRACT_CHOICE` and `RETRACT_DECLINE` both implemented (§4.4, phase 3,
+  §8).** `RETRACT_DECLINE` turned out to need two design decisions beyond
+  `RETRACT_CHOICE`'s treatment, both now resolved (2026-09-04):
+  - **Source-zone tracking.** `CHOOSE_CARD` never moves the picked card out
+    of the player's hand (only `chosenCardIdByPlayerId` changes), so
+    retracting it is a pure map edit. `MOVE_TO_DECLINE` (`applyMoveToDecline`,
+    `applyAction.ts`) *does* move the card immediately, via `moveCard()`
+    (`cards.ts`), out of whichever zone it actually came from — hand or
+    discard. This document's prior draft recommended deriving the source
+    zone from `actionHistory` via `stateAtPointer` at retract time, matching
+    `computeRevealedPhaseMarks`' "derive, don't persist" approach — in
+    practice that needs a `genesis` state to replay from, which
+    `applyRetractDecline`'s call site (an ordinary `dispatchAction` handler,
+    like every other `apply*` function) never has; only the pointer-aware
+    callers in `historyPointer.ts` do. Threading `genesis` through the whole
+    `applyAction` call chain just for this one handler was judged worse than
+    the alternative actually taken: a new **optional** `GameState` field,
+    `declineSourceZoneByCardId: Record<string, CardZone>` (`types.ts`) —
+    populated by `applyMoveToDecline` at the moment a card actually leaves
+    hand/discard, reset to `{}` at the start of every new decline phase
+    (`beginDeclinePhase`, `round.ts`), and consumed (key deleted) by
+    `applyRetractDecline`. This is live scratch state for "what to do right
+    now," not part of the replayable log — same category as
+    `chosenCardIdByPlayerId` itself, not a new kind of persistence. Optional
+    specifically so every existing test fixture that builds a `GameState`
+    object literal (dozens, across `src/engine/__tests__/`) keeps compiling
+    unchanged; every read defaults via `?? {}`/optional-chaining. A card
+    with no entry (an already-public prior round's decline addition,
+    never bought back) is correctly not retractable — this is also what
+    makes "only *this* phase's own additions are retractable" hold, for
+    free, without a separate check.
+  - **Multi-card-owed retraction timing.** A player who owes more than one
+    decline card (`beginDeclinePhase`, `round.ts`) appears more than once in
+    `pendingPlayerIds`. Decided: retracting one already-declined card never
+    requires having caught up on every other card still owed — symmetric
+    with how `RETRACT_CHOICE` needs no special permission, and avoids an
+    arbitrary ordering restriction with no rules basis. `RetractDeclineAction`
+    accordingly carries a `cardId` (unlike the payload-less
+    `RetractChoiceAction`), since a player can have more than one of their
+    own still-open additions at once and needs to say which one.
 - ~~Whether a pruned, abandoned branch that already crossed a reveal
   transition leaves that information revealed forever~~ — **resolved**: no,
   per jinxbit's 2026-09-03 answer, the reveal high-water mark is deleted
