@@ -1,5 +1,6 @@
 import { supabase } from './supabase'
 import { nextSeatIndex } from './seatIndex'
+import { remapGameSettingsPlayerIds, remapGameStatePlayerIds } from './duplicateGameState'
 import type { GameRow, GameSettings, GameStateRow, PlayerRow, ProfilePreferences, PushSubscriptionRow } from './dbTypes'
 import type { MyGameEntry } from './myGamesView'
 import type { PublicRoomEntry } from './publicRoomsView'
@@ -490,6 +491,70 @@ export async function addLocalPlayer(params: { game: GameRow; hostUserId: string
 
   if (error) throw error
   return data as PlayerRow
+}
+
+/**
+ * "Duplicate as hot seat" (issue #414, GamePage.tsx's hamburger menu):
+ * snapshots a game's CURRENT state — mid-round, still in board setup, or
+ * even finished — into a brand-new hotseat room owned by the clicking
+ * player, with every seat converted to a local pass-and-play player under
+ * their own account (mirrors addLocalPlayer, just for a whole roster at
+ * once and against a room seeded straight into 'active' rather than a
+ * lobby someone starts). The source room and its players/state are never
+ * touched — this only ever inserts new rows. Player ids are generated
+ * client-side (rather than left to the DB's default) so the new roster is
+ * known up front and the source GameState/GameSettings can be rewritten
+ * onto it (see duplicateGameState.ts) before anything is written.
+ */
+export async function duplicateGameAsHotseat(params: {
+  sourceGame: GameRow
+  sourcePlayers: PlayerRow[]
+  sourceState: EngineGameState
+  hostUserId: string
+}): Promise<GameRow> {
+  const playerIdMap: Record<string, string> = {}
+  for (const p of params.sourcePlayers) {
+    playerIdMap[p.id] = crypto.randomUUID()
+  }
+
+  const suffix = ' (copy)'
+  const name = `${params.sourceGame.name.slice(0, 60 - suffix.length)}${suffix}`
+  const settings = remapGameSettingsPlayerIds(params.sourceGame.settings, playerIdMap)
+
+  const { data: game, error: gameError } = await supabase
+    .from('games')
+    .insert({
+      room_code: generateRoomCode(),
+      name,
+      play_mode: 'hotseat',
+      status: 'active',
+      created_by: params.hostUserId,
+      min_players: params.sourcePlayers.length,
+      max_players: params.sourcePlayers.length,
+      settings,
+      visibility: 'private',
+    })
+    .select()
+    .single()
+  if (gameError) throw gameError
+
+  const { error: playersError } = await supabase.from('players').insert(
+    params.sourcePlayers.map((p) => ({
+      id: playerIdMap[p.id],
+      game_id: game.id,
+      user_id: params.hostUserId,
+      display_name: p.display_name,
+      avatar_url: null,
+      seat_index: p.seat_index,
+      color: p.color,
+    })),
+  )
+  if (playersError) throw playersError
+
+  const state = remapGameStatePlayerIds(params.sourceState, { newGameId: game.id, playerIdMap, hostUserId: params.hostUserId })
+  await insertGameState(game.id, state)
+
+  return game as GameRow
 }
 
 /** Removes a seated player — used pre-start to undo a mis-added hotseat local player (LobbyPage.tsx). RLS only allows deleting your own row (0003_hotseat_local_players.sql), which for hotseat covers every local player the host added. */
