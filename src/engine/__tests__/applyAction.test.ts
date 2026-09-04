@@ -294,6 +294,16 @@ describe('RETRACT_CHOICE (BACKEND_ENFORCEMENT_SPEC.md §4.4)', () => {
     const result = applyAction(p2Chosen.state, { type: 'RETRACT_CHOICE', playerId: 'p1' })
     expect(result.ok).toBe(false)
   })
+
+  it('rejects retracting for a player eliminated after choosing (e.g. by conceding) — otherwise they get stuck back in pendingPlayerIds with no one left to act for them', () => {
+    const chosen = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'ship') })
+    if (!chosen.ok) throw new Error('setup failed')
+    const players = chosen.state.players.map((p) => (p.id === 'p1' ? { ...p, eliminated: true } : p))
+    const eliminatedState: GameState = { ...chosen.state, players }
+
+    const result = applyAction(eliminatedState, { type: 'RETRACT_CHOICE', playerId: 'p1' })
+    expect(result.ok).toBe(false)
+  })
 })
 
 /**
@@ -459,6 +469,18 @@ describe('RETRACT_DECLINE (BACKEND_ENFORCEMENT_SPEC.md §10)', () => {
     if (!retracted.ok) return
     const p2 = retracted.state.players.find((p) => p.id === 'p2')!
     expect(p2.declineCardIds).toContain(p2ShipId)
+  })
+
+  it('rejects retracting for a player eliminated after declining (e.g. by conceding) — otherwise they get stuck back in pendingPlayerIds with no one left to act for them', () => {
+    const declineState = reachDeclinePhase(makeActiveGameWithFullHands())
+    const templeId = cardIdFor('p1', 'temple')
+    const declined = applyAction(declineState, { type: 'MOVE_TO_DECLINE', playerId: 'p1', cardId: templeId })
+    if (!declined.ok) throw new Error('setup failed')
+    const players = declined.state.players.map((p) => (p.id === 'p1' ? { ...p, eliminated: true } : p))
+    const eliminatedState: GameState = { ...declined.state, players }
+
+    const result = applyAction(eliminatedState, { type: 'RETRACT_DECLINE', playerId: 'p1', cardId: templeId })
+    expect(result.ok).toBe(false)
   })
 })
 

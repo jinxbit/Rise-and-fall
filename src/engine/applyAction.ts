@@ -282,6 +282,10 @@ function applyRetractChoice(state: GameState, playerId: string): ActionResult {
   if (state.roundPhase !== 'selectCards') {
     return { ok: false, error: 'Cards can only be retracted during the select-cards phase' }
   }
+  const player = state.players.find((p) => p.id === playerId)
+  if (player?.eliminated) {
+    return { ok: false, error: 'Eliminated players cannot retract a choice' }
+  }
   if (state.chosenCardIdByPlayerId[playerId] == null) {
     return { ok: false, error: 'This player has not chosen a card yet this round' }
   }
@@ -568,6 +572,9 @@ function applyRetractDecline(state: GameState, playerId: string, cardId: string)
     return { ok: false, error: `Unknown player: ${playerId}` }
   }
   const player = state.players[playerIndex]
+  if (player.eliminated) {
+    return { ok: false, error: 'Eliminated players cannot retract decline' }
+  }
   if (!player.declineCardIds.includes(cardId)) {
     return { ok: false, error: "This card is not currently in this player's decline" }
   }
