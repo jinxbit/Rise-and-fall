@@ -29,6 +29,7 @@ import { buildGenesisState } from '../lib/gameGenesis'
 import {
   cancelGame,
   deleteGame,
+  duplicateGameAsHotseat,
   getGameByRoomCode,
   getGameState,
   listMyGames,
@@ -189,6 +190,8 @@ export function GamePage() {
   const [hotseatActivePlayerId, setHotseatActivePlayerId] = useState<string | null>(null)
   const [lifecycleBusy, setLifecycleBusy] = useState(false)
   const [lifecycleError, setLifecycleError] = useState<AppError | null>(null)
+  const [duplicating, setDuplicating] = useState(false)
+  const [duplicateError, setDuplicateError] = useState<AppError | null>(null)
   /**
    * Other games (any status) the signed-in user is seated in, refreshed
    * whenever this room loads and whenever the tab regains visibility — see
@@ -1156,6 +1159,35 @@ export function GamePage() {
     }
   }
 
+  /**
+   * "Duplicate as hot seat" (issue #414): snapshots this game's current
+   * state into a brand-new hotseat room this browser's account owns, with
+   * every seat turned into a local pass-and-play player — a practice/replay
+   * copy, not a live shared room. Available to anyone who can see this
+   * game's state (any signed-in user, once the room's left the lobby — same
+   * as "Copy game export"/"Save this map" above), not just the room's
+   * owner or a seated player, since duplicating doesn't touch the source
+   * room at all. Navigates straight into the new room once it's created.
+   */
+  async function handleDuplicateAsHotseat() {
+    if (!game || !gameState || !session) return
+    setDuplicating(true)
+    setDuplicateError(null)
+    try {
+      const newGame = await duplicateGameAsHotseat({
+        sourceGame: game,
+        sourcePlayers: players,
+        sourceState: gameState,
+        hostUserId: session.user.id,
+      })
+      navigate(`/game/${newGame.room_code}`)
+    } catch (err) {
+      setDuplicateError(toAppError(err, 'Failed to duplicate game'))
+    } finally {
+      setDuplicating(false)
+    }
+  }
+
   async function handleCancelRoom() {
     if (!game) return
     if (!window.confirm('Cancel this room? Play will be disabled for everyone — this cannot be undone.')) return
@@ -1310,6 +1342,19 @@ export function GamePage() {
                   className="px-3 py-2 text-left hover:bg-neutral-800 disabled:opacity-50"
                 >
                   {savingMap ? 'Saving map…' : 'Save this map'}
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={!gameState || duplicating}
+                  onClick={() => {
+                    setMenuOpen(false)
+                    void handleDuplicateAsHotseat()
+                  }}
+                  title="Copy this game's current state into a brand-new hot seat room you own, with every seat turned into a local pass-and-play player. This game keeps going untouched."
+                  className="px-3 py-2 text-left hover:bg-neutral-800 disabled:opacity-50"
+                >
+                  {duplicating ? 'Duplicating…' : 'Duplicate as hot seat'}
                 </button>
                 {canEditVisibility ? (
                   <button
@@ -1579,6 +1624,10 @@ export function GamePage() {
       {mapSaveError && <ErrorBanner message={mapSaveError.message} details={mapSaveError.details} onDismiss={() => setMapSaveError(null)} />}
 
       {mapSaved && <div className="rounded-md bg-emerald-500/10 p-3 text-sm text-emerald-400">Map saved to the pool!</div>}
+
+      {duplicateError && (
+        <ErrorBanner message={duplicateError.message} details={duplicateError.details} onDismiss={() => setDuplicateError(null)} />
+      )}
 
       {lifecycleError && (
         <ErrorBanner message={lifecycleError.message} details={lifecycleError.details} onDismiss={() => setLifecycleError(null)} />
