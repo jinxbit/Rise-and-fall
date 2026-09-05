@@ -36,7 +36,7 @@ export type RedactedGameState = Omit<GameState, 'chosenCardIdByPlayerId' | 'play
  * Read-side view of GameState for a specific viewer (`viewerId`, one of
  * GameState.players[].id, or a non-player observer). Masks the two windows
  * of transient hidden information the game has per
- * BACKEND_ENFORCEMENT_SPEC.md §2/§5.1:
+ * HIDDEN_INFORMATION_PLAN.md §2/§5.1:
  *
  * - While `roundPhase === 'selectCards'` and any player is still pending,
  *   another player's already-made pick is visible as "they've chosen" but

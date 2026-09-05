@@ -217,7 +217,7 @@ describe('applyAction', () => {
   })
 })
 
-describe('RETRACT_CHOICE (BACKEND_ENFORCEMENT_SPEC.md §4.4)', () => {
+describe('RETRACT_CHOICE (RULE_ENFORCEMENT_PLAN.md §4.4)', () => {
   let state: GameState
 
   beforeEach(() => {
@@ -362,7 +362,7 @@ function reachDeclinePhase(state: GameState, achievementsClaimedThisRound = 1): 
   return result.state
 }
 
-describe('RETRACT_DECLINE (BACKEND_ENFORCEMENT_SPEC.md §10)', () => {
+describe('RETRACT_DECLINE (RULE_ENFORCEMENT_PLAN.md §10)', () => {
   it('rejects retracting a card never moved to decline this phase', () => {
     const state = reachDeclinePhase(makeActiveGameWithFullHands())
     const result = applyAction(state, { type: 'RETRACT_DECLINE', playerId: 'p1', cardId: cardIdFor('p1', 'temple') })

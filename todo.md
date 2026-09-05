@@ -3472,7 +3472,7 @@ are added to the history." Today's `handleUndo()`/`handleRedo()`
 popped in a `redoStack` React state — client-local and unpersisted, so a
 page reload, a different device/tab, or another player's client could never
 see a pending redo, and the undone entry was gone from the log for good
-(the exact "impersonation hole" `BACKEND_ENFORCEMENT_SPEC.md` §4.4 already
+(the exact "impersonation hole" `RULE_ENFORCEMENT_PLAN.md` §4.4 already
 flagged for once §4.1 lands, since `handleRedo()` resubmitted the stashed
 `Action` object, `playerId` and all, with nothing stopping a fabricated
 one).
@@ -3529,7 +3529,7 @@ attempt sees, so a redo that's gone stale (another player branched or
 redid/undid further in the meantime) fails cleanly instead of grafting a
 stashed payload onto the wrong point in history.
 
-Updated `BACKEND_ENFORCEMENT_SPEC.md` §4.4 with a dated note: this
+Updated `RULE_ENFORCEMENT_PLAN.md` §4.4 with a dated note: this
 satisfies that section's two central asks (append-only history; no
 separate redo-payload endpoint) without the separately-persisted
 `historyPointer` column or schema/RLS changes that section originally

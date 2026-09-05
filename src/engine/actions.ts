@@ -52,7 +52,7 @@ export interface ChooseCardAction {
 
 /**
  * Retracts the caller's own already-made `selectCards` pick while at least
- * one other player is still pending (BACKEND_ENFORCEMENT_SPEC.md §4.4's
+ * one other player is still pending (RULE_ENFORCEMENT_PLAN.md §4.4's
  * refinement) — the "undo" a player reaches for mid-phase instead of the
  * shared `historyPointer` rewind, since a plain pointer move would also
  * undo whichever other players' entries happen to sit after theirs in
@@ -121,7 +121,7 @@ export interface MoveToDeclineAction {
 /**
  * Retracts one of the caller's own cards moved to decline earlier in the
  * still-open decline phase — decline's counterpart to RetractChoiceAction
- * above (BACKEND_ENFORCEMENT_SPEC.md §10's "RETRACT_DECLINE"). Unlike a
+ * above (RULE_ENFORCEMENT_PLAN.md §10's "RETRACT_DECLINE"). Unlike a
  * `selectCards` pick, a player may owe (and so have already moved) more
  * than one card this phase (see beginDeclinePhase, ./round.ts), so this
  * needs `cardId` to say which one — any of the caller's own still-open

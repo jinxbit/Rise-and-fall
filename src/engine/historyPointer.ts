@@ -13,7 +13,7 @@ import { EMPTY_UNIT_CONTENT } from './unitContent'
 import type { UnitContent } from './unitContent'
 
 /**
- * Engine-side support for BACKEND_ENFORCEMENT_SPEC.md §4.4's pointer-based
+ * Engine-side support for RULE_ENFORCEMENT_PLAN.md §4.4's pointer-based
  * undo/redo: `actionHistory` stays append-only and nothing is ever deleted
  * from it (still true here — this module never mutates or shortens the
  * array a caller passes in), and a separate `historyPointer` int (owned and
