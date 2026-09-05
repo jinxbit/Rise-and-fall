@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { LoggedAction } from '../actions'
-import { resolveHistory } from '../historyFold'
+import { redoableTail, resolveHistory } from '../historyFold'
 
 /** A minimal substantive (non-undo/redo) logged entry — CONCEDE's payload is just `playerId`, so distinct ids are enough to tell entries apart by identity/deep-equality. */
 function entry(playerId: string): LoggedAction {
@@ -74,5 +74,32 @@ describe('resolveHistory', () => {
     const resolved = resolveHistory([a, entry('b'), undo(), d])
     expect(resolved.effective).toEqual([a, d])
     expect(resolved.canRedo).toBe(false)
+  })
+})
+
+describe('redoableTail (RULE_ENFORCEMENT_PLAN.md §4.4 owner-override support)', () => {
+  it('is empty with no undo/redo entries', () => {
+    expect(redoableTail([entry('a'), entry('b')])).toEqual([])
+  })
+
+  it('is empty once canRedo is false', () => {
+    expect(redoableTail([entry('a'), entry('b'), undo(), redo()])).toEqual([])
+  })
+
+  it('holds exactly the entries an undo left behind the tip', () => {
+    const b = entry('b')
+    expect(redoableTail([entry('a'), b, undo()])).toEqual([b])
+  })
+
+  it('holds every entry from a multi-undo rewind, in order', () => {
+    const b = entry('b')
+    const c = entry('c')
+    expect(redoableTail([entry('a'), b, c, undo(), undo()])).toEqual([b, c])
+  })
+
+  it('is empty again once a branch has already superseded the abandoned tail', () => {
+    // Same history as historyFold.test.ts's own branching case above: after
+    // [a, b, undo(), c], c is the new tip and there's nothing left to redo.
+    expect(redoableTail([entry('a'), entry('b'), undo(), entry('c')])).toEqual([])
   })
 })
