@@ -554,6 +554,40 @@ to rule enforcement (2, 5) are omitted here.
    both flagged and unflagged games; an enforcement-enabled game just reads
    its own unredacted `game_state` row like every other game does until
    that phase lands.
+   **Write-side half done (2026-09-05):**
+   - `GameSettings.ruleEnforcementEnabled` (`src/lib/dbTypes.ts`), a
+     `createGame()` param, and a `CreateGamePage.tsx` checkbox ("Enable
+     server-side rule enforcement (experimental)", unchecked by default).
+   - `0026_rule_enforcement_flag.sql` replaces `game_state`'s UPDATE RLS
+     policy with one that additionally requires the owning game's flag to be
+     off, `coalesce`d so every pre-existing/default game is unaffected.
+     **INSERT is deliberately left alone** — `LobbyPage.tsx`'s one
+     `insertGameState` call (writing the deterministic genesis state before
+     any action exists) isn't an "action against existing state" in §4's
+     sense (`apply-action` itself requires a `game_state` row to already
+     exist), so it's out of this document's scope; see §10 for the
+     follow-up this leaves open.
+   - `gameApi.ts` gained `applyActionEnforced`/`undoActionEnforced`/
+     `redoActionEnforced`, thin wrappers around
+     `supabase.functions.invoke('apply-action'|'undo-action'|'redo-action', ...)`
+     that normalize both the success and error shape of the Edge Functions'
+     JSON responses (supabase-js reports a non-2xx response as `error` with
+     `data: null` rather than the function's own body, so these reach into
+     `error.context` to recover the actual `{ok:false, error}` message).
+   - `GamePage.tsx`'s `submitAction`/`handleUndo`/`handleRedo` branch on
+     `game.settings.ruleEnforcementEnabled`: off keeps the existing
+     `writeWithRetry` client-computed-and-written path; on calls the new
+     `runEnforced()` helper, which applies the same guard checks
+     (`writeGuardError()`, factored out of `writeWithRetry`) then submits to
+     the Edge Function and adopts its returned `state`/`version` directly —
+     no client-side retry loop, since the Edge Function already did its own
+     compare-and-swap server-side (a 409 just surfaces as an ordinary error).
+   - Verified: `npm run test` (1064 tests), `npm run lint`, `npm run build`.
+     **Not verified:** an actual `supabase db push` of the new migration
+     against a live/local project, or the Edge Functions actually being
+     invoked from a real signed-in browser session — this sandbox's
+     `supabase start` stack from phase 6's verification wasn't re-used here;
+     see §9/§10.
 9. **End-to-end verification against a real two-browser Supabase
    session**, exercising this document's authorization rules specifically —
    confirm a client can't submit an action naming another player's
@@ -653,13 +687,35 @@ to rule enforcement (2, 5) are omitted here.
   condition, unredacted `get_game_state` for admin/owner) need to land
   *with* phases 5–6, not after — otherwise admin mode either breaks or
   becomes an unreviewed impersonation hole the moment enforcement ships.
-- **New (2026-09-05), from the `ruleEnforcementEnabled` flag (§6, §8 phase
-  8):** not yet decided — whether the `CreateGamePage.tsx` checkbox is
-  visible to any room creator from day one, or gated behind an
-  admin/dev-only affordance until it's proven in production; and whether/
-  when the default flips to `true` for new games (and the now-dead off-path
-  + RLS carve-out get deleted) once it has run without surprises. Both are
-  rollout-sequencing calls, not blockers to building the flag itself.
+- **Resolved (2026-09-05): the `CreateGamePage.tsx` checkbox is visible to
+  any room creator from day one** (labeled "experimental", unchecked by
+  default) rather than gated behind an admin/dev-only affordance — still
+  open: whether/when the default flips to `true` for new games (and the
+  now-dead off-path + RLS carve-out get deleted) once it has run without
+  surprises. Rollout-sequencing call, not a blocker.
+- **New (2026-09-05), from the write-side rewire (§8 phase 8):**
+  - `undo-action`/`redo-action` don't yet repeat `GamePage.tsx`'s
+    forced-single-card walk-back loop (issue #131: undoing into a
+    `CHOOSE_CARD` that was auto-submitted for a one-card hand should skip
+    past it, since the UI would instantly auto-resubmit the same forced
+    choice otherwise). Client-trusted games still get this via
+    `wasForcedCardChoice()`'s loop in `handleUndo`; a
+    `ruleEnforcementEnabled` game's Undo currently steps back exactly one
+    logged entry per click, so landing on a forced choice may need an extra
+    click. Needs porting into `undo-action`'s server-side loop (mirroring
+    how §4.3's fast-forwarding already moved server-side in phase 6) before
+    this checkbox's experimental label can come off.
+  - The initial `game_state` row (`LobbyPage.tsx`'s `insertGameState`, the
+    deterministic genesis state) is still a direct, unenforced client
+    insert for every game, flagged or not (`0026_rule_enforcement_flag.sql`
+    only restricts UPDATE) — a malicious client could in principle submit a
+    fabricated genesis (e.g. rigged hands) before their first real action.
+    Treated as out of scope for the same reason `apply-action` itself
+    requires a `game_state` row to already exist: this is state *creation*,
+    not an action against existing state. If this is judged to matter
+    enough to close even for a fabricated one-off row, it needs its own
+    "create-game-state" Edge Function (or folding into `apply-action`'s
+    `loadGameContext` allowing a null `gameState`) — not attempted here.
 
 (See `HIDDEN_INFORMATION_PLAN.md` §10 for redaction-specific open items:
 the reveal high-water mark's storage shape, the `get_game_state`

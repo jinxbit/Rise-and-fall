@@ -7,6 +7,7 @@ import type { PublicRoomEntry } from './publicRoomsView'
 import type { UnitPlateColorOverrides } from './unitColors'
 import { resolveUnitReserveDisplayMode, type UnitReserveDisplayMode } from './unitReserveDisplay'
 import type { Board, GameState as EngineGameState, PlayMode } from '../engine/types'
+import type { Action } from '../engine/actions'
 
 /**
  * Reads a user's Discord webhook URL (supabase/migrations/0005_discord_webhooks.sql).
@@ -192,6 +193,8 @@ export async function createGame(params: {
   soloBuilderUnitOrder?: GameSettings['soloBuilderUnitOrder']
   /** Hotseat only: skip the "pass the device" confirmation gate between local players' turns (see GamePage.tsx). Ignored for live/async. Defaults to false (gate shown) when omitted; CreateGamePage.tsx's checkbox defaults to checked (true). */
   skipHotseatPassGate?: boolean
+  /** Opt in to RULE_ENFORCEMENT_PLAN.md's server-side rule enforcement for this game (see GameSettings.ruleEnforcementEnabled). Defaults to false when omitted; CreateGamePage.tsx's checkbox defaults to unchecked. */
+  ruleEnforcementEnabled?: boolean
   /** Content ids of active Tales (src/content/tales.json) for the Tales variant, or omitted/empty for none. */
   activeTaleIds?: string[]
   /** Total achievements claimed (across all players) that ends the game — content/achievements.json's gameLength.min/max bounds it (1-6). Defaults to gameLength.default (4). */
@@ -216,6 +219,7 @@ export async function createGame(params: {
     soloBuilderUnitOrder: params.soloBuilderUnitOrder ?? 'last',
     soloBuilderTurnOrder: null,
     skipHotseatPassGate: params.skipHotseatPassGate ?? false,
+    ruleEnforcementEnabled: params.ruleEnforcementEnabled ?? false,
     activeTaleIds: params.activeTaleIds ?? [],
     gameLength: params.gameLength ?? 4,
   }
@@ -700,6 +704,52 @@ export async function writeGameState(gameId: string, state: EngineGameState, exp
     .select('version')
   if (error) throw error
   return (data?.length ?? 0) > 0
+}
+
+/** Either arm of an Edge Function response body (see supabase/functions/apply-action|undo-action|redo-action/index.ts) — {ok:true} carries the resulting state/version, {ok:false} carries a player-facing error message. */
+export type GameEnforcementResult = { ok: true; state: EngineGameState; version: number } | { ok: false; error: string }
+
+/**
+ * Invokes one of the RULE_ENFORCEMENT_PLAN.md §8 phase 6 Edge Functions and
+ * normalizes its response into GameEnforcementResult either way. Used only
+ * for games with GameSettings.ruleEnforcementEnabled on — see gameApi.ts
+ * callers below and GamePage.tsx's branch in submitAction/handleUndo/
+ * handleRedo. supabase-js reports a non-2xx response as `error` with `data:
+ * null` rather than surfacing the function's own JSON body, so this reaches
+ * into `error.context` (the raw Response) to recover the `{ok:false, error}`
+ * message the function actually sent, falling back to the generic
+ * FunctionsError message if that response body isn't there or isn't JSON.
+ */
+async function invokeGameFunction(name: 'apply-action' | 'undo-action' | 'redo-action', body: Record<string, unknown>): Promise<GameEnforcementResult> {
+  const { data, error } = await supabase.functions.invoke(name, { body })
+  if (error) {
+    const context = (error as { context?: Response }).context
+    if (context) {
+      try {
+        const parsed = (await context.json()) as { error?: string }
+        if (parsed.error) return { ok: false, error: parsed.error }
+      } catch {
+        // Response body wasn't JSON (or already consumed) — fall through to error.message below.
+      }
+    }
+    return { ok: false, error: error.message }
+  }
+  return data as GameEnforcementResult
+}
+
+/** §4.1-enforced action submission for a ruleEnforcementEnabled game — see supabase/functions/apply-action/index.ts. */
+export async function applyActionEnforced(gameId: string, action: Action): Promise<GameEnforcementResult> {
+  return invokeGameFunction('apply-action', { gameId, action })
+}
+
+/** §4.4 pointer-move undo for a ruleEnforcementEnabled game — see supabase/functions/undo-action/index.ts. */
+export async function undoActionEnforced(gameId: string): Promise<GameEnforcementResult> {
+  return invokeGameFunction('undo-action', { gameId })
+}
+
+/** §4.4 pointer-move redo for a ruleEnforcementEnabled game — see supabase/functions/redo-action/index.ts. */
+export async function redoActionEnforced(gameId: string): Promise<GameEnforcementResult> {
+  return invokeGameFunction('redo-action', { gameId })
 }
 
 export function subscribeToGameState(gameId: string, onChange: (snapshot: GameStateSnapshot) => void): () => void {
