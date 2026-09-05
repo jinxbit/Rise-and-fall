@@ -238,6 +238,14 @@ function describeCascade(before: GameState, after: GameState, achievementContent
  * replayActions() over `historySoFar` plus everything walked so far in this
  * call, the same way applyUndoAction/applyRedoAction (./undoRedo.ts) do for
  * a live submission.
+ *
+ * `ok` is false when an entry failed to reapply (see the defensive bail
+ * below) — the loop stops at that point, same as ever, but callers that
+ * cache per-action state (e.g. GamePage.tsx's history-review replay cache)
+ * need this explicit signal to detect that: a legacy stale forced follow-up
+ * entry (applyAction.ts's isStaleForcedFollowUp) is a legitimate no-op that
+ * leaves `state` at the exact same reference it started at, so "did `state`
+ * change" can no longer be used to infer failure the way it once could.
  */
 export function extendGameLog(
   genesis: GameState,
@@ -249,7 +257,7 @@ export function extendGameLog(
   achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT,
   boardGenerationContent: BoardGenerationContent = EMPTY_BOARD_GENERATION_CONTENT,
   taleContent: TaleContent = EMPTY_TALE_CONTENT,
-): { state: GameState; events: GameEvent[] } {
+): { state: GameState; events: GameEvent[]; ok: boolean } {
   const events: GameEvent[] = []
   let id = nextEventId
   let history = historySoFar
@@ -276,7 +284,7 @@ export function extendGameLog(
       // happened," not from a stored flag), rather than a single
       // describePrimaryAction call over the whole cascade's before/after.
       const result = applyActionWithSteps(before, logged.action, unitContent, achievementContent, boardGenerationContent, taleContent, true)
-      if (!result.ok) break // a validly-logged action should never fail to reapply; bail defensively rather than throw mid-log
+      if (!result.ok) return { state, events, ok: false } // a validly-logged action should never fail to reapply; bail defensively rather than throw mid-log
       after = result.state
       primaryDrafts = result.steps.flatMap((step) => describePrimaryAction(step.action, step.before, step.after, unitContent))
     }
@@ -296,7 +304,7 @@ export function extendGameLog(
     state = after
   }
 
-  return { state, events }
+  return { state, events, ok: true }
 }
 
 /**

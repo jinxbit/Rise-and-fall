@@ -128,6 +128,11 @@ export function applyActionWithSteps(
 ): { ok: true; state: GameState; steps: ActionStep[] } | { ok: false; error: string } {
   const steps = runActionAndForcedFollowUps(state, action, unitContent, achievementContent, boardGenerationContent, taleContent, trustedReplay)
   if (!steps.ok) return steps
+  // A stale forced follow-up (see isStaleForcedFollowUp below) has nothing
+  // left to do — `state` already reflects it, folded into the PRECEDING
+  // entry's own cascade, so there's no new step and no new actionHistory
+  // entry to append.
+  if (steps.steps.length === 0) return { ok: true, state, steps: [] }
 
   // `state.turn` (before dispatch), NOT the converged state's `turn` — a
   // decline/purchase action that happens to be the one that finishes the
@@ -171,7 +176,17 @@ function runActionAndForcedFollowUps(
   trustedReplay: boolean,
 ): { ok: true; steps: ActionStep[] } | { ok: false; error: string } {
   const primary = dispatchAction(resyncUnitMovementFromContent(state, unitContent), action, unitContent, achievementContent, boardGenerationContent, taleContent, trustedReplay)
-  if (!primary.ok) return primary
+  if (!primary.ok) {
+    // trustedReplay-only: a game whose actionHistory predates this fold-in
+    // design (see isStaleForcedFollowUp's own doc comment below) can have a
+    // standalone entry for what's now folded into its triggering action's
+    // own cascade — replay already took it a step earlier, so there's
+    // nothing left for this entry to do. Never taken for a live submission
+    // (trustedReplay is always false there), so a player genuinely
+    // resubmitting a stale action still gets a real rejection.
+    if (trustedReplay && isStaleForcedFollowUp(state, action)) return { ok: true, steps: [] }
+    return primary
+  }
   const steps: ActionStep[] = [{ action, before: state, after: primary.state }]
 
   for (
@@ -243,6 +258,41 @@ function nextDeclineFastForward(state: GameState): MoveToDeclineAction | null {
     }
   }
   return null
+}
+
+/**
+ * Whether `action` is a forced single-option follow-up (CHOOSE_CARD/
+ * MOVE_TO_DECLINE/PLACE_TILE) that's already been taken by the time replay
+ * reaches it — i.e. `state` has no room left for it to apply. Only ever
+ * consulted for `trustedReplay` (see runActionAndForcedFollowUps above): a
+ * game whose actionHistory has entries logged before jinxbit's 2026-09-05
+ * "second follow-up" design (RULE_ENFORCEMENT_PLAN.md §4.2) — when a forced
+ * pick still landed its own standalone actionHistory entry (or, earlier
+ * still, RoundView.tsx's client-side auto-submit logged one as an
+ * indistinguishable ordinary action) — has such entries baked in
+ * permanently, since actionHistory is append-only and never rewritten.
+ * Today's applyAction already takes the identical, deterministic forced
+ * pick one step earlier, folded into the PRECEDING entry's own cascade, so
+ * replaying this entry on its own has nothing left to do.
+ *
+ * Recognized by the exact same "no longer pending"/"not their turn"
+ * condition each handler itself already rejects on (applyChooseCard/
+ * applyMoveToDecline/placeTile above), rather than by matching error text,
+ * so a genuinely-corrupt or out-of-order entry — rejected for any other
+ * reason — still surfaces as a real replay failure instead of being
+ * silently swallowed.
+ */
+function isStaleForcedFollowUp(state: GameState, action: Action): boolean {
+  switch (action.type) {
+    case 'CHOOSE_CARD':
+      return state.roundPhase !== 'selectCards' || !state.pendingPlayerIds.includes(action.playerId)
+    case 'MOVE_TO_DECLINE':
+      return state.roundPhase !== 'decline' || !state.pendingPlayerIds.includes(action.playerId)
+    case 'PLACE_TILE':
+      return state.status !== 'boardSetup' || currentTilePlacerId(state) !== action.playerId
+    default:
+      return false
+  }
 }
 
 /** The tile half of nextForcedFollowUp — a tier whose remaining tiles have only one possible arrangement left, per findForcedPlacement (./boardGeneration.ts), rolling naturally into a newly-forced next tier too. */

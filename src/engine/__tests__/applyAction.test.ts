@@ -5,6 +5,7 @@ import type { BoardGenerationContent } from '../boardGenerationContent'
 import { EMPTY_BOARD_GENERATION_CONTENT } from '../boardGenerationContent'
 import { UNIT_KINDS, cardIdFor, moveCard, syncCardZonesWithBoard } from '../cards'
 import { createNewGame, startGame } from '../createGame'
+import { replayActions } from '../replay'
 import { beginSelectCardsPhase } from '../round'
 import type { Coordinate, GameState, Unit } from '../types'
 import { EMPTY_UNIT_CONTENT } from '../unitContent'
@@ -1372,5 +1373,73 @@ describe('applyAction (forced card-choice/decline cascade folds into the SAME ac
     if (!result.ok) return
     expect(result.state.pendingPlayerIds).toContain('p2')
     expect(result.state.actionHistory.filter((entry) => entry.action.type === 'MOVE_TO_DECLINE')).toHaveLength(1)
+  })
+})
+
+describe('replaying a legacy actionHistory whose forced follow-up predates the fold-in-place design (issue #436)', () => {
+  // Before the 2026-09-05 "second follow-up" design change, a forced pick
+  // (a one-card hand's CHOOSE_CARD, a tile placement with only one legal
+  // arrangement left) landed its own standalone actionHistory entry rather
+  // than folding into its triggering action's entry. A game already in
+  // progress when that change shipped has such entries baked permanently
+  // into its actionHistory (append-only, never rewritten) — replaying them
+  // under today's applyAction must not blow up just because today's engine
+  // already took that same forced pick one step earlier.
+  it('tolerates a standalone CHOOSE_CARD entry for what today folds into the previous pick', () => {
+    const genesis = makeActiveGame()
+    // p1's manual pick, followed by a SEPARATE entry for p2's forced
+    // single-card pick — the pre-fold shape; today's applyAction folds p2's
+    // pick into p1's own entry instead (see the fold test above).
+    const legacyHistory = [
+      { action: { type: 'CHOOSE_CARD' as const, playerId: 'p1', cardId: cardIdFor('p1', 'ship') }, turn: genesis.turn, timestamp: 't1' },
+      { action: { type: 'CHOOSE_CARD' as const, playerId: 'p2', cardId: cardIdFor('p2', 'ship') }, turn: genesis.turn, timestamp: 't2' },
+    ]
+
+    const replayed = replayActions(genesis, legacyHistory)
+
+    expect(replayed.roundPhase).toBe('actions')
+    expect(replayed.actionHistory).toEqual(legacyHistory)
+  })
+
+  it('tolerates a standalone PLACE_TILE entry for what today folds into the previous placement', () => {
+    const domino = [{ q: 0, r: 0 }, { q: 1, r: 0 }]
+    const lobby = createNewGame({
+      gameId: 'game_1',
+      playMode: 'hotseat',
+      board: [
+        [0, 0], [1, 0],
+        [5, 5], [6, 5], [7, 5], [8, 5],
+      ].reduce((b, [q, r]) => setTile(b, { q, r }, 'water'), createEmptyBoard('hex')),
+      players: [
+        { id: 'p1', authUserId: 'auth_1', displayName: 'Alice', color: 'red' },
+        { id: 'p2', authUserId: 'auth_2', displayName: 'Bob', color: 'blue' },
+      ],
+    })
+    const genesis: GameState = {
+      ...lobby,
+      status: 'boardSetup',
+      boardSetup: { tileTierQueue: ['plain'], tilesRemainingInTier: 3, tilePlacerIndex: 0, unitsRemainingByPlayerId: {}, unitPlacerIndex: 0 },
+    }
+    const boardGenerationContent: BoardGenerationContent = {
+      startingWaterShapeCells: [],
+      tiers: [{ terrain: 'plain', shapeCells: domino, placesOn: ['water'], poolSize: 3 }],
+    }
+    // p1's manual placement, followed by SEPARATE entries for the 2 forced
+    // placements that today folds into p1's own entry (see the fold test
+    // above) — the pre-fold shape, each attributed to whoever's turn it
+    // actually was.
+    const legacyHistory = [
+      { action: { type: 'PLACE_TILE' as const, playerId: 'p1', anchor: { q: 0, r: 0 }, rotationSteps: 0 }, turn: genesis.turn, timestamp: 't1' },
+      { action: { type: 'PLACE_TILE' as const, playerId: 'p2', anchor: { q: 5, r: 5 }, rotationSteps: 0 }, turn: genesis.turn, timestamp: 't2' },
+      { action: { type: 'PLACE_TILE' as const, playerId: 'p1', anchor: { q: 7, r: 5 }, rotationSteps: 0 }, turn: genesis.turn, timestamp: 't3' },
+    ]
+
+    const replayed = replayActions(genesis, legacyHistory, undefined, undefined, boardGenerationContent)
+
+    for (const [q, r] of [[0, 0], [1, 0], [5, 5], [6, 5], [7, 5], [8, 5]]) {
+      expect(getTile(replayed.board, { q, r })?.terrain).toBe('plain')
+    }
+    expect(replayed.boardSetup?.tileTierQueue).toEqual([])
+    expect(replayed.actionHistory).toEqual(legacyHistory)
   })
 })
