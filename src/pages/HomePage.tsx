@@ -7,7 +7,7 @@ import { GameOverviewCard } from '../components/GameOverviewCard'
 import { GoogleSignIn } from '../components/GoogleSignIn'
 import { GuestSignIn } from '../components/GuestSignIn'
 import { Pagination } from '../components/Pagination'
-import { SupportBanner } from '../components/SupportBanner'
+import { DiscordCommunityBanner, SupportBanner } from '../components/SupportBanner'
 import { useAuth } from '../hooks/useAuth'
 import { useDisplayName } from '../hooks/useDisplayName'
 import { useIsAdmin } from '../hooks/useIsAdmin'
@@ -94,6 +94,7 @@ export function HomePage() {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 p-8 text-center">
         <h1 className="text-3xl font-semibold">Rise &amp; Fall</h1>
+        <DiscordCommunityBanner />
         <SupportBanner />
         <p className="max-w-sm text-neutral-400">
           Sign in with Discord, Google, or an email and password to create or join a game with your friends.
@@ -184,6 +185,7 @@ export function HomePage() {
         </div>
       </header>
 
+      <DiscordCommunityBanner />
       <SupportBanner />
 
       {error && <ErrorBanner message={error.message} details={error.details} onDismiss={() => setError(null)} />}
