@@ -24,6 +24,7 @@ export function CreateGamePage() {
   const [soloBuilderSelection, setSoloBuilderSelection] = useState<SoloBuilderSelection>('owner')
   const [soloBuilderUnitOrder, setSoloBuilderUnitOrder] = useState<SoloBuilderUnitOrder>('last')
   const [skipHotseatPassGate, setSkipHotseatPassGate] = useState(true)
+  const [ruleEnforcementEnabled, setRuleEnforcementEnabled] = useState(false)
   const [activeTaleIds, setActiveTaleIds] = useState<string[]>([])
   const [gameLength, setGameLength] = useState(4)
   const [minPlayersInput, setMinPlayersInput] = useState('2')
@@ -84,6 +85,7 @@ export function CreateGamePage() {
         soloBuilderSelection,
         soloBuilderUnitOrder,
         skipHotseatPassGate,
+        ruleEnforcementEnabled,
         activeTaleIds,
         gameLength,
         minPlayers,
@@ -196,6 +198,15 @@ export function CreateGamePage() {
             className="h-4 w-4 rounded border-neutral-700 bg-neutral-900"
           />
           List this room on the Public rooms screen
+        </label>
+        <label className="flex items-center gap-2 text-sm text-neutral-400">
+          <input
+            type="checkbox"
+            checked={ruleEnforcementEnabled}
+            onChange={(e) => setRuleEnforcementEnabled(e.target.checked)}
+            className="h-4 w-4 rounded border-neutral-700 bg-neutral-900"
+          />
+          Enable server-side rule enforcement (experimental)
         </label>
         <button
           disabled={busy || displayNameLoading || name.trim().length === 0 || !playerCountValid}

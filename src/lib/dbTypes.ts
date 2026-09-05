@@ -96,6 +96,20 @@ export interface GameSettings {
   soloBuilderTurnOrder: string[] | null
   /** Hotseat only: skip GamePage.tsx's "pass the device" confirmation gate between local players' turns. Irrelevant for live/async. */
   skipHotseatPassGate: boolean
+  /**
+   * Opt-in, per-game switch for RULE_ENFORCEMENT_PLAN.md's server-side
+   * enforcement (§6/§8 phase 8, decided 2026-09-05): when true, `game_state`
+   * writes are rejected by RLS for anyone but the service role, and
+   * gameApi.ts routes writes through the `apply-action`/`undo-action`/
+   * `redo-action` Edge Functions instead of writing the table directly.
+   * Defaults to `false`, and every game that existed before this key was
+   * added reads as `false` too (coalesced in the RLS policy) — old games and
+   * default new games are completely unaffected. Set at creation
+   * (CreateGamePage.tsx) and never changed afterward — same lifecycle as
+   * mapTemplateId etc, just consumed at every write instead of only at
+   * genesis time.
+   */
+  ruleEnforcementEnabled: boolean
   /** Content ids of active Tales (src/content/tales.json). Empty = Tales variant off. */
   activeTaleIds: string[]
   /** Total achievements claimed (across all players) that ends the game. content/achievements.json's gameLength.min/max bounds it (1-6). */

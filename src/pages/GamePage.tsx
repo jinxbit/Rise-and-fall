@@ -27,6 +27,7 @@ import type { GameRow, PlayerRow } from '../lib/dbTypes'
 import { simpleError, toAppError, type AppError } from '../lib/errors'
 import { buildGenesisState } from '../lib/gameGenesis'
 import {
+  applyActionEnforced,
   cancelGame,
   deleteGame,
   duplicateGameAsHotseat,
@@ -34,11 +35,14 @@ import {
   getGameState,
   listMyGames,
   listPlayers,
+  redoActionEnforced,
   setGameVisibility,
   subscribeToGame,
   subscribeToGameState,
   subscribeToPlayers,
+  undoActionEnforced,
   writeGameState,
+  type GameEnforcementResult,
 } from '../lib/gameApi'
 import { encodeGameStateExport } from '../lib/gameStateExport'
 import { saveMapToPool } from '../lib/mapPoolApi'
@@ -910,6 +914,49 @@ export function GamePage() {
   }, [genesis, gameState?.status, gameState?.actionHistory.length, unitContent, achievementContent, boardGenerationContent, taleContent])
 
   /**
+   * Preconditions shared by every write path below, including the
+   * ruleEnforcementEnabled branch (submitAction/handleUndo/handleRedo) that
+   * calls the Edge Functions directly and so bypasses writeWithRetry
+   * entirely — factored out so both paths reject the same way. Doesn't
+   * narrow `game`/`gameState`/`version`'s types (a plain function can't), so
+   * callers that need the narrowed values still check them again themselves;
+   * this exists to keep the *reasons* for rejecting in one place.
+   */
+  function writeGuardError(): string | null {
+    if (!game || !gameState || version === null) return 'Game not loaded yet'
+    if (isReviewingHistory) {
+      // Belt-and-suspenders alongside passing myPlayerId={null} to every
+      // view below while reviewing, which already keeps their UI from
+      // calling any of these in the first place.
+      return 'Exit history review before making changes.'
+    }
+    if (game.status === 'canceled') {
+      // Belt-and-suspenders alongside 0008_room_lifecycle.sql's RLS policy,
+      // which is the actual guard against a stale/malicious client.
+      return 'This room has been canceled.'
+    }
+    return null
+  }
+
+  /**
+   * Runs one of the ruleEnforcementEnabled Edge Function calls
+   * (applyActionEnforced/undoActionEnforced/redoActionEnforced) and applies
+   * its result the same way writeWithRetry does on success — the Edge
+   * Function already did its own compare-and-swap server-side, so there's no
+   * client-side retry loop here (a 409 just surfaces as an ordinary error,
+   * same as any other rejected submission).
+   */
+  async function runEnforced(call: () => Promise<GameEnforcementResult>): Promise<ActionResult> {
+    const guardError = writeGuardError()
+    if (guardError) return { ok: false, error: guardError }
+    const result = await call()
+    if (!result.ok) return result
+    setGameState(result.state)
+    setVersion(result.version)
+    return { ok: true, state: result.state }
+  }
+
+  /**
    * Writes whatever `computeNext` derives from the current state, retrying
    * against freshly refetched state (up to MAX_WRITE_RETRIES times) if the
    * write loses the optimistic-concurrency race — see MAX_WRITE_RETRIES's
@@ -919,20 +966,9 @@ export function GamePage() {
    * so the UI never sits on stale data after a failed attempt.
    */
   async function writeWithRetry(computeNext: (state: EngineGameState) => ActionResult): Promise<ActionResult> {
-    if (!game || !gameState || version === null) {
-      return { ok: false, error: 'Game not loaded yet' }
-    }
-    if (isReviewingHistory) {
-      // Belt-and-suspenders alongside passing myPlayerId={null} to every
-      // view below while reviewing, which already keeps their UI from
-      // calling any of these in the first place.
-      return { ok: false, error: 'Exit history review before making changes.' }
-    }
-    if (game.status === 'canceled') {
-      // Belt-and-suspenders alongside 0008_room_lifecycle.sql's RLS policy,
-      // which is the actual guard against a stale/malicious client.
-      return { ok: false, error: 'This room has been canceled.' }
-    }
+    const guardError = writeGuardError()
+    if (guardError) return { ok: false, error: guardError }
+    if (!game || !gameState || version === null) return { ok: false, error: 'Game not loaded yet' } // unreachable — narrows for TS; writeGuardError() already proved this
     let state = gameState
     let ver = version
     for (let attempt = 0; attempt < MAX_WRITE_RETRIES; attempt++) {
@@ -956,8 +992,20 @@ export function GamePage() {
     return { ok: false, error: "Couldn't sync with the other player's moves — please try again." }
   }
 
+  /**
+   * RULE_ENFORCEMENT_PLAN.md §8 phase 8 (write-side half, per jinxbit's
+   * 2026-09-05 per-game opt-in): a ruleEnforcementEnabled game submits the
+   * raw Action to apply-action instead of computing+writing the resulting
+   * state itself — the Edge Function re-derives it server-side (§4.1's
+   * playerId check, §4.3's fast-forwarding, the CAS write), so the client's
+   * own applyActionAndFastForwardTiles never runs for these games. Every
+   * other game (the default, and every game that existed before this flag)
+   * is completely unaffected — same direct writeWithRetry path as always.
+   */
   async function submitAction(action: Action) {
-    const result = await writeWithRetry((state) => applyActionAndFastForwardTiles(state, action, unitContent, achievementContent, boardGenerationContent, taleContent))
+    const result = game?.settings.ruleEnforcementEnabled
+      ? await runEnforced(() => applyActionEnforced(game.id, action))
+      : await writeWithRetry((state) => applyActionAndFastForwardTiles(state, action, unitContent, achievementContent, boardGenerationContent, taleContent))
     setActionError(result.ok ? null : simpleError(result.error))
   }
 
@@ -1036,6 +1084,17 @@ export function GamePage() {
     if (!game) return
     setUndoing(true)
     try {
+      // ruleEnforcementEnabled: delegate to undo-action instead of replaying
+      // client-side. Note this doesn't (yet) repeat the forced-single-card
+      // walk-back loop below — undo-action steps back exactly one logged
+      // entry, so undoing into a forced CHOOSE_CARD may need an extra click
+      // for these games until that's ported server-side (see
+      // RULE_ENFORCEMENT_PLAN.md §10).
+      if (game.settings.ruleEnforcementEnabled) {
+        const result = await runEnforced(() => undoActionEnforced(game.id))
+        setActionError(result.ok ? null : simpleError(result.error))
+        return
+      }
       const result = await writeWithRetry((state) => {
         const genesis = buildGenesisState(game, players)
         let current = state
@@ -1096,6 +1155,13 @@ export function GamePage() {
     if (!game) return
     setRedoing(true)
     try {
+      // ruleEnforcementEnabled: delegate to redo-action instead of replaying
+      // client-side — see handleUndo's matching branch above.
+      if (game.settings.ruleEnforcementEnabled) {
+        const result = await runEnforced(() => redoActionEnforced(game.id))
+        setActionError(result.ok ? null : simpleError(result.error))
+        return
+      }
       const result = await writeWithRetry((state) => {
         const genesis = buildGenesisState(game, players)
         return applyRedoAction(genesis, state, me?.id ?? null, unitContent, achievementContent, boardGenerationContent, taleContent)

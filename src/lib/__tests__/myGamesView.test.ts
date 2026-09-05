@@ -36,6 +36,7 @@ function makeGame(overrides: Partial<GameRow> = {}, settingsOverrides: Partial<G
       soloBuilderUnitOrder: 'last',
       soloBuilderTurnOrder: null,
       skipHotseatPassGate: false,
+      ruleEnforcementEnabled: false,
       activeTaleIds: [],
       gameLength: 4,
       ...settingsOverrides,
