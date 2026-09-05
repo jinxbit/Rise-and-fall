@@ -1439,6 +1439,70 @@ describe("RoundView — City's Convert to Merchant/Mountaineer (bug report: \"no
   })
 })
 
+describe('RoundView — cheat mode "move anywhere" (issue #430, admin testing aid)', () => {
+  function renderCheatScenario(cheatModeEnabled: boolean | undefined, onResolveUnit: (unitId: string, actionId: string, target?: { q: number; r: number }) => void) {
+    const content = buildRealUnitContent()
+    // City is deliberately immobile (movement.isMobile: false, no "move" in
+    // its own actions) — the point of this test is that cheat mode adds the
+    // option anyway, and the real "move" action id still gets submitted.
+    const board = setTile(setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'plain'), { q: 5, r: 0 }, 'plain')
+    const city: Unit = { id: 'city1', ownerId: 'p1', kind: 'city', coord: { q: 0, r: 0 }, movement: content.movementByKind.city, traits: [] }
+    const state = beginActionsForUnits(content, board, [city], 'city')
+
+    const { container } = render(
+      <RoundView
+        state={state}
+        players={BULK_TEST_PLAYERS}
+        myPlayerId="p1"
+        unitContent={content}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
+        turnReview={null}
+        showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
+        gameLog={[]}
+        onChooseCard={() => {}}
+        onResolveUnit={onResolveUnit}
+        onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+        cheatModeEnabled={cheatModeEnabled}
+      />,
+    )
+    const boardSvg = container.querySelector('svg.bg-neutral-950')!
+    fireEvent.click(boardSvg.querySelectorAll(':scope > polygon')[0])
+    return { container, boardSvg }
+  }
+
+  it('shows no "Move anywhere" option when cheatModeEnabled is left at its default (false)', () => {
+    const { container } = renderCheatScenario(undefined, vi.fn())
+    const options = [...container.querySelectorAll('foreignObject div')].map((d) => d.textContent)
+    expect(options.some((t) => t?.startsWith('Move anywhere'))).toBe(false)
+  })
+
+  it('adds a "Move anywhere (cheat)" option to an immobile unit (City) when cheatModeEnabled, targeting any hex on the board, and submits the real "move" action id — the server-side legality check (applyMove) is what actually has to reject it', () => {
+    const onResolveUnit = vi.fn()
+    const { container, boardSvg } = renderCheatScenario(true, onResolveUnit)
+
+    const cheatOption = [...container.querySelectorAll('foreignObject div')].find((d) => d.textContent?.startsWith('Move anywhere'))
+    expect(cheatOption).toBeTruthy()
+    fireEvent.click(cheatOption!)
+
+    // Not resolved yet — needs a target. Both of the board's two hexes are
+    // "legal" here (unlike a real move action, which for an immobile City
+    // would highlight none at all) — that's the whole point of cheat mode.
+    expect(onResolveUnit).not.toHaveBeenCalled()
+    expect(container.querySelectorAll('polygon[fill="rgba(34,197,94,0.1)"]')).toHaveLength(2)
+
+    fireEvent.click(boardSvg.querySelectorAll(':scope > polygon')[1])
+    expect(onResolveUnit).toHaveBeenCalledWith('city1', 'move', { q: 5, r: 0 })
+  })
+})
+
 describe('RoundView — stacked units on one hex (Ship + Port, The Ports Tale)', () => {
   const shipMovement: UnitMovement = { isMobile: true, terrains: ['water'], canCrossCliffs: false, blockedByUnits: 'none' }
   const portMovement: UnitMovement = { isMobile: false, terrains: [], canCrossCliffs: false }
