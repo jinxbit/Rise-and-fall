@@ -107,6 +107,8 @@ export function GamePage() {
   const [gameState, setGameState] = useState<EngineGameState | null>(null)
   const [version, setVersion] = useState<number | null>(null)
   const [actionError, setActionError] = useState<AppError | null>(null)
+  /** True while a move submitted via submitAction() is in flight — surfaced as a small "Sending…" badge in the board's top-right corner (issue #434). */
+  const [submitting, setSubmitting] = useState(false)
   const [showStateJson, setShowStateJson] = useState(false)
   /** The top-left hamburger menu (Main menu, Show/Hide game state JSON) — see the click-outside/Escape effect below. */
   const [menuOpen, setMenuOpen] = useState(false)
@@ -1019,10 +1021,15 @@ export function GamePage() {
    * itself, not a UI effect).
    */
   async function submitAction(action: Action) {
-    const result = game?.settings.ruleEnforcementEnabled
-      ? await runEnforced(() => applyActionEnforced(game.id, action))
-      : await writeWithRetry((state) => applyAction(state, action, unitContent, achievementContent, boardGenerationContent, taleContent))
-    setActionError(result.ok ? null : simpleError(result.error))
+    setSubmitting(true)
+    try {
+      const result = game?.settings.ruleEnforcementEnabled
+        ? await runEnforced(() => applyActionEnforced(game.id, action))
+        : await writeWithRetry((state) => applyAction(state, action, unitContent, achievementContent, boardGenerationContent, taleContent))
+      setActionError(result.ok ? null : simpleError(result.error))
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   /**
@@ -1771,6 +1778,7 @@ export function GamePage() {
             if (!me) return
             void submitAction({ type: 'PLACE_UNIT', playerId: me.id, unitKind, coord })
           }}
+          submitting={submitting}
         />
       )}
 
@@ -1797,6 +1805,7 @@ export function GamePage() {
           taleContent={taleContent}
           unitPlateColors={unitPlateColors}
           unitReserveDisplayMode={unitReserveDisplayMode}
+          submitting={submitting}
           turnReview={turnHalos}
           showHistory={isReviewingHistory}
           showCardChoiceRecap={showCardChoiceRecap}

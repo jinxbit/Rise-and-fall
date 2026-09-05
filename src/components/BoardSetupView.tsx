@@ -85,6 +85,7 @@ function TilePlacementPanel(props: {
   myPlayerId: string | null
   boardGenerationContent: BoardGenerationContent
   onPlaceTile: (anchor: Coordinate, rotationSteps: number) => void
+  submitting?: boolean
 }) {
   const { state, players, myPlayerId, boardGenerationContent, onPlaceTile } = props
   const boardSetup = state.boardSetup!
@@ -230,6 +231,7 @@ function TilePlacementPanel(props: {
         interactive={isMyTurn}
         onHexClick={handleHexClick}
         analyzing={analyzing}
+        submitting={props.submitting}
       />
 
       <RoomCheckPanel roomCheck={legalityResult?.roomCheck} analyzing={analyzing} />
@@ -242,6 +244,7 @@ function UnitPlacementPanel(props: {
   players: PlayerRow[]
   myPlayerId: string | null
   onPlaceUnit: (unitKind: string, coord: Coordinate) => void
+  submitting?: boolean
 }) {
   const { state, players, myPlayerId, onPlaceUnit } = props
   const boardSetup = state.boardSetup!
@@ -309,6 +312,7 @@ function UnitPlacementPanel(props: {
         units={units}
         interactive={isMyTurn}
         onHexClick={handleHexClick}
+        submitting={props.submitting}
       />
     </div>
   )
@@ -321,6 +325,7 @@ export function BoardSetupView(props: {
   boardGenerationContent: BoardGenerationContent
   onPlaceTile: (anchor: Coordinate, rotationSteps: number) => void
   onPlaceUnit: (unitKind: string, coord: Coordinate) => void
+  submitting?: boolean
 }) {
   const boardSetup = props.state.boardSetup
   if (!boardSetup) return null
@@ -332,8 +337,15 @@ export function BoardSetupView(props: {
       myPlayerId={props.myPlayerId}
       boardGenerationContent={props.boardGenerationContent}
       onPlaceTile={props.onPlaceTile}
+      submitting={props.submitting}
     />
   ) : (
-    <UnitPlacementPanel state={props.state} players={props.players} myPlayerId={props.myPlayerId} onPlaceUnit={props.onPlaceUnit} />
+    <UnitPlacementPanel
+      state={props.state}
+      players={props.players}
+      myPlayerId={props.myPlayerId}
+      onPlaceUnit={props.onPlaceUnit}
+      submitting={props.submitting}
+    />
   )
 }

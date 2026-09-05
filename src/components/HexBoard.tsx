@@ -860,6 +860,8 @@ export function HexBoard(props: {
    * stretch instead of leaving it looking frozen.
    */
   analyzing?: boolean
+  /** Shows a small "Sending…" badge in the board's top-right corner while a move submitted via GamePage's submitAction() is in flight (issue #434) — visible but out of the way of the hexes themselves. */
+  submitting?: boolean
 }) {
   const size = props.size ?? 22
   const unitPlateColors = props.unitPlateColors ?? DEFAULT_UNIT_PLATE_COLORS
@@ -1383,6 +1385,17 @@ export function HexBoard(props: {
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-md bg-neutral-950/70">
           <span className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-sm font-medium text-neutral-200">
             Analyzing legal placement…
+          </span>
+        </div>
+      )}
+      {props.submitting && (
+        <div className="pointer-events-none absolute right-2 top-2">
+          <span
+            role="status"
+            className="flex items-center gap-1.5 rounded-md border border-neutral-700 bg-neutral-900/90 px-2 py-1 text-xs text-neutral-300"
+          >
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" aria-hidden="true" />
+            Sending…
           </span>
         </div>
       )}
