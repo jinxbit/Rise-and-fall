@@ -1,9 +1,9 @@
-import { connectedTerrainRegion, coordsWithinDistance, getTile, neighborCoords } from './board'
-import { syncCardZonesWithBoard } from './cards'
-import { isCliffBetweenTerrains } from './cliffs'
-import { nextSequenceId } from './idSequence'
-import { legalMoveDestinations } from './movement'
-import { gainResource, spendResource, wouldGainResource } from './resources'
+import { connectedTerrainRegion, coordsWithinDistance, getTile, neighborCoords } from './board.ts'
+import { syncCardZonesWithBoard } from './cards.ts'
+import { isCliffBetweenTerrains } from './cliffs.ts'
+import { nextSequenceId } from './idSequence.ts'
+import { legalMoveDestinations } from './movement.ts'
+import { gainResource, spendResource, wouldGainResource } from './resources.ts'
 import type {
   ActionCost,
   ConvertEffect,
@@ -17,9 +17,9 @@ import type {
   TransformEffect,
   UnitAction,
   UnitContent,
-} from './unitContent'
-import type { Coordinate, GameState, Resources, Terrain, Unit } from './types'
-import { coordKey } from './types'
+} from './unitContent.ts'
+import type { Coordinate, GameState, Resources, Terrain, Unit } from './types.ts'
+import { coordKey } from './types.ts'
 
 // --- board/adjacency helpers -----------------------------------------------
 

@@ -1,4 +1,4 @@
-import type { Resources, UnitMovement } from './types'
+import type { Resources, UnitMovement } from './types.ts'
 
 /**
  * Mirrors content/units.json's action `effect` shapes, now that the rules

@@ -1,4 +1,4 @@
-import type { Resources } from './types'
+import type { Resources } from './types.ts'
 
 /**
  * Moves `amount` of one resource from the shared bank into a player's

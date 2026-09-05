@@ -1,4 +1,4 @@
-import type { GameState } from './types'
+import type { GameState } from './types.ts'
 
 /**
  * Rule 1: the decline phase only fires in a round where at least one

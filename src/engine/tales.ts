@@ -1,6 +1,6 @@
-import type { AchievementContent } from './achievementContent'
-import type { TaleContent } from './taleContent'
-import type { UnitAction, UnitContent } from './unitContent'
+import type { AchievementContent } from './achievementContent.ts'
+import type { TaleContent } from './taleContent.ts'
+import type { UnitAction, UnitContent } from './unitContent.ts'
 
 /**
  * Merges a game's active Tale content on top of the base game's

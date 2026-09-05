@@ -1,25 +1,25 @@
-import type { Action, LoggedAction, PlaceTileAction, UnitActionAssignment } from './actions'
-import type { AchievementContent } from './achievementContent'
-import { EMPTY_ACHIEVEMENT_CONTENT } from './achievementContent'
-import { updateAchievementClaims } from './achievements'
-import { moveCard, syncCardZonesWithBoard } from './cards'
-import { eliminatePlayer, eliminatePlayersWithNoCardToDecline } from './elimination'
-import { findForcedPlacement } from './boardGeneration'
-import { calculatePurchaseCost } from './purchaseCost'
-import { spendResource } from './resources'
-import { beginActionsPhase, beginPostActionsPhase, beginPurchasePhase, finishRound, skipEmptyDeclinePurchasers } from './round'
-import { EMPTY_BOARD_GENERATION_CONTENT } from './boardGenerationContent'
-import type { BoardGenerationContent } from './boardGenerationContent'
-import { currentTilePlacerId, placeTile, placeUnit } from './boardSetup'
-import { EMPTY_TALE_CONTENT } from './taleContent'
-import type { TaleContent } from './taleContent'
-import { companionKindsByCardKind } from './tales'
-import type { ActionResult, GameState } from './types'
-import { EMPTY_UNIT_CONTENT } from './unitContent'
-import type { UnitContent } from './unitContent'
-import { applyUnitActionEffect } from './unitActions'
+import type { Action, ChooseCardAction, LoggedAction, MoveToDeclineAction, PlaceTileAction, UnitActionAssignment } from './actions.ts'
+import type { AchievementContent } from './achievementContent.ts'
+import { EMPTY_ACHIEVEMENT_CONTENT } from './achievementContent.ts'
+import { updateAchievementClaims } from './achievements.ts'
+import { moveCard, syncCardZonesWithBoard } from './cards.ts'
+import { eliminatePlayer, eliminatePlayersWithNoCardToDecline } from './elimination.ts'
+import { findForcedPlacement } from './boardGeneration.ts'
+import { calculatePurchaseCost } from './purchaseCost.ts'
+import { spendResource } from './resources.ts'
+import { beginActionsPhase, beginPostActionsPhase, beginPurchasePhase, finishRound, skipEmptyDeclinePurchasers } from './round.ts'
+import { EMPTY_BOARD_GENERATION_CONTENT } from './boardGenerationContent.ts'
+import type { BoardGenerationContent } from './boardGenerationContent.ts'
+import { currentTilePlacerId, placeTile, placeUnit } from './boardSetup.ts'
+import { EMPTY_TALE_CONTENT } from './taleContent.ts'
+import type { TaleContent } from './taleContent.ts'
+import { companionKindsByCardKind } from './tales.ts'
+import type { ActionResult, GameState } from './types.ts'
+import { EMPTY_UNIT_CONTENT } from './unitContent.ts'
+import type { UnitContent } from './unitContent.ts'
+import { applyUnitActionEffect } from './unitActions.ts'
 
-export type { ActionResult } from './types'
+export type { ActionResult } from './types.ts'
 
 /**
  * Applies a single validated action to a game state, returning a new state.
@@ -145,6 +145,109 @@ export function applyActionAndFastForwardTiles(
     nextState = cascadeResult.state
   }
   return { ok: true, state: nextState }
+}
+
+/**
+ * RULE_ENFORCEMENT_PLAN.md §4.3's generalization of the tile fast-forward
+ * above to the round's own simultaneous-choice phases: a still-pending
+ * player with only one legal way left to fulfil what they owe isn't making
+ * a real decision either, so live submission shouldn't wait on them to
+ * click it — this is what must move `apply-action` server-side per §4.3
+ * (today RoundView.tsx auto-submits the single-hand-card case client-side
+ * instead; that stays as a courtesy for now but is no longer the thing
+ * actually enforcing progress once this runs server-side too).
+ *
+ * Unlike applyActionAndFastForwardTiles, this isn't gated on the
+ * just-submitted action's type: a forced selectCards/decline condition can
+ * just as easily appear at the start of a new round (e.g. a hand thinned by
+ * an earlier decline) as right after the triggering action itself, so every
+ * accepted action rechecks — cheaply, since nextChoiceFastForward returns
+ * null immediately outside those two phases.
+ */
+export function applyActionAndFastForwardChoices(
+  state: GameState,
+  action: Action,
+  unitContent: UnitContent = EMPTY_UNIT_CONTENT,
+  achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT,
+  boardGenerationContent: BoardGenerationContent = EMPTY_BOARD_GENERATION_CONTENT,
+  taleContent: TaleContent = EMPTY_TALE_CONTENT,
+): ActionResult {
+  const result = applyAction(state, action, unitContent, achievementContent, boardGenerationContent, taleContent)
+  if (!result.ok) return result
+  return { ok: true, state: fastForwardPendingChoices(result.state, unitContent, achievementContent, boardGenerationContent, taleContent) }
+}
+
+/**
+ * The forcing loop behind applyActionAndFastForwardChoices, factored out so
+ * a caller that already has a poststate in hand (e.g. `apply-action` after
+ * running applyActionAndFastForwardTiles, whose own PLACE_TILE-gated loop
+ * never checks for a newly-forced selectCards pick the moment boardSetup
+ * finishes) can run it without resubmitting an action that already landed.
+ */
+export function fastForwardPendingChoices(
+  state: GameState,
+  unitContent: UnitContent = EMPTY_UNIT_CONTENT,
+  achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT,
+  boardGenerationContent: BoardGenerationContent = EMPTY_BOARD_GENERATION_CONTENT,
+  taleContent: TaleContent = EMPTY_TALE_CONTENT,
+): GameState {
+  let nextState = state
+  for (
+    let forced = nextChoiceFastForward(nextState);
+    forced;
+    forced = nextChoiceFastForward(nextState)
+  ) {
+    // trustedReplay: `forced` was derived directly from state neither
+    // dispatch handler treats as ambiguous (a single remaining hand card; a
+    // hand+discard that exactly matches what's still owed) — already
+    // known-legal by construction, same reasoning as the tile cascade above.
+    const cascadeResult = applyAction(nextState, forced, unitContent, achievementContent, boardGenerationContent, taleContent, true)
+    if (!cascadeResult.ok) break // defensive only — nextChoiceFastForward's picks are always legal by construction
+    nextState = cascadeResult.state
+  }
+  return nextState
+}
+
+/** The next forced CHOOSE_CARD/MOVE_TO_DECLINE to submit, or null once no longer forced — see applyActionAndFastForwardChoices. */
+function nextChoiceFastForward(state: GameState): ChooseCardAction | MoveToDeclineAction | null {
+  if (state.roundPhase === 'selectCards') return nextSelectCardsFastForward(state)
+  if (state.roundPhase === 'decline') return nextDeclineFastForward(state)
+  return null
+}
+
+/** A pending player with exactly one hand card has no real pick left to make. */
+function nextSelectCardsFastForward(state: GameState): ChooseCardAction | null {
+  for (const playerId of state.pendingPlayerIds) {
+    const player = state.players.find((p) => p.id === playerId)
+    if (player && player.handCardIds.length === 1) {
+      return { type: 'CHOOSE_CARD', playerId, cardId: player.handCardIds[0] }
+    }
+  }
+  return null
+}
+
+/**
+ * A pending player whose hand+discard together contain exactly as many
+ * cards as they still owe this phase (counting each of their own
+ * occurrences in `pendingPlayerIds`) has no real choice left either — every
+ * one of those cards is going to decline regardless of the order it's
+ * submitted in. Scans in `pendingPlayerIds` order, considering each
+ * distinct player once regardless of how many times they appear.
+ */
+function nextDeclineFastForward(state: GameState): MoveToDeclineAction | null {
+  const seen = new Set<string>()
+  for (const playerId of state.pendingPlayerIds) {
+    if (seen.has(playerId)) continue
+    seen.add(playerId)
+    const owed = state.pendingPlayerIds.filter((id) => id === playerId).length
+    const player = state.players.find((p) => p.id === playerId)
+    if (!player) continue
+    const available = [...player.handCardIds, ...player.discardCardIds]
+    if (available.length === owed) {
+      return { type: 'MOVE_TO_DECLINE', playerId, cardId: available[0] }
+    }
+  }
+  return null
 }
 
 /** The next forced PLACE_TILE action to submit, or null once no longer forced — see applyActionAndFastForwardTiles. */

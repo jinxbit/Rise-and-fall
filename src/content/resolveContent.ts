@@ -6,18 +6,18 @@
 // resolving actions) goes through here instead of reaching into
 // content/*.json itself.
 
-import achievementsJson from './achievements.json'
-import mapTemplatesJson from './mapTemplates.json'
-import resourcesJson from './resources.json'
-import talesJson from './tales.json'
-import terrainJson from './terrain.json'
-import unitsJson from './units.json'
-import type { AchievementContent } from '../engine/achievementContent'
-import { createEmptyBoard, setTile } from '../engine/board'
-import type { BoardGenerationContent, TileTierContent } from '../engine/boardGenerationContent'
-import type { FantasticEvent, TaleContent, TaleControllableStructure, TaleExtraAchievement, TaleExtraUnitContent } from '../engine/taleContent'
-import type { UnitAction, UnitContent } from '../engine/unitContent'
-import type { Board, BoardShape, Resources, Terrain, UnitMovement } from '../engine/types'
+import achievementsJson from './achievements.json' with { type: 'json' }
+import mapTemplatesJson from './mapTemplates.json' with { type: 'json' }
+import resourcesJson from './resources.json' with { type: 'json' }
+import talesJson from './tales.json' with { type: 'json' }
+import terrainJson from './terrain.json' with { type: 'json' }
+import unitsJson from './units.json' with { type: 'json' }
+import type { AchievementContent } from '../engine/achievementContent.ts'
+import { createEmptyBoard, setTile } from '../engine/board.ts'
+import type { BoardGenerationContent, TileTierContent } from '../engine/boardGenerationContent.ts'
+import type { FantasticEvent, TaleContent, TaleControllableStructure, TaleExtraAchievement, TaleExtraUnitContent } from '../engine/taleContent.ts'
+import type { UnitAction, UnitContent } from '../engine/unitContent.ts'
+import type { Board, BoardShape, Resources, Terrain, UnitMovement } from '../engine/types.ts'
 
 const TILE_TIER_ORDER: Terrain[] = ['water', 'plain', 'forest', 'mountain', 'glacier']
 

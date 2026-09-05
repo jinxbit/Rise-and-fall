@@ -1,4 +1,4 @@
-import type { Card, CardZone, GameState, Player } from './types'
+import type { Card, CardZone, GameState, Player } from './types.ts'
 
 /**
  * The six unit kinds, mirroring the ids in src/content/units.json. Kept as a

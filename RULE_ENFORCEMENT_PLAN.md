@@ -461,6 +461,53 @@ to rule enforcement (2, 5) are omitted here.
    reusing the engine as-is: seat resolution from JWT, `action.playerId`
    enforcement (§4.1), fast-forwarding (§4.3), pointer-based undo/redo
    with owner-override pruning (§4.4), version compare-and-swap on write.
+   `supabase/functions/apply-action`, `undo-action`, `redo-action`
+   (+ shared plumbing in `supabase/functions/_shared/gameEnforcement.ts`)
+   import `src/engine/`/`src/content/` **directly and unmodified**, resolving
+   §6's "open question" left above in favor of the already-shipped
+   marker-based history model (issue #412's `UNDO_ACTION`/`REDO_ACTION`
+   entries + `resolveHistory`) rather than `historyPointer.ts`'s
+   separate-pointer-column design — a new `redoableTail()`
+   (`src/engine/historyFold.ts`, unit-tested) exposes exactly what the
+   owner-override check (§4.4, extended to `profiles.is_admin` per §4.5)
+   needs from that model. §4.3's fast-forwarding gained its `CHOOSE_CARD`/
+   `MOVE_TO_DECLINE` half here too: `applyActionAndFastForwardChoices()`/
+   `fastForwardPendingChoices()` (`src/engine/applyAction.ts`, unit-tested),
+   mirroring the existing tile version.
+   **Verified (2026-09-05) against a local `supabase start` stack** (Docker
+   + the Supabase/Deno CLIs became available once `claude.yml` grew a real
+   environment — see the `.github/workflows/claude.yml` history). Both
+   risks this section used to flag as unverified were real, and both are
+   now fixed:
+   - The Edge Runtime (`supabase/edge-runtime` v1.74.3, bundled by CLI
+     2.116) does **not** honor `sloppy-imports`, in a per-function
+     `deno.json`, a workspace-root one, or any other placement tried — it
+     failed on `src/engine/applyAction.ts`'s own extensionless `./cards`-
+     style imports with `Module not found` every time. Fixed by adding
+     explicit `.ts` extensions to every relative import in the ~30 files
+     the three functions' module graph actually touches (`src/engine/*`,
+     `src/content/resolveContent.ts`, `src/lib/gameGenesis.ts`/`dbTypes.ts`)
+     — safe for the Vite/tsc side too, since `tsconfig.app.json` already
+     sets `allowImportingTsExtensions`. The per-function `deno.json`'s
+     `sloppy-imports` flag is left in place (harmless, and free insurance
+     if a future edge-runtime version starts honoring it) but no longer
+     load-bearing.
+   - `src/content/resolveContent.ts`'s plain `import x from './x.json'`
+     also failed to boot (`Expected a JavaScript or TypeScript module, but
+     identified a Json module`) — fixed with the `with { type: 'json' }`
+     import attribute the doc comment already anticipated, which
+     TypeScript 6's `tsc` and Vite both accept unchanged.
+   - With both fixed, all three functions boot and were smoke-tested end
+     to end against the local stack with two real `auth.users` (password
+     sign-in, real JWTs): `apply-action` correctly 403s a caller submitting
+     another player's `playerId` and 200s + CAS-writes (`version` 0→1) a
+     legal `PLACE_UNIT` for the caller's own seat, replaying through the
+     real engine (card moved hand→board, `boardSetup.unitPlacerIndex`
+     advanced); `undo-action`/`redo-action` correctly rebuild genesis and
+     replay, round-tripping `version` 1→2→3 and the unit's presence on the
+     board. Not yet done: a genuine two-browser session against a
+     *deployed* (not local) project, and the fast-forward/owner-override
+     paths specifically — still phase 9's job.
 7. **CI deploy workflow** (§7) — done ahead of order, out of phase sequence
    (`.github/workflows/deploy-supabase.yml`, added directly by a human with
    workflow-edit rights since Claude's GitHub App permissions can't touch
@@ -479,9 +526,15 @@ to rule enforcement (2, 5) are omitted here.
    confirm a client can't submit an action naming another player's
    `playerId`, that undo/redo/branch owner-override behaves as specced, and
    that admin mode's server-side carve-out (§4.5) works once enforcement is
-   live. This sandbox has no live Supabase project to test against, so this
-   phase requires the maintainer's own environment, same limitation noted
-   throughout `todo.md`. See `HIDDEN_INFORMATION_PLAN.md` §8 phase 9 for the
+   live. Phase 6's own smoke test (above) already did the single-browser,
+   direct-curl version of the 403/undo/redo checks against a local
+   `supabase start` project; what's still outstanding is the same checks
+   through two actual signed-in browser sessions against a *deployed*
+   project once phase 8 has rewired the client to call these functions —
+   this sandbox can spin up a local stack but not a deployed one or a real
+   two-browser session, so this phase still requires the maintainer's own
+   environment, same limitation noted throughout `todo.md`. See
+   `HIDDEN_INFORMATION_PLAN.md` §8 phase 9 for the
    companion verification of secret-field leakage in the same session.
 
 ## 9. Testing strategy

@@ -1,4 +1,4 @@
-import type { Coordinate, Terrain } from './types'
+import type { Coordinate, Terrain } from './types.ts'
 
 /**
  * One terrain tier of the interactive tile-placement sub-phase (see

@@ -9,11 +9,11 @@
 // actionHistory.slice(0, -1) against this genesis (see replayActions in
 // ../engine/replay.ts) to step the game back one action.
 
-import { resolveBoardGenerationContent, resolveMapTemplateBoard, resolveResourceBank } from '../content/resolveContent'
-import { createEmptyBoard } from '../engine/board'
-import { createNewGame, startGame, startGameWithPresetBoard } from '../engine/createGame'
-import type { GameState } from '../engine/types'
-import type { GameRow, GameSettings, MapPoolRow, PlayerRow } from './dbTypes'
+import { resolveBoardGenerationContent, resolveMapTemplateBoard, resolveResourceBank } from '../content/resolveContent.ts'
+import { createEmptyBoard } from '../engine/board.ts'
+import { createNewGame, startGame, startGameWithPresetBoard } from '../engine/createGame.ts'
+import type { GameState } from '../engine/types.ts'
+import type { GameRow, GameSettings, MapPoolRow, PlayerRow } from './dbTypes.ts'
 
 export function buildGenesisState(game: GameRow, players: PlayerRow[]): GameState {
   const lobbyState = createNewGame({

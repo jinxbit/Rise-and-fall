@@ -1,4 +1,4 @@
-import type { Coordinate } from './types'
+import type { Coordinate } from './types.ts'
 
 // PLACE_TILE / PLACE_UNIT (see ./boardSetup.ts) are the only actions valid
 // during `status: 'boardSetup'` — the one-time setup phase before round 1

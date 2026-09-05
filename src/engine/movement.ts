@@ -1,7 +1,7 @@
-import { getTile, neighborCoords } from './board'
-import { isCliffBetweenTerrains } from './cliffs'
-import type { Coordinate, GameState, Unit, UnitMovement } from './types'
-import { coordKey } from './types'
+import { getTile, neighborCoords } from './board.ts'
+import { isCliffBetweenTerrains } from './cliffs.ts'
+import type { Coordinate, GameState, Unit, UnitMovement } from './types.ts'
+import { coordKey } from './types.ts'
 
 function unitsAt(state: GameState, coord: Coordinate): Unit[] {
   const key = coordKey(coord)
