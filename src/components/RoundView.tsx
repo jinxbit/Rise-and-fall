@@ -37,6 +37,28 @@ const RESOURCE_ORDER: (keyof Resources)[] = ['gold', 'wood', 'stone']
 
 const ACHIEVEMENTS = listAchievements()
 
+/**
+ * Testing enablement for admins (issue #430): a per-unit menu option, shown
+ * only when `cheatModeEnabled`, that lets any acting unit target literally
+ * any hex on the board instead of `legalMoveDestinations`'s reachable set —
+ * deliberately submitted as a completely ordinary `RESOLVE_UNIT_ACTION` (see
+ * onResolveUnit below), reusing the real `'move'` action id, so it exercises
+ * the exact same server-side legality check a real player's move would
+ * (applyMove, ../engine/unitActions.ts) instead of a client-only shortcut.
+ * A unit whose kind has no `move` action at all still gets the option (there
+ * is nothing "legal" to restrict it to before submission) — the server
+ * rejects that case too, just via "not one of this kind's actions" rather
+ * than "not a legal destination." Either way the point is the same: prove
+ * illegal client-submitted moves never actually land.
+ */
+const CHEAT_MOVE_ACTION_ID = '__cheat_move_anywhere__'
+const CHEAT_MOVE_ACTION: UnitAction = {
+  id: 'move',
+  name: 'Move anywhere (cheat)',
+  description: "Admin testing aid: attempt to move this unit to any hex on the board. The server's rule engine rejects the move unless it's actually legal.",
+  effect: { actionType: 'move' },
+}
+
 function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1)
 }
@@ -105,7 +127,10 @@ function eligibleActingUnits(state: GameState, unitContent: UnitContent, playerI
  * in RoundView below — there's no local staging/submit step; each pick is
  * its own RESOLVE_UNIT_ACTION dispatch, applied right away), UNLESS the
  * action was only reachable by support (see `supporting` below), in which
- * case picking a target moves to that mode instead of resolving.
+ * case picking a target moves to that mode instead of resolving. `cheat`
+ * marks the admin-only "move anywhere" pick (issue #430, CHEAT_MOVE_ACTION
+ * above) — every hex on the board counts as a legal target instead of
+ * `legalMoveDestinations`'s reachable set.
  * `supporting`: the player picked an action they can't currently afford,
  * chose (or skipped, for a no-target action) a target, and is now clicking
  * idle same-kind units highlighted on the map to cover the shortfall (issue
@@ -120,7 +145,7 @@ function eligibleActingUnits(state: GameState, unitContent: UnitContent, playerI
 type ActionUiMode =
   | { kind: 'idle' }
   | { kind: 'menu'; coord: Coordinate }
-  | { kind: 'targeting'; unitId: string; actionId: string }
+  | { kind: 'targeting'; unitId: string; actionId: string; cheat?: boolean }
   | { kind: 'supporting'; unitId: string; actionId: string; target?: Coordinate; selectedSupportUnitIds: string[] }
 
 function PhaseBanner({ state }: { state: GameState }) {
@@ -1149,6 +1174,14 @@ export function RoundView(props: {
   onMoveToDecline: (cardId: string) => void
   onPurchaseCard: (cardId: string) => void
   onPassPurchase: () => void
+  /**
+   * Admin-only testing aid (issue #430): while true, every acting unit's
+   * menu gains an extra "Move anywhere (cheat)" option (see
+   * CHEAT_MOVE_ACTION above) alongside its real actions. Defaults to false
+   * so every existing call site (and the dozens of test fixtures that build
+   * RoundView props directly) keeps compiling unchanged.
+   */
+  cheatModeEnabled?: boolean
 }) {
   const {
     state,
@@ -1162,6 +1195,7 @@ export function RoundView(props: {
     turnReview,
     showHistory,
     showCardChoiceRecap = false,
+    cheatModeEnabled = false,
     territoryControlMode,
     previousHistoryState,
   } = props
@@ -1189,20 +1223,39 @@ export function RoundView(props: {
   const menuUnits = menuCoord ? availableUnits.filter((u) => u.coord.q === menuCoord.q && u.coord.r === menuCoord.r) : []
   const targetingUnitId = mode.kind === 'targeting' ? mode.unitId : null
   const targetingActionId = mode.kind === 'targeting' ? mode.actionId : null
+  // The "move anywhere" cheat pick (issue #430) uses a synthetic UnitAction
+  // (CHEAT_MOVE_ACTION above) rather than a content lookup, since it must
+  // also work for a unit kind with no real `move` action at all — there's
+  // nothing to find in unitContent.actionsByKind for those, and the point is
+  // to submit it anyway and let the server reject it.
+  const targetingCheat = mode.kind === 'targeting' && !!mode.cheat
   const targetingUnit = targetingUnitId ? (myActingUnits.find((u) => u.id === targetingUnitId) ?? null) : null
-  const targetingAction = targetingUnit && targetingActionId ? (unitContent.actionsByKind[targetingUnit.kind] ?? []).find((a) => a.id === targetingActionId) : null
+  const targetingAction = targetingCheat
+    ? CHEAT_MOVE_ACTION
+    : targetingUnit && targetingActionId
+      ? (unitContent.actionsByKind[targetingUnit.kind] ?? []).find((a) => a.id === targetingActionId)
+      : null
   // Whether the picked action is affordable right this instant — when it
   // isn't (but isActionSupportable said yes), legal targets are previewed
   // against a hypothetical boosted state (see boostedStateForSupport) so the
   // player can still pick where the action will land; the real resolve only
   // happens once support units are chosen and confirmed (see the
-  // 'supporting' branch of handleBoardClick below).
-  const targetingActionAvailableNow = !!(targetingUnit && targetingAction && myPlayerId && isActionAvailableForUnit(state, myPlayerId, targetingUnit, targetingAction, unitContent))
+  // 'supporting' branch of handleBoardClick below). The cheat pick is always
+  // "available now" — it has no cost and needs no support-unit flow.
+  const targetingActionAvailableNow =
+    targetingCheat || !!(targetingUnit && targetingAction && myPlayerId && isActionAvailableForUnit(state, myPlayerId, targetingUnit, targetingAction, unitContent))
   const targetingSupportCandidates =
-    targetingUnit && targetingAction && myPlayerId && !targetingActionAvailableNow ? findSupportCandidates(state, myPlayerId, targetingUnit, unitContent) : []
+    !targetingCheat && targetingUnit && targetingAction && myPlayerId && !targetingActionAvailableNow
+      ? findSupportCandidates(state, myPlayerId, targetingUnit, unitContent)
+      : []
 
   let legalTargets: Coordinate[] = []
-  if (targetingUnit && targetingAction && myPlayerId) {
+  if (targetingCheat) {
+    // Every hex on the board, legal or not — see CHEAT_MOVE_ACTION's doc
+    // comment: the whole point is to submit an out-of-range target through
+    // the normal pipeline and let applyMove's real legality check reject it.
+    legalTargets = Object.values(state.board.tiles).map((t) => t.coord)
+  } else if (targetingUnit && targetingAction && myPlayerId) {
     const legalTargetsState = targetingActionAvailableNow ? state : boostedStateForSupport(state, myPlayerId, targetingSupportCandidates)
     legalTargets = computeLegalTargets(legalTargetsState, myPlayerId, targetingUnit, targetingAction, unitContent)
   }
@@ -1227,6 +1280,10 @@ export function RoundView(props: {
     if (!myPlayerId) return
     const unit = menuUnits.find((u) => u.id === unitId)
     if (!unit) return
+    if (actionId === CHEAT_MOVE_ACTION_ID) {
+      setMode({ kind: 'targeting', unitId: unit.id, actionId: CHEAT_MOVE_ACTION.id, cheat: true })
+      return
+    }
     const action = (unitContent.actionsByKind[unit.kind] ?? []).find((a) => a.id === actionId)
     if (!action) return
     const availableNow = isActionAvailableForUnit(state, myPlayerId, unit, action, unitContent)
@@ -1393,8 +1450,8 @@ export function RoundView(props: {
     menuCoord && menuUnits.length > 0 && myPlayerId
       ? {
           coord: menuCoord,
-          options: menuUnits.flatMap((unit) =>
-            (unitContent.actionsByKind[unit.kind] ?? []).map((a) => {
+          options: menuUnits.flatMap((unit) => [
+            ...(unitContent.actionsByKind[unit.kind] ?? []).map((a) => {
               const availableNow = isActionAvailableForUnit(state, myPlayerId, unit, a, unitContent)
               const supportable = !availableNow && isActionSupportable(state, myPlayerId, unit, a, unitContent)
               return {
@@ -1409,7 +1466,22 @@ export function RoundView(props: {
                 shortfall: supportable ? computeActionShortfall(state, myPlayerId, unit, a) : undefined,
               }
             }),
-          ),
+            // Issue #430: admin-only, every acting unit gets this regardless
+            // of whether its kind has a real 'move' action — see
+            // CHEAT_MOVE_ACTION's doc comment.
+            ...(cheatModeEnabled
+              ? [
+                  {
+                    unitId: unit.id,
+                    unitKind: capitalize(unit.kind),
+                    id: CHEAT_MOVE_ACTION_ID,
+                    label: CHEAT_MOVE_ACTION.name,
+                    description: CHEAT_MOVE_ACTION.description,
+                    disabled: false,
+                  },
+                ]
+              : []),
+          ]),
           onSelect: selectAction,
         }
       : undefined

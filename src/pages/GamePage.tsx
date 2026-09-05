@@ -132,6 +132,18 @@ export function GamePage() {
    */
   const [adminOverrideEnabled, setAdminOverrideEnabled] = useState(false)
   /**
+   * Cheat mode (issue #430): a site-admin-only testing aid that adds a "Move
+   * anywhere (cheat)" option to every acting unit's menu (RoundView.tsx),
+   * letting the admin submit a movement action targeting any hex on the
+   * board instead of just its legal destinations. It's still a completely
+   * ordinary RESOLVE_UNIT_ACTION submission — the point is to exercise the
+   * real rule-enforcement path (applyMove, src/engine/unitActions.ts) and
+   * confirm the server actually refuses an illegal target rather than
+   * trusting the client. Not persisted — resets to off on reload, same as
+   * every other page-local UI toggle here.
+   */
+  const [cheatModeEnabled, setCheatModeEnabled] = useState(false)
+  /**
    * Undo/redo availability (design change, issue #412): UNDO_ACTION/
    * REDO_ACTION are now logged entries in `actionHistory` itself (see
    * UndoAction's doc comment, engine/actions.ts) instead of a client-local,
@@ -1440,6 +1452,23 @@ export function GamePage() {
                     {adminOverrideEnabled ? 'Admin mode: ON' : 'Admin mode'}
                   </button>
                 )}
+                {isAdmin && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    aria-pressed={cheatModeEnabled}
+                    onClick={() => {
+                      setMenuOpen(false)
+                      setCheatModeEnabled((v) => !v)
+                    }}
+                    title="Cheat mode: adds a 'Move anywhere' option to every unit, submitted as a normal action — for testing that the server's rule engine actually rejects an illegal move. Site admins only."
+                    className={`px-3 py-2 text-left hover:bg-neutral-800 ${
+                      cheatModeEnabled ? 'text-amber-400' : ''
+                    }`}
+                  >
+                    {cheatModeEnabled ? 'Cheat mode: ON' : 'Cheat mode'}
+                  </button>
+                )}
                 {(canCancel || canDelete) && <div role="separator" className="my-1 border-t border-neutral-800" />}
                 {canCancel && (
                   <button
@@ -1771,6 +1800,7 @@ export function GamePage() {
           turnReview={turnHalos}
           showHistory={isReviewingHistory}
           showCardChoiceRecap={showCardChoiceRecap}
+          cheatModeEnabled={isAdmin && cheatModeEnabled}
           onExitHistory={() => setReviewIndex(null)}
           territoryControlMode={territoryControlMode}
           previousHistoryState={previousTerritoryState}
