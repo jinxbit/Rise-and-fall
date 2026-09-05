@@ -1090,6 +1090,8 @@ export function RoundView(props: {
    * as `unitPlateColors` above.
    */
   unitReserveDisplayMode?: UnitReserveDisplayMode
+  /** True while a move submitted via GamePage's submitAction() is in flight (issue #434) — shown as a small "Sending…" badge in the board's top-right corner, beside the expand/collapse chevron. */
+  submitting?: boolean
   /**
    * What happened during the single turn currently shown by GamePage's
    * "Show history" bar (issue #261) — see engine/turnReview.ts's
@@ -1556,22 +1558,33 @@ export function RoundView(props: {
               <CardChoiceHistoryPanel state={state} players={players} />
             </div>
           )}
-          {/* Overlaid on the board's own corner rather than a separate row above it — a standard collapse/expand chevron, flipping direction with sidebarHidden. */}
-          <button
-            type="button"
-            onClick={() => setSidebarHidden((v) => !v)}
-            aria-label={sidebarHidden ? 'Collapse board' : 'Expand board'}
-            title={
-              sidebarHidden
-                ? 'Bring back the full player roster and achievements panel beside the board.'
-                : 'Hide the full player roster and achievements panel so the board can expand into that space.'
-            }
-            className="absolute right-2 top-2 z-10 rounded-full border border-neutral-700 bg-neutral-900/80 p-1.5 hover:border-neutral-500"
-          >
-            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              {sidebarHidden ? <polyline points="15 18 9 12 15 6" /> : <polyline points="9 18 15 12 9 6" />}
-            </svg>
-          </button>
+          {/* Overlaid on the board's own top-right corner rather than a separate row above it (issue #434 follow-up: grouped in a row with the "Sending…" badge below so neither overlaps the other) — a standard collapse/expand chevron, flipping direction with sidebarHidden. */}
+          <div className="absolute right-2 top-2 z-10 flex items-center gap-2">
+            {props.submitting && (
+              <span
+                role="status"
+                className="flex items-center gap-1.5 rounded-md border border-neutral-700 bg-neutral-900/90 px-2 py-1 text-xs text-neutral-300"
+              >
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" aria-hidden="true" />
+                Sending…
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => setSidebarHidden((v) => !v)}
+              aria-label={sidebarHidden ? 'Collapse board' : 'Expand board'}
+              title={
+                sidebarHidden
+                  ? 'Bring back the full player roster and achievements panel beside the board.'
+                  : 'Hide the full player roster and achievements panel so the board can expand into that space.'
+              }
+              className="rounded-full border border-neutral-700 bg-neutral-900/80 p-1.5 hover:border-neutral-500"
+            >
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                {sidebarHidden ? <polyline points="15 18 9 12 15 6" /> : <polyline points="9 18 15 12 9 6" />}
+              </svg>
+            </button>
+          </div>
         </div>
         {/* Sits beside the board (not below it) so the full roster and achievements stay in view without scrolling past the map — see PlayersStrip/AchievementsPanel's icon-based, per-player-card layout, built for this narrower column. Hideable (see the chevron button overlaid on the board's corner) so the board can grow into this space instead. */}
         {!sidebarHidden && (
