@@ -33,10 +33,11 @@ export function SupportBanner() {
 export function DiscordCommunityBanner() {
   return (
     <div className="rounded-md border border-indigo-700/50 bg-indigo-950/20 px-4 py-3 text-center text-sm text-indigo-400">
+      <p>This game is still in alpha — expect bugs and rough edges.</p>
       <p>
         Join our official{' '}
         <a
-          href="https://discord.com/channels/1000721418222325860/153996799432169884"
+          href="https://discord.com/channels/1000721418222325860/1539967994321698846"
           target="_blank"
           rel="noopener noreferrer"
           className="underline hover:text-indigo-200"
