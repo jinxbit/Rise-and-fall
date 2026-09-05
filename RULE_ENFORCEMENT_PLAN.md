@@ -1,15 +1,27 @@
-# Backend Rule Enforcement & Information Hiding — Spec, Design & Execution Plan
+# Rule Enforcement — Spec, Design & Execution Plan
 
 Tracks [issue #37](https://github.com/jinxbit/Rise-and-fall/issues/37). This is
-the living source of truth for this work — update it as decisions change,
-the same way `PROJECT_PLAN.md` tracks the rest of the project. It supersedes
-the plan text scattered across the issue's comment history; that history is
-the design rationale, this file is the current state of the plan.
+the living source of truth for the **rule enforcement** half of that issue —
+update it as decisions change, the same way `PROJECT_PLAN.md` tracks the rest
+of the project.
+
+This document was split out of `BACKEND_ENFORCEMENT_SPEC.md` (per
+[issue #423](https://github.com/jinxbit/Rise-and-fall/issues/423)) to separate
+the rule-enforcement concern from the hidden-information concern — the two
+were related but distinct problems (see §1) tangled together in one file.
+**Section numbers are preserved from the original combined document**, so
+existing code comments/tests that cite a section number by itself (without a
+filename) still resolve correctly here; sections that moved to the companion
+document are marked below rather than renumbered, so a bare "§5.1" elsewhere
+in the codebase unambiguously means `HIDDEN_INFORMATION_PLAN.md`. See
+[`HIDDEN_INFORMATION_PLAN.md`](HIDDEN_INFORMATION_PLAN.md) for the hidden-
+information half (§2 scope of hidden fields, §5 redaction, and the
+hidden-information-specific parts of §1/§6/§8/§9/§10 below).
 
 [Issue #407](https://github.com/jinxbit/Rise-and-fall/issues/407) refined the
-undo/redo and reveal semantics below (§4.4, §5.3) after this document
-already existed — those sections carry that refinement's rationale inline
-rather than being restated as a separate proposal.
+undo/redo semantics below (§4.4) after this document already existed — that
+section carries that refinement's rationale inline rather than being restated
+as a separate proposal.
 
 ## 1. Problem statement
 
@@ -26,51 +38,34 @@ submitted state is actually the legal result of a legal action. Nothing
 stops a client from fabricating an illegal state, or from submitting an
 action attributed to a seat it doesn't own, and writing it directly.
 
-This issue is two related but distinct problems:
+Issue #37 is two related but distinct problems. This document covers the
+first:
 
 1. **Rule enforcement** — stop trusting client-submitted state; validate
    every action server-side against the existing engine, and reject actions
    a player isn't entitled to submit (e.g. someone else's move).
-2. **Hidden information** — during the brief window where a choice is
-   simultaneous and unresolved, don't let opponents' clients receive the
-   secret data at all (not just "the UI doesn't render it" — today the
-   browser network tab / a modified client can already see it).
 
-## 2. Scope, confirmed
+The second — **hidden information** (during the brief window where a choice
+is simultaneous and unresolved, don't let opponents' clients receive the
+secret data at all) — is covered by
+[`HIDDEN_INFORMATION_PLAN.md`](HIDDEN_INFORMATION_PLAN.md).
 
-Resolved through discussion on the issue (2026-08-13 through 2026-08-15):
+## Scope
 
-- **Hands, discard piles, decline piles, and the board are all public,
-  always.** There is no hidden information by rule outside of one
-  transient window.
-- **The only hidden information is:**
-  - A player's in-progress pick during the current `selectCards` phase —
-    `chosenCardIdByPlayerId` (`src/engine/types.ts:321`) — while any player
-    is still pending. Once every player has chosen, choices resolve into
-    `currentlyPlayed` and become public, exactly as today.
-  - Cards moved to decline **during the currently in-progress `decline`
-    phase**, before that phase resolves. Once resolved, decline piles are
-    public like everything else (players can already see prior rounds'
-    decline piles; only *this round's still-in-progress* additions are
-    secret).
-- **Board setup (tile/unit placement) is fully public by design** — no fog
-  of war on the board itself. Out of scope.
+The full scope discussion (what's hidden, what's public, hotseat/live/async
+in/out of scope) lives in
+[`HIDDEN_INFORMATION_PLAN.md` §2](HIDDEN_INFORMATION_PLAN.md#2-scope-confirmed)
+— it was resolved as one discussion covering both halves of issue #37 and
+isn't duplicated here. The two points from it that bear directly on
+enforcement:
+
 - **Hotseat is explicitly out of scope.** All local hotseat players share
   one `auth.uid()` (see `supabase/migrations/0003_hotseat_local_players.sql`,
-  `0004_hotseat_skip_pass_gate.sql`), so per-seat enforcement and hiding
-  don't apply there — the existing "pass the device" courtesy gate remains
-  the only privacy boundary for hotseat, unchanged, and hotseat's rule
-  enforcement stays exactly as trusting as it is today.
+  `0004_hotseat_skip_pass_gate.sql`), so per-seat enforcement doesn't apply
+  there — the existing "pass the device" courtesy gate remains the only
+  boundary for hotseat, unchanged, and hotseat's rule enforcement stays
+  exactly as trusting as it is today.
 - **Live and async modes are in scope.**
-
-### Non-goals
-
-- No forever-hidden information of any kind (no fog of war, no secret
-  hands).
-- No change to hotseat's trust model.
-- No new persistent-connection infrastructure (WebSocket server) — Supabase
-  Realtime's existing "something changed, refetch" signal pattern is
-  sufficient for a turn-based game.
 
 ## 3. Architecture decision: Supabase Edge Functions
 
@@ -101,6 +96,10 @@ dependencies, everything below would port to a standalone Node server
 without a rewrite if a future requirement Edge Functions genuinely can't
 satisfy ever emerges (e.g. a real need for server push, or CPU limits
 becoming a real constraint).
+
+This decision also underpins `HIDDEN_INFORMATION_PLAN.md`'s `get_game_state`
+read path (§10 there has an open question on whether that RPC should
+likewise be an Edge Function, for the same reuse-the-engine reasoning).
 
 ## 4. Enforcement model
 
@@ -179,13 +178,13 @@ entirely client-trusted (no §4.1 enforcement exists yet, same caveat as
 everything else pre-phase-6), it doesn't yet implement the
 owner-override/cross-player-pruning authorization below (a rewind that
 prunes another player's action is unrestricted, exactly as destructive
-today as before this change), and RETRACT_CHOICE/§5.3's simultaneous-phase
-refinement below is unaffected (already implemented separately, see phase
-3 in §8). Whether phase 6 still wants its own persisted `historyPointer`
-column (e.g. for a server-side authorization check that doesn't want to
-refold the whole log on every request) or can just reuse `resolveHistory`
-against the same `actionHistory` it already reads is an open question for
-that phase, not resolved here.
+today as before this change), and RETRACT_CHOICE/`HIDDEN_INFORMATION_PLAN.md`
+§5.3's simultaneous-phase refinement below is unaffected (already implemented
+separately, see phase 3 in §8). Whether phase 6 still wants its own persisted
+`historyPointer` column (e.g. for a server-side authorization check that
+doesn't want to refold the whole log on every request) or can just reuse
+`resolveHistory` against the same `actionHistory` it already reads is an
+open question for that phase, not resolved here.
 
 Today (pre-#412, kept for the design rationale below): `actionHistory`
 (`src/engine/types.ts`) was truncated in place by `handleUndo()`
@@ -230,13 +229,13 @@ per-action attribution needed) tracks the current position:
 
 **Refinement (per jinxbit, issue #407, 2026-09-03): a plain pointer
 decrement is the wrong model while a simultaneous phase
-(`selectCards`/`decline`, §2) is still open.** `chosenCardIdByPlayerId`
-entries for different players interleave in `actionHistory` in submission
-order, not turn order — they're independent, commuting writes (each
-`CHOOSE_CARD`/`MOVE_TO_DECLINE` only ever touches the acting player's own
-slot). If player A submits, then player B submits, A calling "undo" must
-not silently undo B's still-secret pick just because B's entry happens to
-sit at the tip. Concretely:
+(`selectCards`/`decline`, `HIDDEN_INFORMATION_PLAN.md` §2) is still open.**
+`chosenCardIdByPlayerId` entries for different players interleave in
+`actionHistory` in submission order, not turn order — they're independent,
+commuting writes (each `CHOOSE_CARD`/`MOVE_TO_DECLINE` only ever touches the
+acting player's own slot). If player A submits, then player B submits, A
+calling "undo" must not silently undo B's still-secret pick just because B's
+entry happens to sit at the tip. Concretely:
 
 - **While the caller has an unresolved pick of their own in the
   currently-open phase** (they're not in `pendingPlayerIds` for this phase,
@@ -268,10 +267,10 @@ sit at the tip. Concretely:
   asked for — "selecting a new card should force the other players to
   reselect" — falls out for free: since their `CHOOSE_CARD` entries are
   gone from the pruned history, replaying from the pointer naturally shows
-  them back in `pendingPlayerIds`, owing a fresh pick. See §5.3 for the one
-  piece this doesn't give for free: keeping their *already-revealed* pick
-  from flickering back to secret for a client that saw it, right up until
-  someone actually branches.
+  them back in `pendingPlayerIds`, owing a fresh pick. See
+  `HIDDEN_INFORMATION_PLAN.md` §5.3 for the one piece this doesn't give for
+  free: keeping their *already-revealed* pick from flickering back to secret
+  for a client that saw it, right up until someone actually branches.
 
 ### 4.5 Admin / room-owner privileges (issue #391)
 
@@ -320,139 +319,30 @@ of the trust boundary this document is about:
   (or in addition to) the ownership check.
 
 **Hidden-information interaction:** today, admin mode changes nothing here
-either — there's no redaction yet (§5), so admin already sees exactly what
-every other player's client already receives (the known gap issue #37
-exists to close). Once §5's `get_game_state` redaction ships, admin mode
-needs an explicit carve-out there too: a viewer who is the room owner or
-`profiles.is_admin` should receive the **unredacted** state (skip the
-`selectCards`/`decline` masking in §5.1) so that acting on another
-player's still-secret in-progress choice via admin mode actually works —
-otherwise admin mode would let them click a card-choice button whose
-contents they can't see. This is a deliberate, logged-as-"admin mode"
-trust boundary (the room owner and any site admin can already see/do
+either — there's no redaction yet (`HIDDEN_INFORMATION_PLAN.md` §5), so admin
+already sees exactly what every other player's client already receives (the
+known gap issue #37 exists to close). Once that document's `get_game_state`
+redaction ships, admin mode needs an explicit carve-out there too: a viewer
+who is the room owner or `profiles.is_admin` should receive the
+**unredacted** state (skip the `selectCards`/`decline` masking) so that
+acting on another player's still-secret in-progress choice via admin mode
+actually works — otherwise admin mode would let them click a card-choice
+button whose contents they can't see. This is a deliberate, logged-as-"admin
+mode" trust boundary (the room owner and any site admin can already see/do
 almost everything else in this app), not an oversight — call it out
-explicitly in the `get_game_state` implementation (§8 phase 5) so it isn't
-missed.
-
-## 5. Redaction
-
-### 5.1 `redactStateForPlayer(state, viewerId)`
-
-New pure function in `src/engine/`, unit-tested like the rest of the
-engine (no behavior change to the engine's own logic — it's a read-side
-view, not a rule):
-
-- While `roundPhase === 'selectCards'` and any player is still pending:
-  mask other players' `chosenCardIdByPlayerId` entries (return "chosen:
-  true/false", not the card id, for anyone but the viewer).
-- While `roundPhase === 'decline'`: mask `declineCardIds` **added during
-  the current decline phase** for players other than the viewer. This
-  needs a phase-start snapshot to distinguish "already-public pile from
-  earlier rounds" from "this phase's still-secret additions" —
-  `pendingPlayerIds` alone isn't sufficient, since a player can owe more
-  than one decline card and only the still-unresolved ones are secret.
-- Everything else passes through unchanged (hands, discard, board, prior
-  rounds' decline piles, resources, VP, etc. are all public per §2).
-
-### 5.2 Where redaction runs
-
-The masking logic is field-nulling, not game rules, so it doesn't need to
-live in an Edge Function. Read-side redaction runs as a
-`SECURITY DEFINER` Postgres RPC, `get_game_state(game_id)`, deployed via an
-ordinary SQL migration (same mechanism as the existing `supabase/migrations/`
-files) — it loads the authoritative row and calls the equivalent logic
-server-side.
-
-**`actionHistory` must not be shipped wholesale to other players while
-their entries are still secret.** Redacting the *current-state* read isn't
-enough on its own: Realtime broadcasts row changes at row granularity, so
-if a phase's in-progress `CHOOSE_CARD`/`MOVE_TO_DECLINE` entries sit in the
-same row every seated player subscribes to, the live broadcast leaks them
-regardless of what a redacted read returns. Once a phase resolves, its
-entries are safe to include as-is. Two ways to satisfy this, to be decided
-during implementation (§8, phase 3):
-  a. keep the authoritative `game_state` row service-role-only (not
-     Realtime-broadcast at all), with a slim public `game_state_meta` row
-     (phase/version only) that Realtime broadcasts purely as a "something
-     changed, refetch your redacted view via RPC" signal; or
-  b. redact `actionHistory` itself at the RPC layer and rely on RLS to keep
-     the raw row from ever reaching a `postgres_changes` subscription.
-
-Given RLS already can't filter *within* a row for Realtime purposes, (a) is
-the more robust choice and is the current recommendation — it also cleanly
-subsumes `game_state_meta`'s existing purpose today (see
-`0019_public_game_state_visible.sql`'s public-room read path, which reads
-full state and would need reworking either way).
-
-### 5.3 Sticky reveal across undo — the reveal high-water mark
-
-[Issue #407](https://github.com/jinxbit/Rise-and-fall/issues/407) proposed
-moving hidden fields into a dedicated column that's cleared into the public
-state transactionally on reveal, specifically so that "once information is
-revealed, it stays revealed, even if undo was used to go back to previous
-phases/rounds." Discussion on the issue concluded that literally relocating
-data isn't necessary — §5.1's field-masking (`redactStateForPlayer`) stays
-the mechanism — but the *stickiness* requirement is real and §5.1 as
-written doesn't provide it, since `hideChosenCards`/`declineAdditionsThisPhase`
-are derived fresh from `state.roundPhase`/`pendingPlayerIds` at whatever
-point `stateAtPointer` replayed to. That's a genuine gap, confirmed against
-`stateAtPointer` (`src/engine/historyPointer.ts:34`): rewinding the pointer
-back into an already-resolved `selectCards`/`decline` phase — with **no
-branch**, purely to review an earlier moment — reconstructs a state where
-that phase's picks are still pending, and `redactStateForPlayer` masks them
-again for a viewer whose client already rendered the real values before the
-rewind. Re-masking already-seen data is a flicker, not a leak, but it's a
-real inconsistency the issue is right to want closed.
-
-**Decision (per jinxbit, 2026-09-03): approved as a deliberate break from
-pure-replay determinism.** Redaction for a given simultaneous phase is no
-longer solely a function of `stateAtPointer(pointer).roundPhase`/
-`pendingPlayerIds`. A separate **reveal high-water mark** is introduced —
-persisted per phase instance (keyed by `turn` + phase, since a round has at
-most one `selectCards` and one `decline` phase, matching the original
-issue's point 5: never more than one such window open, and never more than
-one such mark relevant, at a time):
-
-- **Set** when that phase actually resolves on the live tip (the
-  `pendingPlayerIds.length === 0` transition genuinely happens, e.g.
-  `beginActionsPhase`, `src/engine/round.ts:35`) — independent of wherever
-  `historyPointer` sits afterward.
-- **Consulted instead of the replayed phase state** when redacting a read
-  at any pointer position that still lies within the *same, unpruned*
-  history: a plain undo/redo that only moves the pointer, without
-  submitting a new action, never touches this mark, so a phase already
-  revealed stays unmasked through review-only rewinds. No flicker.
-- **Deleted** — per jinxbit's explicit answer to this document's prior open
-  question — exactly when a branch (§4.4: submitting a new action at
-  `pointer < tip`) prunes away the action that produced that resolution.
-  This is the same tail-prune already computed for
-  `branchDiscardsAnotherPlayersAction`/`archivedTail`
-  (`src/engine/historyPointer.ts:95`,`107`) — no separate detection pass:
-  if the resolving transition falls inside `archivedTail`, its mark goes
-  with it. This is what makes §4.4's "branch after reveal forces the other
-  players to reselect" hold *for redaction too*, not just for
-  `pendingPlayerIds`: once the mark is gone, `redactStateForPlayer` goes
-  back to deriving strictly from the (now genuinely-unresolved) replayed
-  state, so their old picks are masked again exactly as if that phase had
-  never resolved — because, per this rule, for redaction purposes it
-  didn't.
-
-Net effect: "revealed" is now a small piece of persisted, monotonic-until-
-branched state, not a pure function of the pointer — deliberately, to match
-real epistemic reality (a client that already saw a value doesn't un-know
-it just because someone is reviewing history), while still resetting
-cleanly the moment that revelation's own causal history is actually
-discarded.
+explicitly in the `get_game_state` implementation (phase 5 of that
+document's execution plan) so it isn't missed.
 
 ## 6. Data model changes
 
 **Update (2026-09-04, phase 4, §8): smaller than originally scoped.**
 Issue #412's append-only `actionHistory` + `resolveHistory()`
-(§4.4's now-implemented update) turned out to already satisfy two of this
-section's four original bullets for free — see the strikethroughs below —
-so phase 4's actual DB work is just `game_state_meta` (done, this section)
-plus, later, the RLS lockdown (deliberately not done yet — see that
-bullet).
+(§4.4's now-implemented update) turned out to already satisfy most of this
+section's original asks for free — see the strikethroughs below — so this
+phase's actual remaining DB work is just the RLS lockdown (deliberately not
+done yet — see that bullet). `game_state_meta`, the one piece of this phase
+that *is* done, exists primarily for `HIDDEN_INFORMATION_PLAN.md`'s
+redaction work — see that document's §6 for it.
 
 - **`game_state` (existing table):** stays the single authoritative row
   per game, but becomes **service-role write-only** — clients stop writing
@@ -466,16 +356,6 @@ bullet).
   in the same push as phase 8, not standalone, or the live app breaks the
   moment this migration auto-deploys (`.github/workflows/deploy-supabase.yml`,
   §7).
-- **`game_state_meta` — done** (`0025_game_state_meta.sql`): phase/status/
-  turn/version only, kept in sync by a `security definer` trigger on every
-  `game_state` insert/update (bypasses RLS to write it, since clients have
-  no direct grant on this table), RLS-readable by the same audience
-  `game_state` itself currently is (`0021_remove_observers.sql`,
-  `0024_admin_read_all_game_state.sql`), added to the `supabase_realtime`
-  publication. Landed ahead of the RLS lockdown it's actually for, same
-  "safe to land early, deploys generically" reasoning §7's workflow used —
-  it's inert (nothing reads it) until phase 8 subscribes to it instead of
-  `game_state` directly.
 - ~~**New: `historyPointer`**~~ — **turned out to be unnecessary.**
   Issue #412's `resolveHistory()` (`src/engine/historyFold.ts`) already
   derives "where current is" from `actionHistory` itself (walking
@@ -485,16 +365,6 @@ bullet).
   (`state.actionHistory`, inside the existing `game_state.state` jsonb).
   `get_game_state`/`apply-action` (phases 5-6) can compute it the same way
   `resolveHistory()`/`stateAtPointer()` already do, with no new column.
-- ~~**New: reveal high-water mark (§5.3)**~~ — **also unnecessary as
-  persisted state**, for the same reason: `computeRevealedPhaseMarks()`
-  (`src/engine/historyPointer.ts`) is already "deliberately a pure function
-  of `history` rather than separately persisted, mutable state" (its own
-  doc comment) — a mark can't outlive the resolving entry that produced it,
-  since it's recomputed from `actionHistory` on every call. §10 has a new
-  open item on what this means for `get_game_state`'s implementation,
-  though: computing it requires replaying the *engine*, not just
-  field-nulling, which is more than the "field-nulling, not game rules"
-  characterization §5.2 gives `get_game_state` accounted for.
 - ~~**Archived/pruned tail**~~ — **also unnecessary.** §4.4's original
   "submitting a new action while `pointer < tip` prunes the abandoned
   tail" language predates issue #412's actual implementation:
@@ -507,8 +377,9 @@ bullet).
 - **RLS:** `game_state`'s existing read policies get replaced by policies
   restricting direct table access to service role only, with reads going
   through `get_game_state` instead — **deferred, see the `game_state`
-  bullet above.** `game_state_meta`'s RLS (done) already uses the
-  equivalent-to-today read policies this bullet originally called for.
+  bullet above.** `game_state_meta`'s RLS (done, see
+  `HIDDEN_INFORMATION_PLAN.md` §6) already uses the equivalent-to-today read
+  policies this bullet originally called for.
 
 ## 7. Deploy automation
 
@@ -530,37 +401,35 @@ Edge Function in the repo. Authenticated via `SUPABASE_ACCESS_TOKEN`/
 existing auto-deploy. This also fixed the pre-existing manual-deploy
 friction for `notify-discord-turn` (and now `notify-web-push` too).
 
-Deploying *every* function rather than naming `apply-action`/`undo-action`/
-`redo-action` explicitly (this document's original plan) was a deliberate
-simplification: it means this workflow needs no edit when those functions
-are added in phase 6 below, or if a future function is added later —
-one less thing for a human-with-workflow-rights to remember to touch.
+This workflow deploys every migration/function in the repo generically, so
+it serves `HIDDEN_INFORMATION_PLAN.md`'s `get_game_state` migration/function
+too, not just this document's `apply-action`/`undo-action`/`redo-action`.
+
+Deploying *every* function rather than naming
+`apply-action`/`undo-action`/`redo-action` explicitly (this document's
+original plan) was a deliberate simplification: it means this workflow needs
+no edit when those functions are added in phase 6 below, or if a future
+function is added later — one less thing for a human-with-workflow-rights to
+remember to touch.
 
 ## 8. Execution plan (phased)
 
 Each phase should land as its own PR/commit set; later phases depend on
-earlier ones being merged.
+earlier ones being merged. Phase numbers are shared with
+[`HIDDEN_INFORMATION_PLAN.md`](HIDDEN_INFORMATION_PLAN.md#8-execution-plan-phased)
+— it's one execution timeline covering both documents; phases not relevant
+to rule enforcement (2, 5) are omitted here.
 
-1. **This document.** Record scope/design decisions (done — this file).
-2. **`redactStateForPlayer()` + exhaustive unit tests** in `src/engine/`
-   (done — `src/engine/redaction.ts`, `src/engine/__tests__/redaction.test.ts`).
-   No behavior change to production code paths yet — purely additive and
-   independently testable, same pattern as the rest of `src/engine/__tests__/`.
+1. **These documents.** Record scope/design decisions (done — this file and
+   `HIDDEN_INFORMATION_PLAN.md`, split from the original combined
+   `BACKEND_ENFORCEMENT_SPEC.md` per issue #423).
 3. **`historyPointer` model**: engine-side support for an immutable
    `actionHistory` + pointer (replay from pointer instead of always from
    tip; branch = prune-and-append), with unit tests (done —
    `src/engine/historyPointer.ts`, `src/engine/__tests__/historyPointer.test.ts`).
    Still no network/DB change — this is engine logic first, wiring second.
-   This phase's two open items from §4.4/§5.3 are now also settled and
-   implemented, engine-side only:
-   - **§5.3's reveal high-water mark** is `computeRevealedPhaseMarks()`
-     (`historyPointer.ts`) — deliberately *not* separately persisted/mutable
-     state, since it's a pure function of the tip `actionHistory` (replay it
-     once, record every `(turn, roundPhase)` whose `pendingPlayerIds` hit
-     zero); "deleted on branch" falls out for free because a pruned
-     resolving entry just isn't in the new tip anymore, no explicit delete
-     step needed. `redactStateForPlayerAtPointer()` (`redaction.ts`) is the
-     pointer-aware entry point that consults it.
+   This phase's open item from §4.4 is now also settled and implemented,
+   engine-side only:
    - **§4.4's `RETRACT_CHOICE`** (`actions.ts`/`applyAction.ts`) is
      implemented for the `selectCards` case, which turned out to be the
      unambiguous half of the open item: `chosenCardIdByPlayerId` is a flat
@@ -579,17 +448,15 @@ earlier ones being merged.
      caller's own still-open additions from the *current* decline phase,
      regardless of whether they've caught up on everything else they still
      owe.
-4. **DB migration** — **`game_state_meta` done** (§6,
-   `0025_game_state_meta.sql`); archived-tail storage and a `historyPointer`
-   column turned out to be unnecessary (§6) so there's nothing left to build
-   there. Updated RLS locking `game_state` to service-role-only is the one
-   remaining part of this phase, intentionally deferred to land together
-   with phase 8 (§6's `game_state` bullet explains why).
-5. **`get_game_state` SQL RPC** (read-side redaction, §5.1–5.2) + migration
-   — **open design question first, see §10:** §5.3's reveal high-water mark
-   needs a full engine replay (`computeRevealedPhaseMarks()`), not the plain
-   field-nulling §5.2 originally scoped this RPC as, which is a real tension
-   with implementing it as plain SQL/plpgsql instead of an Edge Function.
+   - (`HIDDEN_INFORMATION_PLAN.md` §5.3's reveal high-water mark was also
+     settled and implemented in this same phase, engine-side — see that
+     document.)
+4. **DB migration** — `game_state_meta` (`HIDDEN_INFORMATION_PLAN.md` §6) is
+   done; archived-tail storage and a `historyPointer` column turned out to be
+   unnecessary (§6 above) so there's nothing left to build there. Updated RLS
+   locking `game_state` to service-role-only is the one remaining part of
+   this phase, intentionally deferred to land together with phase 8 (§6's
+   `game_state` bullet explains why).
 6. **`apply-action` / `undo-action` / `redo-action` Edge Functions**,
    reusing the engine as-is: seat resolution from JWT, `action.playerId`
    enforcement (§4.1), fast-forwarding (§4.3), pointer-based undo/redo
@@ -608,40 +475,42 @@ earlier ones being merged.
    treat its output as authoritative — always reconcile against the
    server's redacted response.
 9. **End-to-end verification against a real two-browser Supabase
-   session**, inspecting actual network payloads (not just UI rendering)
-   to confirm secret fields never reach an opponent's client during the
-   `selectCards`/`decline` windows. This sandbox has no live Supabase
-   project to test against, so this phase requires the maintainer's own
-   environment, same limitation noted throughout `todo.md`.
+   session**, exercising this document's authorization rules specifically —
+   confirm a client can't submit an action naming another player's
+   `playerId`, that undo/redo/branch owner-override behaves as specced, and
+   that admin mode's server-side carve-out (§4.5) works once enforcement is
+   live. This sandbox has no live Supabase project to test against, so this
+   phase requires the maintainer's own environment, same limitation noted
+   throughout `todo.md`. See `HIDDEN_INFORMATION_PLAN.md` §8 phase 9 for the
+   companion verification of secret-field leakage in the same session.
 
 ## 9. Testing strategy
 
-- **Engine-level (this sandbox can run these):** `redactStateForPlayer()`
-  unit tests covering both hidden windows (mid-`selectCards`, mid-
-  `decline`) and confirming everything else passes through unchanged;
-  pointer-based undo/redo/branch unit tests including the owner-override
-  condition; fast-forward tests for forced single-choice `CHOOSE_CARD`/
-  `MOVE_TO_DECLINE`; §4.4/§5.3 refinement cases specifically — retracting
-  only the caller's own pending pick leaves other players'
-  visible-or-secret picks untouched; `RETRACT_DECLINE` returning a card to
-  its actual source zone (hand vs. discard, including this round's played
-  card) rather than always defaulting to one, remaining retractable
-  regardless of whether the caller has caught up on every card they still
-  owe, and rejecting a card that isn't this phase's own addition; a plain
-  review-only pointer rewind into an already-resolved phase does not
-  re-mask it (no flicker); a branch that prunes a phase's resolving action
-  both reopens
-  `pendingPlayerIds` for every player whose pick was discarded **and**
-  deletes that phase's reveal high-water mark so redaction re-masks it;
-  cross-player pruning here still requires the owner-override gate.
+- **Engine-level (this sandbox can run these):** pointer-based undo/redo/
+  branch unit tests including the owner-override condition; fast-forward
+  tests for forced single-choice `CHOOSE_CARD`/`MOVE_TO_DECLINE`; §4.4's
+  refinement cases specifically — retracting only the caller's own pending
+  pick leaves other players' visible-or-secret picks untouched;
+  `RETRACT_DECLINE` returning a card to its actual source zone (hand vs.
+  discard, including this round's played card) rather than always
+  defaulting to one, remaining retractable regardless of whether the caller
+  has caught up on every card they still owe, and rejecting a card that
+  isn't this phase's own addition; a branch that prunes a phase's resolving
+  action reopens `pendingPlayerIds` for every player whose pick was
+  discarded; cross-player pruning here still requires the owner-override
+  gate.
 - **Edge Function level:** requires a live Supabase project — out of reach
   in this sandbox (no credentials/Docker), consistent with existing
   `todo.md` notes about board-setup/round-view verification. Maintainer
-  verification needed post-merge for each of phases 6–9.
+  verification needed post-merge for each of phases 6–9, specifically:
+  `action.playerId !== callerSeat` rejection, admin/owner override paths,
+  and version compare-and-swap on concurrent writes.
 - **Regression:** existing `src/engine/__tests__/` suite (220+ tests as of
   this writing) must continue passing unmodified — this work changes *who*
   calls the engine and *what subset* of its output a given viewer receives,
   not the engine's rules themselves.
+
+(See `HIDDEN_INFORMATION_PLAN.md` §9 for redaction-specific testing.)
 
 ## 10. Open items / risks
 
@@ -650,34 +519,6 @@ earlier ones being merged.
   (issue #412) never deletes or moves `actionHistory` entries — a branch is
   just later `UNDO_ACTION`/`REDO_ACTION` entries no longer being able to
   reach the superseded ones. The existing column already is the archive.
-- Exact storage shape for the reveal high-water mark (§5.3/§6) — **engine
-  side (phase 3, §8) needs no storage at all** (unchanged from before):
-  `computeRevealedPhaseMarks()` derives it on demand from the tip
-  `actionHistory`. **New tension found while scoping phase 5 (2026-09-04):**
-  §5.2 characterizes `get_game_state` as pure "field-nulling, not game
-  rules," implementable as a plain SQL/plpgsql `SECURITY DEFINER` RPC — but
-  `computeRevealedPhaseMarks()` isn't field-nulling, it's a full replay of
-  every logged action through `applyAction()` (the actual rules engine) to
-  find which simultaneous phases resolved. Reimplementing that in SQL would
-  duplicate rule logic outside `src/engine/` — exactly what §3 chose Edge
-  Functions to avoid in the first place. Two ways to resolve this, needs a
-  decision before phase 5 is implemented:
-  a. `get_game_state` does §5.1's plain (non-sticky) redaction only, in SQL,
-     as originally scoped, and §5.3's stickiness either waits for a later
-     increment or is computed a different way (e.g. cached alongside
-     `game_state` by whichever Edge Function call last resolved a phase,
-     rather than recomputed per read); or
-  b. `get_game_state` is actually implemented as an Edge Function (Deno/TS,
-     reusing `src/engine/`'s `computeRevealedPhaseMarks()`/
-     `redactStateForPlayerAtPointer()` unmodified) despite the "Postgres
-     RPC" framing in §5.2 — consistent with §3's reuse-the-engine rationale,
-     at the cost of one more Deno cold start per state read (mitigated by
-     §3's own "negligible for a turn-based game" expectation, same as
-     `apply-action`).
-  (b) is closer to this document's own stated principles (§3: reuse
-  `src/engine/` unmodified, no rule-logic duplication) and is the current
-  lean, but this needs an explicit decision, not an assumption, before
-  phase 5 starts.
 - **`RETRACT_CHOICE` and `RETRACT_DECLINE` both implemented (§4.4, phase 3,
   §8).** `RETRACT_DECLINE` turned out to need two design decisions beyond
   `RETRACT_CHOICE`'s treatment, both now resolved (2026-09-04):
@@ -718,16 +559,6 @@ earlier ones being merged.
     accordingly carries a `cardId` (unlike the payload-less
     `RetractChoiceAction`), since a player can have more than one of their
     own still-open additions at once and needs to say which one.
-- ~~Whether a pruned, abandoned branch that already crossed a reveal
-  transition leaves that information revealed forever~~ — **resolved**: no,
-  per jinxbit's 2026-09-03 answer, the reveal high-water mark is deleted
-  when the branch that produced it is pruned (§5.3), so a discarded branch
-  never leaves a permanent leak.
-- Whether `game_state_meta` subsumes or coexists with the public-room
-  status-visibility fix in `0019_public_game_state_visible.sql` — likely
-  subsumes it, but the migration needs to preserve that bug's fix (public
-  rooms' `status` must stay visible to non-participants) once redaction
-  lands.
 - Edge Function cold-start/latency impact on perceived responsiveness in
   live mode — expected to be negligible for a turn-based game, but worth
   confirming during phase 9 verification.
@@ -736,3 +567,8 @@ earlier ones being merged.
   condition, unredacted `get_game_state` for admin/owner) need to land
   *with* phases 5–6, not after — otherwise admin mode either breaks or
   becomes an unreviewed impersonation hole the moment enforcement ships.
+
+(See `HIDDEN_INFORMATION_PLAN.md` §10 for redaction-specific open items:
+the reveal high-water mark's storage shape, the `get_game_state`
+implementation-language question, and whether `game_state_meta` subsumes
+`0019_public_game_state_visible.sql`'s fix.)

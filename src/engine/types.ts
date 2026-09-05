@@ -462,7 +462,7 @@ export interface GameState {
    * Which zone (`hand` or `discard`) each card currently sitting in
    * someone's `declineCardIds` *because of this round's still-open decline
    * phase* actually came from — needed by RETRACT_DECLINE
-   * (BACKEND_ENFORCEMENT_SPEC.md §10) to put a retracted card back where it
+   * (RULE_ENFORCEMENT_PLAN.md §10) to put a retracted card back where it
    * belongs. `cardId` alone can't answer this: a card can sit unrecycled in
    * `discard` across several rounds (see moveUnbackedDiscardCardsToSupply's
    * doc comment, ./cards.ts), so "was this the currently-played card" isn't

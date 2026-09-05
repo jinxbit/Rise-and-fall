@@ -1,4 +1,4 @@
--- BACKEND_ENFORCEMENT_SPEC.md phase 4 (issue #37 / #418): the slim public
+-- HIDDEN_INFORMATION_PLAN.md phase 4 (issue #37 / #418): the slim public
 -- projection of game_state, §5.2/§6. Once redaction (§5) ships, the
 -- authoritative game_state row will stop being safe to broadcast over
 -- Realtime as-is (row-granularity broadcast can't redact a still-secret
@@ -9,7 +9,7 @@
 --
 -- Landed ahead of the RLS lockdown/get_game_state RPC/apply-action Edge
 -- Functions that will actually consume it (same "safe to land early"
--- reasoning §7's deploy workflow used) — clients still read/write
+-- reasoning RULE_ENFORCEMENT_PLAN.md §7's deploy workflow used) — clients still read/write
 -- game_state directly today (gameApi.ts), so this table is inert until
 -- phase 8 rewires them. It's purely additive: no existing behavior
 -- changes.
@@ -22,7 +22,7 @@ create table if not exists public.game_state_meta (
   updated_at timestamptz not null default now()
 );
 
-comment on table public.game_state_meta is 'Slim public projection of game_state (status/roundPhase/turn/version only) — see BACKEND_ENFORCEMENT_SPEC.md §5.2/§6. Kept in sync by game_state_sync_meta trigger; never written directly.';
+comment on table public.game_state_meta is 'Slim public projection of game_state (status/roundPhase/turn/version only) — see HIDDEN_INFORMATION_PLAN.md §5.2/§6. Kept in sync by game_state_sync_meta trigger; never written directly.';
 
 -- ---------------------------------------------------------------------------
 -- Kept in sync with game_state on every write. security definer because the

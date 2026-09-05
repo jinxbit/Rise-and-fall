@@ -828,7 +828,7 @@ export function GamePage() {
    * selectCards phase resolves — see redactGameLog's own doc comment for why
    * that can't just be decided once at narration time. Site admins (see
    * useIsAdmin) keep seeing the unredacted log, the same carve-out
-   * BACKEND_ENFORCEMENT_SPEC.md §4.4 already grants admin mode elsewhere.
+   * RULE_ENFORCEMENT_PLAN.md §4.4 already grants admin mode elsewhere.
    */
   const visibleGameLog = useMemo(() => {
     const source = isReviewingHistory ? reviewGameLog : gameLog
