@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { applyAction, applyActionAndFastForward, applyActionAndFastForwardChoices, applyActionAndFastForwardTiles } from '../applyAction'
+import { applyAction, applyActionWithSteps } from '../applyAction'
 import { createEmptyBoard, getTile, setTile } from '../board'
 import type { BoardGenerationContent } from '../boardGenerationContent'
 import { EMPTY_BOARD_GENERATION_CONTENT } from '../boardGenerationContent'
@@ -168,17 +168,16 @@ describe('applyAction', () => {
   })
 
   it('moves to the actions phase once every player has chosen a card', () => {
+    // p2's hand is a single card too — p1's own CHOOSE_CARD already folds
+    // p2's forced pick into this SAME applyAction() call
+    // (RULE_ENFORCEMENT_PLAN.md §4.2/§4.3), reaching the actions phase in
+    // one call rather than two.
     const p1Choice = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'ship') })
     expect(p1Choice.ok).toBe(true)
     if (!p1Choice.ok) return
-    expect(p1Choice.state.roundPhase).toBe('selectCards')
-
-    const p2Choice = applyAction(p1Choice.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'ship') })
-    expect(p2Choice.ok).toBe(true)
-    if (!p2Choice.ok) return
-    expect(p2Choice.state.roundPhase).toBe('actions')
-    expect(p2Choice.state.activePlayerId).toBe('p1')
-    expect(p2Choice.state.pendingPlayerIds).toEqual(['p1', 'p2'])
+    expect(p1Choice.state.roundPhase).toBe('actions')
+    expect(p1Choice.state.activePlayerId).toBe('p1')
+    expect(p1Choice.state.pendingPlayerIds).toEqual(['p1', 'p2'])
   })
 
   it('rejects RESOLVE_UNIT_ACTION outside the actions phase', () => {
@@ -187,12 +186,13 @@ describe('applyAction', () => {
   })
 
   it('rejects RESOLVE_UNIT_ACTION out of turn order', () => {
+    // p2's hand is a single card — p1's own CHOOSE_CARD already folds p2's
+    // forced pick into the same applyAction() call (RULE_ENFORCEMENT_PLAN.md
+    // §4.2/§4.3), so no separate submission for p2 is needed (or possible).
     const p1Choice = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'ship') })
     if (!p1Choice.ok) throw new Error('setup failed')
-    const p2Choice = applyAction(p1Choice.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'ship') })
-    if (!p2Choice.ok) throw new Error('setup failed')
 
-    const result = applyAction(p2Choice.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2', unitActions: [] })
+    const result = applyAction(p1Choice.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2', unitActions: [] })
     expect(result.ok).toBe(false)
   })
 
@@ -229,23 +229,43 @@ describe('RETRACT_CHOICE (RULE_ENFORCEMENT_PLAN.md §4.4)', () => {
     expect(result.ok).toBe(false)
   })
 
-  it('clears the pick and puts the player back in pendingPlayerIds', () => {
-    const chosen = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'ship') })
-    if (!chosen.ok) throw new Error('setup failed')
-    expect(chosen.state.pendingPlayerIds).toEqual(['p2'])
+  // p1's hand normally has a single card ('ship'), same as p2's — but a
+  // single-card hand means RETRACT_CHOICE's own result would immediately be
+  // re-forced right back (nothing else to switch to, per §4.2/§4.3's "no
+  // real decision" rule), which is exactly what these tests below want to
+  // isolate FROM. So p1 (only) gets a second card added directly to their
+  // hand here — a real choice again, so the retraction actually sticks —
+  // while the "p1 chose, p2 still pending" intermediate state itself is
+  // still constructed directly rather than via two applyAction() calls,
+  // since p2's own single-card hand would otherwise fold into p1's own
+  // CHOOSE_CARD (RULE_ENFORCEMENT_PLAN.md §4.2/§4.3).
+  function makeStateWithP1RealChoice(): GameState {
+    const p1 = state.players.find((p) => p.id === 'p1')!
+    return {
+      ...state,
+      players: state.players.map((p) => (p.id === 'p1' ? { ...p1, handCardIds: [...p1.handCardIds, cardIdFor('p1', 'city')] } : p)),
+      chosenCardIdByPlayerId: { ...state.chosenCardIdByPlayerId, p1: cardIdFor('p1', 'ship') },
+      pendingPlayerIds: ['p2'],
+    }
+  }
 
-    const retracted = applyAction(chosen.state, { type: 'RETRACT_CHOICE', playerId: 'p1' })
+  it('clears the pick and puts the player back in pendingPlayerIds', () => {
+    const retracted = applyAction(makeStateWithP1RealChoice(), { type: 'RETRACT_CHOICE', playerId: 'p1' })
     expect(retracted.ok).toBe(true)
     if (!retracted.ok) return
     expect(retracted.state.chosenCardIdByPlayerId.p1).toBeNull()
-    expect(retracted.state.pendingPlayerIds).toEqual(['p2', 'p1'])
+    // p2 is also back in pendingPlayerIds the instant p1 retracts (RETRACT_
+    // CHOICE puts p1 at the end, right after p2, who was already pending) —
+    // but p2's hand is still a single card, so that same RETRACT_CHOICE
+    // dispatch immediately folds p2's forced pick back in too
+    // (RULE_ENFORCEMENT_PLAN.md §4.2/§4.3), leaving only p1 (the one with a
+    // real choice again) still pending.
+    expect(retracted.state.pendingPlayerIds).toEqual(['p1'])
     expect(retracted.state.roundPhase).toBe('selectCards')
   })
 
   it('rejects retracting the same pick twice in a row', () => {
-    const chosen = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'ship') })
-    if (!chosen.ok) throw new Error('setup failed')
-    const retracted = applyAction(chosen.state, { type: 'RETRACT_CHOICE', playerId: 'p1' })
+    const retracted = applyAction(makeStateWithP1RealChoice(), { type: 'RETRACT_CHOICE', playerId: 'p1' })
     if (!retracted.ok) throw new Error('setup failed')
 
     const secondRetract = applyAction(retracted.state, { type: 'RETRACT_CHOICE', playerId: 'p1' })
@@ -253,16 +273,10 @@ describe('RETRACT_CHOICE (RULE_ENFORCEMENT_PLAN.md §4.4)', () => {
   })
 
   it('leaves another still-pending player untouched, including their own not-yet-resolved pick', () => {
-    const p1Chosen = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'ship') })
-    if (!p1Chosen.ok) throw new Error('setup failed')
-    const p2Chosen = applyAction(p1Chosen.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'ship') })
-    if (!p2Chosen.ok) throw new Error('setup failed')
-    // Both chose, so the phase already resolved — reset back to a state
-    // where p2 has chosen but p1 is still pending, to exercise p1 retracting
-    // p2's untouched sibling entry.
     const bothPending: GameState = {
-      ...p1Chosen.state,
-      chosenCardIdByPlayerId: { ...p1Chosen.state.chosenCardIdByPlayerId, p2: cardIdFor('p2', 'ship') },
+      ...makeStateWithP1RealChoice(),
+      chosenCardIdByPlayerId: { ...state.chosenCardIdByPlayerId, p1: cardIdFor('p1', 'ship'), p2: cardIdFor('p2', 'ship') },
+      pendingPlayerIds: ['p1', 'p2'],
     }
 
     const retracted = applyAction(bothPending, { type: 'RETRACT_CHOICE', playerId: 'p1' })
@@ -272,26 +286,29 @@ describe('RETRACT_CHOICE (RULE_ENFORCEMENT_PLAN.md §4.4)', () => {
   })
 
   it('allows choosing again after retracting — redo is just CHOOSE_CARD, no separate endpoint', () => {
-    const chosen = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'ship') })
-    if (!chosen.ok) throw new Error('setup failed')
-    const retracted = applyAction(chosen.state, { type: 'RETRACT_CHOICE', playerId: 'p1' })
+    const retracted = applyAction(makeStateWithP1RealChoice(), { type: 'RETRACT_CHOICE', playerId: 'p1' })
     if (!retracted.ok) throw new Error('setup failed')
 
+    // p2's hand is still a single card, so re-choosing for p1 (the only
+    // other pending player) folds p2's forced pick right back in too
+    // (RULE_ENFORCEMENT_PLAN.md §4.2/§4.3), same as an ordinary first-time
+    // CHOOSE_CARD would.
     const rechosen = applyAction(retracted.state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'ship') })
     expect(rechosen.ok).toBe(true)
     if (!rechosen.ok) return
     expect(rechosen.state.chosenCardIdByPlayerId.p1).toBe(cardIdFor('p1', 'ship'))
-    expect(rechosen.state.pendingPlayerIds).toEqual(['p2'])
+    expect(rechosen.state.roundPhase).toBe('actions')
   })
 
   it('rejects retracting outside the select-cards phase', () => {
+    // p2's hand is a single card — p1's own CHOOSE_CARD already folds p2's
+    // forced pick into the same applyAction() call (RULE_ENFORCEMENT_PLAN.md
+    // §4.2/§4.3), reaching the actions phase in one call.
     const p1Chosen = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'ship') })
     if (!p1Chosen.ok) throw new Error('setup failed')
-    const p2Chosen = applyAction(p1Chosen.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'ship') })
-    if (!p2Chosen.ok) throw new Error('setup failed')
-    expect(p2Chosen.state.roundPhase).toBe('actions')
+    expect(p1Chosen.state.roundPhase).toBe('actions')
 
-    const result = applyAction(p2Chosen.state, { type: 'RETRACT_CHOICE', playerId: 'p1' })
+    const result = applyAction(p1Chosen.state, { type: 'RETRACT_CHOICE', playerId: 'p1' })
     expect(result.ok).toBe(false)
   })
 
@@ -777,9 +794,11 @@ describe('RESOLVE_UNIT_ACTION resolves immediately; the turn ends via PASS_ACTIO
     })
     const active: GameState = { ...lobby, board, units: [cityA, cityB, cityC], status: 'active' }
     const selecting = beginSelectCardsPhase(syncCardZonesWithBoard(active))
-    let result = applyAction(selecting, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') })
-    if (!result.ok) throw new Error('setup failed')
-    result = applyAction(result.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') })
+    // p2's hand is a single card ('city', backed by city_c) — p1's own
+    // CHOOSE_CARD already folds p2's forced pick into the same applyAction()
+    // call (RULE_ENFORCEMENT_PLAN.md §4.2/§4.3), so no separate submission
+    // for p2 is needed (or possible — p2 is no longer pending afterward).
+    const result = applyAction(selecting, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') })
     if (!result.ok) throw new Error('setup failed')
     return result.state
   }
@@ -921,12 +940,17 @@ describe('RESOLVE_UNIT_ACTION resolves immediately; the turn ends via PASS_ACTIO
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.state.players.find((p) => p.id === 'p2')!.resources.gold).toBe(3)
-    // Both players are done — the actions phase itself finished and moved
-    // on (discard-zone assertions belong to the dedicated PASS_ACTIONS
-    // test above; here both hands were also empty of anything else, so
-    // finishRound's empty-hand recycle already moved the discarded card
-    // straight back to hand by the time this settles).
-    expect(result.state.roundPhase).not.toBe('actions')
+    // Both players are done — the actions phase itself finished and the
+    // round closed out (discard-zone assertions belong to the dedicated
+    // PASS_ACTIONS test above; here both hands were also empty of anything
+    // else, so finishRound's empty-hand recycle already moved the discarded
+    // card straight back to hand by the time this settles) — turn 1 begins.
+    // Both players are back down to their single 'city' card again, so the
+    // new round's own forced CHOOSE_CARD picks (RULE_ENFORCEMENT_PLAN.md
+    // §4.2/§4.3) fold straight through selectCards and land back in the new
+    // round's actions phase, all within this same RESOLVE_UNIT_ACTION call.
+    expect(result.state.turn).toBe(1)
+    expect(result.state.roundPhase).toBe('actions')
   })
 })
 
@@ -1179,7 +1203,7 @@ describe('applyAction — PLACE_TILE/PLACE_UNIT dispatch during boardSetup', () 
   })
 })
 
-describe('applyActionAndFastForwardTiles', () => {
+describe('applyAction (forced tile-placement cascade folds into the SAME actionHistory entry, RULE_ENFORCEMENT_PLAN.md §4.2)', () => {
   const domino = [{ q: 0, r: 0 }, { q: 1, r: 0 }]
 
   function makeForcedChainState(): GameState {
@@ -1209,18 +1233,13 @@ describe('applyActionAndFastForwardTiles', () => {
 
   it('auto-places the rest of a tier once only one way remains, cycling turn order for the skipped decisions', () => {
     const state = makeForcedChainState()
+    const action = { type: 'PLACE_TILE' as const, playerId: 'p1', anchor: { q: 0, r: 0 }, rotationSteps: 0 }
 
     // p1 manually places the (0,0)-(1,0) domino. That leaves the (5,5)-
     // (6,5)-(7,5)-(8,5) chain with exactly one way to place the 2 tiles
     // still owed (see findForcedPlacement's tests) — no real decision left,
     // so both should auto-place instead of waiting on p2 and p1 again.
-    const result = applyActionAndFastForwardTiles(
-      state,
-      { type: 'PLACE_TILE', playerId: 'p1', anchor: { q: 0, r: 0 }, rotationSteps: 0 },
-      undefined,
-      undefined,
-      boardGenerationContent,
-    )
+    const result = applyAction(state, action, undefined, undefined, boardGenerationContent)
 
     expect(result.ok).toBe(true)
     if (!result.ok) return
@@ -1232,14 +1251,19 @@ describe('applyActionAndFastForwardTiles', () => {
     // Tier's pool (3) is fully spent -> tile placement is over.
     expect(result.state.boardSetup?.tileTierQueue).toEqual([])
 
-    // 3 PLACE_TILE entries: the manual one plus the 2 fast-forwarded ones,
+    // Only ONE actionHistory entry — the 2 forced placements aren't separate
+    // entries, they're folded into this same one (see applyAction's own doc
+    // comment). applyActionWithSteps below is what still lets a caller
+    // (gameLog.ts) see each individual step that happened.
+    expect(result.state.actionHistory).toHaveLength(1)
+    expect(result.state.actionHistory[0].action).toEqual(action)
+
+    const withSteps = applyActionWithSteps(state, action, undefined, undefined, boardGenerationContent)
+    if (!withSteps.ok) throw new Error(withSteps.error)
+    // 3 dispatched steps: the manual one plus the 2 fast-forwarded ones,
     // attributed in turn order (p1 manual, then p2, then p1 again).
-    const placeTileActions = result.state.actionHistory.filter((entry) => entry.action.type === 'PLACE_TILE')
-    expect(placeTileActions).toHaveLength(3)
-    expect(placeTileActions.map((entry) => entry.action.playerId)).toEqual(['p1', 'p2', 'p1'])
-    // Only the 2 fast-forwarded entries are stamped automatic — the manual
-    // one the player actually clicked isn't (LoggedAction.automatic, ./actions.ts).
-    expect(placeTileActions.map((entry) => entry.automatic ?? false)).toEqual([false, true, true])
+    expect(withSteps.steps.map((step) => step.action.type)).toEqual(['PLACE_TILE', 'PLACE_TILE', 'PLACE_TILE'])
+    expect(withSteps.steps.map((step) => (step.action as { playerId: string }).playerId)).toEqual(['p1', 'p2', 'p1'])
   })
 
   it("doesn't fast-forward while more than one legal arrangement remains", () => {
@@ -1267,13 +1291,7 @@ describe('applyActionAndFastForwardTiles', () => {
     // Three fully independent, interchangeable pairs remain after p1's
     // placement, but only 2 tiles are still owed — which 2 of the 3 pairs
     // get used isn't determined, so nothing should auto-place.
-    const result = applyActionAndFastForwardTiles(
-      state,
-      { type: 'PLACE_TILE', playerId: 'p1', anchor: { q: 0, r: 0 }, rotationSteps: 0 },
-      undefined,
-      undefined,
-      content,
-    )
+    const result = applyAction(state, { type: 'PLACE_TILE', playerId: 'p1', anchor: { q: 0, r: 0 }, rotationSteps: 0 }, undefined, undefined, content)
 
     expect(result.ok).toBe(true)
     if (!result.ok) return
@@ -1282,26 +1300,32 @@ describe('applyActionAndFastForwardTiles', () => {
   })
 })
 
-describe('applyActionAndFastForwardChoices (RULE_ENFORCEMENT_PLAN.md §4.3)', () => {
+describe('applyAction (forced card-choice/decline cascade folds into the SAME actionHistory entry, RULE_ENFORCEMENT_PLAN.md §4.3)', () => {
   it('auto-chooses a still-pending player who only has one card in hand', () => {
     // makeActiveGame() seeds both players with a hand of exactly one card
     // (backed by their 'ship' unit) — p1's manual pick leaves p2 pending
     // with a single-card hand, no real decision left.
     const state = makeActiveGame()
-    const result = applyActionAndFastForwardChoices(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'ship') })
+    const action = { type: 'CHOOSE_CARD' as const, playerId: 'p1', cardId: cardIdFor('p1', 'ship') }
+    const result = applyAction(state, action)
 
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.state.roundPhase).toBe('actions')
-    const chooseCardActions = result.state.actionHistory.filter((entry) => entry.action.type === 'CHOOSE_CARD')
-    expect(chooseCardActions.map((entry) => entry.action.playerId)).toEqual(['p1', 'p2'])
-    // p1's own pick isn't automatic; p2's fast-forwarded one is.
-    expect(chooseCardActions.map((entry) => entry.automatic ?? false)).toEqual([false, true])
+    // Only ONE actionHistory entry — p2's fast-forwarded pick is folded
+    // into p1's, not a separate entry.
+    expect(result.state.actionHistory).toHaveLength(1)
+    expect(result.state.actionHistory[0].action).toEqual(action)
+
+    const withSteps = applyActionWithSteps(state, action)
+    if (!withSteps.ok) throw new Error(withSteps.error)
+    const chooseCardSteps = withSteps.steps.filter((step) => step.action.type === 'CHOOSE_CARD')
+    expect(chooseCardSteps.map((step) => (step.action as { playerId: string }).playerId)).toEqual(['p1', 'p2'])
   })
 
   it("doesn't fast-forward a select-cards pick while more than one hand card remains", () => {
     const state = makeActiveGameWithFullHands()
-    const result = applyActionAndFastForwardChoices(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') })
+    const result = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') })
 
     expect(result.ok).toBe(true)
     if (!result.ok) return
@@ -1319,7 +1343,8 @@ describe('applyActionAndFastForwardChoices (RULE_ENFORCEMENT_PLAN.md §4.3)', ()
     const state: GameState = { ...declineState, players: trimmedPlayers }
     expect(state.pendingPlayerIds).toContain('p2')
 
-    const result = applyActionAndFastForwardChoices(state, { type: 'MOVE_TO_DECLINE', playerId: 'p1', cardId: cardIdFor('p1', 'temple') })
+    const action = { type: 'MOVE_TO_DECLINE' as const, playerId: 'p1', cardId: cardIdFor('p1', 'temple') }
+    const result = applyAction(state, action)
 
     expect(result.ok).toBe(true)
     if (!result.ok) return
@@ -1327,33 +1352,25 @@ describe('applyActionAndFastForwardChoices (RULE_ENFORCEMENT_PLAN.md §4.3)', ()
     // decline phase itself is fully resolved — chaining straight into the
     // purchase phase, whose own pendingPlayerIds naturally includes both
     // players again (each may now buy a card back), which is why this
-    // asserts on roundPhase/action order rather than pendingPlayerIds here.
+    // asserts on roundPhase rather than pendingPlayerIds here.
     expect(result.state.roundPhase).toBe('purchase')
-    const moveToDeclineActions = result.state.actionHistory.filter((entry) => entry.action.type === 'MOVE_TO_DECLINE')
-    expect(moveToDeclineActions.map((entry) => entry.action.playerId)).toEqual(['p1', 'p2'])
+    // Exactly one new actionHistory entry — p2's fast-forwarded decline is
+    // folded into p1's, not a separate entry.
+    expect(result.state.actionHistory).toHaveLength(state.actionHistory.length + 1)
+
+    const withSteps = applyActionWithSteps(state, action)
+    if (!withSteps.ok) throw new Error(withSteps.error)
+    const moveToDeclineSteps = withSteps.steps.filter((step) => step.action.type === 'MOVE_TO_DECLINE')
+    expect(moveToDeclineSteps.map((step) => (step.action as { playerId: string }).playerId)).toEqual(['p1', 'p2'])
   })
 
   it("doesn't fast-forward a decline while more cards remain available than are owed", () => {
     const state = reachDeclinePhase(makeActiveGameWithFullHands(), 1)
-    const result = applyActionAndFastForwardChoices(state, { type: 'MOVE_TO_DECLINE', playerId: 'p1', cardId: cardIdFor('p1', 'temple') })
+    const result = applyAction(state, { type: 'MOVE_TO_DECLINE', playerId: 'p1', cardId: cardIdFor('p1', 'temple') })
 
     expect(result.ok).toBe(true)
     if (!result.ok) return
     expect(result.state.pendingPlayerIds).toContain('p2')
     expect(result.state.actionHistory.filter((entry) => entry.action.type === 'MOVE_TO_DECLINE')).toHaveLength(1)
-  })
-})
-
-describe('applyActionAndFastForward (RULE_ENFORCEMENT_PLAN.md §4.2, per jinxbit 2026-09-05: the state machine takes a forced single-option action itself, not a UI effect)', () => {
-  it('fast-forwards a forced card choice for every game, the same as apply-action does server-side — no ruleEnforcementEnabled special-casing needed', () => {
-    const state = makeActiveGame()
-    const result = applyActionAndFastForward(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'ship') })
-
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-    expect(result.state.roundPhase).toBe('actions')
-    const chooseCardActions = result.state.actionHistory.filter((entry) => entry.action.type === 'CHOOSE_CARD')
-    expect(chooseCardActions.map((entry) => entry.action.playerId)).toEqual(['p1', 'p2'])
-    expect(chooseCardActions.map((entry) => entry.automatic ?? false)).toEqual([false, true])
   })
 })

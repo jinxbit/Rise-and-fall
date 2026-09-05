@@ -164,19 +164,21 @@ describe('actionHistory + replayActions — round phase', () => {
     const genesis = makeActiveGenesis()
     expect(genesis.actionHistory).toEqual([])
 
+    // p2's hand is a single card ('city') — p1's own CHOOSE_CARD already
+    // folds p2's forced pick into the same applyAction() call
+    // (RULE_ENFORCEMENT_PLAN.md §4.2/§4.3), so no separate submission for
+    // p2 is needed (or possible — p2 is no longer pending afterward).
     const step1 = applyAction(genesis, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }, roundUnitContent)
     if (!step1.ok) throw new Error(step1.error)
-    const step1b = applyAction(step1.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') }, roundUnitContent)
-    if (!step1b.ok) throw new Error(step1b.error)
     const step2 = applyAction(
-      step1b.state,
+      step1.state,
       { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [{ unitId: 'city_a', actionId: 'generate-income' }] },
       roundUnitContent,
     )
     if (!step2.ok) throw new Error(step2.error)
 
     const finalState = step2.state
-    expect(finalState.actionHistory.map((entry) => entry.action.type)).toEqual(['CHOOSE_CARD', 'CHOOSE_CARD', 'RESOLVE_UNIT_ACTION'])
+    expect(finalState.actionHistory.map((entry) => entry.action.type)).toEqual(['CHOOSE_CARD', 'RESOLVE_UNIT_ACTION'])
     expect(finalState.players.find((p) => p.id === 'p1')!.resources.gold).toBe(2)
 
     const replayed = replayActions(genesis, finalState.actionHistory, roundUnitContent)
@@ -229,9 +231,12 @@ describe('actionHistory + replayActions — round phase', () => {
     const genesis = beginSelectCardsPhase(syncCardZonesWithBoard(active))
 
     let state = genesis
+    // p2's hand is a single card ('city') — p1's own CHOOSE_CARD already
+    // folds p2's forced pick into the same applyAction() call
+    // (RULE_ENFORCEMENT_PLAN.md §4.2/§4.3), so no separate submission for
+    // p2 is needed (or possible — p2 is no longer pending afterward).
     for (const action of [
       { type: 'CHOOSE_CARD' as const, playerId: 'p1', cardId: cardIdFor('p1', 'city') },
-      { type: 'CHOOSE_CARD' as const, playerId: 'p2', cardId: cardIdFor('p2', 'city') },
       { type: 'PASS_ACTIONS' as const, playerId: 'p1' },
       { type: 'PASS_ACTIONS' as const, playerId: 'p2' },
     ]) {
@@ -249,8 +254,13 @@ describe('actionHistory + replayActions — round phase', () => {
     const passResult = applyAction(state, { type: 'PASS_PURCHASE', playerId: 'p1' }, roundUnitContent)
     if (!passResult.ok) throw new Error('PASS_PURCHASE failed: ' + passResult.error)
     // p2's auto-skip plus p1's pass empties the purchase queue, so this
-    // single PASS_PURCHASE also closes out the round (finishRound runs).
-    expect(passResult.state.roundPhase).toBe('selectCards')
+    // single PASS_PURCHASE also closes out the round (finishRound runs) —
+    // and since both players' hands recycle back down to their single
+    // 'city' card for the new round, that same PASS_PURCHASE dispatch
+    // immediately folds in both of their forced next-round CHOOSE_CARD
+    // picks too (RULE_ENFORCEMENT_PLAN.md §4.2/§4.3), landing straight in
+    // the new round's actions phase rather than stopping at selectCards.
+    expect(passResult.state.roundPhase).toBe('actions')
 
     const previousHistory = passResult.state.actionHistory.slice(0, -1)
     const undone = replayActions(genesis, previousHistory, roundUnitContent)
@@ -284,12 +294,23 @@ describe('actionHistory + replayActions — round phase', () => {
     const active: GameState = {
       ...lobby,
       board,
-      players: [makePlayer('p1', p1Cards.filter((c) => c.kind === 'city')), makePlayer('p2', p2Cards.filter((c) => c.kind === 'city'))],
+      // Each player also gets a 'nomad' card/unit, unused by the sequence
+      // below, purely so their hand is never down to a single card — a
+      // single-card hand would fold that player's own CHOOSE_CARD/
+      // MOVE_TO_DECLINE into whichever earlier action left them the last
+      // one pending (RULE_ENFORCEMENT_PLAN.md §4.2/§4.3), pre-empting this
+      // test's own explicit step-by-step sequence below.
+      players: [
+        makePlayer('p1', p1Cards.filter((c) => c.kind === 'city' || c.kind === 'nomad')),
+        makePlayer('p2', p2Cards.filter((c) => c.kind === 'city' || c.kind === 'nomad')),
+      ],
       cards,
       turnOrder,
       units: [
         { id: 'city_a', ownerId: 'p1', kind: 'city', coord: { q: 0, r: 0 }, movement: unitContent.movementByKind.city, traits: [] },
         { id: 'city_b', ownerId: 'p2', kind: 'city', coord: { q: 5, r: 0 }, movement: unitContent.movementByKind.city, traits: [] },
+        { id: 'nomad_a', ownerId: 'p1', kind: 'nomad', coord: { q: 0, r: 0 }, movement: unitContent.movementByKind.nomad, traits: [] },
+        { id: 'nomad_b', ownerId: 'p2', kind: 'nomad', coord: { q: 5, r: 0 }, movement: unitContent.movementByKind.nomad, traits: [] },
       ],
       status: 'active',
     }

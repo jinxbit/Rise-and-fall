@@ -126,15 +126,33 @@ authorization concept required:
   UX action (automatic or player-driven). `SelectCardsPanel` no longer
   auto-submits anything; instead `applyAction.ts`'s fast-forward loops
   (§4.3) take the forced action themselves as part of ordinary action
-  submission, for **every** game, not just `ruleEnforcementEnabled` ones —
-  `applyActionAndFastForward()` is the single entry point both
-  `GamePage.tsx`'s `submitAction` (client-trusted games) and the
-  `apply-action` Edge Function (enforced games, via
-  `gameEnforcement.ts`'s `applyActionFullyEnforced`) call. Each
-  fast-forwarded step still lands its own ordinary `actionHistory` entry,
-  now stamped `automatic: true` (`LoggedAction.automatic`, `src/engine/
-  actions.ts`) so the log can say the state machine took it rather than the
-  player (`RoundView.tsx`'s `LogPanel` renders a small "(auto)" tag).
+  submission, for **every** game, not just `ruleEnforcementEnabled` ones.
+  **Update (2026-09-05, second follow-up, per jinxbit): "the normal
+  continuation of the game, not an action the player takes."** The first cut
+  above still modeled a forced follow-up as its own `applyAction()` call,
+  landing its own `actionHistory` entry stamped `automatic: true` —
+  jinxbit flagged this interacted badly with Undo (a plain step-back would
+  land right back on the forced entry, which the state machine would
+  instantly re-take, issue #131) and asked for the log line to be "derived
+  from what happened" rather than a stored flag. `applyAction()` itself now
+  converges any forced follow-up to a fixed point *inside* the same
+  dispatch, before the `actionHistory` entry is built — one player-submitted
+  (or server-triggered) action in, one log entry out, no matter how many
+  forced steps it cascades through, same as an ordinary phase transition
+  (`beginActionsPhase`/`finishRound`/etc.) already chains forward within one
+  dispatch instead of becoming its own entry. `applyActionAndFastForward()`/
+  `applyActionAndFastForwardTiles()`/`applyActionAndFastForwardChoices()`/
+  `fastForwardPendingChoices()` are gone — every caller (`GamePage.tsx`'s
+  `submitAction`, `gameEnforcement.ts`'s `applyActionFullyEnforced`,
+  `MapBuilderPage.tsx`, `historyPointer.ts`) just calls `applyAction()`
+  directly, which does this convergence unconditionally. `LoggedAction.
+  automatic`/`GameEvent.automatic` and the "(auto)" log tag are deleted —
+  there's nothing left to stamp; `gameLog.ts` narrates each folded-in step
+  with the same `describePrimaryAction` case an ordinary submission gets
+  (via the new `applyActionWithSteps()`, which returns the step-by-step
+  breakdown alongside the final state), so the line reads identically to a
+  player having made that exact pick. See §4.4 below for how this also
+  simplifies Undo.
 - **Cascading eliminations** (`eliminatePlayersWithNoCardToDecline` and
   friends, `src/engine/elimination.ts`) aren't separately submitted actions
   at all — they're folded into phase transitions
@@ -172,17 +190,24 @@ stall waiting on a client that's slow to, or never does, take the forced
 follow-up.
 
 **Update (2026-09-05, per jinxbit):** the client side of this also changed,
-per §4.2's update above — `applyActionAndFastForwardChoices`/
-`fastForwardPendingChoices` now run for every live submission via
-`applyActionAndFastForward()` (`src/engine/applyAction.ts`), not just inside
-`apply-action`. `GamePage.tsx`'s `submitAction` calls it for client-trusted
-games exactly the same way `apply-action` does for enforced ones, so the
-forced follow-up is always something the state machine took (and logged as
-`automatic: true`), never a `RoundView.tsx` UI effect deciding on the
-player's behalf — the security argument above (needed once §4.1 is
-enforced) is unchanged, this just also fixes the UX/design property jinxbit
-raised: even a client-trusted game's log should say "the game did this,"
-not "the player did this," for a choice that was never really made.
+per §4.2's update above — this fast-forwarding now runs for every live
+submission via plain `applyAction()` (`src/engine/applyAction.ts`), not just
+inside `apply-action`. `GamePage.tsx`'s `submitAction` calls it for
+client-trusted games exactly the same way `apply-action` does for enforced
+ones, so the forced follow-up is always something the state machine took,
+never a `RoundView.tsx` UI effect deciding on the player's behalf — the
+security argument above (needed once §4.1 is enforced) is unchanged, this
+just also fixes the UX/design property jinxbit raised: even a client-trusted
+game's log should say "the game did this," not "the player did this," for a
+choice that was never really made.
+
+**Update (2026-09-05, second follow-up, per jinxbit):** superseded by §4.2's
+second update above — the dedicated `applyActionAndFastForwardChoices`/
+`fastForwardPendingChoices`/`applyActionAndFastForwardTiles`/
+`applyActionAndFastForward` wrapper functions this section originally
+described are gone; `applyAction()` itself now does this convergence
+unconditionally, folded into the same `actionHistory` entry as whatever
+triggered it, for every caller.
 
 ### 4.4 Undo / Redo — pointer-based history, replacing the client-local redo stack
 
@@ -517,9 +542,9 @@ to rule enforcement (2, 5) are omitted here.
    (`src/engine/historyFold.ts`, unit-tested) exposes exactly what the
    owner-override check (§4.4, extended to `profiles.is_admin` per §4.5)
    needs from that model. §4.3's fast-forwarding gained its `CHOOSE_CARD`/
-   `MOVE_TO_DECLINE` half here too: `applyActionAndFastForwardChoices()`/
-   `fastForwardPendingChoices()` (`src/engine/applyAction.ts`, unit-tested),
-   mirroring the existing tile version.
+   `MOVE_TO_DECLINE` half here too (`src/engine/applyAction.ts`, unit-tested),
+   mirroring the existing tile version — since folded into plain
+   `applyAction()`'s own convergence per §4.2's second update.
    **Verified (2026-09-05) against a local `supabase start` stack** (Docker
    + the Supabase/Deno CLIs became available once `claude.yml` grew a real
    environment — see the `.github/workflows/claude.yml` history). Both
@@ -721,18 +746,20 @@ to rule enforcement (2, 5) are omitted here.
 - **New (2026-09-05), from the write-side rewire (§8 phase 8):**
   - ~~`undo-action`/`redo-action` don't yet repeat `GamePage.tsx`'s
     forced-single-card walk-back loop (issue #131)~~ — **resolved
-    (2026-09-05), as a side effect of §4.2's state-machine redesign.** Now
-    that a forced follow-up is stamped `automatic: true` on its own
-    `actionHistory` entry (`LoggedAction.automatic`) instead of being
-    invisible UI behavior, `applyUndoAction()` itself
-    (`src/engine/undoRedo.ts`) walks back past any consecutive `automatic`
-    entries before returning — one call, no special-casing by the caller.
-    `GamePage.tsx`'s `handleUndo` and the `undo-action` Edge Function both
-    just call `applyUndoAction()` once and get this for free (the old
-    client-only `wasForcedCardChoice()` heuristic loop is deleted); redo
-    naturally reverses it one `REDO_ACTION` at a time, same as any other
-    entry. This also removes the last reason the write-side rewire's
-    checkbox needed to stay labeled "experimental" for this specific gap.
+    (2026-09-05), as a side effect of §4.2's state-machine redesign**, then
+    **simplified further by §4.2's second update the same day**: a forced
+    follow-up no longer gets its own `actionHistory` entry to walk back past
+    in the first place — it's folded into the SAME entry as whatever
+    triggered it (`applyAction.ts`'s convergence). `applyUndoAction()`
+    (`src/engine/undoRedo.ts`) is back to a plain single-entry append; one
+    Undo call reverts the triggering action and everything it forced
+    together, no walk-back loop needed at all. `GamePage.tsx`'s `handleUndo`
+    and the `undo-action` Edge Function both just call `applyUndoAction()`
+    once and get this for free (the old client-only `wasForcedCardChoice()`
+    heuristic loop is deleted); redo naturally reverses it one `REDO_ACTION`
+    at a time, same as any other entry. This also removes the last reason
+    the write-side rewire's checkbox needed to stay labeled "experimental"
+    for this specific gap.
   - The initial `game_state` row (`LobbyPage.tsx`'s `insertGameState`, the
     deterministic genesis state) is still a direct, unenforced client
     insert for every game, flagged or not (`0026_rule_enforcement_flag.sql`

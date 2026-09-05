@@ -148,7 +148,10 @@ describe('buildGameLog', () => {
     // auto-eliminated at genesis (no card to choose), pendingPlayerIds
     // never advances to them, and p1's turn ending would immediately
     // close the round instead (a different, separately-tested case: see
-    // "logs 'Round N begins'" below).
+    // "logs 'Round N begins'" below). p2's hand is a single card ('nomad'),
+    // so p1's own CHOOSE_CARD already folds p2's forced pick into the same
+    // applyAction() call (RULE_ENFORCEMENT_PLAN.md §4.2/§4.3) — no separate
+    // CHOOSE_CARD needed for p2 here.
     const board = boardOf([
       [0, 0, 'plain'],
       [1, 0, 'plain'],
@@ -158,7 +161,6 @@ describe('buildGameLog', () => {
     const genesis = makeGenesis([city, otherNomad], board)
     const state = drive(genesis, [
       { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') },
-      { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'nomad') },
       { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [{ unitId: 'city_a', actionId: 'generate-income' }] },
     ])
     expect(state.turn).toBe(0)
@@ -172,14 +174,18 @@ describe('buildGameLog', () => {
     // p2 needs a real unit of their own too, same as the "finished acting"
     // case above — otherwise they're auto-eliminated at genesis and p1's
     // lone CHOOSE_CARD immediately resolves the phase, leaving nothing to
-    // retract from.
+    // retract from. Unlike that case, p2 gets TWO unit kinds here (so a
+    // two-card hand) — a single card would fold p2's own forced pick into
+    // p1's CHOOSE_CARD too (§4.2/§4.3), resolving the whole selectCards
+    // phase before RETRACT_CHOICE below ever got a chance to run against it.
     const board = boardOf([
       [0, 0, 'plain'],
       [1, 0, 'plain'],
     ])
     const city: Unit = { id: 'city_a', ownerId: 'p1', kind: 'city', coord: { q: 0, r: 0 }, movement: content.movementByKind.city, traits: [] }
     const otherNomad: Unit = { id: 'nomad_p2', ownerId: 'p2', kind: 'nomad', coord: { q: 1, r: 0 }, movement: content.movementByKind.nomad, traits: [] }
-    const genesis = makeGenesis([city, otherNomad], board)
+    const otherCity: Unit = { id: 'city_p2', ownerId: 'p2', kind: 'city', coord: { q: 1, r: 0 }, movement: content.movementByKind.city, traits: [] }
+    const genesis = makeGenesis([city, otherNomad, otherCity], board)
     const state = drive(genesis, [
       { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') },
       { type: 'RETRACT_CHOICE', playerId: 'p1' },
@@ -381,9 +387,12 @@ describe('extendGameLog / buildGameLogFrom', () => {
     const city: Unit = { id: 'city_a', ownerId: 'p1', kind: 'city', coord: { q: 0, r: 0 }, movement: content.movementByKind.city, traits: [] }
     const otherNomad: Unit = { id: 'nomad_p2', ownerId: 'p2', kind: 'nomad', coord: { q: 1, r: 0 }, movement: content.movementByKind.nomad, traits: [] }
     const genesis = makeGenesis([city, otherNomad], board)
+    // p2's hand is a single card ('nomad'), so p1's own CHOOSE_CARD already
+    // folds p2's forced pick into the same applyAction() call
+    // (RULE_ENFORCEMENT_PLAN.md §4.2/§4.3) — no separate CHOOSE_CARD needed
+    // for p2 here.
     const state = drive(genesis, [
       { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') },
-      { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'nomad') },
       { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [{ unitId: 'city_a', actionId: 'generate-income' }] },
       { type: 'RESOLVE_UNIT_ACTION', playerId: 'p2', unitActions: [{ unitId: 'nomad_p2', actionId: 'produce-resource' }] },
     ])

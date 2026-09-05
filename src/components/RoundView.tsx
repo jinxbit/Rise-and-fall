@@ -666,7 +666,6 @@ function LogPanel({ gameLog, players }: { gameLog: GameEvent[]; players: PlayerR
           <p key={entry.id}>
             {time && <span className="text-neutral-600">[{time}] </span>}
             {renderLogMessage(entry.message, entry.playerId, players)}
-            {entry.automatic && <span className="text-neutral-600"> (auto)</span>}
           </p>
         )
       })}
@@ -677,9 +676,9 @@ function LogPanel({ gameLog, players }: { gameLog: GameEvent[]; players: PlayerR
 /**
  * A hand with only one card isn't a real choice — RULE_ENFORCEMENT_PLAN.md
  * §4.2/§4.3's design (per jinxbit, 2026-09-05): the state machine itself
- * takes a forced single-option action (applyActionAndFastForward's
- * fastForwardPendingChoices, ./engine/applyAction.ts) as part of ordinary
- * action submission, not a UI effect deciding to click on the player's
+ * takes a forced single-option action (applyAction's own forced-follow-up
+ * convergence, ./engine/applyAction.ts) as part of ordinary action
+ * submission, not a UI effect deciding to click on the player's
  * behalf. So by the time this panel would render for a pending player with
  * one card, the server/engine has normally already resolved it and that
  * player is no longer pending — this just renders the single card as an

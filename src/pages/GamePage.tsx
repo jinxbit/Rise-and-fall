@@ -6,7 +6,7 @@ import { ErrorBanner } from '../components/ErrorBanner'
 import { RoundView } from '../components/RoundView'
 import { resolveAchievementContent, resolveBoardGenerationContent, resolveTaleContent, resolveUnitContent } from '../content/resolveContent'
 import type { Action, LoggedAction } from '../engine/actions'
-import { applyActionAndFastForward } from '../engine/applyAction'
+import { applyAction } from '../engine/applyAction'
 import { stripOccupants } from '../engine/board'
 import { buildGameLogFrom, extendGameLog } from '../engine/gameLog'
 import { redactGameLog } from '../engine/redaction'
@@ -998,17 +998,18 @@ export function GamePage() {
    * raw Action to apply-action instead of computing+writing the resulting
    * state itself — the Edge Function re-derives it server-side (§4.1's
    * playerId check, §4.3's fast-forwarding, the CAS write), so the client's
-   * own applyActionAndFastForward never runs for these games. Every other
-   * game (the default, and every game that existed before this flag) is
-   * completely unaffected — same direct writeWithRetry path as always, still
-   * fast-forwarding forced tile placements/card choices client-side via
-   * applyActionAndFastForward (§4.2/§4.3 — the state machine takes a forced
-   * single-option follow-up itself, not a UI effect).
+   * own applyAction call never runs for these games. Every other game (the
+   * default, and every game that existed before this flag) is completely
+   * unaffected — same direct writeWithRetry path as always, still
+   * fast-forwarding forced tile placements/card choices client-side, since
+   * applyAction() itself now folds that convergence into every call
+   * (§4.2/§4.3 — the state machine takes a forced single-option follow-up
+   * itself, not a UI effect).
    */
   async function submitAction(action: Action) {
     const result = game?.settings.ruleEnforcementEnabled
       ? await runEnforced(() => applyActionEnforced(game.id, action))
-      : await writeWithRetry((state) => applyActionAndFastForward(state, action, unitContent, achievementContent, boardGenerationContent, taleContent))
+      : await writeWithRetry((state) => applyAction(state, action, unitContent, achievementContent, boardGenerationContent, taleContent))
     setActionError(result.ok ? null : simpleError(result.error))
   }
 
@@ -1066,13 +1067,12 @@ export function GamePage() {
    * attempt (not just once up front), since a retry replays against newer
    * state than what `gameState` held when the button was clicked.
    *
-   * "One action" can mean more than one actionHistory entry — see
-   * applyUndoAction's own doc comment (engine/undoRedo.ts) for how it walks
-   * back past any consecutive `automatic` entries (a forced single-option
-   * follow-up the state machine took on its own, RULE_ENFORCEMENT_PLAN.md
-   * §4.2/§4.3) so Undo never lands on one the state machine would instantly
-   * re-take (issue #131) — shared by this client path and the undo-action
-   * Edge Function below, so both walk back identically.
+   * A forced single-option follow-up the state machine took on its own
+   * (RULE_ENFORCEMENT_PLAN.md §4.2/§4.3) is folded into the SAME
+   * actionHistory entry as whatever triggered it (see applyAction.ts), so
+   * one Undo call here always reverts exactly the triggering action AND
+   * everything it forced together — nothing extra to walk back past
+   * (issue #131's original fix, since superseded by this design).
    */
   async function handleUndo() {
     if (!game) return

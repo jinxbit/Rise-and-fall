@@ -374,13 +374,19 @@ describe('companion piece dispatch — Port activates alongside the Ship card', 
     return state
   }
 
-  /** Drives both players' CHOOSE_CARD (p1: Ship, p2: Nomad — p2 never actually resolves an action in these tests) to reach the actions phase with p1 first up. */
+  /**
+   * Drives both players' CHOOSE_CARD (p1: Ship, p2: Nomad — p2 never
+   * actually resolves an action in these tests) to reach the actions phase
+   * with p1 first up. Both hands are a single card, so p1's own CHOOSE_CARD
+   * already folds p2's forced pick into the same applyAction() call
+   * (RULE_ENFORCEMENT_PLAN.md §4.2/§4.3) — p2 still ends up pending in the
+   * actions phase's own turn order regardless, same as if they'd submitted
+   * it themselves.
+   */
   function chooseCards(state: GameState): GameState {
     const p1Choice = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'ship') }, content)
     if (!p1Choice.ok) throw new Error('p1 setup failed')
-    const p2Choice = applyAction(p1Choice.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'nomad') }, content)
-    if (!p2Choice.ok) throw new Error('p2 setup failed')
-    return p2Choice.state
+    return p1Choice.state
   }
 
   it('lets a pre-existing Port act (its own action) when the Ship card is played', () => {
@@ -987,12 +993,14 @@ describe('companion piece dispatch — Cathedral activates alongside the Temple 
     return state
   }
 
+  // Both hands are a single card, so p1's own CHOOSE_CARD already folds
+  // p2's forced pick into the same applyAction() call (RULE_ENFORCEMENT_
+  // PLAN.md §4.2/§4.3) — p2 still ends up pending in the actions phase's
+  // own turn order regardless, same as if they'd submitted it themselves.
   function chooseCards(state: GameState): GameState {
     const p1Choice = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'temple') }, content)
     if (!p1Choice.ok) throw new Error('p1 setup failed')
-    const p2Choice = applyAction(p1Choice.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'nomad') }, content)
-    if (!p2Choice.ok) throw new Error('p2 setup failed')
-    return p2Choice.state
+    return p1Choice.state
   }
 
   it('lets a pre-existing Cathedral act (its own action) when the Temple card is played', () => {

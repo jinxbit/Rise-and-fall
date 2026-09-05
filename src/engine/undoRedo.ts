@@ -14,7 +14,7 @@ export type { ResolvedHistory } from './historyFold.ts'
 export { resolveHistory } from './historyFold.ts'
 
 /**
- * Submits one or more UNDO_ACTION entries against `state`, live-style (see
+ * Submits one UNDO_ACTION entry against `state`, live-style (see
  * applyAction's own doc comment for the "live callers route through here,
  * not a raw history splice" convention this mirrors): appends an entry, then
  * re-derives the whole GameState via replayActions, which knows how to fold
@@ -24,14 +24,15 @@ export { resolveHistory } from './historyFold.ts'
  * because, unlike every other action, undoing isn't a step forward from
  * `state`; it's a shorter replay from the start.
  *
- * Keeps walking back past however many consecutive entries were themselves
- * `automatic` (LoggedAction.automatic, ./actions.ts — a forced single-option
- * follow-up the state machine took on its own, see applyAction.ts's
- * fast-forward loops): stepping back past just one would land right back on
- * a forced action that the state machine would instantly re-take, making
- * Undo look like a no-op (issue #131). One call here can therefore append
- * more than one UNDO_ACTION entry — still each an ordinary logged entry, so
- * Redo can step forward through them one at a time same as anything else.
+ * One call here always reverts exactly the tip's own actionHistory entry —
+ * per jinxbit's 2026-09-05 design update (RULE_ENFORCEMENT_PLAN.md
+ * §4.2/§4.3), a forced single-option follow-up (a one-card hand's
+ * CHOOSE_CARD, a tile placement with only one legal arrangement left) is
+ * folded into the SAME entry as whatever triggered it rather than getting
+ * one of its own (see applyAction.ts), so there's nothing left to walk back
+ * past here (issue #131's original fix, since superseded): undoing that one
+ * entry naturally reverts the triggering action and everything it forced in
+ * one step.
  */
 export function applyUndoAction(
   genesis: GameState,
@@ -42,17 +43,10 @@ export function applyUndoAction(
   boardGenerationContent: BoardGenerationContent = EMPTY_BOARD_GENERATION_CONTENT,
   taleContent: TaleContent = EMPTY_TALE_CONTENT,
 ): ActionResult {
-  let history = state.actionHistory
-  let tip = resolveHistory(history).effective.at(-1)
-  if (!tip) {
+  if (!resolveHistory(state.actionHistory).effective.at(-1)) {
     return { ok: false, error: 'Nothing left to undo.' }
   }
-  do {
-    history = [...history, { action: { type: 'UNDO_ACTION' as const, playerId }, turn: state.turn, timestamp: new Date().toISOString() }]
-    const undoneWasAutomatic = tip.automatic
-    tip = resolveHistory(history).effective.at(-1)
-    if (!undoneWasAutomatic) break
-  } while (tip)
+  const history = [...state.actionHistory, { action: { type: 'UNDO_ACTION' as const, playerId }, turn: state.turn, timestamp: new Date().toISOString() }]
   return { ok: true, state: replayActions(genesis, history, unitContent, achievementContent, boardGenerationContent, taleContent) }
 }
 

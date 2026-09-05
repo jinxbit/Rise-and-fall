@@ -787,7 +787,7 @@ describe('RoundView — player status summary and achievements panel', () => {
 })
 
 describe('RoundView — select-cards phase (issue #25, revised per RULE_ENFORCEMENT_PLAN.md §4.2/§4.3)', () => {
-  it("renders a one-card hand as an ordinary clickable choice, without submitting on its own — the state machine takes a forced single-option pick itself (applyActionAndFastForward), not the UI", () => {
+  it("renders a one-card hand as an ordinary clickable choice, without submitting on its own — the state machine takes a forced single-option pick itself (applyAction's own forced-follow-up convergence), not the UI", () => {
     const state = makeState() // p2's hand is just ['city']
     const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
     const onChooseCard = vi.fn()

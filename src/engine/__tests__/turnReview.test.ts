@@ -487,9 +487,12 @@ describe('buildTurnReview', () => {
     const ship: Unit = { id: 'ship_a', ownerId: 'p1', kind: 'ship', coord: { q: 0, r: 0 }, movement: content.movementByKind.ship, traits: [] }
     const enemyCity: Unit = { id: 'city_enemy', ownerId: 'p2', kind: 'city', coord: { q: 1, r: 0 }, movement: content.movementByKind.city, traits: [] }
     const genesis = makeGenesis([ship, enemyCity], board)
+    // p2's hand is a single card ('city') — p1's own CHOOSE_CARD already
+    // folds p2's forced pick into the same applyAction() call
+    // (RULE_ENFORCEMENT_PLAN.md §4.2/§4.3), so no separate submission for
+    // p2 is needed (or possible — p2 is no longer pending afterward).
     const state = drive(genesis, [
       { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'ship') },
-      { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') },
       { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [{ unitId: 'ship_a', actionId: 'trade' }] },
     ])
 
@@ -537,9 +540,12 @@ describe('buildTurnReview', () => {
     const temple: Unit = { id: 'temple_a', ownerId: 'p1', kind: 'temple', coord: { q: 0, r: 0 }, movement: content.movementByKind.temple, traits: [] }
     const enemyNomad: Unit = { id: 'nomad_enemy', ownerId: 'p2', kind: 'nomad', coord: { q: 1, r: 0 }, movement: content.movementByKind.nomad, traits: [] }
     const genesis = makeGenesis([temple, enemyNomad], board)
+    // p2's hand is a single card ('nomad') — p1's own CHOOSE_CARD already
+    // folds p2's forced pick into the same applyAction() call
+    // (RULE_ENFORCEMENT_PLAN.md §4.2/§4.3), so no separate submission for
+    // p2 is needed (or possible — p2 is no longer pending afterward).
     const state = drive(genesis, [
       { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'temple') },
-      { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'nomad') },
       { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [{ unitId: 'temple_a', actionId: 'convert-enemy-unit', target: { q: 1, r: 0 } }] },
     ])
 

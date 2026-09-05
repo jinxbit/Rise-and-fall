@@ -319,8 +319,6 @@ export interface GameEvent {
    * action than this one.
    */
   secret?: { turn: number; redactedMessage: string }
-  /** Carried straight through from the source LoggedAction — see its doc comment in ./actions.ts. */
-  automatic?: boolean
 }
 
 export interface GameState {

@@ -1,7 +1,7 @@
 import type { Action, LoggedAction } from './actions'
 import { EMPTY_ACHIEVEMENT_CONTENT } from './achievementContent'
 import type { AchievementContent } from './achievementContent'
-import { applyAction } from './applyAction'
+import { applyActionWithSteps } from './applyAction'
 import { EMPTY_BOARD_GENERATION_CONTENT } from './boardGenerationContent'
 import type { BoardGenerationContent } from './boardGenerationContent'
 import { UNIT_KINDS, cardIdFor, findCardZone } from './cards'
@@ -267,10 +267,18 @@ export function extendGameLog(
       // trustedReplay: `logged` was already validated once, when originally
       // submitted (see applyAction's own doc comment) — narrating it again
       // doesn't need PLACE_TILE's expensive room-search recheck.
-      const result = applyAction(before, logged.action, unitContent, achievementContent, boardGenerationContent, taleContent, true)
+      //
+      // A forced single-option follow-up (RULE_ENFORCEMENT_PLAN.md §4.2/§4.3)
+      // isn't its own actionHistory entry — it's folded into this SAME entry
+      // (applyAction.ts) — so applyActionWithSteps' own step-by-step
+      // breakdown is what narrates each folded-in step exactly like an
+      // ordinary action ("the log line should be derived from what
+      // happened," not from a stored flag), rather than a single
+      // describePrimaryAction call over the whole cascade's before/after.
+      const result = applyActionWithSteps(before, logged.action, unitContent, achievementContent, boardGenerationContent, taleContent, true)
       if (!result.ok) break // a validly-logged action should never fail to reapply; bail defensively rather than throw mid-log
       after = result.state
-      primaryDrafts = describePrimaryAction(logged.action, before, after, unitContent)
+      primaryDrafts = result.steps.flatMap((step) => describePrimaryAction(step.action, step.before, step.after, unitContent))
     }
 
     const drafts = [...primaryDrafts, ...describeCascade(before, after, achievementContent)]
@@ -282,7 +290,6 @@ export function extendGameLog(
         message: draft.message,
         timestamp: logged.timestamp,
         secret: draft.secret,
-        automatic: logged.automatic,
       })
     }
 

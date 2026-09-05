@@ -25,7 +25,7 @@
 // undo/redo). Not yet done: against an actually-deployed (not local)
 // project, and a genuine two-browser session — still phase 9.
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2'
-import { applyActionAndFastForward } from '../../../src/engine/applyAction.ts'
+import { applyAction } from '../../../src/engine/applyAction.ts'
 import type { Action, LoggedAction } from '../../../src/engine/actions.ts'
 import { redoableTail } from '../../../src/engine/historyFold.ts'
 import { applyTaleAchievementModifiers, applyTaleModifiers } from '../../../src/engine/tales.ts'
@@ -163,14 +163,15 @@ export function resolveGameContent(state: GameState, playerCount: number) {
 
 /**
  * Applies `action` against `state.state`, resolving this game's content
- * bundles and delegating to applyActionAndFastForward (src/engine/
- * applyAction.ts) — the same entry point GamePage.tsx's submitAction uses
- * client-side, so both forced tile placements and forced card choices/
- * declines (§4.3) fast-forward identically here and there.
+ * bundles and delegating to applyAction (src/engine/applyAction.ts) — the
+ * same entry point GamePage.tsx's submitAction uses client-side, so both
+ * forced tile placements and forced card choices/declines (§4.3) fast-
+ * forward identically here and there, folded into the same actionHistory
+ * entry as `action` itself.
  */
 export function applyActionFullyEnforced(state: GameState, action: Action, playerCount: number): ActionResult {
   const content = resolveGameContent(state, playerCount)
-  return applyActionAndFastForward(state, action, content.unitContent, content.achievementContent, content.boardGenerationContent, content.taleContent)
+  return applyAction(state, action, content.unitContent, content.achievementContent, content.boardGenerationContent, content.taleContent)
 }
 
 /**
