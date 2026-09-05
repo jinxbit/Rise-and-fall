@@ -738,11 +738,14 @@ to rule enforcement (2, 5) are omitted here.
   *with* phases 5–6, not after — otherwise admin mode either breaks or
   becomes an unreviewed impersonation hole the moment enforcement ships.
 - **Resolved (2026-09-05): the `CreateGamePage.tsx` checkbox is visible to
-  any room creator from day one** (labeled "experimental", unchecked by
-  default) rather than gated behind an admin/dev-only affordance — still
-  open: whether/when the default flips to `true` for new games (and the
-  now-dead off-path + RLS carve-out get deleted) once it has run without
-  surprises. Rollout-sequencing call, not a blocker.
+  any room creator from day one** (labeled "experimental") rather than gated
+  behind an admin/dev-only affordance.
+- **Update (2026-09-05, per jinxbit, issue #432): default flipped to
+  `true`.** After running without surprises, new games now opt into
+  server-side rule enforcement by default; a creator can still uncheck it
+  per-game. The off-path (client-trusted writes) and its RLS carve-out
+  (`0026_rule_enforcement_flag.sql`) stay in place for existing games and
+  anyone who opts back out — not deleted by this change.
 - **New (2026-09-05), from the write-side rewire (§8 phase 8):**
   - ~~`undo-action`/`redo-action` don't yet repeat `GamePage.tsx`'s
     forced-single-card walk-back loop (issue #131)~~ — **resolved

@@ -24,7 +24,7 @@ export function CreateGamePage() {
   const [soloBuilderSelection, setSoloBuilderSelection] = useState<SoloBuilderSelection>('owner')
   const [soloBuilderUnitOrder, setSoloBuilderUnitOrder] = useState<SoloBuilderUnitOrder>('last')
   const [skipHotseatPassGate, setSkipHotseatPassGate] = useState(true)
-  const [ruleEnforcementEnabled, setRuleEnforcementEnabled] = useState(false)
+  const [ruleEnforcementEnabled, setRuleEnforcementEnabled] = useState(true)
   const [activeTaleIds, setActiveTaleIds] = useState<string[]>([])
   const [gameLength, setGameLength] = useState(4)
   const [minPlayersInput, setMinPlayersInput] = useState('2')
