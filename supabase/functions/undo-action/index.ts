@@ -26,6 +26,7 @@ import {
   jsonResponse,
   loadFullGameAndPlayers,
   loadGameContext,
+  resolveGameContent,
   serviceRoleClient,
   writeGameStateCAS,
 } from '../_shared/gameEnforcement.ts'
@@ -67,7 +68,16 @@ Deno.serve(async (req) => {
   // being seated themselves), same as GamePage.tsx's `me?.id ?? null`.
   const callerPlayerId = ctx.players.find((p) => p.user_id === callerUserId)?.id ?? null
 
-  const result = applyUndoAction(genesis, ctx.gameState.state, callerPlayerId)
+  const content = resolveGameContent(ctx.gameState.state, ctx.players.length)
+  const result = applyUndoAction(
+    genesis,
+    ctx.gameState.state,
+    callerPlayerId,
+    content.unitContent,
+    content.achievementContent,
+    content.boardGenerationContent,
+    content.taleContent,
+  )
   if (!result.ok) return jsonResponse(400, { ok: false, error: result.error })
 
   const newVersion = await writeGameStateCAS(supabase, gameId, result.state, ctx.gameState.version)
