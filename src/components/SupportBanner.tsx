@@ -33,7 +33,7 @@ export function SupportBanner() {
 export function DiscordCommunityBanner() {
   return (
     <div className="rounded-md border border-indigo-700/50 bg-indigo-950/20 px-4 py-3 text-center text-sm text-indigo-400">
-      <p>This game is still in alpha — expect bugs and rough edges.</p>
+      <p>This game is still in alpha.</p>
       <p>
         Join our official{' '}
         <a
