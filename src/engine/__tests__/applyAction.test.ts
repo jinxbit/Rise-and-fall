@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { applyAction, applyActionAndFastForwardTiles } from '../applyAction'
+import { applyAction, applyActionAndFastForwardChoices, applyActionAndFastForwardTiles } from '../applyAction'
 import { createEmptyBoard, getTile, setTile } from '../board'
 import type { BoardGenerationContent } from '../boardGenerationContent'
 import { EMPTY_BOARD_GENERATION_CONTENT } from '../boardGenerationContent'
@@ -1276,5 +1276,65 @@ describe('applyActionAndFastForwardTiles', () => {
     if (!result.ok) return
     expect(result.state.boardSetup?.tilesRemainingInTier).toBe(2)
     expect(result.state.actionHistory.filter((entry) => entry.action.type === 'PLACE_TILE')).toHaveLength(1)
+  })
+})
+
+describe('applyActionAndFastForwardChoices (RULE_ENFORCEMENT_PLAN.md §4.3)', () => {
+  it('auto-chooses a still-pending player who only has one card in hand', () => {
+    // makeActiveGame() seeds both players with a hand of exactly one card
+    // (backed by their 'ship' unit) — p1's manual pick leaves p2 pending
+    // with a single-card hand, no real decision left.
+    const state = makeActiveGame()
+    const result = applyActionAndFastForwardChoices(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'ship') })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.state.roundPhase).toBe('actions')
+    const chooseCardActions = result.state.actionHistory.filter((entry) => entry.action.type === 'CHOOSE_CARD')
+    expect(chooseCardActions.map((entry) => entry.action.playerId)).toEqual(['p1', 'p2'])
+  })
+
+  it("doesn't fast-forward a select-cards pick while more than one hand card remains", () => {
+    const state = makeActiveGameWithFullHands()
+    const result = applyActionAndFastForwardChoices(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.state.roundPhase).toBe('selectCards')
+    expect(result.state.pendingPlayerIds).toEqual(['p2'])
+    expect(result.state.actionHistory.filter((entry) => entry.action.type === 'CHOOSE_CARD')).toHaveLength(1)
+  })
+
+  it('auto-declines a still-pending player whose hand+discard together hold exactly what they still owe', () => {
+    const declineState = reachDeclinePhase(makeActiveGameWithFullHands(), 1)
+    // Trim p2's hand to nothing, so their discard's single card (`ship`,
+    // played this round) is their only remaining option — hand+discard now
+    // exactly matches the 1 card they still owe.
+    const trimmedPlayers = declineState.players.map((p) => (p.id === 'p2' ? { ...p, handCardIds: [] } : p))
+    const state: GameState = { ...declineState, players: trimmedPlayers }
+    expect(state.pendingPlayerIds).toContain('p2')
+
+    const result = applyActionAndFastForwardChoices(state, { type: 'MOVE_TO_DECLINE', playerId: 'p1', cardId: cardIdFor('p1', 'temple') })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    // Both players have now supplied their one owed card each, so the
+    // decline phase itself is fully resolved — chaining straight into the
+    // purchase phase, whose own pendingPlayerIds naturally includes both
+    // players again (each may now buy a card back), which is why this
+    // asserts on roundPhase/action order rather than pendingPlayerIds here.
+    expect(result.state.roundPhase).toBe('purchase')
+    const moveToDeclineActions = result.state.actionHistory.filter((entry) => entry.action.type === 'MOVE_TO_DECLINE')
+    expect(moveToDeclineActions.map((entry) => entry.action.playerId)).toEqual(['p1', 'p2'])
+  })
+
+  it("doesn't fast-forward a decline while more cards remain available than are owed", () => {
+    const state = reachDeclinePhase(makeActiveGameWithFullHands(), 1)
+    const result = applyActionAndFastForwardChoices(state, { type: 'MOVE_TO_DECLINE', playerId: 'p1', cardId: cardIdFor('p1', 'temple') })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.state.pendingPlayerIds).toContain('p2')
+    expect(result.state.actionHistory.filter((entry) => entry.action.type === 'MOVE_TO_DECLINE')).toHaveLength(1)
   })
 })

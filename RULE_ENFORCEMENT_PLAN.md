@@ -461,6 +461,27 @@ to rule enforcement (2, 5) are omitted here.
    reusing the engine as-is: seat resolution from JWT, `action.playerId`
    enforcement (§4.1), fast-forwarding (§4.3), pointer-based undo/redo
    with owner-override pruning (§4.4), version compare-and-swap on write.
+   **Written (2026-09-05), unverified against a live project — see phase 9.**
+   `supabase/functions/apply-action`, `undo-action`, `redo-action`
+   (+ shared plumbing in `supabase/functions/_shared/gameEnforcement.ts`)
+   import `src/engine/`/`src/content/` **directly and unmodified**, resolving
+   §6's "open question" left above in favor of the already-shipped
+   marker-based history model (issue #412's `UNDO_ACTION`/`REDO_ACTION`
+   entries + `resolveHistory`) rather than `historyPointer.ts`'s
+   separate-pointer-column design — a new `redoableTail()`
+   (`src/engine/historyFold.ts`, unit-tested) exposes exactly what the
+   owner-override check (§4.4, extended to `profiles.is_admin` per §4.5)
+   needs from that model. §4.3's fast-forwarding gained its `CHOOSE_CARD`/
+   `MOVE_TO_DECLINE` half here too: `applyActionAndFastForwardChoices()`/
+   `fastForwardPendingChoices()` (`src/engine/applyAction.ts`, unit-tested),
+   mirroring the existing tile version. **Not verified**: this sandbox has
+   no Deno CLI and no live Supabase project (same limitation §9 already
+   documents for this whole phase), so whether the Edge Runtime actually
+   resolves `src/engine/`'s extensionless relative imports and
+   `src/content/*.json`'s assertion-less imports the way local `deno check
+   --unstable-sloppy-imports` would — the two things
+   `gameEnforcement.ts`'s own doc comment flags — needs a maintainer to
+   confirm by actually deploying these three functions.
 7. **CI deploy workflow** (§7) — done ahead of order, out of phase sequence
    (`.github/workflows/deploy-supabase.yml`, added directly by a human with
    workflow-edit rights since Claude's GitHub App permissions can't touch

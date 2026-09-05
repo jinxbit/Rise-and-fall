@@ -29,14 +29,10 @@ export interface ResolvedHistory {
  * entries stay in `history` (nothing is ever deleted — see UndoAction's doc
  * comment), simply no longer reachable by REDO_ACTION once superseded.
  *
- * This is deliberately the ONLY place that interprets UNDO_ACTION/
- * REDO_ACTION — every other engine function that used to walk
- * `actionHistory` directly (replayActions, gameLog's narration,
- * scoreHistory/unitValue's whole-game replays) now either delegates to this
- * (replayActions) or pre-filters through `.effective` (the ones that only
- * ever care about "what's actually in effect now", not per-entry narration).
+ * Shared by resolveHistory and redoableTail below — both need the same walk,
+ * just different slices of its result.
  */
-export function resolveHistory(history: LoggedAction[]): ResolvedHistory {
+function walkHistory(history: LoggedAction[]): { substantive: LoggedAction[]; pointer: number } {
   const substantive: LoggedAction[] = []
   let pointer = 0
   for (const entry of history) {
@@ -50,5 +46,33 @@ export function resolveHistory(history: LoggedAction[]): ResolvedHistory {
       pointer += 1
     }
   }
+  return { substantive, pointer }
+}
+
+/**
+ * This is deliberately the primary place that interprets UNDO_ACTION/
+ * REDO_ACTION — every other engine function that used to walk
+ * `actionHistory` directly (replayActions, gameLog's narration,
+ * scoreHistory/unitValue's whole-game replays) now either delegates to this
+ * (replayActions) or pre-filters through `.effective` (the ones that only
+ * ever care about "what's actually in effect now", not per-entry narration).
+ */
+export function resolveHistory(history: LoggedAction[]): ResolvedHistory {
+  const { substantive, pointer } = walkHistory(history)
   return { effective: substantive.slice(0, pointer), canRedo: pointer < substantive.length }
+}
+
+/**
+ * The substantive entries currently sitting behind the tip — i.e. exactly
+ * what a fresh substantive action submitted right now would push out of
+ * `resolveHistory(...).effective` and out of REDO_ACTION's reach (see
+ * `walkHistory`'s branching case above). RULE_ENFORCEMENT_PLAN.md §4.4's
+ * owner-override check (`apply-action`, phase 6) uses this to decide whether
+ * a live submission needs the room-owner/admin carve-out: empty whenever
+ * `resolveHistory(history).canRedo` is false, since there's nothing behind
+ * the tip to discard.
+ */
+export function redoableTail(history: LoggedAction[]): LoggedAction[] {
+  const { substantive, pointer } = walkHistory(history)
+  return substantive.slice(pointer)
 }
