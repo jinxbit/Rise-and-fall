@@ -673,19 +673,24 @@ function LogPanel({ gameLog, players }: { gameLog: GameEvent[]; players: PlayerR
   )
 }
 
-function SelectCardsPanel(props: { state: GameState; players: PlayerRow[]; myPlayerId: string | null; onChooseCard: (cardId: string) => void }) {
-  const { state, players, myPlayerId, onChooseCard } = props
+function SelectCardsPanel(props: { state: GameState; players: PlayerRow[]; myPlayerId: string | null; onChooseCard: (cardId: string) => void; ruleEnforcementEnabled: boolean }) {
+  const { state, players, myPlayerId, onChooseCard, ruleEnforcementEnabled } = props
   const me = myPlayerId ? state.players.find((p) => p.id === myPlayerId) : undefined
   const isPending = !!myPlayerId && state.pendingPlayerIds.includes(myPlayerId)
   const handCardIds = me ? sortCardIdsForDisplay(me.handCardIds, state.cards) : []
-  const onlyCardId = isPending && handCardIds.length === 1 ? handCardIds[0] : null
+  // A hand with only one card isn't really a choice, so client-trusted games
+  // play it automatically instead of making the player click it. Enforced
+  // games leave this to the server instead (RULE_ENFORCEMENT_PLAN.md §4.3's
+  // apply-action/undo-action fast-forwarding) — a ruleEnforcementEnabled
+  // game must never submit an action the player didn't actually click,
+  // even a forced one, so `onlyCardId` stays null here and the button below
+  // renders for the player to click themselves.
+  const onlyCardId = !ruleEnforcementEnabled && isPending && handCardIds.length === 1 ? handCardIds[0] : null
 
-  // A hand with only one card isn't really a choice, so play it
-  // automatically instead of making the player click it. autoChosenRef
-  // guards against re-submitting: onChooseCard is a fresh function identity
-  // on every parent render, so a plain effect dependency would refire on
-  // every re-render between submitting and the resulting state update
-  // clearing `isPending`.
+  // autoChosenRef guards against re-submitting: onChooseCard is a fresh
+  // function identity on every parent render, so a plain effect dependency
+  // would refire on every re-render between submitting and the resulting
+  // state update clearing `isPending`.
   const autoChosenRef = useRef<string | null>(null)
   useEffect(() => {
     if (onlyCardId && autoChosenRef.current !== onlyCardId) {
@@ -1136,6 +1141,17 @@ export function RoundView(props: {
    * visibleGameLog and engine/redaction.ts's redactGameLog).
    */
   gameLog: GameEvent[]
+  /**
+   * Whether this game has server-side rule enforcement on (per-game opt-in,
+   * see `GameSettings.ruleEnforcementEnabled` and `RULE_ENFORCEMENT_PLAN.md`
+   * §6/§8). When true, SelectCardsPanel must not auto-submit a forced
+   * single-card choice itself — that fast-forwarding is the
+   * apply-action/undo-action Edge Functions' job (§4.3) once it's fully
+   * ported server-side; the client instead just renders the (single)
+   * clickable option like any other choice. Defaults to false so the many
+   * tests/callers that don't exercise enforcement don't need to pass it.
+   */
+  ruleEnforcementEnabled?: boolean
   onChooseCard: (cardId: string) => void
   onResolveUnit: (unitId: string, actionId: string, target?: Coordinate) => void
   /** Resolves the same no-target action (see actionNeedsTargeting) for every listed unit id in one submission — see ActionsPanel's bulk-action buttons (issue #61). */
@@ -1168,6 +1184,7 @@ export function RoundView(props: {
     showCardChoiceRecap = false,
     territoryControlMode,
     previousHistoryState,
+    ruleEnforcementEnabled = false,
   } = props
   const [mode, setMode] = useState<ActionUiMode>({ kind: 'idle' })
   /** Hides the full player roster + achievements sidebar so the board can grow into the freed space — see the "Expand board" toggle below. */
@@ -1428,7 +1445,7 @@ export function RoundView(props: {
           height changes shift everything below them. Hidden while reviewing history so that view
           stays still instead of jumping around underneath the player. */}
       {!showHistory && state.roundPhase === 'selectCards' && (
-        <SelectCardsPanel state={state} players={players} myPlayerId={myPlayerId} onChooseCard={props.onChooseCard} />
+        <SelectCardsPanel state={state} players={players} myPlayerId={myPlayerId} onChooseCard={props.onChooseCard} ruleEnforcementEnabled={ruleEnforcementEnabled} />
       )}
       {!showHistory && state.roundPhase === 'actions' && mode.kind === 'supporting' && supportingUnit && supportingAction && (
         <SupportHint actingUnitKind={supportingUnit.kind} actionLabel={supportingAction.name} neededCandidateCount={supportingNeededCandidates.length} />

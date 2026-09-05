@@ -822,6 +822,41 @@ describe('RoundView — select-cards phase auto-plays a single-card hand (issue 
     expect(screen.queryByRole('button', { name: 'City' })).not.toBeInTheDocument()
   })
 
+  it('does not auto-submit a single-card hand when rule enforcement is enabled — the player must click it, same as any other choice', () => {
+    const state = makeState() // p2's hand is just ['city']
+    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
+    const onChooseCard = vi.fn()
+
+    render(
+      <RoundView
+        state={state}
+        players={players}
+        myPlayerId="p2"
+        unitContent={EMPTY_UNIT_CONTENT}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
+        turnReview={null}
+        showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
+        gameLog={[]}
+        ruleEnforcementEnabled
+        onChooseCard={onChooseCard}
+        onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+
+    expect(onChooseCard).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'City' }))
+    expect(onChooseCard).toHaveBeenCalledWith(cardIdFor('p2', 'city'))
+  })
+
   it('still shows a clickable choice when the hand has more than one card', () => {
     const state = makeState() // p1's hand is ['nomad', 'ship']
     const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]

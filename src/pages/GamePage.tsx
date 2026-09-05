@@ -1802,6 +1802,7 @@ export function GamePage() {
           territoryControlMode={territoryControlMode}
           previousHistoryState={previousTerritoryState}
           gameLog={visibleGameLog}
+          ruleEnforcementEnabled={game?.settings.ruleEnforcementEnabled ?? false}
           onChooseCard={(cardId) => {
             if (!me) return
             void submitAction({ type: 'CHOOSE_CARD', playerId: me.id, cardId })

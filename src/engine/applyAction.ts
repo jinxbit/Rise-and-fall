@@ -152,10 +152,13 @@ export function applyActionAndFastForwardTiles(
  * above to the round's own simultaneous-choice phases: a still-pending
  * player with only one legal way left to fulfil what they owe isn't making
  * a real decision either, so live submission shouldn't wait on them to
- * click it — this is what must move `apply-action` server-side per §4.3
- * (today RoundView.tsx auto-submits the single-hand-card case client-side
- * instead; that stays as a courtesy for now but is no longer the thing
- * actually enforcing progress once this runs server-side too).
+ * click it. For a client-trusted (`ruleEnforcementEnabled: false`) game,
+ * `RoundView.tsx`'s SelectCardsPanel still auto-submits the single-hand-card
+ * case client-side as a courtesy — but a `ruleEnforcementEnabled` game must
+ * never have its UI submit an action the player didn't actually click, so
+ * that component skips its own auto-submit entirely for those games and
+ * relies solely on this function running server-side in `apply-action`
+ * (`supabase/functions/_shared/gameEnforcement.ts`) instead.
  *
  * Unlike applyActionAndFastForwardTiles, this isn't gated on the
  * just-submitted action's type: a forced selectCards/decline condition can

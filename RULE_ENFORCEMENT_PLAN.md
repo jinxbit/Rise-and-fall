@@ -705,6 +705,23 @@ to rule enforcement (2, 5) are omitted here.
     click. Needs porting into `undo-action`'s server-side loop (mirroring
     how §4.3's fast-forwarding already moved server-side in phase 6) before
     this checkbox's experimental label can come off.
+  - **Resolved (2026-09-05):** `SelectCardsPanel` (`RoundView.tsx`) was
+    auto-submitting the single-hand-card `CHOOSE_CARD` client-side for
+    *every* game, `ruleEnforcementEnabled` or not — for a flagged game this
+    meant the UI itself was still the thing deciding to take a forced
+    action, not just relaying a player's click, contrary to this document's
+    whole premise that the server (not the client) is the source of truth
+    for §4.3's fast-forwarding. Fixed by gating that auto-submit off when
+    `ruleEnforcementEnabled` is true (`RoundView`'s new
+    `ruleEnforcementEnabled` prop, threaded from `GamePage.tsx`'s
+    `game.settings.ruleEnforcementEnabled`): a flagged game's single-card
+    hand now renders as an ordinary clickable choice instead, so any
+    fast-forwarding for these games happens only inside `apply-action`/
+    `undo-action` server-side (§4.3), never client-initiated. This also
+    means the walk-back gap above is now *actually* felt end-to-end for
+    flagged games (undoing into a forced choice needs a manual click)
+    rather than being silently papered over by the same client auto-submit
+    this fix removed.
   - The initial `game_state` row (`LobbyPage.tsx`'s `insertGameState`, the
     deterministic genesis state) is still a direct, unenforced client
     insert for every game, flagged or not (`0026_rule_enforcement_flag.sql`
