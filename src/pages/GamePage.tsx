@@ -107,6 +107,8 @@ export function GamePage() {
   const [gameState, setGameState] = useState<EngineGameState | null>(null)
   const [version, setVersion] = useState<number | null>(null)
   const [actionError, setActionError] = useState<AppError | null>(null)
+  /** True while a move submitted via submitAction() is in flight — surfaced as a small "Sending…" indicator in the header (issue #434). */
+  const [submitting, setSubmitting] = useState(false)
   const [showStateJson, setShowStateJson] = useState(false)
   /** The top-left hamburger menu (Main menu, Show/Hide game state JSON) — see the click-outside/Escape effect below. */
   const [menuOpen, setMenuOpen] = useState(false)
@@ -1019,10 +1021,15 @@ export function GamePage() {
    * itself, not a UI effect).
    */
   async function submitAction(action: Action) {
-    const result = game?.settings.ruleEnforcementEnabled
-      ? await runEnforced(() => applyActionEnforced(game.id, action))
-      : await writeWithRetry((state) => applyAction(state, action, unitContent, achievementContent, boardGenerationContent, taleContent))
-    setActionError(result.ok ? null : simpleError(result.error))
+    setSubmitting(true)
+    try {
+      const result = game?.settings.ruleEnforcementEnabled
+        ? await runEnforced(() => applyActionEnforced(game.id, action))
+        : await writeWithRetry((state) => applyAction(state, action, unitContent, achievementContent, boardGenerationContent, taleContent))
+      setActionError(result.ok ? null : simpleError(result.error))
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   /**
@@ -1504,6 +1511,12 @@ export function GamePage() {
             )}
           </div>
           <h1 className="text-2xl font-semibold">{game.name}</h1>
+          {submitting && (
+            <span role="status" className="flex items-center gap-1.5 text-xs text-neutral-400">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" aria-hidden="true" />
+              Sending…
+            </span>
+          )}
           <button
             type="button"
             disabled={!nextGameNeedingInput}
