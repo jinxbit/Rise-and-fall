@@ -37,7 +37,7 @@ export function DiscordCommunityBanner() {
       <p>
         Join our official{' '}
         <a
-          href="https://discord.com/channels/1000721418222325860/1539967994321698846"
+          href="https://discord.gg/uuWyaFgE"
           target="_blank"
           rel="noopener noreferrer"
           className="underline hover:text-indigo-200"
