@@ -14,15 +14,24 @@ export type { ResolvedHistory } from './historyFold.ts'
 export { resolveHistory } from './historyFold.ts'
 
 /**
- * Submits one UNDO_ACTION against `state`, live-style (see applyAction's own
- * doc comment for the "live callers route through here, not a raw history
- * splice" convention this mirrors): appends the entry, then re-derives the
- * whole GameState via replayActions, which knows how to fold it in (see
- * resolveHistory, ./historyFold.ts). `genesis` — reconstructed by the
- * caller, same as every other genesis-needing engine entry point (e.g.
- * GamePage.tsx's handleUndo) — is needed because, unlike every other
- * action, undoing isn't a step forward from `state`; it's a shorter replay
- * from the start.
+ * Submits one or more UNDO_ACTION entries against `state`, live-style (see
+ * applyAction's own doc comment for the "live callers route through here,
+ * not a raw history splice" convention this mirrors): appends an entry, then
+ * re-derives the whole GameState via replayActions, which knows how to fold
+ * it in (see resolveHistory, ./historyFold.ts). `genesis` — reconstructed by
+ * the caller, same as every other genesis-needing engine entry point (e.g.
+ * GamePage.tsx's handleUndo, the undo-action Edge Function) — is needed
+ * because, unlike every other action, undoing isn't a step forward from
+ * `state`; it's a shorter replay from the start.
+ *
+ * Keeps walking back past however many consecutive entries were themselves
+ * `automatic` (LoggedAction.automatic, ./actions.ts — a forced single-option
+ * follow-up the state machine took on its own, see applyAction.ts's
+ * fast-forward loops): stepping back past just one would land right back on
+ * a forced action that the state machine would instantly re-take, making
+ * Undo look like a no-op (issue #131). One call here can therefore append
+ * more than one UNDO_ACTION entry — still each an ordinary logged entry, so
+ * Redo can step forward through them one at a time same as anything else.
  */
 export function applyUndoAction(
   genesis: GameState,
@@ -33,10 +42,17 @@ export function applyUndoAction(
   boardGenerationContent: BoardGenerationContent = EMPTY_BOARD_GENERATION_CONTENT,
   taleContent: TaleContent = EMPTY_TALE_CONTENT,
 ): ActionResult {
-  if (resolveHistory(state.actionHistory).effective.length === 0) {
+  let history = state.actionHistory
+  let tip = resolveHistory(history).effective.at(-1)
+  if (!tip) {
     return { ok: false, error: 'Nothing left to undo.' }
   }
-  const history = [...state.actionHistory, { action: { type: 'UNDO_ACTION' as const, playerId }, turn: state.turn, timestamp: new Date().toISOString() }]
+  do {
+    history = [...history, { action: { type: 'UNDO_ACTION' as const, playerId }, turn: state.turn, timestamp: new Date().toISOString() }]
+    const undoneWasAutomatic = tip.automatic
+    tip = resolveHistory(history).effective.at(-1)
+    if (!undoneWasAutomatic) break
+  } while (tip)
   return { ok: true, state: replayActions(genesis, history, unitContent, achievementContent, boardGenerationContent, taleContent) }
 }
 

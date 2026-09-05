@@ -786,8 +786,8 @@ describe('RoundView — player status summary and achievements panel', () => {
   })
 })
 
-describe('RoundView — select-cards phase auto-plays a single-card hand (issue #25)', () => {
-  it("submits the only card in hand on your turn to choose, without needing a click", () => {
+describe('RoundView — select-cards phase (issue #25, revised per RULE_ENFORCEMENT_PLAN.md §4.2/§4.3)', () => {
+  it("renders a one-card hand as an ordinary clickable choice, without submitting on its own — the state machine takes a forced single-option pick itself (applyActionAndFastForward), not the UI", () => {
     const state = makeState() // p2's hand is just ['city']
     const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
     const onChooseCard = vi.fn()
@@ -816,13 +816,12 @@ describe('RoundView — select-cards phase auto-plays a single-card hand (issue 
       />,
     )
 
-    expect(onChooseCard).toHaveBeenCalledTimes(1)
+    expect(onChooseCard).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'City' }))
     expect(onChooseCard).toHaveBeenCalledWith(cardIdFor('p2', 'city'))
-    // No clickable card button rendered — there's nothing left to decide.
-    expect(screen.queryByRole('button', { name: 'City' })).not.toBeInTheDocument()
   })
 
-  it('still shows a clickable choice when the hand has more than one card', () => {
+  it('shows a clickable choice when the hand has more than one card', () => {
     const state = makeState() // p1's hand is ['nomad', 'ship']
     const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
     const onChooseCard = vi.fn()

@@ -282,6 +282,7 @@ export function extendGameLog(
         message: draft.message,
         timestamp: logged.timestamp,
         secret: draft.secret,
+        automatic: logged.automatic,
       })
     }
 

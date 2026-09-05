@@ -6,7 +6,7 @@ import { ErrorBanner } from '../components/ErrorBanner'
 import { RoundView } from '../components/RoundView'
 import { resolveAchievementContent, resolveBoardGenerationContent, resolveTaleContent, resolveUnitContent } from '../content/resolveContent'
 import type { Action, LoggedAction } from '../engine/actions'
-import { applyActionAndFastForwardTiles } from '../engine/applyAction'
+import { applyActionAndFastForward } from '../engine/applyAction'
 import { stripOccupants } from '../engine/board'
 import { buildGameLogFrom, extendGameLog } from '../engine/gameLog'
 import { redactGameLog } from '../engine/redaction'
@@ -998,14 +998,17 @@ export function GamePage() {
    * raw Action to apply-action instead of computing+writing the resulting
    * state itself — the Edge Function re-derives it server-side (§4.1's
    * playerId check, §4.3's fast-forwarding, the CAS write), so the client's
-   * own applyActionAndFastForwardTiles never runs for these games. Every
-   * other game (the default, and every game that existed before this flag)
-   * is completely unaffected — same direct writeWithRetry path as always.
+   * own applyActionAndFastForward never runs for these games. Every other
+   * game (the default, and every game that existed before this flag) is
+   * completely unaffected — same direct writeWithRetry path as always, still
+   * fast-forwarding forced tile placements/card choices client-side via
+   * applyActionAndFastForward (§4.2/§4.3 — the state machine takes a forced
+   * single-option follow-up itself, not a UI effect).
    */
   async function submitAction(action: Action) {
     const result = game?.settings.ruleEnforcementEnabled
       ? await runEnforced(() => applyActionEnforced(game.id, action))
-      : await writeWithRetry((state) => applyActionAndFastForwardTiles(state, action, unitContent, achievementContent, boardGenerationContent, taleContent))
+      : await writeWithRetry((state) => applyActionAndFastForward(state, action, unitContent, achievementContent, boardGenerationContent, taleContent))
     setActionError(result.ok ? null : simpleError(result.error))
   }
 
@@ -1023,20 +1026,6 @@ export function GamePage() {
     if (!me) return
     if (!window.confirm('Concede this game? You will be eliminated and cannot undo this by yourself — this cannot be undone.')) return
     await submitAction({ type: 'CONCEDE', playerId: me.id })
-  }
-
-  /**
-   * True when `action` was CHOOSE_CARD for a player who, in `stateBefore`
-   * (the state right before it was applied), had exactly one card in hand
-   * — i.e. it wasn't a real decision, SelectCardsPanel's auto-choose effect
-   * (RoundView.tsx) submitted it the instant the phase made that player
-   * pending, and would instantly do so again if Undo stopped here. Used by
-   * handleUndo to keep walking back past these instead of landing on one.
-   */
-  function wasForcedCardChoice(stateBefore: EngineGameState, action: Action): boolean {
-    if (action.type !== 'CHOOSE_CARD') return false
-    const player = stateBefore.players.find((p) => p.id === action.playerId)
-    return !!player && player.handCardIds.length === 1
   }
 
   /**
@@ -1077,19 +1066,20 @@ export function GamePage() {
    * attempt (not just once up front), since a retry replays against newer
    * state than what `gameState` held when the button was clicked.
    *
-   * "One action" can mean more than one actionHistory entry: see
-   * wasForcedCardChoice below.
+   * "One action" can mean more than one actionHistory entry — see
+   * applyUndoAction's own doc comment (engine/undoRedo.ts) for how it walks
+   * back past any consecutive `automatic` entries (a forced single-option
+   * follow-up the state machine took on its own, RULE_ENFORCEMENT_PLAN.md
+   * §4.2/§4.3) so Undo never lands on one the state machine would instantly
+   * re-take (issue #131) — shared by this client path and the undo-action
+   * Edge Function below, so both walk back identically.
    */
   async function handleUndo() {
     if (!game) return
     setUndoing(true)
     try {
       // ruleEnforcementEnabled: delegate to undo-action instead of replaying
-      // client-side. Note this doesn't (yet) repeat the forced-single-card
-      // walk-back loop below — undo-action steps back exactly one logged
-      // entry, so undoing into a forced CHOOSE_CARD may need an extra click
-      // for these games until that's ported server-side (see
-      // RULE_ENFORCEMENT_PLAN.md §10).
+      // client-side — same applyUndoAction, same walk-back, server-side.
       if (game.settings.ruleEnforcementEnabled) {
         const result = await runEnforced(() => undoActionEnforced(game.id))
         setActionError(result.ok ? null : simpleError(result.error))
@@ -1097,24 +1087,7 @@ export function GamePage() {
       }
       const result = await writeWithRetry((state) => {
         const genesis = buildGenesisState(game, players)
-        let current = state
-        // A CHOOSE_CARD submitted for a one-card hand (SelectCardsPanel's
-        // auto-choose, RoundView.tsx) wasn't a real decision — stepping back
-        // past just that one action would land right back on the same
-        // forced choice, which the UI would instantly auto-resubmit, making
-        // Undo look like a no-op (issue #131). Keep walking back past any
-        // number of these until an action the player actually chose is
-        // reached, or history runs out.
-        for (;;) {
-          const undoneAction = resolveHistory(current.actionHistory).effective.at(-1)?.action ?? null
-          if (!undoneAction) {
-            return current === state ? { ok: false, error: 'Nothing left to undo.' } : { ok: true, state: current }
-          }
-          const undone = applyUndoAction(genesis, current, me?.id ?? null, unitContent, achievementContent, boardGenerationContent, taleContent)
-          if (!undone.ok) return current === state ? undone : { ok: true, state: current }
-          current = undone.state
-          if (!wasForcedCardChoice(current, undoneAction)) return { ok: true, state: current }
-        }
+        return applyUndoAction(genesis, state, me?.id ?? null, unitContent, achievementContent, boardGenerationContent, taleContent)
       })
       setActionError(result.ok ? null : simpleError(result.error))
     } catch (err) {

@@ -217,12 +217,24 @@ export type Action =
  * One entry in `GameState.actionHistory` — event sourcing: every action
  * that was actually accepted and applied, in order, so the game's current
  * state is always reconstructable by replaying this history from genesis
- * (see replayActions in ./replay.ts). `turn` and `timestamp` are metadata
- * only — replay never depends on either, only on `action` itself and the
- * order entries appear in.
+ * (see replayActions in ./replay.ts). `turn`, `timestamp` and `automatic`
+ * are metadata only — replay never depends on any of them, only on `action`
+ * itself and the order entries appear in.
  */
 export interface LoggedAction {
   action: Action
   turn: number
+  /**
+   * True when the state machine took this action itself, rather than a
+   * player submitting it — a forced single-option follow-up (RULE_ENFORCEMENT_
+   * PLAN.md §4.2/§4.3, e.g. a one-card hand's CHOOSE_CARD, or a tile
+   * placement with only one legal arrangement left) isn't a real decision
+   * for anyone to make, so applyAction's fast-forward loops (applyAction.ts)
+   * take it directly and stamp it here instead of relying on a UI effect or
+   * a wrapper's own bookkeeping. Omitted (not `false`) for every ordinary,
+   * player-submitted entry, so existing fixtures/snapshots that don't set it
+   * are unaffected.
+   */
+  automatic?: boolean
   timestamp: string
 }

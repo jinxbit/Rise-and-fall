@@ -60,11 +60,11 @@ export type { ActionResult } from './types.ts'
  * to reconstruct state, so anything this function did *beyond* the given
  * action (like also deciding what to submit next) would run again on
  * every replay of an entry that was itself such a follow-up, colliding
- * with the next real logged entry. Live callers that want PLACE_TILE's
- * forced-follow-up fast-forwarding (see applyActionAndFastForwardTiles
- * below) call that wrapper instead — it's still just repeated calls to
- * this same function under the hood, so every fast-forwarded placement
- * gets its own perfectly ordinary actionHistory entry.
+ * with the next real logged entry. Live callers that want forced-follow-up
+ * fast-forwarding (see applyActionAndFastForward below) call that wrapper
+ * instead — it's still just repeated calls to this same function under the
+ * hood, so every fast-forwarded step gets its own perfectly ordinary
+ * actionHistory entry.
  *
  * `trustedReplay` skips PLACE_TILE's legality/room-search recheck (see
  * placeTile's `skipLegalityCheck` in ./boardSetup.ts) — safe only for an
@@ -74,6 +74,12 @@ export type { ActionResult } from './types.ts'
  * extendGameLog, turnReview's buildTurnReview), never from a live
  * submission, which still needs the real check to reject an actually
  * illegal placement.
+ *
+ * `automatic` stamps the resulting `actionHistory` entry as one the state
+ * machine took on its own rather than one a player submitted (see
+ * LoggedAction.automatic, ./actions.ts) — set by the fast-forward loops
+ * below (applyActionAndFastForwardTiles/fastForwardPendingChoices) for the
+ * synthesized actions they inject, never by a live player submission.
  */
 export function applyAction(
   state: GameState,
@@ -83,6 +89,7 @@ export function applyAction(
   boardGenerationContent: BoardGenerationContent = EMPTY_BOARD_GENERATION_CONTENT,
   taleContent: TaleContent = EMPTY_TALE_CONTENT,
   trustedReplay = false,
+  automatic = false,
 ): ActionResult {
   const result = dispatchAction(resyncUnitMovementFromContent(state, unitContent), action, unitContent, achievementContent, boardGenerationContent, taleContent, trustedReplay)
   if (!result.ok) return result
@@ -97,7 +104,7 @@ export function applyAction(
   // recap (issue #328) and, worse, colliding with a genuine action logged
   // for the new round later on, since both would then share the same
   // `turn` number.
-  const loggedAction: LoggedAction = { action, turn: state.turn, timestamp: new Date().toISOString() }
+  const loggedAction: LoggedAction = { action, turn: state.turn, timestamp: new Date().toISOString(), ...(automatic ? { automatic: true } : {}) }
   return { ok: true, state: { ...result.state, actionHistory: [...result.state.actionHistory, loggedAction] } }
 }
 
@@ -115,9 +122,12 @@ export function applyAction(
  * applyAction() itself, landing its own ordinary actionHistory entry, same
  * as if that player had placed it themselves.
  *
- * This is the function UI/API callers should use to submit a PLACE_TILE
- * (see GamePage.tsx's submitAction) — applyAction() itself intentionally
- * doesn't do this (see its own doc comment for why).
+ * Live callers should generally go through applyActionAndFastForward below
+ * instead, which also covers the round's own forced choices — this one stays
+ * exported on its own for callers that only ever run during boardSetup and
+ * have no round phase to worry about (e.g. MapBuilderPage.tsx, historyPointer.ts).
+ * applyAction() itself intentionally doesn't do this fast-forwarding (see its
+ * own doc comment for why).
  */
 export function applyActionAndFastForwardTiles(
   state: GameState,
@@ -139,8 +149,9 @@ export function applyActionAndFastForwardTiles(
     // trustedReplay: `forced` was just derived by findForcedPlacement's own
     // combinatorial search, so it's already known-legal by construction —
     // re-running checkTilePlacementLegality's search on top of the search
-    // that produced it would be pure waste.
-    const cascadeResult = applyAction(nextState, forced, unitContent, achievementContent, boardGenerationContent, taleContent, true)
+    // that produced it would be pure waste. automatic: true — this is the
+    // state machine taking the placement, not a player click.
+    const cascadeResult = applyAction(nextState, forced, unitContent, achievementContent, boardGenerationContent, taleContent, true, true)
     if (!cascadeResult.ok) break // defensive only — findForcedPlacement's own combo is always legal by construction
     nextState = cascadeResult.state
   }
@@ -178,6 +189,35 @@ export function applyActionAndFastForwardChoices(
 }
 
 /**
+ * Live-submission wrapper combining both fast-forward loops above —
+ * boardSetup's tile placement and the round's card-choice/decline phases are
+ * mutually exclusive by GameState.status, so running both after every action
+ * is cheap and correct rather than gating on the submitted action's own
+ * type. This is the entry point every live caller should use to submit an
+ * ordinary action (GamePage.tsx's submitAction; the apply-action Edge
+ * Function via supabase/functions/_shared/gameEnforcement.ts's
+ * applyActionFullyEnforced) — per jinxbit's 2026-09-05 design update
+ * (RULE_ENFORCEMENT_PLAN.md §4.2/§4.3), a forced single-option follow-up
+ * isn't a real decision for anyone to make, so the state machine takes it
+ * itself here, for every game, rather than a UI effect deciding to submit it
+ * on a player's behalf. Each fast-forwarded step still lands its own
+ * ordinary actionHistory entry, stamped `automatic: true` (LoggedAction,
+ * ./actions.ts) so the log can say so.
+ */
+export function applyActionAndFastForward(
+  state: GameState,
+  action: Action,
+  unitContent: UnitContent = EMPTY_UNIT_CONTENT,
+  achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT,
+  boardGenerationContent: BoardGenerationContent = EMPTY_BOARD_GENERATION_CONTENT,
+  taleContent: TaleContent = EMPTY_TALE_CONTENT,
+): ActionResult {
+  const tileResult = applyActionAndFastForwardTiles(state, action, unitContent, achievementContent, boardGenerationContent, taleContent)
+  if (!tileResult.ok) return tileResult
+  return { ok: true, state: fastForwardPendingChoices(tileResult.state, unitContent, achievementContent, boardGenerationContent, taleContent) }
+}
+
+/**
  * The forcing loop behind applyActionAndFastForwardChoices, factored out so
  * a caller that already has a poststate in hand (e.g. `apply-action` after
  * running applyActionAndFastForwardTiles, whose own PLACE_TILE-gated loop
@@ -201,7 +241,8 @@ export function fastForwardPendingChoices(
     // dispatch handler treats as ambiguous (a single remaining hand card; a
     // hand+discard that exactly matches what's still owed) — already
     // known-legal by construction, same reasoning as the tile cascade above.
-    const cascadeResult = applyAction(nextState, forced, unitContent, achievementContent, boardGenerationContent, taleContent, true)
+    // automatic: true — same reasoning as the tile cascade's own flag.
+    const cascadeResult = applyAction(nextState, forced, unitContent, achievementContent, boardGenerationContent, taleContent, true, true)
     if (!cascadeResult.ok) break // defensive only — nextChoiceFastForward's picks are always legal by construction
     nextState = cascadeResult.state
   }

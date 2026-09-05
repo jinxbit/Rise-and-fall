@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { applyAction, applyActionAndFastForwardChoices, applyActionAndFastForwardTiles } from '../applyAction'
+import { applyAction, applyActionAndFastForward, applyActionAndFastForwardChoices, applyActionAndFastForwardTiles } from '../applyAction'
 import { createEmptyBoard, getTile, setTile } from '../board'
 import type { BoardGenerationContent } from '../boardGenerationContent'
 import { EMPTY_BOARD_GENERATION_CONTENT } from '../boardGenerationContent'
@@ -1237,6 +1237,9 @@ describe('applyActionAndFastForwardTiles', () => {
     const placeTileActions = result.state.actionHistory.filter((entry) => entry.action.type === 'PLACE_TILE')
     expect(placeTileActions).toHaveLength(3)
     expect(placeTileActions.map((entry) => entry.action.playerId)).toEqual(['p1', 'p2', 'p1'])
+    // Only the 2 fast-forwarded entries are stamped automatic — the manual
+    // one the player actually clicked isn't (LoggedAction.automatic, ./actions.ts).
+    expect(placeTileActions.map((entry) => entry.automatic ?? false)).toEqual([false, true, true])
   })
 
   it("doesn't fast-forward while more than one legal arrangement remains", () => {
@@ -1292,6 +1295,8 @@ describe('applyActionAndFastForwardChoices (RULE_ENFORCEMENT_PLAN.md §4.3)', ()
     expect(result.state.roundPhase).toBe('actions')
     const chooseCardActions = result.state.actionHistory.filter((entry) => entry.action.type === 'CHOOSE_CARD')
     expect(chooseCardActions.map((entry) => entry.action.playerId)).toEqual(['p1', 'p2'])
+    // p1's own pick isn't automatic; p2's fast-forwarded one is.
+    expect(chooseCardActions.map((entry) => entry.automatic ?? false)).toEqual([false, true])
   })
 
   it("doesn't fast-forward a select-cards pick while more than one hand card remains", () => {
@@ -1336,5 +1341,19 @@ describe('applyActionAndFastForwardChoices (RULE_ENFORCEMENT_PLAN.md §4.3)', ()
     if (!result.ok) return
     expect(result.state.pendingPlayerIds).toContain('p2')
     expect(result.state.actionHistory.filter((entry) => entry.action.type === 'MOVE_TO_DECLINE')).toHaveLength(1)
+  })
+})
+
+describe('applyActionAndFastForward (RULE_ENFORCEMENT_PLAN.md §4.2, per jinxbit 2026-09-05: the state machine takes a forced single-option action itself, not a UI effect)', () => {
+  it('fast-forwards a forced card choice for every game, the same as apply-action does server-side — no ruleEnforcementEnabled special-casing needed', () => {
+    const state = makeActiveGame()
+    const result = applyActionAndFastForward(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'ship') })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.state.roundPhase).toBe('actions')
+    const chooseCardActions = result.state.actionHistory.filter((entry) => entry.action.type === 'CHOOSE_CARD')
+    expect(chooseCardActions.map((entry) => entry.action.playerId)).toEqual(['p1', 'p2'])
+    expect(chooseCardActions.map((entry) => entry.automatic ?? false)).toEqual([false, true])
   })
 })

@@ -116,6 +116,26 @@ describe('applyUndoAction', () => {
     if (result.ok) expect(result.state.actionHistory[1].action).toEqual({ type: 'UNDO_ACTION', playerId: null })
   })
 
+  it("walks back past a run of automatic entries in one call (issue #131 — RULE_ENFORCEMENT_PLAN.md §4.2/§4.3), landing on the caller's last real decision", () => {
+    const genesis = makeGenesis()
+    const afterP1 = choose(genesis, 'p1') // a real, player-submitted pick
+    // Simulate a forced single-card follow-up the state machine would take
+    // on its own (applyActionAndFastForwardChoices) — stamped `automatic`.
+    const autoResult = applyAction(afterP1, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') }, unitContent, undefined, undefined, undefined, true, true)
+    if (!autoResult.ok) throw new Error(autoResult.error)
+    expect(autoResult.state.actionHistory.at(-1)?.automatic).toBe(true)
+
+    const undone = applyUndoAction(genesis, autoResult.state, 'p1', unitContent)
+    expect(undone.ok).toBe(true)
+    if (!undone.ok) return
+    // Undo walked back past BOTH the automatic pick and p1's real one, not
+    // just the automatic one — stopping right after the automatic entry
+    // would land back on the same forced choice, which the state machine
+    // would instantly re-take, making Undo look like a no-op.
+    expect(resolveHistory(undone.state.actionHistory).effective).toEqual([])
+    expect(undone.state.actionHistory.filter((e) => e.action.type === 'UNDO_ACTION')).toHaveLength(2)
+  })
+
   it('unwinds status: completed back to active, same as the old truncation-based undo', () => {
     // Minimal one-action "game end": reuse CONCEDE's last-player-standing
     // rule (elimination.ts) — p2 conceding while p1 is the only one left

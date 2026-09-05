@@ -117,12 +117,24 @@ concrete vulnerability this issue exists to close.
 Two existing mechanisms stay as-is once the engine runs server-side, no new
 authorization concept required:
 
-- **Forced single-card choice**: today, `RoundView.tsx` auto-submits
-  `CHOOSE_CARD` client-side when a player's hand has exactly one card. This
-  is not one player acting for another — it's the *same* player's client
-  skipping a click, still submitted under their own `playerId`/session.
-  Under the enforced backend it's an ordinary `CHOOSE_CARD` where
-  `action.playerId` legitimately equals the caller's seat.
+- **Forced single-card choice.** **Update (2026-09-05, per jinxbit): moved
+  into the state machine itself, not a UI action.** Originally this was a
+  client-side courtesy (`RoundView.tsx`'s `SelectCardsPanel` auto-submitting
+  `CHOOSE_CARD` the instant a pending player's hand had one card) — jinxbit's
+  design update reframed this: "when a player has only a single option ...
+  this option should be taken automatically by the state machine," not by a
+  UX action (automatic or player-driven). `SelectCardsPanel` no longer
+  auto-submits anything; instead `applyAction.ts`'s fast-forward loops
+  (§4.3) take the forced action themselves as part of ordinary action
+  submission, for **every** game, not just `ruleEnforcementEnabled` ones —
+  `applyActionAndFastForward()` is the single entry point both
+  `GamePage.tsx`'s `submitAction` (client-trusted games) and the
+  `apply-action` Edge Function (enforced games, via
+  `gameEnforcement.ts`'s `applyActionFullyEnforced`) call. Each
+  fast-forwarded step still lands its own ordinary `actionHistory` entry,
+  now stamped `automatic: true` (`LoggedAction.automatic`, `src/engine/
+  actions.ts`) so the log can say the state machine took it rather than the
+  player (`RoundView.tsx`'s `LogPanel` renders a small "(auto)" tag).
 - **Cascading eliminations** (`eliminatePlayersWithNoCardToDecline` and
   friends, `src/engine/elimination.ts`) aren't separately submitted actions
   at all — they're folded into phase transitions
@@ -153,11 +165,24 @@ single card. `MOVE_TO_DECLINE` has the same shape of case (a pending player
 whose hand+discard together exactly match what they still owe) and should
 get the same treatment for symmetry.
 
-This **must run inside `apply-action` server-side**, not left to each
-client's own auto-submit effect as it is today — not primarily for
-security (once §4.1 is enforced, a client can't forge this on another
-player's behalf either way), but so the round doesn't stall waiting on a
-client that's slow to, or never does, auto-submit the courtesy action.
+This **must run inside `apply-action` server-side** for `ruleEnforcementEnabled`
+games — not primarily for security (once §4.1 is enforced, a client can't
+forge this on another player's behalf either way), but so the round doesn't
+stall waiting on a client that's slow to, or never does, take the forced
+follow-up.
+
+**Update (2026-09-05, per jinxbit):** the client side of this also changed,
+per §4.2's update above — `applyActionAndFastForwardChoices`/
+`fastForwardPendingChoices` now run for every live submission via
+`applyActionAndFastForward()` (`src/engine/applyAction.ts`), not just inside
+`apply-action`. `GamePage.tsx`'s `submitAction` calls it for client-trusted
+games exactly the same way `apply-action` does for enforced ones, so the
+forced follow-up is always something the state machine took (and logged as
+`automatic: true`), never a `RoundView.tsx` UI effect deciding on the
+player's behalf — the security argument above (needed once §4.1 is
+enforced) is unchanged, this just also fixes the UX/design property jinxbit
+raised: even a client-trusted game's log should say "the game did this,"
+not "the player did this," for a choice that was never really made.
 
 ### 4.4 Undo / Redo — pointer-based history, replacing the client-local redo stack
 
@@ -694,17 +719,20 @@ to rule enforcement (2, 5) are omitted here.
   now-dead off-path + RLS carve-out get deleted) once it has run without
   surprises. Rollout-sequencing call, not a blocker.
 - **New (2026-09-05), from the write-side rewire (§8 phase 8):**
-  - `undo-action`/`redo-action` don't yet repeat `GamePage.tsx`'s
-    forced-single-card walk-back loop (issue #131: undoing into a
-    `CHOOSE_CARD` that was auto-submitted for a one-card hand should skip
-    past it, since the UI would instantly auto-resubmit the same forced
-    choice otherwise). Client-trusted games still get this via
-    `wasForcedCardChoice()`'s loop in `handleUndo`; a
-    `ruleEnforcementEnabled` game's Undo currently steps back exactly one
-    logged entry per click, so landing on a forced choice may need an extra
-    click. Needs porting into `undo-action`'s server-side loop (mirroring
-    how §4.3's fast-forwarding already moved server-side in phase 6) before
-    this checkbox's experimental label can come off.
+  - ~~`undo-action`/`redo-action` don't yet repeat `GamePage.tsx`'s
+    forced-single-card walk-back loop (issue #131)~~ — **resolved
+    (2026-09-05), as a side effect of §4.2's state-machine redesign.** Now
+    that a forced follow-up is stamped `automatic: true` on its own
+    `actionHistory` entry (`LoggedAction.automatic`) instead of being
+    invisible UI behavior, `applyUndoAction()` itself
+    (`src/engine/undoRedo.ts`) walks back past any consecutive `automatic`
+    entries before returning — one call, no special-casing by the caller.
+    `GamePage.tsx`'s `handleUndo` and the `undo-action` Edge Function both
+    just call `applyUndoAction()` once and get this for free (the old
+    client-only `wasForcedCardChoice()` heuristic loop is deleted); redo
+    naturally reverses it one `REDO_ACTION` at a time, same as any other
+    entry. This also removes the last reason the write-side rewire's
+    checkbox needed to stay labeled "experimental" for this specific gap.
   - The initial `game_state` row (`LobbyPage.tsx`'s `insertGameState`, the
     deterministic genesis state) is still a direct, unenforced client
     insert for every game, flagged or not (`0026_rule_enforcement_flag.sql`
