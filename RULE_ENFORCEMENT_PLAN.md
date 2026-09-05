@@ -380,6 +380,27 @@ redaction work — see that document's §6 for it.
   bullet above.** `game_state_meta`'s RLS (done, see
   `HIDDEN_INFORMATION_PLAN.md` §6) already uses the equivalent-to-today read
   policies this bullet originally called for.
+- **Update (2026-09-05, per jinxbit): phased rollout via a per-game opt-in
+  flag, replacing the global cutover above.** Rather than locking
+  `game_state`'s RLS to service-role-only for every game at once (which is
+  what forced bundling this with phase 5's `get_game_state` read path, per
+  the two bullets above), add `ruleEnforcementEnabled: boolean` to
+  `GameSettings` (`src/lib/dbTypes.ts`, stored in `games.settings` jsonb —
+  the same mechanism `skipHotseatPassGate`/`mapTemplateId`/etc. already use
+  for per-game opt-in switches), defaulting to `false`. `game_state`'s
+  insert/update RLS policies gain one extra clause — direct client writes
+  are permitted only when the owning game's flag is off (`coalesce`d, so
+  every pre-existing game with no such key reads as off automatically).
+  Games with it off (the default, and every game that exists today) keep
+  writing `game_state` directly exactly as now; games with it on can only
+  be written by the service role, i.e. only through
+  `apply-action`/`undo-action`/`redo-action`. This decouples the write-side
+  RLS lock from `get_game_state`/redaction entirely: reads are untouched
+  either way, so an enforcement-enabled game reads its state exactly as
+  unredacted as any other game does today — hidden information
+  (`HIDDEN_INFORMATION_PLAN.md`) stays the separate, independently-timed
+  concern issue #423 split it out to be. See §8 phase 8 for how this
+  changes the rewire itself.
 
 ## 7. Deploy automation
 
@@ -521,6 +542,18 @@ to rule enforcement (2, 5) are omitted here.
    optimistic UI (legal-move highlighting, immediate feedback) but never
    treat its output as authoritative — always reconcile against the
    server's redacted response.
+   **Update (2026-09-05, per jinxbit): per-game opt-in rewire, not a single
+   flag-day cutover — see §6's `ruleEnforcementEnabled` bullet.**
+   `gameApi.ts`'s write path branches on the game's flag: off (the default,
+   and every pre-existing game) keeps writing `game_state` directly exactly
+   as today; on calls `apply-action`/`undo-action`/`redo-action` instead.
+   This lets the write-side half of this phase ship on its own — opt-in,
+   new games only, zero risk to any in-progress game — without waiting on
+   phase 5's `get_game_state`. The read-side half (rewiring onto
+   `get_game_state`) stays exactly as blocked on phase 5 as before, for
+   both flagged and unflagged games; an enforcement-enabled game just reads
+   its own unredacted `game_state` row like every other game does until
+   that phase lands.
 9. **End-to-end verification against a real two-browser Supabase
    session**, exercising this document's authorization rules specifically —
    confirm a client can't submit an action naming another player's
@@ -620,6 +653,13 @@ to rule enforcement (2, 5) are omitted here.
   condition, unredacted `get_game_state` for admin/owner) need to land
   *with* phases 5–6, not after — otherwise admin mode either breaks or
   becomes an unreviewed impersonation hole the moment enforcement ships.
+- **New (2026-09-05), from the `ruleEnforcementEnabled` flag (§6, §8 phase
+  8):** not yet decided — whether the `CreateGamePage.tsx` checkbox is
+  visible to any room creator from day one, or gated behind an
+  admin/dev-only affordance until it's proven in production; and whether/
+  when the default flips to `true` for new games (and the now-dead off-path
+  + RLS carve-out get deleted) once it has run without surprises. Both are
+  rollout-sequencing calls, not blockers to building the flag itself.
 
 (See `HIDDEN_INFORMATION_PLAN.md` §10 for redaction-specific open items:
 the reveal high-water mark's storage shape, the `get_game_state`
