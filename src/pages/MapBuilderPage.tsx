@@ -13,7 +13,7 @@ import { BoardSetupView } from '../components/BoardSetupView'
 import { HexBoard } from '../components/HexBoard'
 import { useAuth } from '../hooks/useAuth'
 import { resolveBoardGenerationContent } from '../content/resolveContent'
-import { applyActionAndFastForwardTiles } from '../engine/applyAction'
+import { applyAction } from '../engine/applyAction'
 import { beginBoardSetup, currentTilePlacerId } from '../engine/boardSetup'
 import { createEmptyBoard } from '../engine/board'
 import { createNewGame } from '../engine/createGame'
@@ -146,7 +146,7 @@ export function MapBuilderPage() {
           onPlaceTile={(anchor: Coordinate, rotationSteps: number) => {
             const placerId = currentTilePlacerId(state)
             if (!placerId) return
-            const result = applyActionAndFastForwardTiles(
+            const result = applyAction(
               state,
               { type: 'PLACE_TILE', playerId: placerId, anchor, rotationSteps },
               undefined,

@@ -139,14 +139,18 @@ describe('calculateScoreHistory', () => {
     expect(result.state.claimedByAchievementId['city-mastery']).toBe('p1')
     result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p1' }, contentWithActions, claimAchievementContent)
     if (!result.ok) throw new Error(result.error)
+    // Claiming an achievement mid-round triggers the decline phase (see
+    // isDeclineTriggered, ./decline.ts) — each player owes one card before
+    // the round can finish. Neither p1 nor p2 owns a real unit of any kind
+    // but city (p2 owns none at all), so the moment this PASS_ACTIONS
+    // resolves p2's turn, syncCardZonesWithBoard empties both hands down to
+    // just their played card sitting in discard — exactly what's owed, so
+    // both players' MOVE_TO_DECLINE end up forced and folded into this SAME
+    // applyAction() call (RULE_ENFORCEMENT_PLAN.md §4.2/§4.3), landing
+    // straight in the purchase phase rather than stopping at decline.
     result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p2' }, contentWithActions, claimAchievementContent)
     if (!result.ok) throw new Error(result.error)
-    // Claiming an achievement mid-round triggers the decline phase (see isDeclineTriggered, ./decline.ts) — each player owes one card before the round can finish.
-    expect(result.state.roundPhase).toBe('decline')
-    result = applyAction(result.state, { type: 'MOVE_TO_DECLINE', playerId: 'p1', cardId: cardIdFor('p1', 'city') }, contentWithActions, claimAchievementContent)
-    if (!result.ok) throw new Error(result.error)
-    result = applyAction(result.state, { type: 'MOVE_TO_DECLINE', playerId: 'p2', cardId: cardIdFor('p2', 'temple') }, contentWithActions, claimAchievementContent)
-    if (!result.ok) throw new Error(result.error)
+    expect(result.state.roundPhase).toBe('purchase')
     // Whoever still owes a purchase decision (gold to afford the buyback, per skipEmptyDeclinePurchasers) passes it, to reach the round boundary.
     while (result.state.roundPhase === 'purchase' && result.state.pendingPlayerIds.length > 0) {
       result = applyAction(result.state, { type: 'PASS_PURCHASE', playerId: result.state.pendingPlayerIds[0] }, contentWithActions, claimAchievementContent)

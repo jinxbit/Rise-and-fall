@@ -14,15 +14,25 @@ export type { ResolvedHistory } from './historyFold.ts'
 export { resolveHistory } from './historyFold.ts'
 
 /**
- * Submits one UNDO_ACTION against `state`, live-style (see applyAction's own
- * doc comment for the "live callers route through here, not a raw history
- * splice" convention this mirrors): appends the entry, then re-derives the
- * whole GameState via replayActions, which knows how to fold it in (see
- * resolveHistory, ./historyFold.ts). `genesis` — reconstructed by the
- * caller, same as every other genesis-needing engine entry point (e.g.
- * GamePage.tsx's handleUndo) — is needed because, unlike every other
- * action, undoing isn't a step forward from `state`; it's a shorter replay
- * from the start.
+ * Submits one UNDO_ACTION entry against `state`, live-style (see
+ * applyAction's own doc comment for the "live callers route through here,
+ * not a raw history splice" convention this mirrors): appends an entry, then
+ * re-derives the whole GameState via replayActions, which knows how to fold
+ * it in (see resolveHistory, ./historyFold.ts). `genesis` — reconstructed by
+ * the caller, same as every other genesis-needing engine entry point (e.g.
+ * GamePage.tsx's handleUndo, the undo-action Edge Function) — is needed
+ * because, unlike every other action, undoing isn't a step forward from
+ * `state`; it's a shorter replay from the start.
+ *
+ * One call here always reverts exactly the tip's own actionHistory entry —
+ * per jinxbit's 2026-09-05 design update (RULE_ENFORCEMENT_PLAN.md
+ * §4.2/§4.3), a forced single-option follow-up (a one-card hand's
+ * CHOOSE_CARD, a tile placement with only one legal arrangement left) is
+ * folded into the SAME entry as whatever triggered it rather than getting
+ * one of its own (see applyAction.ts), so there's nothing left to walk back
+ * past here (issue #131's original fix, since superseded): undoing that one
+ * entry naturally reverts the triggering action and everything it forced in
+ * one step.
  */
 export function applyUndoAction(
   genesis: GameState,
@@ -33,7 +43,7 @@ export function applyUndoAction(
   boardGenerationContent: BoardGenerationContent = EMPTY_BOARD_GENERATION_CONTENT,
   taleContent: TaleContent = EMPTY_TALE_CONTENT,
 ): ActionResult {
-  if (resolveHistory(state.actionHistory).effective.length === 0) {
+  if (!resolveHistory(state.actionHistory).effective.at(-1)) {
     return { ok: false, error: 'Nothing left to undo.' }
   }
   const history = [...state.actionHistory, { action: { type: 'UNDO_ACTION' as const, playerId }, turn: state.turn, timestamp: new Date().toISOString() }]

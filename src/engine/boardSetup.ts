@@ -207,10 +207,10 @@ export function checkTilePlacementLegalityDetailed(
  * applyAction's own `trustedReplay` param, threaded here from
  * replayActions/extendGameLog/buildTurnReview), or a forced placement this
  * same engine just derived itself via findForcedPlacement, whose legality
- * is already guaranteed by construction (see applyActionAndFastForwardTiles
- * in ./applyAction.ts). The turn-order check below still runs regardless —
- * it's cheap, and a real guard against replaying entries out of order, not
- * just a legality precondition.
+ * is already guaranteed by construction (see applyAction's own forced-
+ * follow-up convergence in ./applyAction.ts). The turn-order check below
+ * still runs regardless — it's cheap, and a real guard against replaying
+ * entries out of order, not just a legality precondition.
  */
 export function placeTile(
   state: GameState,

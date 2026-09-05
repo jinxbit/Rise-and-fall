@@ -12,7 +12,15 @@ function nextPlaceholderUnitId(): string {
   return `concede_test_unit_${placeholderUnitCounter}`
 }
 
-/** A 3-player active game, mid select-cards phase, every player with a full hand — mirrors applyAction.test.ts's makeActiveGame but with a third player so eliminating one doesn't immediately end the game. */
+/**
+ * A 3-player active game, mid select-cards phase, every player with a full
+ * hand — mirrors applyAction.test.ts's makeActiveGame but with a third
+ * player so eliminating one doesn't immediately end the game. Each player
+ * gets TWO unit kinds (so a two-card hand): a single-card hand would fold a
+ * still-pending player's own pick into whichever action leaves them the
+ * only one left forced (RULE_ENFORCEMENT_PLAN.md §4.2/§4.3), which would
+ * pre-empt several of this file's own CONCEDE/CHOOSE_CARD sequencing below.
+ */
 function makeThreePlayerActiveGame(): GameState {
   const lobby = createNewGame({
     gameId: 'concede_game',
@@ -31,14 +39,24 @@ function makeThreePlayerActiveGame(): GameState {
   for (const player of lobby.players) {
     const coord = startingPositions[player.id]
     board = setTile(board, coord, 'plain')
-    units.push({
-      id: nextPlaceholderUnitId(),
-      ownerId: player.id,
-      kind: 'ship',
-      coord,
-      movement: { isMobile: true, terrains: ['water'], canCrossCliffs: false, moveDistance: 1 },
-      traits: ['ship'],
-    })
+    units.push(
+      {
+        id: nextPlaceholderUnitId(),
+        ownerId: player.id,
+        kind: 'ship',
+        coord,
+        movement: { isMobile: true, terrains: ['water'], canCrossCliffs: false, moveDistance: 1 },
+        traits: ['ship'],
+      },
+      {
+        id: nextPlaceholderUnitId(),
+        ownerId: player.id,
+        kind: 'nomad',
+        coord,
+        movement: { isMobile: true, terrains: ['plain'], canCrossCliffs: false, moveDistance: 1 },
+        traits: ['mobile'],
+      },
+    )
   }
 
   const active: GameState = { ...lobby, board, units, status: 'active' }

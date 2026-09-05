@@ -405,11 +405,13 @@ describe('The Majestic Bridge, end-to-end through applyAction', () => {
 
   function chooseCards(state: GameState): GameState {
     const { unitContent } = realContent()
+    // Both hands are a single card ('nomad'/'ship') — p1's own CHOOSE_CARD
+    // already folds p2's forced pick into the same applyAction() call
+    // (RULE_ENFORCEMENT_PLAN.md §4.2/§4.3), so no separate submission for
+    // p2 is needed (or possible — p2 is no longer pending afterward).
     const p1Choice = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'nomad') }, unitContent)
     if (!p1Choice.ok) throw new Error('p1 setup failed')
-    const p2Choice = applyAction(p1Choice.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'ship') }, unitContent)
-    if (!p2Choice.ok) throw new Error('p2 setup failed')
-    return p2Choice.state
+    return p1Choice.state
   }
 
   it('constructing the Bridge claims its Trophy and triggers a real Decline phase', () => {

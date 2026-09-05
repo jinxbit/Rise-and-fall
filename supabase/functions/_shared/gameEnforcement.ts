@@ -25,7 +25,7 @@
 // undo/redo). Not yet done: against an actually-deployed (not local)
 // project, and a genuine two-browser session — still phase 9.
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2'
-import { applyActionAndFastForwardTiles, fastForwardPendingChoices } from '../../../src/engine/applyAction.ts'
+import { applyAction } from '../../../src/engine/applyAction.ts'
 import type { Action, LoggedAction } from '../../../src/engine/actions.ts'
 import { redoableTail } from '../../../src/engine/historyFold.ts'
 import { applyTaleAchievementModifiers, applyTaleModifiers } from '../../../src/engine/tales.ts'
@@ -162,17 +162,16 @@ export function resolveGameContent(state: GameState, playerCount: number) {
 }
 
 /**
- * Applies `action` against `state.state`, fast-forwarding both forced tile
- * placements (§4.3, boardSetup) and forced card choices/declines (§4.3,
- * active) — the two are mutually exclusive by GameState.status, so running
- * both loops unconditionally after every action is cheap and correct rather
- * than gating on the submitted action's own type.
+ * Applies `action` against `state.state`, resolving this game's content
+ * bundles and delegating to applyAction (src/engine/applyAction.ts) — the
+ * same entry point GamePage.tsx's submitAction uses client-side, so both
+ * forced tile placements and forced card choices/declines (§4.3) fast-
+ * forward identically here and there, folded into the same actionHistory
+ * entry as `action` itself.
  */
 export function applyActionFullyEnforced(state: GameState, action: Action, playerCount: number): ActionResult {
   const content = resolveGameContent(state, playerCount)
-  const tileResult = applyActionAndFastForwardTiles(state, action, content.unitContent, content.achievementContent, content.boardGenerationContent, content.taleContent)
-  if (!tileResult.ok) return tileResult
-  return { ok: true, state: fastForwardPendingChoices(tileResult.state, content.unitContent, content.achievementContent, content.boardGenerationContent, content.taleContent) }
+  return applyAction(state, action, content.unitContent, content.achievementContent, content.boardGenerationContent, content.taleContent)
 }
 
 /**

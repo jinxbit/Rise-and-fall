@@ -116,6 +116,30 @@ describe('applyUndoAction', () => {
     if (result.ok) expect(result.state.actionHistory[1].action).toEqual({ type: 'UNDO_ACTION', playerId: null })
   })
 
+  it('a single Undo reverts an entire forced-follow-up cascade at once, since it was never a separate history entry to begin with (RULE_ENFORCEMENT_PLAN.md §4.2/§4.3)', () => {
+    const genesis = makeGenesis()
+    // p1 has only one card in hand (their single 'city' unit, per
+    // makeGenesis) — nobody's acted yet, so nothing forces p1's own first
+    // move (see applyAction's own doc comment: fast-forwarding only ever
+    // triggers off an already-dispatched action, never at genesis).
+    // Submitting p2's real pick is what leaves p1 forced.
+    const afterP2 = choose(genesis, 'p2', 'nomad')
+    // Folded into the SAME entry as p2's own submission — see applyAction's
+    // doc comment — not a second actionHistory entry (issue #131's original
+    // symptom, since fixed at the source rather than papered over on undo).
+    expect(afterP2.actionHistory).toHaveLength(1)
+    expect(afterP2.roundPhase).toBe('actions') // both players have now resolved
+
+    const undone = applyUndoAction(genesis, afterP2, 'p2', unitContent)
+    expect(undone.ok).toBe(true)
+    if (!undone.ok) return
+    // One UNDO_ACTION reverts p2's real pick AND p1's forced one together,
+    // landing all the way back on an empty effective history — no walking
+    // back past anything extra needed, since there was only ever one entry.
+    expect(resolveHistory(undone.state.actionHistory).effective).toEqual([])
+    expect(undone.state.actionHistory.filter((e) => e.action.type === 'UNDO_ACTION')).toHaveLength(1)
+  })
+
   it('unwinds status: completed back to active, same as the old truncation-based undo', () => {
     // Minimal one-action "game end": reuse CONCEDE's last-player-standing
     // rule (elimination.ts) — p2 conceding while p1 is the only one left

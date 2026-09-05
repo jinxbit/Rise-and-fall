@@ -220,6 +220,16 @@ export type Action =
  * (see replayActions in ./replay.ts). `turn` and `timestamp` are metadata
  * only — replay never depends on either, only on `action` itself and the
  * order entries appear in.
+ *
+ * A forced single-option follow-up (RULE_ENFORCEMENT_PLAN.md §4.2/§4.3,
+ * e.g. a one-card hand's CHOOSE_CARD, or a tile placement with only one
+ * legal arrangement left) never gets its own entry here — nobody "did" it,
+ * so applyAction (./applyAction.ts) folds it into the SAME entry as
+ * whatever triggered it instead, the same way an ordinary phase transition
+ * (beginActionsPhase/finishRound/etc.) already chains forward within one
+ * dispatch. gameLog.ts still narrates each folded-in step on its own line
+ * (see applyActionWithSteps, ./applyAction.ts) — it's just not a separate
+ * `actionHistory` entry.
  */
 export interface LoggedAction {
   action: Action
