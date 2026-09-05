@@ -727,10 +727,15 @@ export function GamePage() {
           boardGenerationContent,
           taleContent,
         )
-        if (extended.state === cache.states[fromIndex]) {
+        if (!extended.ok) {
           // A validly-logged action should never fail to reapply — bail
           // defensively (caught below) rather than cache a duplicate state
           // under the wrong index and silently desync every later index.
+          // Checked via extendGameLog's own `ok` flag, not "did the state
+          // change": a legacy stale forced follow-up entry (applyAction.ts's
+          // isStaleForcedFollowUp) is a legitimate no-op that leaves state
+          // at the exact same reference, which used to be indistinguishable
+          // from a genuine failure here.
           throw new Error(`Review replay failed at action ${fromIndex}`)
         }
         cache.states.push(extended.state)

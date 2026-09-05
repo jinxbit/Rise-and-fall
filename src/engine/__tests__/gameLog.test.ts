@@ -415,6 +415,48 @@ describe('extendGameLog / buildGameLogFrom', () => {
     }
   })
 
+  // GamePage.tsx's "Review history" replay cache (issue #437) extends one
+  // already-logged entry at a time via extendGameLog, and used to treat
+  // "the state didn't change" as proof that entry failed to reapply. Issue
+  // #436's fix made a legacy standalone forced follow-up entry (predating
+  // the fold-in-place design — see applyAction.ts's isStaleForcedFollowUp)
+  // a legitimate no-op, which is indistinguishable from a real failure by
+  // reference equality alone — extendGameLog's own `ok` flag is what the
+  // caller must check instead.
+  it('reports ok: true (not a reference-equality no-op) for a legacy standalone forced follow-up entry', () => {
+    const board = boardOf([
+      [0, 0, 'plain'],
+      [1, 0, 'forest'],
+    ])
+    const city: Unit = { id: 'city_a', ownerId: 'p1', kind: 'city', coord: { q: 0, r: 0 }, movement: content.movementByKind.city, traits: [] }
+    const otherNomad: Unit = { id: 'nomad_p2', ownerId: 'p2', kind: 'nomad', coord: { q: 1, r: 0 }, movement: content.movementByKind.nomad, traits: [] }
+    const genesis = makeGenesis([city, otherNomad], board)
+
+    // p2's hand is a single card ('nomad'), so today's applyAction folds
+    // p2's forced pick into p1's own CHOOSE_CARD entry — a game logged
+    // before that design shipped has p2's pick as its own standalone entry
+    // instead, which today's replay has already taken one step earlier.
+    const legacyHistory = [
+      { action: { type: 'CHOOSE_CARD' as const, playerId: 'p1', cardId: cardIdFor('p1', 'city') }, turn: genesis.turn, timestamp: 't1' },
+      { action: { type: 'CHOOSE_CARD' as const, playerId: 'p2', cardId: cardIdFor('p2', 'nomad') }, turn: genesis.turn, timestamp: 't2' },
+    ]
+
+    const afterFirst = extendGameLog(genesis, [], genesis, [legacyHistory[0]], 1, content, achievementContent)
+    expect(afterFirst.ok).toBe(true)
+
+    const afterSecond = extendGameLog(
+      genesis,
+      [legacyHistory[0]],
+      afterFirst.state,
+      [legacyHistory[1]],
+      afterFirst.events.length + 1,
+      content,
+      achievementContent,
+    )
+    expect(afterSecond.ok).toBe(true)
+    expect(afterSecond.state).toBe(afterFirst.state)
+  })
+
   // Design change, issue #412: UNDO_ACTION/REDO_ACTION are now logged
   // entries, so the narration log needs its own line for them instead of
   // (as with the old truncation-based undo) the history simply getting
