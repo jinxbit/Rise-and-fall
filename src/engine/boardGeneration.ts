@@ -1,6 +1,6 @@
-import { createEmptyBoard, getTile, neighborCoords, setTile } from './board'
-import type { Board, Coordinate, Terrain } from './types'
-import { coordKey } from './types'
+import { createEmptyBoard, getTile, neighborCoords, setTile } from './board.ts'
+import type { Board, Coordinate, Terrain } from './types.ts'
+import { coordKey } from './types.ts'
 
 // --- shape geometry ----------------------------------------------------------
 

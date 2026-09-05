@@ -1,7 +1,7 @@
-import { beginBoardSetup, beginBoardSetupWithPresetBoard } from './boardSetup'
-import type { BoardGenerationContent } from './boardGenerationContent'
-import { createPlayerCards } from './cards'
-import type { Board, Card, GameState, PlayMode, Player, Resources } from './types'
+import { beginBoardSetup, beginBoardSetupWithPresetBoard } from './boardSetup.ts'
+import type { BoardGenerationContent } from './boardGenerationContent.ts'
+import { createPlayerCards } from './cards.ts'
+import type { Board, Card, GameState, PlayMode, Player, Resources } from './types.ts'
 
 export interface PlayerSeed {
   id: string

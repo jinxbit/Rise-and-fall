@@ -11,20 +11,19 @@
 // is far too much surface (applyAction.ts alone is ~700 lines, with a dozen
 // more files behind it) to duplicate safely.
 //
-// This relies on two things that could not be verified in the sandbox this
-// was written in (no Deno CLI, no live Supabase project to deploy against —
-// same limitation RULE_ENFORCEMENT_PLAN.md §9 already calls out for this
-// whole phase): (1) that the Supabase Edge Runtime, given
-// `deno.json`'s `"unstable": ["sloppy-imports"]` (set per-function — see
-// apply-action/deno.json etc.), resolves `src/engine/`'s extensionless
-// relative imports (e.g. `from './cards'`) the same way `deno check --unstable-sloppy-imports`
-// does locally; (2) that `src/content/*.json` imports resolve without an
-// explicit `with { type: 'json' }` attribute for local relative files. If
-// deploying any of these three functions fails on either point, the fallback
-// is adding that import-attribute to `src/content/resolveContent.ts`
-// (Deno's requirement, not this repo's) or, failing that, porting the
-// specific failing files the way notify-discord-turn already ported
-// turnOrder.ts's pendingActorIds.
+// Verified (2026-09-05) against a local `supabase start` stack that both of
+// this file's original two open questions were real deploy blockers, now
+// fixed — see RULE_ENFORCEMENT_PLAN.md §8 phase 6 for the full story:
+// (1) the Edge Runtime does NOT honor `sloppy-imports` (tried per-function
+// deno.json, a workspace-root one, every placement) — `src/engine/`'s own
+// internal relative imports (e.g. `from './cards'`) all needed an explicit
+// `.ts` extension instead, safe here since `tsconfig.app.json` already sets
+// `allowImportingTsExtensions`; (2) `src/content/*.json` imports did need
+// the `with { type: 'json' }` attribute (added to `resolveContent.ts`).
+// With both fixed, all three functions boot and were smoke-tested against a
+// real local project (auth, authorization 403, a legal action's CAS write,
+// undo/redo). Not yet done: against an actually-deployed (not local)
+// project, and a genuine two-browser session — still phase 9.
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2'
 import { applyActionAndFastForwardTiles, fastForwardPendingChoices } from '../../../src/engine/applyAction.ts'
 import type { Action, LoggedAction } from '../../../src/engine/actions.ts'

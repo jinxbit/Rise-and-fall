@@ -6,7 +6,7 @@
 // intentionally open-ended (string ids resolved against a content table)
 // rather than hardcoding every card/unit as a literal type.
 
-import type { LoggedAction } from './actions'
+import type { LoggedAction } from './actions.ts'
 
 export type PlayMode = 'live' | 'async' | 'hotseat'
 

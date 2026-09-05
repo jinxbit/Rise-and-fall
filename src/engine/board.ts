@@ -1,5 +1,5 @@
-import type { Board, BoardShape, Coordinate, Terrain, Tile } from './types'
-import { coordKey } from './types'
+import type { Board, BoardShape, Coordinate, Terrain, Tile } from './types.ts'
+import { coordKey } from './types.ts'
 
 export function createEmptyBoard(shape: BoardShape): Board {
   return { shape, tiles: {} }

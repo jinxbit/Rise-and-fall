@@ -1,5 +1,5 @@
-import type { AchievementContent } from './achievementContent'
-import type { GameState } from './types'
+import type { AchievementContent } from './achievementContent.ts'
+import type { GameState } from './types.ts'
 
 function countUnitsOfKind(state: GameState, playerId: string, kind: string): number {
   return state.units.filter((u) => u.ownerId === playerId && u.kind === kind).length

@@ -1,4 +1,4 @@
-import type { GameState } from './types'
+import type { GameState } from './types.ts'
 
 /**
  * Generates a unique id from a counter carried in `GameState` itself,

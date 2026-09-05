@@ -1,5 +1,5 @@
-import type { UnitAction } from './unitContent'
-import type { UnitMovement } from './types'
+import type { UnitAction } from './unitContent.ts'
+import type { UnitMovement } from './types.ts'
 
 /**
  * A Tale-contributed "companion piece" unit kind — has no Civilization

@@ -1,4 +1,4 @@
-import { getTile } from './board'
+import { getTile } from './board.ts'
 import {
   applyTilePlacement,
   canPlaceRemainingTilesDetailed,
@@ -7,14 +7,14 @@ import {
   seedStartingWaterTiles,
   touchesEnoughExistingTerrain,
   wouldEncloseEmptyHexes,
-} from './boardGeneration'
-import type { RoomCheckDiagnostics } from './boardGeneration'
-import type { BoardGenerationContent, TileTierContent } from './boardGenerationContent'
-import { syncCardZonesWithBoard } from './cards'
-import { nextSequenceId } from './idSequence'
-import { beginSelectCardsPhase } from './round'
-import type { ActionResult, Board, BoardSetupState, Coordinate, GameState, Terrain, Unit } from './types'
-import type { UnitContent } from './unitContent'
+} from './boardGeneration.ts'
+import type { RoomCheckDiagnostics } from './boardGeneration.ts'
+import type { BoardGenerationContent, TileTierContent } from './boardGenerationContent.ts'
+import { syncCardZonesWithBoard } from './cards.ts'
+import { nextSequenceId } from './idSequence.ts'
+import { beginSelectCardsPhase } from './round.ts'
+import type { ActionResult, Board, BoardSetupState, Coordinate, GameState, Terrain, Unit } from './types.ts'
+import type { UnitContent } from './unitContent.ts'
 
 /** Per ruling: every player's three starting units, one of each kind. */
 const STARTING_UNIT_KINDS = ['city', 'nomad', 'ship'] as const

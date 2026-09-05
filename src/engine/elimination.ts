@@ -1,4 +1,4 @@
-import type { GameState, Resources } from './types'
+import type { GameState, Resources } from './types.ts'
 
 /**
  * Rule: a player is eliminated if they have to play a card — choosing one

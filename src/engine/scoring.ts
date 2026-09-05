@@ -1,6 +1,6 @@
-import { neighborCoords } from './board'
-import type { Board, Coordinate, Tile, Unit } from './types'
-import { coordKey } from './types'
+import { neighborCoords } from './board.ts'
+import type { Board, Coordinate, Tile, Unit } from './types.ts'
+import { coordKey } from './types.ts'
 
 /**
  * Victory-point source 3 (terrain control): the board is partitioned into

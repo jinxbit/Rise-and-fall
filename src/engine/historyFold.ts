@@ -1,4 +1,4 @@
-import type { LoggedAction } from './actions'
+import type { LoggedAction } from './actions.ts'
 
 /**
  * The result of folding UNDO_ACTION/REDO_ACTION entries out of a raw

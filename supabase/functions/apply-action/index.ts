@@ -5,8 +5,8 @@
 // Most of the actual logic (seat resolution, the §4.1/§4.4/§4.5
 // authorization checks, content resolution, the compare-and-swap write) is
 // shared with the other two functions — see ../_shared/gameEnforcement.ts,
-// including that file's own doc comment on what couldn't be verified in the
-// sandbox this was written in (no Deno CLI, no live Supabase project).
+// including that file's own doc comment on this function's local-stack
+// verification and the two deploy blockers it found and fixed.
 //
 // Deliberately does NOT flip game_state's RLS to service-role-only (§6:
 // that's phase 8, landing together with gameApi.ts's rewire) — clients can
