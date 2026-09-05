@@ -30,6 +30,23 @@ jobs:
         with:
           fetch-depth: 1
 
+      # These two give Claude a working local Supabase stack to test against
+      # (this GitHub Actions runner has a real Docker daemon, unlike Claude's
+      # own sandbox) — install the CLIs here, but let Claude itself decide
+      # when to run `supabase start`/`db push`/`functions serve` via its
+      # allowed Bash tools below, rather than always paying the Docker-image
+      # pull cost on every @claude mention regardless of whether it touches
+      # supabase/.
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Install Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
       - name: Run Claude Code
         id: claude
         uses: anthropics/claude-code-action@v1
@@ -46,5 +63,5 @@ jobs:
           # Optional: Add claude_args to customize behavior and configuration
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://code.claude.com/docs/en/cli-reference for available options
-          claude_args: '  --allowedTools "Bash(git fetch:*),Bash(git merge:*),Bash(npm:*),Bash(npx vitest:*),Bash(gh pr:*),Bash(gh issue:*)"'
+          claude_args: '  --allowedTools "Bash(git fetch:*),Bash(git merge:*),Bash(npm:*),Bash(npx vitest:*),Bash(gh pr:*),Bash(gh issue:*),Bash(supabase:*),Bash(deno:*),Bash(curl:*)"'
 
