@@ -71,4 +71,17 @@ describe('gameStateCompression', () => {
 
     expect(decompressed).toBe(state)
   })
+
+  it('duplicates status/roundPhase/turn/pendingPlayerIds/turnOrder/boardSetup in plaintext, for the game_state_sync_meta trigger to read (issue #451)', async () => {
+    const state = buildGenesisState(makeGame({}, { mapTemplateId: 'classic' }), makePlayers())
+
+    const compressed = await compressGameStateForStorage(state)
+
+    expect(compressed.status).toBe(state.status)
+    expect(compressed.roundPhase).toBe(state.roundPhase)
+    expect(compressed.turn).toBe(state.turn)
+    expect(compressed.pendingPlayerIds).toEqual(state.pendingPlayerIds)
+    expect(compressed.turnOrder).toEqual(state.turnOrder)
+    expect(compressed.boardSetup).toEqual(state.boardSetup)
+  })
 })
