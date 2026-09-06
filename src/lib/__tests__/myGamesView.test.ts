@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { buildGenesisState } from '../gameGenesis'
 import {
   formatUpdatedAt,
   groupMyGames,
@@ -10,8 +9,8 @@ import {
   pendingActorIds,
   type MyGameEntry,
 } from '../myGamesView'
+import type { GameStateSummary } from '../gameCardView'
 import type { GameRow, GameSettings, PlayerRow } from '../dbTypes'
-import type { GameState as EngineGameState } from '../../engine/types'
 
 function makeGame(overrides: Partial<GameRow> = {}, settingsOverrides: Partial<GameSettings> = {}): GameRow {
   return {
@@ -54,10 +53,8 @@ function makePlayers(gameId: string): PlayerRow[] {
   ]
 }
 
-/** A genesis state (from the real builder, so pendingActorIds() has everything it needs) forced past board setup into the plain `active` round loop. */
-function makeActiveState(overrides: Partial<EngineGameState> = {}): EngineGameState {
-  const genesis = buildGenesisState(makeGame({}, { mapTemplateId: 'classic' }), makePlayers('game_1'))
-  return { ...genesis, status: 'active', pendingPlayerIds: [], activePlayerId: 'p1', ...overrides }
+function makeSummary(overrides: Partial<GameStateSummary> = {}): GameStateSummary {
+  return { status: 'active', roundPhase: 'actions', turn: 1, activePlayerId: 'p1', ...overrides }
 }
 
 function makeEntry(overrides: Partial<MyGameEntry> = {}): MyGameEntry {
@@ -66,7 +63,7 @@ function makeEntry(overrides: Partial<MyGameEntry> = {}): MyGameEntry {
   return {
     game,
     players,
-    gameState: makeActiveState(),
+    stateSummary: makeSummary(),
     gameStateUpdatedAt: null,
     myPlayerIds: ['p1'],
     ...overrides,
@@ -75,19 +72,19 @@ function makeEntry(overrides: Partial<MyGameEntry> = {}): MyGameEntry {
 
 describe('myGameStatus', () => {
   it('reports lobby for a game with no state yet', () => {
-    expect(myGameStatus(makeEntry({ gameState: null }))).toBe('lobby')
+    expect(myGameStatus(makeEntry({ stateSummary: null }))).toBe('lobby')
   })
 
-  it('reads the status off gameState, not games.status (which never records boardSetup/completed)', () => {
-    expect(myGameStatus(makeEntry({ gameState: makeActiveState({ status: 'completed' }) }))).toBe('completed')
+  it('reads the status off stateSummary, not games.status (which never records boardSetup/completed)', () => {
+    expect(myGameStatus(makeEntry({ stateSummary: makeSummary({ status: 'completed', roundPhase: null }) }))).toBe('completed')
   })
 
-  it('reports canceled off games.status even with a live (pre-cancel) gameState', () => {
+  it('reports canceled off games.status even with a live (pre-cancel) stateSummary', () => {
     expect(myGameStatus(makeEntry({ game: makeGame({ status: 'canceled' }) }))).toBe('canceled')
   })
 
-  it('reports canceled for a room canceled before it ever started (no gameState row yet)', () => {
-    expect(myGameStatus(makeEntry({ game: makeGame({ status: 'canceled' }), gameState: null }))).toBe('canceled')
+  it('reports canceled for a room canceled before it ever started (no stateSummary row yet)', () => {
+    expect(myGameStatus(makeEntry({ game: makeGame({ status: 'canceled' }), stateSummary: null }))).toBe('canceled')
   })
 })
 
@@ -96,8 +93,8 @@ describe('isFinished', () => {
     expect(isFinished(makeEntry())).toBe(false)
   })
 
-  it('is true once gameState.status is completed', () => {
-    expect(isFinished(makeEntry({ gameState: makeActiveState({ status: 'completed' }) }))).toBe(true)
+  it('is true once stateSummary.status is completed', () => {
+    expect(isFinished(makeEntry({ stateSummary: makeSummary({ status: 'completed', roundPhase: null }) }))).toBe(true)
   })
 
   it('is false for a canceled game', () => {
@@ -117,82 +114,43 @@ describe('isCanceled', () => {
 
 describe('isMyTurn', () => {
   it('is false with no game_state row yet (lobby)', () => {
-    expect(isMyTurn(makeEntry({ gameState: null, myPlayerIds: ['p1'] }))).toBe(false)
+    expect(isMyTurn(makeEntry({ stateSummary: null, myPlayerIds: ['p1'] }))).toBe(false)
   })
 
   it('is true when one of my seats is the active player', () => {
-    expect(
-      isMyTurn(makeEntry({ myPlayerIds: ['p1'], gameState: makeActiveState({ roundPhase: 'actions', activePlayerId: 'p1' }) })),
-    ).toBe(true)
+    expect(isMyTurn(makeEntry({ myPlayerIds: ['p1'], stateSummary: makeSummary({ activePlayerId: 'p1' }) }))).toBe(true)
   })
 
   it('is false when a different seat is active', () => {
-    expect(
-      isMyTurn(makeEntry({ myPlayerIds: ['p1'], gameState: makeActiveState({ roundPhase: 'actions', activePlayerId: 'p2' }) })),
-    ).toBe(false)
+    expect(isMyTurn(makeEntry({ myPlayerIds: ['p1'], stateSummary: makeSummary({ activePlayerId: 'p2' }) }))).toBe(false)
   })
 
   it('checks every seat I hold, e.g. a hotseat host with several local players', () => {
-    expect(
-      isMyTurn(
-        makeEntry({ myPlayerIds: ['p1', 'p2'], gameState: makeActiveState({ roundPhase: 'actions', activePlayerId: 'p2' }) }),
-      ),
-    ).toBe(true)
+    expect(isMyTurn(makeEntry({ myPlayerIds: ['p1', 'p2'], stateSummary: makeSummary({ activePlayerId: 'p2' }) }))).toBe(true)
   })
 
-  // Regression for issue #301: it's turn order (not simultaneous), so a
-  // player still waiting further down pendingPlayerIds must NOT show as
-  // "my turn" just because they're in the queue.
-  it('is false for a player still queued behind the active player in a turn-order phase', () => {
+  // GameStateSummary can't tell who's pending during a simultaneous
+  // selectCards/decline phase (issue #441 — no cheap projection of
+  // state.pendingPlayerIds exists), so it deliberately reports "not my
+  // turn" rather than guessing.
+  it('is false during a simultaneous phase, even if I am really one of the pending players', () => {
     expect(
-      isMyTurn(
-        makeEntry({
-          myPlayerIds: ['p1'],
-          gameState: makeActiveState({ roundPhase: 'actions', activePlayerId: 'p2', pendingPlayerIds: ['p2', 'p1'] }),
-        }),
-      ),
+      isMyTurn(makeEntry({ myPlayerIds: ['p1'], stateSummary: makeSummary({ roundPhase: 'selectCards', activePlayerId: null }) })),
     ).toBe(false)
-  })
-
-  it('is true for a simultaneous phase when I am one of the pending players', () => {
-    expect(
-      isMyTurn(
-        makeEntry({
-          myPlayerIds: ['p2'],
-          gameState: makeActiveState({ activePlayerId: null, pendingPlayerIds: ['p1', 'p2'] }),
-        }),
-      ),
-    ).toBe(true)
   })
 })
 
 describe('pendingActorIds', () => {
   it('is empty with no game_state row yet (lobby)', () => {
-    expect(pendingActorIds(makeEntry({ gameState: null }))).toEqual([])
+    expect(pendingActorIds(makeEntry({ stateSummary: null }))).toEqual([])
   })
 
   it('returns the active player when one player is up', () => {
-    expect(
-      pendingActorIds(makeEntry({ gameState: makeActiveState({ roundPhase: 'actions', activePlayerId: 'p2' }) })),
-    ).toEqual(['p2'])
-  })
-
-  it('returns only the active player in a turn-order phase, even with others still queued', () => {
-    expect(
-      pendingActorIds(
-        makeEntry({ gameState: makeActiveState({ roundPhase: 'actions', activePlayerId: 'p2', pendingPlayerIds: ['p2', 'p1'] }) }),
-      ),
-    ).toEqual(['p2'])
-  })
-
-  it('returns every pending player during a simultaneous phase', () => {
-    expect(
-      pendingActorIds(makeEntry({ gameState: makeActiveState({ activePlayerId: null, pendingPlayerIds: ['p1', 'p2'] }) })),
-    ).toEqual(['p1', 'p2'])
+    expect(pendingActorIds(makeEntry({ stateSummary: makeSummary({ activePlayerId: 'p2' }) }))).toEqual(['p2'])
   })
 
   it('is empty once the game is completed', () => {
-    expect(pendingActorIds(makeEntry({ gameState: makeActiveState({ status: 'completed' }) }))).toEqual([])
+    expect(pendingActorIds(makeEntry({ stateSummary: makeSummary({ status: 'completed', roundPhase: null }) }))).toEqual([])
   })
 })
 
@@ -222,14 +180,13 @@ describe('formatUpdatedAt', () => {
 
 describe('groupMyGames', () => {
   it('splits active, finished, and canceled games', () => {
-    const activeEntry = makeEntry({ game: makeGame({ id: 'g1', room_code: 'AAAAA' }), gameState: makeActiveState() })
+    const activeEntry = makeEntry({ game: makeGame({ id: 'g1', room_code: 'AAAAA' }) })
     const finishedEntry = makeEntry({
       game: makeGame({ id: 'g2', room_code: 'BBBBB' }),
-      gameState: makeActiveState({ status: 'completed' }),
+      stateSummary: makeSummary({ status: 'completed', roundPhase: null }),
     })
     const canceledEntry = makeEntry({
       game: makeGame({ id: 'g3', room_code: 'CCCCC', status: 'canceled' }),
-      gameState: makeActiveState(),
     })
 
     const { active, finished, canceled } = groupMyGames([activeEntry, finishedEntry, canceledEntry])
@@ -243,17 +200,17 @@ describe('groupMyGames', () => {
     const notMyTurn = makeEntry({
       game: makeGame({ id: 'g1', room_code: 'AAAAA', updated_at: '2026-01-03T00:00:00Z' }),
       myPlayerIds: ['p1'],
-      gameState: makeActiveState({ roundPhase: 'actions', activePlayerId: 'p2' }),
+      stateSummary: makeSummary({ activePlayerId: 'p2' }),
     })
     const myTurnOlder = makeEntry({
       game: makeGame({ id: 'g2', room_code: 'BBBBB', updated_at: '2026-01-01T00:00:00Z' }),
       myPlayerIds: ['p1'],
-      gameState: makeActiveState({ roundPhase: 'actions', activePlayerId: 'p1' }),
+      stateSummary: makeSummary({ activePlayerId: 'p1' }),
     })
     const myTurnNewer = makeEntry({
       game: makeGame({ id: 'g3', room_code: 'CCCCC', updated_at: '2026-01-02T00:00:00Z' }),
       myPlayerIds: ['p1'],
-      gameState: makeActiveState({ roundPhase: 'actions', activePlayerId: 'p1' }),
+      stateSummary: makeSummary({ activePlayerId: 'p1' }),
     })
 
     const { active } = groupMyGames([notMyTurn, myTurnOlder, myTurnNewer])
@@ -264,11 +221,11 @@ describe('groupMyGames', () => {
   it('sorts finished games most-recently-updated first', () => {
     const older = makeEntry({
       game: makeGame({ id: 'g1', room_code: 'AAAAA', updated_at: '2026-01-01T00:00:00Z' }),
-      gameState: makeActiveState({ status: 'completed' }),
+      stateSummary: makeSummary({ status: 'completed', roundPhase: null }),
     })
     const newer = makeEntry({
       game: makeGame({ id: 'g2', room_code: 'BBBBB', updated_at: '2026-01-05T00:00:00Z' }),
-      gameState: makeActiveState({ status: 'completed' }),
+      stateSummary: makeSummary({ status: 'completed', roundPhase: null }),
     })
 
     const { finished } = groupMyGames([older, newer])
@@ -280,12 +237,12 @@ describe('groupMyGames', () => {
     // g1 started (left the lobby) before g2 but ran longer, so it actually finished after g2.
     const startedEarlyFinishedLate = makeEntry({
       game: makeGame({ id: 'g1', room_code: 'AAAAA', updated_at: '2026-01-01T00:00:00Z' }),
-      gameState: makeActiveState({ status: 'completed' }),
+      stateSummary: makeSummary({ status: 'completed', roundPhase: null }),
       gameStateUpdatedAt: '2026-01-10T00:00:00Z',
     })
     const startedLateFinishedEarly = makeEntry({
       game: makeGame({ id: 'g2', room_code: 'BBBBB', updated_at: '2026-01-05T00:00:00Z' }),
-      gameState: makeActiveState({ status: 'completed' }),
+      stateSummary: makeSummary({ status: 'completed', roundPhase: null }),
       gameStateUpdatedAt: '2026-01-06T00:00:00Z',
     })
 

@@ -145,7 +145,7 @@ function RoomSection({
                 ? `${entry.players.length}/${entry.game.max_players} players · ${entry.game.visibility}`
                 : entry.game.visibility
             }
-            phase={describeGamePhase(entry.game, entry.gameState)}
+            phase={describeGamePhase(entry.game, entry.stateSummary)}
             players={entry.players}
             pendingPlayerIds={pendingActorIds(entry)}
             isMyTurn={isMyTurn(entry, userId)}
@@ -153,7 +153,7 @@ function RoomSection({
             isJoinable={isJoinable(entry)}
             updatedAt={formatUpdatedAt(latestUpdatedAt(entry.game, entry.gameStateUpdatedAt))}
             action={renderAction(entry)}
-            summary={buildGameCardSummary(entry.game, entry.gameState, entry.players)}
+            summary={buildGameCardSummary(entry.game, entry.stateSummary)}
             onOpen={() => onOpen(entry)}
           />
         ))}

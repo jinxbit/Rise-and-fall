@@ -4,14 +4,15 @@
 // from listMyGames, so grouping/status classification can be unit tested
 // without a real Supabase project.
 
-import type { GameState as EngineGameState } from '../engine/types'
 import type { GameRow, PlayerRow } from './dbTypes'
-import { isMyTurnFor, latestUpdatedAt, pendingActorIdsFor } from './gameCardView'
+import { isMyTurnFor, latestUpdatedAt, pendingActorIdsFor, type GameStateSummary } from './gameCardView'
 
 /**
  * One publicly-listed room, plus everything the list view needs to render
- * it. `gameState` is null while the room is still in the lobby, same as
- * MyGameEntry (see myGamesView.ts). listPublicRooms() (gameApi.ts) already
+ * it. `stateSummary` is null while the room is still in the lobby, same as
+ * MyGameEntry (see myGamesView.ts) — see GameStateSummary's doc comment
+ * (gameCardView.ts) for exactly what it can and can't answer compared to the
+ * full GameState this used to carry. listPublicRooms() (gameApi.ts) already
  * excludes canceled rooms — issue section 5: "Canceled and Deleted rooms do
  * not appear in the listing" — so unlike MyGameEntry there's no canceled
  * case to classify here.
@@ -19,8 +20,8 @@ import { isMyTurnFor, latestUpdatedAt, pendingActorIdsFor } from './gameCardView
 export interface PublicRoomEntry {
   game: GameRow
   players: PlayerRow[]
-  gameState: EngineGameState | null
-  /** game_state.updated_at (null alongside gameState while still in the lobby) — see gameCardView.ts's latestUpdatedAt. */
+  stateSummary: GameStateSummary | null
+  /** game_state_meta.updated_at (null alongside stateSummary while still in the lobby) — see gameCardView.ts's latestUpdatedAt. */
   gameStateUpdatedAt: string | null
 }
 
@@ -28,13 +29,13 @@ export interface PublicRoomEntry {
  * The three buckets the Public Rooms screen groups by (issue section 5).
  * games.status can't tell "In Progress" from "Finished" apart on its own
  * (see dbTypes.ts's GameRow comment) — that distinction only exists once a
- * game_state row exists, via `gameState.status`.
+ * game_state row exists, via `stateSummary.status`.
  */
 export type PublicRoomBucket = 'notStarted' | 'inProgress' | 'finished'
 
 export function publicRoomBucket(entry: PublicRoomEntry): PublicRoomBucket {
   if (entry.game.status === 'lobby') return 'notStarted'
-  return entry.gameState?.status === 'completed' ? 'finished' : 'inProgress'
+  return entry.stateSummary?.status === 'completed' ? 'finished' : 'inProgress'
 }
 
 /** Joinable per issue section 4: Active and Not Started, with a free seat. */
@@ -47,15 +48,15 @@ export function isObservable(entry: PublicRoomEntry): boolean {
   return publicRoomBucket(entry) === 'inProgress'
 }
 
-/** The seated players who must act next, or `[]` if nobody's turn is pending (lobby/finished). */
+/** The seated players who must act next, or `[]` if nobody's turn is pending (lobby/finished) — see pendingActorIdsFor's doc comment for what it can't see. */
 export function pendingActorIds(entry: PublicRoomEntry): string[] {
-  return pendingActorIdsFor(entry.gameState)
+  return pendingActorIdsFor(entry.stateSummary)
 }
 
 /** True if any of `userId`'s seats in this room is one of the players pendingActorIds() says must act next. */
 export function isMyTurn(entry: PublicRoomEntry, userId: string): boolean {
   const myPlayerIds = entry.players.filter((p) => p.user_id === userId).map((p) => p.id)
-  return isMyTurnFor(entry.gameState, myPlayerIds)
+  return isMyTurnFor(entry.stateSummary, myPlayerIds)
 }
 
 /** True if userId is seated in this room, in any seat. */

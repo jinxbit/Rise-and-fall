@@ -1,11 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { resolveAchievementContent, resolveTaleContent } from '../../content/resolveContent'
 import { createEmptyBoard } from '../../engine/board'
-import { createNewGame } from '../../engine/createGame'
-import { calculateVPBreakdown } from '../../engine/victoryPoints'
-import type { GameState as EngineGameState } from '../../engine/types'
-import { buildGameCardSummary, describeGamePhase, formatFinishedAt, latestUpdatedAt } from '../gameCardView'
-import type { GameRow, GameSettings, PlayerRow } from '../dbTypes'
+import type { RoundPhase } from '../../engine/types'
+import { buildGameCardSummary, describeGamePhase, formatFinishedAt, isMyTurnFor, latestUpdatedAt, pendingActorIdsFor, type GameStateSummary } from '../gameCardView'
+import type { GameRow, GameSettings } from '../dbTypes'
 
 function makeSettings(overrides: Partial<GameSettings> = {}): GameSettings {
   return {
@@ -45,67 +42,32 @@ function makeGame(overrides: Partial<GameRow> = {}, settingsOverrides: Partial<G
   }
 }
 
-function makePlayerRow(id: string, displayName: string, color = '#ef4444'): PlayerRow {
-  return {
-    id,
-    game_id: 'game_1',
-    user_id: id,
-    display_name: displayName,
-    avatar_url: null,
-    seat_index: 0,
-    color,
-    is_active: true,
-    joined_at: '',
-    ready_for_version: 0,
-  }
-}
-
-function makeGameState(overrides: Partial<EngineGameState> = {}): EngineGameState {
-  const state = createNewGame({
-    gameId: 'game_1',
-    playMode: 'live',
-    board: createEmptyBoard('hex'),
-    players: [
-      { id: 'p1', authUserId: 'p1', displayName: 'Alice', color: '#ef4444' },
-      { id: 'p2', authUserId: 'p2', displayName: 'Bob', color: '#3b82f6' },
-    ],
-  })
-  return { ...state, status: 'active', ...overrides }
+function makeSummary(overrides: Partial<GameStateSummary> = {}): GameStateSummary {
+  return { status: 'active', roundPhase: 'actions', turn: 1, activePlayerId: 'p1', ...overrides }
 }
 
 describe('buildGameCardSummary', () => {
-  it('shows pregame info (player range, map build style) and no scores/round while the game has not started', () => {
+  it('shows pregame info (player range, map build style) and no round number while the game has not started', () => {
     const game = makeGame({ min_players: 2, max_players: 4 })
-    const summary = buildGameCardSummary(game, null, [])
+    const summary = buildGameCardSummary(game, null)
 
     expect(summary.playerRange).toBe('2–4 players')
     expect(summary.mapBuildStyle).toBe('Interactive (built together)')
     expect(summary.roundNumber).toBeNull()
-    expect(summary.scores).toBeNull()
   })
 
-  it('clears pregame info once a GameState exists, and reports the round number instead', () => {
+  it('clears pregame info once a GameStateSummary exists, and reports the round number instead', () => {
     const game = makeGame()
-    const state = makeGameState({ turn: 3 })
-    const summary = buildGameCardSummary(game, state, [])
+    const summary = buildGameCardSummary(game, makeSummary({ turn: 3 }))
 
     expect(summary.playerRange).toBeNull()
     expect(summary.mapBuildStyle).toBeNull()
     expect(summary.roundNumber).toBe(3)
   })
 
-  it('does not crash and reports no scores when a persisted GameState is missing its players array (issue #389)', () => {
-    const game = makeGame()
-    const state = makeGameState()
-    const malformedState = { ...state, players: undefined } as unknown as EngineGameState
-    const summary = buildGameCardSummary(game, malformedState, [])
-
-    expect(summary.scores).toBeNull()
-  })
-
   it('resolves active Tale ids to their names, falling back to the id for an unknown one', () => {
     const game = makeGame({}, { activeTaleIds: ['the-capital', 'not-a-real-tale'] })
-    const summary = buildGameCardSummary(game, null, [])
+    const summary = buildGameCardSummary(game, null)
 
     expect(summary.moduleNames).toEqual(['The Capital', 'not-a-real-tale'])
   })
@@ -113,64 +75,28 @@ describe('buildGameCardSummary', () => {
   describe('mapBuildStyle', () => {
     it('names a map template when one is chosen', () => {
       const game = makeGame({}, { mapTemplateId: 'classic' })
-      expect(buildGameCardSummary(game, null, []).mapBuildStyle).not.toBe('Interactive (built together)')
+      expect(buildGameCardSummary(game, null).mapBuildStyle).not.toBe('Interactive (built together)')
     })
 
     it('labels a saved-pool board as a random saved map', () => {
       const game = makeGame({}, { mapPoolBoard: createEmptyBoard('hex') })
-      expect(buildGameCardSummary(game, null, []).mapBuildStyle).toBe('Random saved map')
+      expect(buildGameCardSummary(game, null).mapBuildStyle).toBe('Random saved map')
     })
 
     it('labels random-at-start mode', () => {
       const game = makeGame({}, { mapPoolRandomAtStart: true })
-      expect(buildGameCardSummary(game, null, []).mapBuildStyle).toBe('Random saved map (picked at start)')
+      expect(buildGameCardSummary(game, null).mapBuildStyle).toBe('Random saved map (picked at start)')
     })
 
     it('labels solo-build mode by the owner', () => {
       const game = makeGame({}, { soloBuildMap: true, soloBuilderSelection: 'owner' })
-      expect(buildGameCardSummary(game, null, []).mapBuildStyle).toBe('Interactive (built alone by the host)')
+      expect(buildGameCardSummary(game, null).mapBuildStyle).toBe('Interactive (built alone by the host)')
     })
 
     it('labels solo-build mode by a random player', () => {
       const game = makeGame({}, { soloBuildMap: true, soloBuilderSelection: 'random' })
-      expect(buildGameCardSummary(game, null, []).mapBuildStyle).toBe('Interactive (built alone by a random player)')
+      expect(buildGameCardSummary(game, null).mapBuildStyle).toBe('Interactive (built alone by a random player)')
     })
-  })
-
-  it('computes each seated player\'s current total VP once a GameState exists, joined with their PlayerRow name/color', () => {
-    const game = makeGame()
-    const base = makeGameState()
-    const state = { ...base, players: [{ ...base.players[0], resources: { gold: 5, wood: 0, stone: 0 } }, base.players[1]] }
-    const players = [makePlayerRow('p1', 'Alice Row', '#ef4444'), makePlayerRow('p2', 'Bob Row', '#3b82f6')]
-    const summary = buildGameCardSummary(game, state, players)
-
-    const achievementContent = resolveAchievementContent(state.gameLength)
-    const taleContent = resolveTaleContent(state.activeTaleIds, state.players.length)
-    const expectedBreakdown = calculateVPBreakdown(state, achievementContent, taleContent)
-
-    expect(summary.scores).toEqual([
-      { playerId: 'p1', name: 'Alice Row', color: '#ef4444', score: expectedBreakdown.p1.total, isWinner: false },
-      { playerId: 'p2', name: 'Bob Row', color: '#3b82f6', score: expectedBreakdown.p2.total, isWinner: false },
-    ])
-  })
-
-  it('falls back to the engine player\'s own displayName/color when no matching PlayerRow is given', () => {
-    const game = makeGame()
-    const state = makeGameState()
-    const summary = buildGameCardSummary(game, state, [])
-
-    expect(summary.scores?.map((s) => s.name)).toEqual(['Alice', 'Bob'])
-  })
-
-  it('marks the winning score(s) once the game has finished, and marks none otherwise', () => {
-    const game = makeGame()
-    const players = [makePlayerRow('p1', 'Alice Row'), makePlayerRow('p2', 'Bob Row')]
-
-    const inProgress = makeGameState({ winnerPlayerIds: [] })
-    expect(buildGameCardSummary(game, inProgress, players).scores?.map((s) => s.isWinner)).toEqual([false, false])
-
-    const finished = makeGameState({ status: 'completed', winnerPlayerIds: ['p2'] })
-    expect(buildGameCardSummary(game, finished, players).scores?.map((s) => s.isWinner)).toEqual([false, true])
   })
 })
 
@@ -205,16 +131,16 @@ describe('describeGamePhase', () => {
     expect(describeGamePhase(makeGame({ status: 'lobby' }), null)).toBe('Waiting in lobby')
   })
 
-  it('reports canceled off games.status even with a live (pre-cancel) gameState', () => {
-    expect(describeGamePhase(makeGame({ status: 'canceled' }), makeGameState())).toBe('Canceled')
+  it('reports canceled off games.status even with a live (pre-cancel) summary', () => {
+    expect(describeGamePhase(makeGame({ status: 'canceled' }), makeSummary())).toBe('Canceled')
   })
 
   it('reports board setup', () => {
-    expect(describeGamePhase(makeGame(), makeGameState({ status: 'boardSetup' }))).toBe('Setting up board')
+    expect(describeGamePhase(makeGame(), makeSummary({ status: 'boardSetup', roundPhase: null }))).toBe('Setting up board')
   })
 
-  it('reports finished once gameState.status is completed', () => {
-    expect(describeGamePhase(makeGame(), makeGameState({ status: 'completed' }))).toBe('Finished')
+  it('reports finished once the summary status is completed', () => {
+    expect(describeGamePhase(makeGame(), makeSummary({ status: 'completed', roundPhase: null }))).toBe('Finished')
   })
 
   it.each([
@@ -222,7 +148,56 @@ describe('describeGamePhase', () => {
     ['actions', 'Resolving actions'],
     ['decline', 'Declining cards'],
     ['purchase', 'Purchasing'],
-  ] as const)('reports the round phase %s as %s while active', (roundPhase, label) => {
-    expect(describeGamePhase(makeGame(), makeGameState({ roundPhase }))).toBe(label)
+  ] as const)('reports the round phase %s as %s while active', (roundPhase: RoundPhase, label: string) => {
+    expect(describeGamePhase(makeGame(), makeSummary({ roundPhase }))).toBe(label)
+  })
+})
+
+describe('pendingActorIdsFor', () => {
+  it('is empty with no game_state row yet (lobby)', () => {
+    expect(pendingActorIdsFor(null)).toEqual([])
+  })
+
+  it('returns the active player during a turn-order phase', () => {
+    expect(pendingActorIdsFor(makeSummary({ roundPhase: 'actions', activePlayerId: 'p2' }))).toEqual(['p2'])
+  })
+
+  it('is empty once the game is completed', () => {
+    expect(pendingActorIdsFor(makeSummary({ status: 'completed', roundPhase: null }))).toEqual([])
+  })
+
+  // GameStateSummary doesn't carry state.pendingPlayerIds (issue #441 — no
+  // cheap projection of it exists), so a simultaneous phase can't report who
+  // specifically is still pending; it deliberately reports nobody rather
+  // than guessing (a listing card's turn highlighting goes silent here,
+  // never a false positive).
+  it('is empty during a simultaneous selectCards/decline phase, even though someone is really pending', () => {
+    expect(pendingActorIdsFor(makeSummary({ roundPhase: 'selectCards', activePlayerId: null }))).toEqual([])
+    expect(pendingActorIdsFor(makeSummary({ roundPhase: 'decline', activePlayerId: null }))).toEqual([])
+  })
+
+  // Same reasoning for boardSetup: the current tile/unit placer isn't
+  // denormalized anywhere (see engine/boardSetup.ts), so this can't recover
+  // it from GameStateSummary alone.
+  it('is empty during board setup, even though someone is really placing', () => {
+    expect(pendingActorIdsFor(makeSummary({ status: 'boardSetup', roundPhase: null }))).toEqual([])
+  })
+})
+
+describe('isMyTurnFor', () => {
+  it('is true when one of my seats is the active player', () => {
+    expect(isMyTurnFor(makeSummary({ roundPhase: 'actions', activePlayerId: 'p1' }), ['p1'])).toBe(true)
+  })
+
+  it('is false when a different seat is active', () => {
+    expect(isMyTurnFor(makeSummary({ roundPhase: 'actions', activePlayerId: 'p2' }), ['p1'])).toBe(false)
+  })
+
+  it('checks every seat I hold, e.g. a hotseat host with several local players', () => {
+    expect(isMyTurnFor(makeSummary({ roundPhase: 'actions', activePlayerId: 'p2' }), ['p1', 'p2'])).toBe(true)
+  })
+
+  it('is false with no game_state row yet (lobby)', () => {
+    expect(isMyTurnFor(null, ['p1'])).toBe(false)
   })
 })
