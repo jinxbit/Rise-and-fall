@@ -376,15 +376,27 @@ admin mode already sees exactly what every other player's client already
 receives (the known gap issue #37 exists to close), same as before.
 **Update (2026-09-06): `get-game-state` itself (`HIDDEN_INFORMATION_PLAN.md`
 §5.2/§8 phase 5) already implements this carve-out**, ahead of the phase 8
-rewire that will actually put a client on this path: a caller who is the
-room owner or `profiles.is_admin` (`ctx.isOwnerOrAdmin`, the same flag
-§4.1/§4.5 already resolve) receives the raw, **unredacted** state — skip
-the `selectCards`/`decline` masking — so that once phase 8 lands, acting on
-another player's still-secret in-progress choice via admin mode actually
-works, rather than admin mode letting them click a card-choice button whose
-contents they can't see. This is a deliberate, logged-as-"admin mode" trust
-boundary (the room owner and any site admin can already see/do almost
+rewire that will actually put a client on this path: a caller who is
+`profiles.is_admin` (`ctx.isAdmin`) receives the raw, **unredacted** state —
+skip the `selectCards`/`decline` masking — so that once phase 8 lands,
+acting on another player's still-secret in-progress choice via admin mode
+actually works, rather than admin mode letting them click a card-choice
+button whose contents they can't see. This is a deliberate, logged-as-
+"admin mode" trust boundary (a site admin can already see/do almost
 everything else in this app), not an oversight.
+
+**Update (2026-09-06, per issue #450): the room owner does NOT get this
+carve-out.** Originally `ctx.isOwnerOrAdmin` gated the unredacted read, same
+flag as the write-side override below — jinxbit flagged that as wrong: the
+room owner is still just a player, with no rules reason to see another
+player's hidden information just for having created the room. `GameContext`
+(`gameEnforcement.ts`) now exposes `isAdmin` separately from
+`isOwnerOrAdmin`; `get-game-state` checks the narrower `isAdmin` for its
+unredacted branch, while `isAuthorizedToActAs`/`requiresOwnerOverride` below
+(the write-side act-as-any-player/history-override checks) keep using the
+broader `isOwnerOrAdmin` — forcing a stuck/AFK player's action through is
+still an owner responsibility, unchanged by this issue, and is a distinct
+concern from reading their still-secret state.
 
 ## 6. Data model changes
 
@@ -744,8 +756,9 @@ to rule enforcement (2, 5) are omitted here.
   after~~ — **done.** Server-side `playerId` override in `apply-action` and
   `profiles.is_admin` added to §4.4's owner-override redo condition shipped
   with phase 6 (`ctx.isOwnerOrAdmin`, `_shared/gameEnforcement.ts`);
-  unredacted `get-game-state` for admin/owner shipped with phase 5
-  (2026-09-06, same `ctx.isOwnerOrAdmin` flag) — see the §4.5 update above.
+  unredacted `get-game-state` shipped with phase 5 (2026-09-06), scoped to
+  `profiles.is_admin` only (`ctx.isAdmin` — narrowed from the room owner too,
+  per issue #450) — see the §4.5 update above.
 - **Resolved (2026-09-05): the `CreateGamePage.tsx` checkbox is visible to
   any room creator from day one** (labeled "experimental") rather than gated
   behind an admin/dev-only affordance.

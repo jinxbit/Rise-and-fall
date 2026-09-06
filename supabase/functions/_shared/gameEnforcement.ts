@@ -104,7 +104,9 @@ export interface GameContext {
   game: GameRow
   players: PlayerRow[]
   gameState: GameStateRow
-  /** games.created_by or profiles.is_admin — §4.5's carve-out, checked from the DB rather than trusted from the client. */
+  /** profiles.is_admin, checked from the DB rather than trusted from the client. The one caller get-game-state trusts with a still-secret pick (§4.5) — unlike isOwnerOrAdmin below, the room owner does NOT get this, per jinxbit's follow-up on issue #450: an owner is still just a player, with no rules reason to see another player's hidden information. */
+  isAdmin: boolean
+  /** games.created_by or profiles.is_admin — §4.4/§4.5's write-side act-as-any-player/history-override carve-out. Deliberately broader than isAdmin: forcing an action through (e.g. for a stuck/AFK player) is an owner responsibility today, unrelated to reading someone else's still-secret state (see isAdmin above, and get-game-state/index.ts's use of isAdmin instead of this for its unredacted-read branch). */
   isOwnerOrAdmin: boolean
 }
 
@@ -123,12 +125,14 @@ export async function loadGameContext(supabase: SupabaseClient, gameId: string, 
   const { data: profile, error: profileError } = await supabase.from('profiles').select('is_admin').eq('user_id', callerUserId).maybeSingle()
   if (profileError) throw profileError
 
+  const isAdmin = profile?.is_admin ?? false
   const rawGameState = gameState as RawGameStateRow
   return {
     game,
     players,
     gameState: { state: await decompressGameStateFromStorage(rawGameState.state), version: rawGameState.version },
-    isOwnerOrAdmin: game.created_by === callerUserId || (profile?.is_admin ?? false),
+    isAdmin,
+    isOwnerOrAdmin: game.created_by === callerUserId || isAdmin,
   }
 }
 

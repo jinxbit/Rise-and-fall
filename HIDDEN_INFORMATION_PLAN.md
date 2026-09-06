@@ -314,10 +314,19 @@ to hidden information (6) are omitted here.
    with a new `canReadGameState()` (mirrors `game_state`'s current SELECT
    RLS policies — 0021/0024 — since a service-role Edge Function bypasses
    RLS entirely and has to reimplement that gate itself), returns the raw
-   unredacted state for the room owner/an admin (§4.5's carve-out), and
-   `redactStateForPlayer(state, callerPlayerId)` for everyone else
-   (`callerPlayerId` is `null` for a non-seated "any signed-in user" —
-   `redactStateForPlayer`'s `viewerId` widened to `string | null` to match
+   unredacted state for a `profiles.is_admin` caller only (§4.5's carve-out
+   — **update (2026-09-06, per issue #450): narrowed from "room owner or
+   admin" to admin-only.** The room owner is still just a player; there's no
+   rules reason for them to see another player's still-secret pick just for
+   having created the room. `isOwnerOrAdmin` (`gameEnforcement.ts`) stays
+   broader and unchanged for the write-side act-as-any-player/history-
+   override carve-out §4.4/§4.5 actually specs — `GameContext` now exposes
+   `isAdmin` alongside it, and `get-game-state` checks the narrower one), and
+   `redactStateForPlayer(state, callerPlayerId)` for everyone else: a seated
+   player (including a room owner who's also seated) keyed to their own
+   seat, anyone else entitled to read at all (§2: any signed-in user, once a
+   game is non-lobby — including a non-seated room owner) keyed to `null`
+   (`redactStateForPlayer`'s `viewerId` widened to `string | null` to match
    `redactGameLog`'s existing convention, so such a viewer sees everything
    currently secret from every player, same as `redactGameLog` already
    treats a `null` viewer). No migration needed — an Edge Function needs no

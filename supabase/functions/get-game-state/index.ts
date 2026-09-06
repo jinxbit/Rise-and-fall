@@ -17,13 +17,14 @@
 // "is this caller entitled to read this game's state at all" (canReadGameState,
 // mirroring game_state's current SELECT RLS policies, which this function's
 // service-role client otherwise bypasses entirely), then which *view* of it
-// they get: the room owner or an admin gets the raw, unredacted state (§4.5's
-// explicit admin/owner carve-out — otherwise admin mode couldn't act on a
+// they get: a `profiles.is_admin` caller gets the raw, unredacted state
+// (§4.5's admin carve-out — otherwise admin mode couldn't act on a
 // still-secret in-progress choice it can't see), a seated player gets
 // redactStateForPlayer keyed to their own seat, and anyone else entitled to
-// read at all (§2: any signed-in user, once a game is non-lobby) gets it
-// keyed to no seat at all, i.e. everything currently secret from every
-// player.
+// read at all — including the room owner, who is NOT trusted with another
+// player's hidden information just for having created the room (issue #450)
+// — gets it keyed to no seat at all, i.e. everything currently secret from
+// every player.
 //
 // Deliberately does NOT redact `actionHistory` (see redaction.ts's doc
 // comment on redactStateForPlayer) — nothing calls this yet (see
@@ -63,7 +64,7 @@ Deno.serve(async (req) => {
     return jsonResponse(403, { ok: false, error: 'You may not view this game.' })
   }
 
-  if (ctx.isOwnerOrAdmin) {
+  if (ctx.isAdmin) {
     return jsonResponse(200, { ok: true, state: ctx.gameState.state, version: ctx.gameState.version })
   }
 
