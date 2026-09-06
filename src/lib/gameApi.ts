@@ -3,7 +3,7 @@ import { decompressGameStateFromStorage, type StoredGameState } from './gameStat
 import type { GameStateSummary } from './gameCardView'
 import { nextSeatIndex } from './seatIndex'
 import { remapGameSettingsPlayerIds, remapGameStatePlayerIds } from './duplicateGameState'
-import type { GameRow, GameSettings, GameStateMetaRow, GameStateRow, PlayerRow, ProfilePreferences, PushSubscriptionRow } from './dbTypes'
+import type { GameRow, GameSettings, GameStateMetaRow, PlayerRow, ProfilePreferences, PushSubscriptionRow } from './dbTypes'
 import type { MyGameEntry } from './myGamesView'
 import type { PublicRoomEntry } from './publicRoomsView'
 import type { UnitPlateColorOverrides } from './unitColors'
@@ -815,15 +815,35 @@ export async function redoActionEnforced(gameId: string): Promise<GameEnforcemen
   return invokeGameFunction('redo-action', { gameId })
 }
 
+/**
+ * Subscribes to `game_state_meta` (`0025_game_state_meta.sql`) rather than
+ * `game_state` itself (issue #448): Realtime's `postgres_changes` broadcasts
+ * the entire new row over the websocket on every event, so subscribing
+ * directly to `game_state` meant every move pushed the full `GameState` JSON
+ * (board/units/players/cards/the whole `actionHistory`) — routinely ~200kb —
+ * uncompressed, to both clients on every single turn. `game_state_meta` is
+ * kept in sync with `game_state` by a DB trigger on every write and carries
+ * only `status`/`round_phase`/`turn`/`version` — a few bytes — so all that
+ * travels over the socket now is "something changed"; the actual state comes
+ * from the `getGameState` REST call below, which (unlike the websocket) goes
+ * over plain HTTP and gets normal gzip transport compression.
+ *
+ * This is deliberately just the read-side subscription swap this table was
+ * already landed for (see its migration's doc comment and
+ * `HIDDEN_INFORMATION_PLAN.md` §5.2/§6) — it doesn't touch `game_state`'s
+ * RLS, writes, or redaction, so it's independent of `RULE_ENFORCEMENT_PLAN.md`
+ * §8 phase 8's larger, still-in-progress rewire.
+ */
 export function subscribeToGameState(gameId: string, onChange: (snapshot: GameStateSnapshot) => void): () => void {
   const channel = supabase
     .channel(`game_state:${gameId}`)
     .on(
       'postgres_changes',
-      { event: '*', schema: 'public', table: 'game_state', filter: `game_id=eq.${gameId}` },
-      (payload) => {
-        const row = payload.new as Omit<GameStateRow, 'state'> & { state: StoredGameState }
-        void decompressGameStateFromStorage(row.state).then((state) => onChange({ state, version: row.version }))
+      { event: '*', schema: 'public', table: 'game_state_meta', filter: `game_id=eq.${gameId}` },
+      () => {
+        void getGameState(gameId).then((snapshot) => {
+          if (snapshot) onChange(snapshot)
+        })
       },
     )
     .subscribe()
