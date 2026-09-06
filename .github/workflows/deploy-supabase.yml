@@ -6,6 +6,7 @@ on:
     paths:
       - 'supabase/migrations/**'
       - 'supabase/functions/**'
+      - 'src/lib/**'
       - '.github/workflows/deploy-supabase.yml'
   workflow_dispatch: {}
 
