@@ -21,6 +21,7 @@ import { currentActorId } from '../engine/turnOrder'
 import { useAuth } from '../hooks/useAuth'
 import { useIsAdmin } from '../hooks/useIsAdmin'
 import { useRefetchOnVisible } from '../hooks/useRefetchOnVisible'
+import { useTrafficStats } from '../hooks/useTrafficStats'
 import { useUnitPlateColors } from '../hooks/useUnitPlateColors'
 import { useUnitReserveDisplayMode } from '../hooks/useUnitReserveDisplayMode'
 import type { GameRow, PlayerRow } from '../lib/dbTypes'
@@ -90,6 +91,7 @@ export function GamePage() {
   const { roomCode } = useParams<{ roomCode: string }>()
   const { session, loading: authLoading } = useAuth()
   const isAdmin = useIsAdmin(session?.user ?? null)
+  const trafficStats = useTrafficStats()
   const { colors: unitPlateColors } = useUnitPlateColors(session?.user ?? null)
   const { mode: unitReserveDisplayMode } = useUnitReserveDisplayMode(session?.user ?? null)
   const navigate = useNavigate()
@@ -1480,6 +1482,14 @@ export function GamePage() {
                   >
                     {cheatModeEnabled ? 'Cheat mode: ON' : 'Cheat mode'}
                   </button>
+                )}
+                {isAdmin && (
+                  <div
+                    title="Cumulative size of network traffic to and from Supabase during this session. Doesn't include realtime/websocket updates."
+                    className="px-3 py-2 text-left text-neutral-500"
+                  >
+                    Session traffic: {trafficStats}
+                  </div>
                 )}
                 {(canCancel || canDelete) && <div role="separator" className="my-1 border-t border-neutral-800" />}
                 {canCancel && (
