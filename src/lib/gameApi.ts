@@ -332,19 +332,26 @@ async function fetchGameStateSummaries(
 }
 
 /**
- * Every `games` column except `settings` — used wherever a list of rooms is
- * fetched (listMyGames/listPublicRooms/listAllRooms below) rather than a
- * single room. `settings.mapPoolBoard` embeds a full `Board` (one Tile per
- * hex — see GameSettings' doc comment in dbTypes.ts), tens of KB per
- * map-pool game; none of these list views' consumers (myGamesView.ts,
- * publicRoomsView.ts, MyGamesPage/HomePage/PublicRoomsPage/AdminRoomsPage)
- * read `.settings` at all, so fetching it here just re-downloads every
- * map-pool game's board on every list refresh for no reason (issue #444).
- * Single-room reads (getGameByRoomCode et al.) still need the full row and
- * keep using plain `select()`.
+ * Every `games` column used wherever a list of rooms is fetched
+ * (listMyGames/listPublicRooms/listAllRooms below) rather than a single
+ * room. Includes `settings` (unlike an earlier version of this list, issue
+ * #444/#446): every one of these list views renders its games through
+ * GameOverviewCard's `buildGameCardSummary` (gameCardView.ts), which reads
+ * `settings.activeTaleIds` unconditionally and the map-mode fields
+ * (`mapTemplateId`/`mapPoolBoard`/etc, via `mapBuildStyleLabel`) pre-game —
+ * dropping `settings` from the query crashed every listing screen with
+ * `undefined is not an object (evaluating 'e.settings.activeTaleIds')`.
+ * `settings.mapPoolBoard` does embed a full `Board` (one Tile per hex — see
+ * GameSettings' doc comment in dbTypes.ts), tens of KB per map-pool game, so
+ * this does re-download it on every list refresh; trimming that back down
+ * requires a narrower fetch (e.g. a DB-side projection that excludes just
+ * `mapPoolBoard`) that still leaves every field these cards actually read
+ * intact, not blanket-dropping the column. Single-room reads
+ * (getGameByRoomCode et al.) still need the full row and keep using plain
+ * `select()`.
  */
 const GAME_LIST_COLUMNS =
-  'id, room_code, name, play_mode, status, min_players, max_players, created_by, created_at, updated_at, config_version, visibility'
+  'id, room_code, name, play_mode, status, min_players, max_players, created_by, created_at, updated_at, config_version, visibility, settings'
 
 /**
  * Every game the given user is seated in — for the "My games" screen
