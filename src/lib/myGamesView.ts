@@ -3,24 +3,26 @@
 // import time, same reason as seatIndex.ts) so turn/finished classification
 // and sorting can be unit tested without a real project config.
 
-import type { GameState as EngineGameState } from '../engine/types'
 import type { GameRow, PlayerRow } from './dbTypes'
-import { isMyTurnFor, latestUpdatedAt, pendingActorIdsFor } from './gameCardView'
+import { isMyTurnFor, latestUpdatedAt, pendingActorIdsFor, type GameStateSummary } from './gameCardView'
 
 export { describeGamePhase, formatUpdatedAt, latestUpdatedAt } from './gameCardView'
 
 /**
  * One game the current user is seated in, plus everything the list/detail
- * view needs to render it. `gameState` is null while the game is still in
- * the lobby (no game_state row exists until LobbyPage starts it). `myPlayerIds`
- * is usually a single id, but a hotseat host can hold several seats in the
- * same game (see gameApi.ts's addLocalPlayer) under one user_id.
+ * view needs to render it. `stateSummary` is null while the game is still in
+ * the lobby (no game_state row exists until LobbyPage starts it) — see
+ * GameStateSummary's doc comment (gameCardView.ts) for exactly what it can
+ * and can't answer compared to the full GameState this used to carry.
+ * `myPlayerIds` is usually a single id, but a hotseat host can hold several
+ * seats in the same game (see gameApi.ts's addLocalPlayer) under one
+ * user_id.
  */
 export interface MyGameEntry {
   game: GameRow
   players: PlayerRow[]
-  gameState: EngineGameState | null
-  /** game_state.updated_at (null alongside gameState while still in the lobby) — see gameCardView.ts's latestUpdatedAt. */
+  stateSummary: GameStateSummary | null
+  /** game_state_meta.updated_at (null alongside stateSummary while still in the lobby) — see gameCardView.ts's latestUpdatedAt. */
   gameStateUpdatedAt: string | null
   myPlayerIds: string[]
 }
@@ -29,16 +31,17 @@ export interface MyGameEntry {
  * The status that actually matters for this screen. games.status (the DB
  * row) only ever tracks 'lobby' -> 'active' (-> 'canceled') — 'boardSetup'
  * and 'completed' live exclusively in game_state.state.status (see
- * dbTypes.ts's GameRow comment and GamePage.tsx's status checks), so a
- * finished game still shows games.status: 'active' unless we look at
- * gameState instead. 'canceled' is the one value that *is* authoritative on
- * games.status — it's checked first, ahead of gameState.
+ * dbTypes.ts's GameRow comment and GamePage.tsx's status checks, mirrored
+ * into game_state_meta.status), so a finished game still shows games.status:
+ * 'active' unless we look at stateSummary instead. 'canceled' is the one
+ * value that *is* authoritative on games.status — it's checked first, ahead
+ * of stateSummary.
  */
 export type MyGameStatus = 'lobby' | 'boardSetup' | 'active' | 'completed' | 'canceled'
 
 export function myGameStatus(entry: MyGameEntry): MyGameStatus {
   if (entry.game.status === 'canceled') return 'canceled'
-  return entry.gameState?.status ?? 'lobby'
+  return entry.stateSummary?.status ?? 'lobby'
 }
 
 export function isFinished(entry: MyGameEntry): boolean {
@@ -49,25 +52,25 @@ export function isCanceled(entry: MyGameEntry): boolean {
   return myGameStatus(entry) === 'canceled'
 }
 
-/** The seated players who must act next, or `[]` if nobody's turn is pending (lobby/completed). */
+/** The seated players who must act next, or `[]` if nobody's turn is pending (lobby/completed) — see pendingActorIdsFor's doc comment for what it can't see. */
 export function pendingActorIds(entry: MyGameEntry): string[] {
-  return pendingActorIdsFor(entry.gameState)
+  return pendingActorIdsFor(entry.stateSummary)
 }
 
 /** True if any of the current user's seats is one of the players pendingActorIds() says must act next. */
 export function isMyTurn(entry: MyGameEntry): boolean {
-  return isMyTurnFor(entry.gameState, entry.myPlayerIds)
+  return isMyTurnFor(entry.stateSummary, entry.myPlayerIds)
 }
 
 /**
  * Where clicking this game should go. Keyed off whether a game_state row
  * exists yet, not `games.status === 'lobby'` — a room canceled before it
- * ever started has `status: 'canceled'` with no `gameState`, and still
+ * ever started has `status: 'canceled'` with no `stateSummary`, and still
  * belongs on the lobby screen (LobbyPage shows the canceled banner/Delete
  * there), not GamePage.
  */
 export function gamePath(entry: MyGameEntry): string {
-  return entry.gameState === null ? `/lobby/${entry.game.room_code}` : `/game/${entry.game.room_code}`
+  return entry.stateSummary === null ? `/lobby/${entry.game.room_code}` : `/game/${entry.game.room_code}`
 }
 
 /**

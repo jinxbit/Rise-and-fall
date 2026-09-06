@@ -32,7 +32,7 @@ import {
 const PAGE_SIZE = 10
 
 function gamePath(entry: PublicRoomEntry): string {
-  return entry.gameState === null ? `/lobby/${entry.game.room_code}` : `/game/${entry.game.room_code}`
+  return entry.stateSummary === null ? `/lobby/${entry.game.room_code}` : `/game/${entry.game.room_code}`
 }
 
 export function HomePage() {
@@ -312,7 +312,7 @@ function RoomRow({
     <GameOverviewCard
       name={entry.game.name}
       description={description}
-      phase={describeGamePhase(entry.game, entry.gameState)}
+      phase={describeGamePhase(entry.game, entry.stateSummary)}
       players={entry.players}
       pendingPlayerIds={pendingActorIds(entry)}
       isMyTurn={isMyTurn(entry, userId)}
@@ -320,7 +320,7 @@ function RoomRow({
       isJoinable={isJoinable(entry)}
       updatedAt={finished ? formatFinishedAt(updatedAt) : formatUpdatedAt(updatedAt)}
       action={action}
-      summary={buildGameCardSummary(entry.game, entry.gameState, entry.players)}
+      summary={buildGameCardSummary(entry.game, entry.stateSummary)}
       onOpen={onOpen}
     />
   )
