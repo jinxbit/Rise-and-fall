@@ -278,7 +278,7 @@ export function GamePage() {
   useEffect(() => {
     if (!session) return
     let cancelled = false
-    listMyGames(session.user.id)
+    listMyGames(session.user.id, game?.id)
       .then((entries) => {
         if (!cancelled) setOtherMyGames(entries)
       })
@@ -292,7 +292,7 @@ export function GamePage() {
 
   useRefetchOnVisible(() => {
     if (!session) return
-    listMyGames(session.user.id)
+    listMyGames(session.user.id, game?.id)
       .then(setOtherMyGames)
       .catch(() => {})
   })
@@ -319,27 +319,28 @@ export function GamePage() {
 
   useEffect(() => {
     if (!game) return
+    const gameId = game.id
     let cancelled = false
 
     void (async () => {
-      const snapshot = await getGameState(game.id)
+      const snapshot = await getGameState(gameId)
       if (!cancelled && snapshot) {
         setGameState(snapshot.state)
         setVersion(snapshot.version)
       }
     })()
 
-    const unsubscribeGameState = subscribeToGameState(game.id, (snapshot) => {
+    const unsubscribeGameState = subscribeToGameState(gameId, (snapshot) => {
       setGameState(snapshot.state)
       setVersion(snapshot.version)
     })
-    const unsubscribePlayers = subscribeToPlayers(game.id, () => {
-      void listPlayers(game.id).then(setPlayers)
+    const unsubscribePlayers = subscribeToPlayers(gameId, () => {
+      void listPlayers(gameId).then(setPlayers)
     })
     // Live status updates (e.g. the Owner canceling from another tab/device)
     // — GamePage otherwise only fetches `game` once on mount, unlike
     // LobbyPage which already subscribes for its own status-driven navigate.
-    const unsubscribeGame = subscribeToGame(game.id, setGame)
+    const unsubscribeGame = subscribeToGame(gameId, setGame)
 
     return () => {
       cancelled = true
@@ -347,7 +348,12 @@ export function GamePage() {
       unsubscribePlayers()
       unsubscribeGame()
     }
-  }, [game])
+    // Keyed on the room id only, not the whole `game` object: subscribeToGame
+    // above calls setGame on every `games` row change (e.g. a presence/visibility
+    // touch), and re-running this effect on those re-fetches the full GameState
+    // and tears down/rebuilds all three channels for no reason — see issue #441.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [game?.id])
 
   const boardGenerationContent = useMemo(() => resolveBoardGenerationContent(players.length), [players.length])
   // Tales (src/content/tales.json) and the achievement target chosen at
