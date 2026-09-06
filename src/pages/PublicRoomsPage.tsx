@@ -151,7 +151,7 @@ function RoomSection({
               key={entry.game.id}
               name={entry.game.name}
               description={publicRoomBucket(entry) === 'notStarted' ? `${entry.players.length}/${entry.game.max_players} players` : undefined}
-              phase={describeGamePhase(entry.game, entry.gameState)}
+              phase={describeGamePhase(entry.game, entry.stateSummary)}
               players={entry.players}
               pendingPlayerIds={pendingActorIds(entry)}
               isMyTurn={isMyTurn(entry, userId)}
@@ -159,7 +159,7 @@ function RoomSection({
               isJoinable={isJoinable(entry)}
               updatedAt={finished ? formatFinishedAt(updatedAt) : formatUpdatedAt(updatedAt)}
               action={renderAction(entry)}
-              summary={buildGameCardSummary(entry.game, entry.gameState, entry.players)}
+              summary={buildGameCardSummary(entry.game, entry.stateSummary)}
               onOpen={() => onOpen(entry)}
             />
           )

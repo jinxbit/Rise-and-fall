@@ -4,20 +4,66 @@
 // the same way. myGamesView.ts and publicRoomsView.ts wrap these with their
 // own entry types.
 
-import { listMapTemplates, listTales, resolveAchievementContent, resolveTaleContent } from '../content/resolveContent'
-import { pendingActorIds as pendingActorIdsForState } from '../engine/turnOrder'
-import { calculateVPBreakdown } from '../engine/victoryPoints'
-import type { GameState as EngineGameState, RoundPhase } from '../engine/types'
-import type { GameRow, GameSettings, PlayerRow } from './dbTypes'
+import { listMapTemplates, listTales } from '../content/resolveContent'
+import type { GameStatus, RoundPhase } from '../engine/types'
+import type { GameRow, GameSettings } from './dbTypes'
 
-/** The seated players who must act next, or `[]` if nobody's turn is pending (lobby/completed). */
-export function pendingActorIdsFor(gameState: EngineGameState | null): string[] {
-  return gameState ? pendingActorIdsForState(gameState) : []
+/**
+ * Lightweight, cheap-to-query summary of a game's `game_state` row for
+ * listing screens (issue #441): `status`/`roundPhase`/`turn`/
+ * `pendingPlayerIds` come from the pre-existing `game_state_meta` projection
+ * (`0025_game_state_meta.sql`/`0027_game_state_meta_pending_players.sql`,
+ * kept in sync by a DB trigger on every `game_state` write), and
+ * `activePlayerId` from `game_state.active_player_id` — all plain scalar
+ * columns, never the compressed `game_state.state` blob that used to be
+ * downloaded and decompressed for every listed game (the actual cause of
+ * issue #441's repeated multi-MB bandwidth). `null` means no `game_state`
+ * row exists yet (the game is still in the lobby), same meaning `gameState`
+ * used to carry.
+ *
+ * This intentionally can't answer everything the full `GameState` could:
+ * per-player scores/VP breakdown (issue #204) needed the full
+ * `GameState.players` plus achievement/tale content to compute — there's no
+ * cheap projection of that, so it's no longer available on listing cards at
+ * all; open the game itself to see current scores. Turn highlighting
+ * (`pendingActorIdsFor` below), by contrast, is fully answerable from this
+ * summary — see `pendingPlayerIds`.
+ */
+export interface GameStateSummary {
+  status: GameStatus
+  roundPhase: RoundPhase | null
+  turn: number
+  activePlayerId: string | null
+  /**
+   * Player ids still owed a turn right now, straight from
+   * `game_state_meta.pending_player_ids` — see that column's comment
+   * (`0027_game_state_meta_pending_players.sql`) for exactly what it holds
+   * per phase: `state.pendingPlayerIds` during the simultaneous
+   * `selectCards`/`decline` phases (everyone pending at once, so this can
+   * repeat ids for decline's per-player card count — dedupe before display),
+   * the derived board-setup tile/unit placer during `boardSetup` (0 or 1
+   * id), or `[]` otherwise (turn-order phases use `activePlayerId` instead).
+   */
+  pendingPlayerIds: string[]
+}
+
+/**
+ * The seated players who must act next, or `[]` if nobody's turn is pending
+ * (lobby/completed).
+ */
+export function pendingActorIdsFor(summary: GameStateSummary | null): string[] {
+  if (!summary) return []
+  if (summary.status === 'boardSetup') return summary.pendingPlayerIds
+  if (summary.status !== 'active') return []
+  if (summary.roundPhase === 'selectCards' || summary.roundPhase === 'decline') {
+    return [...new Set(summary.pendingPlayerIds)]
+  }
+  return summary.activePlayerId ? [summary.activePlayerId] : []
 }
 
 /** True if any of `myPlayerIds` is one of the players pendingActorIdsFor() says must act next. */
-export function isMyTurnFor(gameState: EngineGameState | null, myPlayerIds: string[]): boolean {
-  const pending = pendingActorIdsFor(gameState)
+export function isMyTurnFor(summary: GameStateSummary | null, myPlayerIds: string[]): boolean {
+  const pending = pendingActorIdsFor(summary)
   return myPlayerIds.some((id) => pending.includes(id))
 }
 
@@ -55,10 +101,11 @@ export function formatFinishedAt(isoTimestamp: string): string {
  * changes for lobby-era edits (settings, status, visibility — see
  * 0001_init_schema.sql's `games_set_updated_at` trigger), never for
  * gameplay actions, which only touch the separate `game_state` row (its own
- * `game_state_set_updated_at` trigger). Once a game_state row exists, its
- * `updated_at` is almost always the more recent of the two — this just
- * guards against the rare edge case (e.g. a settings edit right after
- * insertGameState) where `games.updated_at` is actually newer.
+ * `game_state_set_updated_at` trigger, mirrored onto `game_state_meta` by
+ * `game_state_sync_meta`). Once a game_state row exists, its `updated_at` is
+ * almost always the more recent of the two — this just guards against the
+ * rare edge case (e.g. a settings edit right after insertGameState) where
+ * `games.updated_at` is actually newer.
  */
 export function latestUpdatedAt(game: GameRow, gameStateUpdatedAt: string | null): string {
   if (!gameStateUpdatedAt) return game.updated_at
@@ -74,35 +121,30 @@ const ROUND_PHASE_LABEL: Record<RoundPhase, string> = {
 
 /**
  * What a game card should show in place of a blanket "In progress" — issue
- * #293 section 4. Everything this reads (gameState.status/roundPhase) is
- * already fetched for turn/finished classification, so no DB change is
- * needed to break "active" apart into its actual round phase.
+ * #293 section 4. Reads only `summary.status`/`roundPhase`, both already
+ * covered by the cheap `game_state_meta` projection (see GameStateSummary),
+ * so no full `game_state` read is needed to break "active" apart into its
+ * actual round phase.
  */
-export function describeGamePhase(game: GameRow, gameState: EngineGameState | null): string {
+export function describeGamePhase(game: GameRow, summary: GameStateSummary | null): string {
   if (game.status === 'canceled') return 'Canceled'
-  if (!gameState) return 'Waiting in lobby'
-  if (gameState.status === 'boardSetup') return 'Setting up board'
-  if (gameState.status === 'completed') return 'Finished'
-  return ROUND_PHASE_LABEL[gameState.roundPhase]
-}
-
-export interface GameCardScore {
-  playerId: string
-  name: string
-  color: string
-  score: number
-  /** True once the game is finished and this player is one of its winners (GameState.winnerPlayerIds). */
-  isWinner: boolean
+  if (!summary) return 'Waiting in lobby'
+  if (summary.status === 'boardSetup') return 'Setting up board'
+  if (summary.status === 'completed') return 'Finished'
+  return ROUND_PHASE_LABEL[summary.roundPhase as RoundPhase]
 }
 
 /**
- * Everything GameOverviewCard.tsx shows beyond name/players/phase — issue
- * #204. `playerRange`/`mapBuildStyle` are only meaningful pre-game (see
- * dbTypes.ts's GameSettings comment: settings stop being read once a
- * game_state row exists), so both are null once `gameState` is non-null.
- * `scores`/`roundNumber` are the reverse — null until there's a GameState to
- * read them from. Each score's `isWinner` is only ever true once the game
- * has actually finished (GameState.winnerPlayerIds).
+ * Everything GameOverviewCard.tsx shows beyond name/players/phase, minus the
+ * per-player score breakdown issue #204 originally added there — that needed
+ * the full `GameState.players` plus achievement/tale content to compute a VP
+ * breakdown, which isn't available from the cheap GameStateSummary (issue
+ * #441), so listing cards no longer show it at all; open the game itself to
+ * see current scores. `playerRange`/`mapBuildStyle` are only meaningful
+ * pre-game (see dbTypes.ts's GameSettings comment: settings stop being read
+ * once a game_state row exists), so both are null once `summary` is
+ * non-null. `roundNumber` is the reverse — null until there's a summary to
+ * read it from.
  */
 export interface GameCardSummary {
   playerRange: string | null
@@ -110,7 +152,6 @@ export interface GameCardSummary {
   /** Active Tale names ("modules" in the issue) — content/tales.json, empty when the Tales variant is off. */
   moduleNames: string[]
   roundNumber: number | null
-  scores: GameCardScore[] | null
 }
 
 function mapBuildStyleLabel(settings: GameSettings): string {
@@ -127,40 +168,17 @@ function mapBuildStyleLabel(settings: GameSettings): string {
 
 /**
  * Builds the config summary a game card shows on top of its player list —
- * which fields end up non-null depends entirely on `gameState` (see
+ * which fields end up non-null depends entirely on `summary` (see
  * GameCardSummary's doc comment), so callers don't need their own
  * phase-classification logic just to fill this in.
  */
-export function buildGameCardSummary(game: GameRow, gameState: EngineGameState | null, players: PlayerRow[]): GameCardSummary {
+export function buildGameCardSummary(game: GameRow, summary: GameStateSummary | null): GameCardSummary {
   const moduleNames = game.settings.activeTaleIds.map((id) => listTales().find((t) => t.id === id)?.name ?? id)
 
-  let scores: GameCardScore[] | null = null
-
-  // gameState.players is normally always populated once a game_state row
-  // exists (see engine/createGame.ts), but a handful of pre-existing rows
-  // predate that guarantee (issue #389 — "t.players.length" crashed the
-  // whole room list on page load for one malformed row) — fall back to []
-  // instead of trusting the EngineGameState type of an unchecked DB read.
-  if (gameState && Array.isArray(gameState.players)) {
-    const achievementContent = resolveAchievementContent(gameState.gameLength)
-    const taleContent = resolveTaleContent(gameState.activeTaleIds, gameState.players.length)
-    const breakdown = calculateVPBreakdown(gameState, achievementContent, taleContent)
-    const winnerIds = new Set(gameState.winnerPlayerIds)
-
-    scores = gameState.players.map((player) => ({
-      playerId: player.id,
-      name: players.find((row) => row.id === player.id)?.display_name ?? player.displayName,
-      color: players.find((row) => row.id === player.id)?.color ?? player.color,
-      score: breakdown[player.id]?.total ?? 0,
-      isWinner: winnerIds.has(player.id),
-    }))
-  }
-
   return {
-    playerRange: gameState ? null : `${game.min_players}–${game.max_players} players`,
-    mapBuildStyle: gameState ? null : mapBuildStyleLabel(game.settings),
+    playerRange: summary ? null : `${game.min_players}–${game.max_players} players`,
+    mapBuildStyle: summary ? null : mapBuildStyleLabel(game.settings),
     moduleNames,
-    roundNumber: gameState ? gameState.turn : null,
-    scores,
+    roundNumber: summary ? summary.turn : null,
   }
 }

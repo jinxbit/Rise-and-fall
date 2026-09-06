@@ -20,7 +20,7 @@ export interface GameOverviewCardProps {
   isJoinable?: boolean
   updatedAt: string
   action?: ReactNode
-  /** Config/score summary (issue #204) — see gameCardView.ts's buildGameCardSummary. Omitted entirely skips this section. */
+  /** Config summary (issue #204; scores dropped as of issue #441 — see gameCardView.ts's GameCardSummary/buildGameCardSummary). Omitted entirely skips this section. */
   summary?: GameCardSummary
   onOpen: () => void
 }
@@ -40,7 +40,6 @@ export function GameOverviewCard({
   onOpen,
 }: GameOverviewCardProps) {
   const dimText = isFinished ? 'text-yellow-600' : 'text-neutral-500'
-  const scoreByPlayerId = new Map((summary?.scores ?? []).map((s) => [s.playerId, s]))
 
   return (
     <li>
@@ -66,17 +65,12 @@ export function GameOverviewCard({
           {description && <>{description} · </>}
           {players.length === 0
             ? 'no players yet'
-            : players.map((p, i) => {
-                const score = scoreByPlayerId.get(p.id)
-                return (
-                  <span key={p.id} className={pendingPlayerIds.includes(p.id) ? 'font-semibold text-neutral-100' : undefined}>
-                    {i > 0 && ', '}
-                    {score?.isWinner && '👑 '}
-                    {p.display_name}
-                    {score && `: ${score.score}`}
-                  </span>
-                )
-              })}
+            : players.map((p, i) => (
+                <span key={p.id} className={pendingPlayerIds.includes(p.id) ? 'font-semibold text-neutral-100' : undefined}>
+                  {i > 0 && ', '}
+                  {p.display_name}
+                </span>
+              ))}
         </span>
         {summary && <GameCardSummaryLines summary={summary} isFinished={isFinished} />}
         <div className="flex flex-col items-end text-right">
@@ -92,7 +86,7 @@ export function GameOverviewCard({
 /**
  * Renders whichever fields of `summary` apply to the game's current phase
  * (see GameCardSummary's doc comment for which fields are populated when) —
- * issue #204's per-phase config/score summary.
+ * issue #204's per-phase config summary.
  */
 function GameCardSummaryLines({ summary, isFinished }: { summary: GameCardSummary; isFinished: boolean }) {
   const hasPregameInfo = summary.playerRange !== null || summary.mapBuildStyle !== null

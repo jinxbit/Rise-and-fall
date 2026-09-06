@@ -181,7 +181,7 @@ describe('GameOverviewCard', () => {
   })
 
   function emptySummary(): GameCardSummary {
-    return { playerRange: null, mapBuildStyle: null, moduleNames: [], roundNumber: null, scores: null }
+    return { playerRange: null, mapBuildStyle: null, moduleNames: [], roundNumber: null }
   }
 
   it('shows the player range and map build style on a joinable card', () => {
@@ -225,7 +225,7 @@ describe('GameOverviewCard', () => {
     expect(screen.getByText('Modules: The Capital, The Ports')).toBeInTheDocument()
   })
 
-  it('combines the player list with their scores instead of listing names twice', () => {
+  it('shows the round number alongside plain player names (no score summary — issue #441)', () => {
     render(
       <ul>
         <GameOverviewCard
@@ -236,24 +236,17 @@ describe('GameOverviewCard', () => {
           isMyTurn={false}
           isFinished={false}
           updatedAt="Updated just now"
-          summary={{
-            ...emptySummary(),
-            roundNumber: 3,
-            scores: [
-              { playerId: 'p1', name: 'Alice', color: '#ef4444', score: 12, isWinner: false },
-              { playerId: 'p2', name: 'Bob', color: '#3b82f6', score: 7, isWinner: false },
-            ],
-          }}
+          summary={{ ...emptySummary(), roundNumber: 3 }}
           onOpen={() => {}}
         />
       </ul>,
     )
 
     expect(screen.getByText('Round 3')).toBeInTheDocument()
-    expect(screen.getByText((_, el) => el?.textContent === 'Alice: 12, Bob: 7')).toBeInTheDocument()
+    expect(screen.getByText((_, el) => el?.textContent === 'Alice, Bob')).toBeInTheDocument()
   })
 
-  it('marks the winner with a crown on the score row and combines the player list with final scores, but no round number', () => {
+  it('hides the round number once finished', () => {
     render(
       <ul>
         <GameOverviewCard
@@ -264,21 +257,12 @@ describe('GameOverviewCard', () => {
           isMyTurn={false}
           isFinished
           updatedAt="Updated 2d ago"
-          summary={{
-            ...emptySummary(),
-            roundNumber: 8,
-            scores: [
-              { playerId: 'p1', name: 'Alice', color: '#ef4444', score: 20, isWinner: true },
-              { playerId: 'p2', name: 'Bob', color: '#3b82f6', score: 12, isWinner: false },
-            ],
-          }}
+          summary={{ ...emptySummary(), roundNumber: 8 }}
           onOpen={() => {}}
         />
       </ul>,
     )
 
-    expect(screen.getByText((_, el) => el?.textContent === '👑 Alice: 20')).toBeInTheDocument()
-    expect(screen.getByText((_, el) => el?.textContent === ', Bob: 12')).toBeInTheDocument()
     expect(screen.queryByText('Round 8')).not.toBeInTheDocument()
   })
 

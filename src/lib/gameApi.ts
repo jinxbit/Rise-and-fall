@@ -1,13 +1,14 @@
 import { supabase } from './supabase'
 import { decompressGameStateFromStorage, type StoredGameState } from './gameStateCompression'
+import type { GameStateSummary } from './gameCardView'
 import { nextSeatIndex } from './seatIndex'
 import { remapGameSettingsPlayerIds, remapGameStatePlayerIds } from './duplicateGameState'
-import type { GameRow, GameSettings, GameStateRow, PlayerRow, ProfilePreferences, PushSubscriptionRow } from './dbTypes'
+import type { GameRow, GameSettings, GameStateMetaRow, GameStateRow, PlayerRow, ProfilePreferences, PushSubscriptionRow } from './dbTypes'
 import type { MyGameEntry } from './myGamesView'
 import type { PublicRoomEntry } from './publicRoomsView'
 import type { UnitPlateColorOverrides } from './unitColors'
 import { resolveUnitReserveDisplayMode, type UnitReserveDisplayMode } from './unitReserveDisplay'
-import type { Board, GameState as EngineGameState, PlayMode } from '../engine/types'
+import type { Board, GameState as EngineGameState, GameStatus, PlayMode, RoundPhase } from '../engine/types'
 import type { Action } from '../engine/actions'
 
 /**
@@ -283,23 +284,68 @@ export async function listPlayers(gameId: string): Promise<PlayerRow[]> {
 }
 
 /**
+ * Fetches the cheap `game_state_meta`/`game_state.active_player_id` columns
+ * for a batch of games and assembles a `GameStateSummary` per game — the
+ * shared plumbing behind `listMyGames` and `roomEntriesForGames` (issue
+ * #441). Deliberately never touches `game_state.state`: that's the
+ * compressed full GameState blob whose per-game download+decompression on
+ * every listing-screen visit was issue #441's actual bandwidth cost.
+ * `game_state_meta` (`0025_game_state_meta.sql`) is kept in sync with
+ * `game_state` by a DB trigger on every insert/update, so it's always as
+ * fresh as `state` would be. See GameStateSummary's doc comment
+ * (gameCardView.ts) for what this can't tell you compared to the full state.
+ */
+async function fetchGameStateSummaries(
+  gameIds: string[],
+): Promise<{ summaryByGame: Map<string, GameStateSummary>; updatedAtByGame: Map<string, string> }> {
+  const [
+    { data: metas, error: metasError },
+    { data: activeRows, error: activeRowsError },
+  ] = await Promise.all([
+    supabase
+      .from('game_state_meta')
+      .select('game_id, status, round_phase, turn, pending_player_ids, updated_at')
+      .in('game_id', gameIds),
+    supabase.from('game_state').select('game_id, active_player_id').in('game_id', gameIds),
+  ])
+  if (metasError) throw metasError
+  if (activeRowsError) throw activeRowsError
+
+  const activePlayerIdByGame = new Map(
+    (activeRows as { game_id: string; active_player_id: string | null }[]).map((row) => [row.game_id, row.active_player_id]),
+  )
+
+  const summaryByGame = new Map<string, GameStateSummary>()
+  const updatedAtByGame = new Map<string, string>()
+  for (const row of metas as Pick<GameStateMetaRow, 'game_id' | 'status' | 'round_phase' | 'turn' | 'pending_player_ids' | 'updated_at'>[]) {
+    summaryByGame.set(row.game_id, {
+      status: row.status as GameStatus,
+      roundPhase: row.round_phase as RoundPhase | null,
+      turn: row.turn,
+      activePlayerId: activePlayerIdByGame.get(row.game_id) ?? null,
+      pendingPlayerIds: row.pending_player_ids,
+    })
+    updatedAtByGame.set(row.game_id, row.updated_at)
+  }
+
+  return { summaryByGame, updatedAtByGame }
+}
+
+/**
  * Every game the given user is seated in — for the "My games" screen
- * (MyGamesPage.tsx). Includes each game's full GameState (not just the
- * denormalized game_state.active_player_id column) so myGamesView.ts can
- * classify turn/finished status via the same pendingActorIds() the game
- * screen itself uses; games.status alone can't tell 'boardSetup' or
- * 'completed' apart from 'active' (see dbTypes.ts's GameRow comment).
- * `gameState` is left null for games still in the lobby, which have no
- * game_state row yet. RLS already scopes game_state reads to seated
- * players, and a personal game list is small enough that fetching each
- * one's state up front is cheap.
+ * (MyGamesPage.tsx). Includes each game's cheap GameStateSummary (issue
+ * #441 — see fetchGameStateSummaries/gameCardView.ts's GameStateSummary) so
+ * myGamesView.ts can classify turn/finished status without downloading and
+ * decompressing every game's full GameState; games.status alone can't tell
+ * 'boardSetup' or 'completed' apart from 'active' (see dbTypes.ts's GameRow
+ * comment). `stateSummary` is left null for games still in the lobby, which
+ * have no game_state row yet. RLS already scopes game_state/game_state_meta
+ * reads to seated players.
  *
  * `excludeGameId` skips one game entirely (games/players/game_state alike)
  * — for GamePage.tsx's "other games" nudge, which already has the room it's
  * currently showing loaded via getGameState and only ever reads *other*
- * games out of this list (see nextGameNeedingInput), so re-downloading and
- * decompressing that one game's own GameState here would just be wasted
- * bandwidth (issue #441).
+ * games out of this list (see nextGameNeedingInput).
  */
 export async function listMyGames(userId: string, excludeGameId?: string): Promise<MyGameEntry[]> {
   const { data: myRows, error: myRowsError } = await supabase.from('players').select().eq('user_id', userId)
@@ -311,15 +357,14 @@ export async function listMyGames(userId: string, excludeGameId?: string): Promi
   const [
     { data: games, error: gamesError },
     { data: allPlayers, error: allPlayersError },
-    { data: states, error: statesError },
+    { summaryByGame, updatedAtByGame },
   ] = await Promise.all([
     supabase.from('games').select().in('id', gameIds),
     supabase.from('players').select().in('game_id', gameIds),
-    supabase.from('game_state').select('game_id, state, updated_at').in('game_id', gameIds),
+    fetchGameStateSummaries(gameIds),
   ])
   if (gamesError) throw gamesError
   if (allPlayersError) throw allPlayersError
-  if (statesError) throw statesError
 
   const playersByGame = new Map<string, PlayerRow[]>()
   for (const p of allPlayers as PlayerRow[]) {
@@ -328,22 +373,13 @@ export async function listMyGames(userId: string, excludeGameId?: string): Promi
     playersByGame.set(p.game_id, list)
   }
 
-  const stateByGame = new Map<string, EngineGameState>()
-  const stateUpdatedAtByGame = new Map<string, string>()
-  await Promise.all(
-    (states as { game_id: string; state: StoredGameState; updated_at: string }[]).map(async (row) => {
-      stateByGame.set(row.game_id, await decompressGameStateFromStorage(row.state))
-      stateUpdatedAtByGame.set(row.game_id, row.updated_at)
-    }),
-  )
-
   return (games as GameRow[]).map((game) => {
     const gamePlayers = (playersByGame.get(game.id) ?? []).sort((a, b) => a.seat_index - b.seat_index)
     return {
       game,
       players: gamePlayers,
-      gameState: stateByGame.get(game.id) ?? null,
-      gameStateUpdatedAt: stateUpdatedAtByGame.get(game.id) ?? null,
+      stateSummary: summaryByGame.get(game.id) ?? null,
+      gameStateUpdatedAt: updatedAtByGame.get(game.id) ?? null,
       myPlayerIds: gamePlayers.filter((p) => p.user_id === userId).map((p) => p.id),
     }
   })
@@ -354,7 +390,7 @@ export async function listMyGames(userId: string, excludeGameId?: string): Promi
  * sections 4-5): visibility 'public', excluding 'canceled' (issue section 5:
  * "Canceled and Deleted rooms do not appear in the listing" — deleted rows
  * don't exist to query at all). Shaped like listMyGames's MyGameEntry
- * (game/players/gameState) minus the caller-specific `myPlayerIds`, since
+ * (game/players/stateSummary) minus the caller-specific `myPlayerIds`, since
  * this list isn't scoped to any one user — see publicRoomsView.ts for the
  * grouping/status logic built on top of it.
  */
@@ -372,19 +408,22 @@ export async function listPublicRooms(): Promise<PublicRoomEntry[]> {
 
 /**
  * Every room in the system, public or private, excluding 'canceled' for the
- * same reason listPublicRooms excludes it (canceled rooms have no gameState
- * to distinguish "in progress" from "finished" — see publicRoomBucket).
- * Used by AdminRoomsPage.tsx (gated by useIsAdmin) for its "Joinable" bucket
- * too, and by HomePage.tsx (issue #363) for its in-progress/finished
- * sections only — a private room's not-started/lobby state must still never
- * be surfaced as joinable outside "Your games" or the room's own link, so
- * HomePage filters this list down before rendering. Not an RLS boundary
- * either way, since 0001_init_schema.sql's "games are readable by any
- * signed-in user" policy already lets any authenticated user select any
- * game row, and 0021_remove_observers.sql's game_state policy already lets
+ * same reason listPublicRooms excludes it (canceled rooms have no
+ * stateSummary to distinguish "in progress" from "finished" — see
+ * publicRoomBucket). Used by AdminRoomsPage.tsx (gated by useIsAdmin) for
+ * its "Joinable" bucket too, and by HomePage.tsx (issue #363) for its
+ * in-progress/finished sections only — a private room's not-started/lobby
+ * state must still never be surfaced as joinable outside "Your games" or the
+ * room's own link, so HomePage filters this list down before rendering. Not
+ * an RLS boundary either way, since 0001_init_schema.sql's "games are
+ * readable by any signed-in user" policy already lets any authenticated user
+ * select any game row, and 0021_remove_observers.sql's game_state policy
+ * (mirrored onto game_state_meta by 0025_game_state_meta.sql) already lets
  * any signed-in user read a non-lobby game's state regardless of
- * visibility — so a private room's phase/finished status and score summary
- * resolve here the same way they do for public rooms.
+ * visibility — so a private room's phase/finished status resolves here the
+ * same way it does for public rooms. Per-game full-state reads used to also
+ * power a score summary here (issue #204); that's gone as of issue #441 —
+ * see GameStateSummary's doc comment (gameCardView.ts).
  */
 export async function listAllRooms(): Promise<PublicRoomEntry[]> {
   const { data: games, error: gamesError } = await supabase
@@ -403,13 +442,12 @@ async function roomEntriesForGames(gameRows: GameRow[]): Promise<PublicRoomEntry
 
   const [
     { data: allPlayers, error: allPlayersError },
-    { data: states, error: statesError },
+    { summaryByGame, updatedAtByGame },
   ] = await Promise.all([
     supabase.from('players').select().in('game_id', gameIds),
-    supabase.from('game_state').select('game_id, state, updated_at').in('game_id', gameIds),
+    fetchGameStateSummaries(gameIds),
   ])
   if (allPlayersError) throw allPlayersError
-  if (statesError) throw statesError
 
   const playersByGame = new Map<string, PlayerRow[]>()
   for (const p of allPlayers as PlayerRow[]) {
@@ -418,20 +456,11 @@ async function roomEntriesForGames(gameRows: GameRow[]): Promise<PublicRoomEntry
     playersByGame.set(p.game_id, list)
   }
 
-  const stateByGame = new Map<string, EngineGameState>()
-  const stateUpdatedAtByGame = new Map<string, string>()
-  await Promise.all(
-    (states as { game_id: string; state: StoredGameState; updated_at: string }[]).map(async (row) => {
-      stateByGame.set(row.game_id, await decompressGameStateFromStorage(row.state))
-      stateUpdatedAtByGame.set(row.game_id, row.updated_at)
-    }),
-  )
-
   return gameRows.map((game) => ({
     game,
     players: (playersByGame.get(game.id) ?? []).sort((a, b) => a.seat_index - b.seat_index),
-    gameState: stateByGame.get(game.id) ?? null,
-    gameStateUpdatedAt: stateUpdatedAtByGame.get(game.id) ?? null,
+    stateSummary: summaryByGame.get(game.id) ?? null,
+    gameStateUpdatedAt: updatedAtByGame.get(game.id) ?? null,
   }))
 }
 
