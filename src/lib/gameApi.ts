@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { decompressGameStateFromStorage, type StoredGameState } from './gameStateCompression'
 import { nextSeatIndex } from './seatIndex'
 import { remapGameSettingsPlayerIds, remapGameStatePlayerIds } from './duplicateGameState'
 import type { GameRow, GameSettings, GameStateRow, PlayerRow, ProfilePreferences, PushSubscriptionRow } from './dbTypes'
@@ -322,10 +323,12 @@ export async function listMyGames(userId: string): Promise<MyGameEntry[]> {
 
   const stateByGame = new Map<string, EngineGameState>()
   const stateUpdatedAtByGame = new Map<string, string>()
-  for (const row of states as { game_id: string; state: EngineGameState; updated_at: string }[]) {
-    stateByGame.set(row.game_id, row.state)
-    stateUpdatedAtByGame.set(row.game_id, row.updated_at)
-  }
+  await Promise.all(
+    (states as { game_id: string; state: StoredGameState; updated_at: string }[]).map(async (row) => {
+      stateByGame.set(row.game_id, await decompressGameStateFromStorage(row.state))
+      stateUpdatedAtByGame.set(row.game_id, row.updated_at)
+    }),
+  )
 
   return (games as GameRow[]).map((game) => {
     const gamePlayers = (playersByGame.get(game.id) ?? []).sort((a, b) => a.seat_index - b.seat_index)
@@ -410,10 +413,12 @@ async function roomEntriesForGames(gameRows: GameRow[]): Promise<PublicRoomEntry
 
   const stateByGame = new Map<string, EngineGameState>()
   const stateUpdatedAtByGame = new Map<string, string>()
-  for (const row of states as { game_id: string; state: EngineGameState; updated_at: string }[]) {
-    stateByGame.set(row.game_id, row.state)
-    stateUpdatedAtByGame.set(row.game_id, row.updated_at)
-  }
+  await Promise.all(
+    (states as { game_id: string; state: StoredGameState; updated_at: string }[]).map(async (row) => {
+      stateByGame.set(row.game_id, await decompressGameStateFromStorage(row.state))
+      stateUpdatedAtByGame.set(row.game_id, row.updated_at)
+    }),
+  )
 
   return gameRows.map((game) => ({
     game,
@@ -685,7 +690,7 @@ export async function getGameState(gameId: string): Promise<GameStateSnapshot | 
   const { data, error } = await supabase.from('game_state').select('state, version').eq('game_id', gameId).maybeSingle()
   if (error) throw error
   if (!data) return null
-  return { state: data.state as EngineGameState, version: data.version }
+  return { state: await decompressGameStateFromStorage(data.state as StoredGameState), version: data.version }
 }
 
 /**
@@ -759,8 +764,8 @@ export function subscribeToGameState(gameId: string, onChange: (snapshot: GameSt
       'postgres_changes',
       { event: '*', schema: 'public', table: 'game_state', filter: `game_id=eq.${gameId}` },
       (payload) => {
-        const row = payload.new as GameStateRow
-        onChange({ state: row.state, version: row.version })
+        const row = payload.new as Omit<GameStateRow, 'state'> & { state: StoredGameState }
+        void decompressGameStateFromStorage(row.state).then((state) => onChange({ state, version: row.version }))
       },
     )
     .subscribe()
