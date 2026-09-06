@@ -97,9 +97,10 @@ without a rewrite if a future requirement Edge Functions genuinely can't
 satisfy ever emerges (e.g. a real need for server push, or CPU limits
 becoming a real constraint).
 
-This decision also underpins `HIDDEN_INFORMATION_PLAN.md`'s `get_game_state`
-read path (§10 there has an open question on whether that RPC should
-likewise be an Edge Function, for the same reuse-the-engine reasoning).
+This decision also underpins `HIDDEN_INFORMATION_PLAN.md`'s `get-game-state`
+read path — implemented as an Edge Function too (2026-09-06), for the same
+reuse-the-engine reasoning (see that document's §5.2/§10 for how that
+question, originally left open, got resolved).
 
 ## 4. Enforcement model
 
@@ -368,20 +369,22 @@ of the trust boundary this document is about:
   through the normal owner-override path with the admin flag instead of
   (or in addition to) the ownership check.
 
-**Hidden-information interaction:** today, admin mode changes nothing here
-either — there's no redaction yet (`HIDDEN_INFORMATION_PLAN.md` §5), so admin
-already sees exactly what every other player's client already receives (the
-known gap issue #37 exists to close). Once that document's `get_game_state`
-redaction ships, admin mode needs an explicit carve-out there too: a viewer
-who is the room owner or `profiles.is_admin` should receive the
-**unredacted** state (skip the `selectCards`/`decline` masking) so that
-acting on another player's still-secret in-progress choice via admin mode
-actually works — otherwise admin mode would let them click a card-choice
-button whose contents they can't see. This is a deliberate, logged-as-"admin
-mode" trust boundary (the room owner and any site admin can already see/do
-almost everything else in this app), not an oversight — call it out
-explicitly in the `get_game_state` implementation (phase 5 of that
-document's execution plan) so it isn't missed.
+**Hidden-information interaction:** today, admin mode still changes nothing
+in the client's own read path — `gameApi.ts` reads `game_state` directly and
+isn't rewired onto `get-game-state` yet (phase 8, still outstanding), so
+admin mode already sees exactly what every other player's client already
+receives (the known gap issue #37 exists to close), same as before.
+**Update (2026-09-06): `get-game-state` itself (`HIDDEN_INFORMATION_PLAN.md`
+§5.2/§8 phase 5) already implements this carve-out**, ahead of the phase 8
+rewire that will actually put a client on this path: a caller who is the
+room owner or `profiles.is_admin` (`ctx.isOwnerOrAdmin`, the same flag
+§4.1/§4.5 already resolve) receives the raw, **unredacted** state — skip
+the `selectCards`/`decline` masking — so that once phase 8 lands, acting on
+another player's still-secret in-progress choice via admin mode actually
+works, rather than admin mode letting them click a card-choice button whose
+contents they can't see. This is a deliberate, logged-as-"admin mode" trust
+boundary (the room owner and any site admin can already see/do almost
+everything else in this app), not an oversight.
 
 ## 6. Data model changes
 
@@ -400,7 +403,7 @@ redaction work — see that document's §6 for it.
   `apply-action`/`undo-action`/`redo-action` invocations). Existing
   `version` column continues to back the compare-and-swap Edge Functions
   use internally. **Not done yet, deliberately:** flipping this RLS before
-  `get_game_state`/`apply-action` exist (phases 5-6) and `gameApi.ts` is
+  `get-game-state`/`apply-action` exist (phases 5-6) and `gameApi.ts` is
   rewired onto them (phase 8) would cut off every client's *current* direct
   read/write path with nothing yet in place to replace it — this must land
   in the same push as phase 8, not standalone, or the live app breaks the
@@ -413,7 +416,7 @@ redaction work — see that document's §6 for it.
   ever deleted or reordered — so there's no separate pointer value that
   isn't already a pure function of the column phase 3 already writes
   (`state.actionHistory`, inside the existing `game_state.state` jsonb).
-  `get_game_state`/`apply-action` (phases 5-6) can compute it the same way
+  `get-game-state`/`apply-action` (phases 5-6) can compute it the same way
   `resolveHistory()`/`stateAtPointer()` already do, with no new column.
 - ~~**Archived/pruned tail**~~ — **also unnecessary.** §4.4's original
   "submitting a new action while `pointer < tip` prunes the abandoned
@@ -426,14 +429,14 @@ redaction work — see that document's §6 for it.
   the permanent, unpruned archive; no side table needed.
 - **RLS:** `game_state`'s existing read policies get replaced by policies
   restricting direct table access to service role only, with reads going
-  through `get_game_state` instead — **deferred, see the `game_state`
+  through `get-game-state` instead — **deferred, see the `game_state`
   bullet above.** `game_state_meta`'s RLS (done, see
   `HIDDEN_INFORMATION_PLAN.md` §6) already uses the equivalent-to-today read
   policies this bullet originally called for.
 - **Update (2026-09-05, per jinxbit): phased rollout via a per-game opt-in
   flag, replacing the global cutover above.** Rather than locking
   `game_state`'s RLS to service-role-only for every game at once (which is
-  what forced bundling this with phase 5's `get_game_state` read path, per
+  what forced bundling this with phase 5's `get-game-state` read path, per
   the two bullets above), add `ruleEnforcementEnabled: boolean` to
   `GameSettings` (`src/lib/dbTypes.ts`, stored in `games.settings` jsonb —
   the same mechanism `skipHotseatPassGate`/`mapTemplateId`/etc. already use
@@ -445,7 +448,7 @@ redaction work — see that document's §6 for it.
   writing `game_state` directly exactly as now; games with it on can only
   be written by the service role, i.e. only through
   `apply-action`/`undo-action`/`redo-action`. This decouples the write-side
-  RLS lock from `get_game_state`/redaction entirely: reads are untouched
+  RLS lock from `get-game-state`/redaction entirely: reads are untouched
   either way, so an enforcement-enabled game reads its state exactly as
   unredacted as any other game does today — hidden information
   (`HIDDEN_INFORMATION_PLAN.md`) stays the separate, independently-timed
@@ -473,8 +476,8 @@ existing auto-deploy. This also fixed the pre-existing manual-deploy
 friction for `notify-discord-turn` (and now `notify-web-push` too).
 
 This workflow deploys every migration/function in the repo generically, so
-it serves `HIDDEN_INFORMATION_PLAN.md`'s `get_game_state` migration/function
-too, not just this document's `apply-action`/`undo-action`/`redo-action`.
+it serves `HIDDEN_INFORMATION_PLAN.md`'s `get-game-state` function too, not
+just this document's `apply-action`/`undo-action`/`redo-action`.
 
 Deploying *every* function rather than naming
 `apply-action`/`undo-action`/`redo-action` explicitly (this document's
@@ -587,7 +590,7 @@ to rule enforcement (2, 5) are omitted here.
    phase 6's specific functions existing yet.
 8. **Rewire `gameApi.ts`** and every call site (`GamePage.tsx`,
    `LobbyPage.tsx`, `RoundView.tsx`, `BoardSetupView.tsx`) from direct
-   `game_state` reads/writes onto `get_game_state`/`apply-action`/
+   `game_state` reads/writes onto `get-game-state`/`apply-action`/
    `undo-action`/`redo-action`. Keep the engine bundled client-side for
    optimistic UI (legal-move highlighting, immediate feedback) but never
    treat its output as authoritative — always reconcile against the
@@ -599,11 +602,16 @@ to rule enforcement (2, 5) are omitted here.
    as today; on calls `apply-action`/`undo-action`/`redo-action` instead.
    This lets the write-side half of this phase ship on its own — opt-in,
    new games only, zero risk to any in-progress game — without waiting on
-   phase 5's `get_game_state`. The read-side half (rewiring onto
-   `get_game_state`) stays exactly as blocked on phase 5 as before, for
+   phase 5's `get-game-state`. The read-side half (rewiring onto
+   `get-game-state`) stays exactly as blocked on phase 5 as before, for
    both flagged and unflagged games; an enforcement-enabled game just reads
    its own unredacted `game_state` row like every other game does until
-   that phase lands.
+   that phase lands. **Update (2026-09-06): phase 5 has landed
+   (`HIDDEN_INFORMATION_PLAN.md` §8), so this read-side half is now
+   unblocked** — still not started, though: it's a wider-blast-radius change
+   than the write-side half (every game's read path, not just opted-in
+   games' writes), so it's tracked as its own remaining step rather than
+   assumed to fall out of phase 5 landing.
    **Write-side half done (2026-09-05):**
    - `GameSettings.ruleEnforcementEnabled` (`src/lib/dbTypes.ts`), a
      `createGame()` param, and a `CreateGamePage.tsx` checkbox ("Enable
@@ -732,11 +740,12 @@ to rule enforcement (2, 5) are omitted here.
 - Edge Function cold-start/latency impact on perceived responsiveness in
   live mode — expected to be negligible for a turn-based game, but worth
   confirming during phase 9 verification.
-- §4.5's admin/owner carve-outs (server-side `playerId` override in
-  `apply-action`, `profiles.is_admin` added to §4.4's owner-override redo
-  condition, unredacted `get_game_state` for admin/owner) need to land
-  *with* phases 5–6, not after — otherwise admin mode either breaks or
-  becomes an unreviewed impersonation hole the moment enforcement ships.
+- ~~§4.5's admin/owner carve-outs ... need to land *with* phases 5–6, not
+  after~~ — **done.** Server-side `playerId` override in `apply-action` and
+  `profiles.is_admin` added to §4.4's owner-override redo condition shipped
+  with phase 6 (`ctx.isOwnerOrAdmin`, `_shared/gameEnforcement.ts`);
+  unredacted `get-game-state` for admin/owner shipped with phase 5
+  (2026-09-06, same `ctx.isOwnerOrAdmin` flag) — see the §4.5 update above.
 - **Resolved (2026-09-05): the `CreateGamePage.tsx` checkbox is visible to
   any room creator from day one** (labeled "experimental") rather than gated
   behind an admin/dev-only affordance.
@@ -776,6 +785,7 @@ to rule enforcement (2, 5) are omitted here.
     `loadGameContext` allowing a null `gameState`) — not attempted here.
 
 (See `HIDDEN_INFORMATION_PLAN.md` §10 for redaction-specific open items:
-the reveal high-water mark's storage shape, the `get_game_state`
-implementation-language question, and whether `game_state_meta` subsumes
-`0019_public_game_state_visible.sql`'s fix.)
+whether `game_state_meta` subsumes `0019_public_game_state_visible.sql`'s
+fix, and phase 5's still-outstanding live-Supabase verification — the
+reveal high-water mark and `get-game-state`'s implementation-language
+question are both resolved as of 2026-09-06.)

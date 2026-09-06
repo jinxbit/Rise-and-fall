@@ -108,12 +108,18 @@ view, not a rule):
 
 ### 5.2 Where redaction runs
 
-The masking logic is field-nulling, not game rules, so it doesn't need to
-live in an Edge Function. Read-side redaction runs as a
-`SECURITY DEFINER` Postgres RPC, `get_game_state(game_id)`, deployed via an
-ordinary SQL migration (same mechanism as the existing `supabase/migrations/`
-files) — it loads the authoritative row and calls the equivalent logic
-server-side.
+Originally scoped here as a plain SQL/plpgsql `SECURITY DEFINER` Postgres
+RPC, `get_game_state(game_id)` — "the masking logic is field-nulling, not
+game rules, so it doesn't need to live in an Edge Function." **Superseded,
+2026-09-06 (see §5.3/§10): implemented as `get-game-state`, an Edge
+Function instead**, once §5.3's reveal high-water mark (which needed a full
+engine replay, not field-nulling) was dropped — at that point reusing
+`redactStateForPlayer()` unmodified from an Edge Function was strictly
+simpler than re-deriving its logic in SQL, so the "doesn't need to live in
+an Edge Function" framing no longer carried its own conclusion. It loads
+the authoritative row and calls the equivalent logic server-side either
+way — the paragraphs below (Realtime broadcast leaking `actionHistory`,
+`game_state_meta`) are unaffected by which mechanism does the loading.
 
 **`actionHistory` must not be shipped wholesale to other players while
 their entries are still secret.** Redacting the *current-state* read isn't
@@ -196,6 +202,26 @@ it just because someone is reviewing history), while still resetting
 cleanly the moment that revelation's own causal history is actually
 discarded.
 
+**Dropped (per jinxbit, issue #450, 2026-09-06).** This entire subsection
+turned out to be the one thing standing between phase 5 (§8/§10) and
+shipping: `get_game_state` couldn't be plain field-nulling (§5.2's framing)
+while still needing `computeRevealedPhaseMarks`' full engine replay to
+compute this mark, and jinxbit explicitly offered to drop the mark if it
+"complicates things." It does, so it's gone: `computeRevealedPhaseMarks`/
+`revealMarkKey` (`historyPointer.ts`) and `redactStateForPlayerAtPointer`
+(`redaction.ts`) are deleted (they were already dead code in production —
+only their own tests exercised them, per `todo.md`'s "unused in production"
+note — so this was a pure deletion, no call site to migrate). `redactStateForPlayer`
+now always derives strictly from `state`'s own `roundPhase`/`pendingPlayerIds`,
+same as before this subsection was ever proposed. The one behavior this
+gives up: a review-only pointer rewind (no branch) back into an
+already-resolved `selectCards`/`decline` phase re-masks it for the
+duration of the rewind, flickering back to `chosen: true, cardId: null`
+for a value the viewer's own client already rendered before rewinding.
+Per the analysis earlier in this section, that's a flicker, not a leak —
+nothing new reaches the network that wasn't already there — so this is a
+cosmetic regression during history review, not a reopened privacy hole.
+
 ## 6. Data model changes
 
 **Update (2026-09-04, phase 4, §8): `game_state_meta` — done**
@@ -223,15 +249,15 @@ it doesn't touch `game_state`'s RLS, writes, or redaction, so `get_game_state`
 are unaffected and still outstanding.
 
 - ~~**New: reveal high-water mark (§5.3)**~~ — **turned out to be
-  unnecessary as persisted state.** `computeRevealedPhaseMarks()`
-  (`src/engine/historyPointer.ts`) is already "deliberately a pure function
-  of `history` rather than separately persisted, mutable state" (its own
-  doc comment) — a mark can't outlive the resolving entry that produced it,
-  since it's recomputed from `actionHistory` on every call. §10 has an open
-  item on what this means for `get_game_state`'s implementation, though:
-  computing it requires replaying the *engine*, not just field-nulling,
-  which is more than the "field-nulling, not game rules" characterization
-  §5.2 gives `get_game_state` accounted for.
+  unnecessary as persisted state**, then **dropped entirely (2026-09-06,
+  see §5.3)**. `computeRevealedPhaseMarks()` was already "deliberately a
+  pure function of `history` rather than separately persisted, mutable
+  state" (its own doc comment) — no column was ever needed — but it also
+  turned out not to be needed *at all*: computing it requires replaying the
+  *engine*, not just field-nulling, which was real tension with `get_game_state`'s
+  "field-nulling, not game rules" characterization (§5.2) and the reason §10's
+  SQL-vs-Edge-Function question stayed open. Resolved by removing the mark
+  instead of resolving that tension the hard way.
 - `game_state`'s RLS lockdown to service-role-only, and the removal of the
   `historyPointer`/archived-tail columns this document's prior draft also
   scoped here, live in `RULE_ENFORCEMENT_PLAN.md` §6 — they're enforcement
@@ -242,9 +268,9 @@ are unaffected and still outstanding.
 Shared with `RULE_ENFORCEMENT_PLAN.md` — see that document's §7 for the full
 description of `.github/workflows/deploy-supabase.yml`. It deploys every
 migration/Edge Function generically, so it covers this document's
-`get_game_state` migration/function the same way it covers
-`apply-action`/`undo-action`/`redo-action`, with no separate setup needed
-here.
+`get-game-state` function (§5.2, no migration — it's an Edge Function, not a
+SQL RPC) the same way it covers `apply-action`/`undo-action`/`redo-action`,
+with no separate setup needed here.
 
 ## 8. Execution plan (phased)
 
@@ -275,16 +301,45 @@ to hidden information (6) are omitted here.
 4. **DB migration** — **`game_state_meta` done** (§6,
    `0025_game_state_meta.sql`). Nothing else needed on this document's side
    of phase 4 (the reveal high-water mark needed no column — §6 above).
-5. **`get_game_state` SQL RPC** (read-side redaction, §5.1–5.2) + migration
-   — **open design question first, see §10:** §5.3's reveal high-water mark
-   needs a full engine replay (`computeRevealedPhaseMarks()`), not the plain
-   field-nulling §5.2 originally scoped this RPC as, which is a real tension
-   with implementing it as plain SQL/plpgsql instead of an Edge Function.
+5. **`get-game-state` Edge Function** (read-side redaction, §5.1–5.2) —
+   **done (2026-09-06).** §10's open question (plain SQL/plpgsql RPC vs.
+   Edge Function) is resolved in favor of the Edge Function, both because
+   §5.3's reveal high-water mark (the thing forcing a full engine replay,
+   the actual source of tension with a "plain SQL" RPC) was dropped the same
+   day (§5.3), and because reusing `src/engine/`'s `redactStateForPlayer()`
+   unmodified — no rule-logic duplication in SQL — was already §10's stated
+   lean regardless. `supabase/functions/get-game-state/index.ts` mirrors
+   `apply-action`/`undo-action`/`redo-action`'s shape: resolves the caller's
+   seat via `_shared/gameEnforcement.ts`'s `loadGameContext()`, gates access
+   with a new `canReadGameState()` (mirrors `game_state`'s current SELECT
+   RLS policies — 0021/0024 — since a service-role Edge Function bypasses
+   RLS entirely and has to reimplement that gate itself), returns the raw
+   unredacted state for the room owner/an admin (§4.5's carve-out), and
+   `redactStateForPlayer(state, callerPlayerId)` for everyone else
+   (`callerPlayerId` is `null` for a non-seated "any signed-in user" —
+   `redactStateForPlayer`'s `viewerId` widened to `string | null` to match
+   `redactGameLog`'s existing convention, so such a viewer sees everything
+   currently secret from every player, same as `redactGameLog` already
+   treats a `null` viewer). No migration needed — an Edge Function needs no
+   DB schema change of its own, unlike the SQL-RPC framing §5.2 originally
+   assumed. Verified: `src/engine/` unit tests (unaffected — this phase
+   doesn't touch engine rules, only what's exposed by a new caller) and
+   `deno check --node-modules-dir=auto` against all four Edge Functions
+   (this one plus the three from `RULE_ENFORCEMENT_PLAN.md` phase 6, to
+   confirm the shared-file edits didn't regress them). **Not done:**
+   deploying and calling it against a live Supabase project, or `apply-action`-
+   style local-stack smoke testing (`RULE_ENFORCEMENT_PLAN.md` §8 phase 6) —
+   this sandbox has Deno but couldn't get an interactive `supabase
+   start`/Docker session approved non-interactively; needs the maintainer's
+   environment, same limitation §9 already flags for phases 5/8/9. Nothing
+   calls this function yet (see phase 8 below) — landing it standalone first
+   is deliberately low-risk, the same "additive and inert until wired up"
+   shape `apply-action`/`undo-action`/`redo-action` shipped in.
 7. **CI deploy workflow** — done, see `RULE_ENFORCEMENT_PLAN.md` §7; covers
-   this document's `get_game_state` deploy too.
+   this document's `get-game-state` deploy too.
 8. **Rewire `gameApi.ts`** and every call site (`GamePage.tsx`,
    `LobbyPage.tsx`, `RoundView.tsx`, `BoardSetupView.tsx`) from direct
-   `game_state` reads onto `get_game_state` specifically (see
+   `game_state` reads onto `get-game-state` specifically (see
    `RULE_ENFORCEMENT_PLAN.md` §8 phase 8 for the write-side
    `apply-action`/`undo-action`/`redo-action` half). Keep the engine bundled
    client-side for optimistic UI (legal-move highlighting, immediate
@@ -304,18 +359,15 @@ to hidden information (6) are omitted here.
 
 - **Engine-level (this sandbox can run these):** `redactStateForPlayer()`
   unit tests covering both hidden windows (mid-`selectCards`, mid-
-  `decline`) and confirming everything else passes through unchanged; §5.3
-  refinement cases specifically — a plain review-only pointer rewind into
-  an already-resolved phase does not re-mask it (no flicker); a branch that
-  prunes a phase's resolving action deletes that phase's reveal high-water
-  mark so redaction re-masks it, consistent with
-  `RULE_ENFORCEMENT_PLAN.md` §4.4's owner-override gate covering that same
-  branch.
-- **Edge Function/RPC level:** requires a live Supabase project — out of
-  reach in this sandbox (no credentials/Docker), consistent with existing
-  `todo.md` notes about board-setup/round-view verification. Maintainer
-  verification needed post-merge for each of phases 5, 8–9: confirm
-  `get_game_state` never leaks a secret field over the wire, including via
+  `decline`) and confirming everything else passes through unchanged. (§5.3's
+  review-rewind-flicker/branch-re-masking cases were removed along with the
+  reveal high-water mark itself, 2026-09-06 — see §5.3.)
+- **Edge Function level:** requires a live Supabase project — out of
+  reach in this sandbox (no credentials/Docker; `deno check` against all
+  four functions is as far as phase 5 could verify here, see §8), consistent
+  with existing `todo.md` notes about board-setup/round-view verification.
+  Maintainer verification needed post-merge for each of phases 5, 8–9: confirm
+  `get-game-state` never leaks a secret field over the wire, including via
   Realtime broadcast of the raw row (§5.2).
 - **Regression:** existing `src/engine/__tests__/` suite (220+ tests as of
   this writing) must continue passing unmodified — this work changes *what
@@ -327,36 +379,23 @@ testing.)
 
 ## 10. Open items / risks
 
-- Exact storage shape for the reveal high-water mark (§5.3/§6) — **engine
-  side (phase 3, §8) needs no storage at all** (unchanged from before):
-  `computeRevealedPhaseMarks()` derives it on demand from the tip
-  `actionHistory`. **New tension found while scoping phase 5 (2026-09-04):**
-  §5.2 characterizes `get_game_state` as pure "field-nulling, not game
-  rules," implementable as a plain SQL/plpgsql `SECURITY DEFINER` RPC — but
-  `computeRevealedPhaseMarks()` isn't field-nulling, it's a full replay of
-  every logged action through `applyAction()` (the actual rules engine) to
-  find which simultaneous phases resolved. Reimplementing that in SQL would
-  duplicate rule logic outside `src/engine/` — exactly what
-  `RULE_ENFORCEMENT_PLAN.md` §3 chose Edge Functions to avoid in the first
-  place. Two ways to resolve this, needs a decision before phase 5 is
-  implemented:
-  a. `get_game_state` does §5.1's plain (non-sticky) redaction only, in SQL,
-     as originally scoped, and §5.3's stickiness either waits for a later
-     increment or is computed a different way (e.g. cached alongside
-     `game_state` by whichever Edge Function call last resolved a phase,
-     rather than recomputed per read); or
-  b. `get_game_state` is actually implemented as an Edge Function (Deno/TS,
-     reusing `src/engine/`'s `computeRevealedPhaseMarks()`/
-     `redactStateForPlayerAtPointer()` unmodified) despite the "Postgres
-     RPC" framing in §5.2 — consistent with
-     `RULE_ENFORCEMENT_PLAN.md` §3's reuse-the-engine rationale, at the cost
-     of one more Deno cold start per state read (mitigated by that
-     document's own "negligible for a turn-based game" expectation, same as
-     `apply-action`).
-  (b) is closer to this document's own stated principles (reuse
-  `src/engine/` unmodified, no rule-logic duplication) and is the current
-  lean, but this needs an explicit decision, not an assumption, before
-  phase 5 starts.
+- ~~Exact storage shape for the reveal high-water mark (§5.3/§6)~~ / ~~SQL
+  RPC vs. Edge Function tension for `get_game_state` (found while scoping
+  phase 5, 2026-09-04)~~ — **resolved (2026-09-06): the reveal high-water
+  mark (§5.3) is dropped entirely**, per jinxbit's offer on issue #450 to
+  drop it if it complicated phase 5 — it did (computing it needs a full
+  `applyAction()` replay, in tension with `get_game_state` being pure
+  field-nulling), so `computeRevealedPhaseMarks()`/`redactStateForPlayerAtPointer()`
+  are deleted rather than resolved around. That leaves plain §5.1 redaction,
+  which needed no SQL-vs-Edge-Function decision to begin with once the
+  replay requirement was gone — implemented as `get-game-state`, an Edge
+  Function (option (b) below, which was already this document's stated
+  lean): reuses `redactStateForPlayer()` unmodified, no rule-logic
+  duplication in SQL. (Original options considered, for the record: (a) SQL
+  RPC with non-sticky redaction only, deferring stickiness; (b) Edge
+  Function reusing the engine directly, at the cost of one more Deno cold
+  start per read — same "negligible for a turn-based game" expectation
+  `RULE_ENFORCEMENT_PLAN.md` gives `apply-action`.)
 - ~~Whether a pruned, abandoned branch that already crossed a reveal
   transition leaves that information revealed forever~~ — **resolved**: no,
   per jinxbit's 2026-09-03 answer, the reveal high-water mark is deleted

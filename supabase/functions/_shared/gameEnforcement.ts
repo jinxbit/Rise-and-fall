@@ -55,6 +55,8 @@ export interface GameRow {
   id: string
   play_mode: 'hotseat' | 'live' | 'async'
   created_by: string
+  /** Room lifecycle status (0008_room_lifecycle.sql) — only get-game-state's read-visibility check (mirroring 0021_remove_observers.sql's RLS policy) uses this today; apply-action/undo-action/redo-action ignore it. */
+  status: 'lobby' | 'active' | 'completed' | 'canceled'
 }
 export interface PlayerRow {
   id: string
@@ -109,7 +111,7 @@ export interface GameContext {
 /** Loads everything apply-action/undo-action/redo-action need about one game in one place, or null if the game/its state doesn't exist. */
 export async function loadGameContext(supabase: SupabaseClient, gameId: string, callerUserId: string): Promise<GameContext | null> {
   const [{ data: game, error: gameError }, { data: players, error: playersError }, { data: gameState, error: stateError }] = await Promise.all([
-    supabase.from('games').select('id, play_mode, created_by').eq('id', gameId).maybeSingle(),
+    supabase.from('games').select('id, play_mode, created_by, status').eq('id', gameId).maybeSingle(),
     supabase.from('players').select('id, user_id').eq('game_id', gameId),
     supabase.from('game_state').select('state, version').eq('game_id', gameId).maybeSingle(),
   ])
@@ -142,6 +144,20 @@ export function isAuthorizedToActAs(ctx: GameContext, callerUserId: string, play
   if (ctx.isOwnerOrAdmin) return true
   if (ctx.game.play_mode === 'hotseat') return ctx.players.some((p) => p.user_id === callerUserId)
   return ctx.players.some((p) => p.id === playerId && p.user_id === callerUserId)
+}
+
+/**
+ * get-game-state's read-visibility check — mirrors `game_state`'s current
+ * SELECT RLS policies (0021_remove_observers.sql: seated player, or any
+ * signed-in user once the game is past 'lobby'; 0024_admin_read_all_game_state.sql:
+ * an admin, of anything, always) exactly, since a `security definer`-style
+ * Edge Function using the service-role client bypasses RLS entirely and so
+ * has to reimplement whatever gate RLS would otherwise have provided.
+ */
+export function canReadGameState(ctx: GameContext, callerUserId: string): boolean {
+  if (ctx.isOwnerOrAdmin) return true
+  if (ctx.players.some((p) => p.user_id === callerUserId)) return true
+  return ctx.game.status !== 'lobby'
 }
 
 /**
