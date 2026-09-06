@@ -293,12 +293,19 @@ export async function listPlayers(gameId: string): Promise<PlayerRow[]> {
  * game_state row yet. RLS already scopes game_state reads to seated
  * players, and a personal game list is small enough that fetching each
  * one's state up front is cheap.
+ *
+ * `excludeGameId` skips one game entirely (games/players/game_state alike)
+ * — for GamePage.tsx's "other games" nudge, which already has the room it's
+ * currently showing loaded via getGameState and only ever reads *other*
+ * games out of this list (see nextGameNeedingInput), so re-downloading and
+ * decompressing that one game's own GameState here would just be wasted
+ * bandwidth (issue #441).
  */
-export async function listMyGames(userId: string): Promise<MyGameEntry[]> {
+export async function listMyGames(userId: string, excludeGameId?: string): Promise<MyGameEntry[]> {
   const { data: myRows, error: myRowsError } = await supabase.from('players').select().eq('user_id', userId)
   if (myRowsError) throw myRowsError
 
-  const gameIds = [...new Set((myRows as PlayerRow[]).map((p) => p.game_id))]
+  const gameIds = [...new Set((myRows as PlayerRow[]).map((p) => p.game_id))].filter((id) => id !== excludeGameId)
   if (gameIds.length === 0) return []
 
   const [
