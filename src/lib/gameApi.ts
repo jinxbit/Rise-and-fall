@@ -302,7 +302,10 @@ async function fetchGameStateSummaries(
     { data: metas, error: metasError },
     { data: activeRows, error: activeRowsError },
   ] = await Promise.all([
-    supabase.from('game_state_meta').select('game_id, status, round_phase, turn, updated_at').in('game_id', gameIds),
+    supabase
+      .from('game_state_meta')
+      .select('game_id, status, round_phase, turn, pending_player_ids, updated_at')
+      .in('game_id', gameIds),
     supabase.from('game_state').select('game_id, active_player_id').in('game_id', gameIds),
   ])
   if (metasError) throw metasError
@@ -314,12 +317,13 @@ async function fetchGameStateSummaries(
 
   const summaryByGame = new Map<string, GameStateSummary>()
   const updatedAtByGame = new Map<string, string>()
-  for (const row of metas as Pick<GameStateMetaRow, 'game_id' | 'status' | 'round_phase' | 'turn' | 'updated_at'>[]) {
+  for (const row of metas as Pick<GameStateMetaRow, 'game_id' | 'status' | 'round_phase' | 'turn' | 'pending_player_ids' | 'updated_at'>[]) {
     summaryByGame.set(row.game_id, {
       status: row.status as GameStatus,
       roundPhase: row.round_phase as RoundPhase | null,
       turn: row.turn,
       activePlayerId: activePlayerIdByGame.get(row.game_id) ?? null,
+      pendingPlayerIds: row.pending_player_ids,
     })
     updatedAtByGame.set(row.game_id, row.updated_at)
   }

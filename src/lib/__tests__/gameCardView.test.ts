@@ -43,7 +43,7 @@ function makeGame(overrides: Partial<GameRow> = {}, settingsOverrides: Partial<G
 }
 
 function makeSummary(overrides: Partial<GameStateSummary> = {}): GameStateSummary {
-  return { status: 'active', roundPhase: 'actions', turn: 1, activePlayerId: 'p1', ...overrides }
+  return { status: 'active', roundPhase: 'actions', turn: 1, activePlayerId: 'p1', pendingPlayerIds: [], ...overrides }
 }
 
 describe('buildGameCardSummary', () => {
@@ -166,21 +166,36 @@ describe('pendingActorIdsFor', () => {
     expect(pendingActorIdsFor(makeSummary({ status: 'completed', roundPhase: null }))).toEqual([])
   })
 
-  // GameStateSummary doesn't carry state.pendingPlayerIds (issue #441 — no
-  // cheap projection of it exists), so a simultaneous phase can't report who
-  // specifically is still pending; it deliberately reports nobody rather
-  // than guessing (a listing card's turn highlighting goes silent here,
-  // never a false positive).
-  it('is empty during a simultaneous selectCards/decline phase, even though someone is really pending', () => {
-    expect(pendingActorIdsFor(makeSummary({ roundPhase: 'selectCards', activePlayerId: null }))).toEqual([])
-    expect(pendingActorIdsFor(makeSummary({ roundPhase: 'decline', activePlayerId: null }))).toEqual([])
+  // game_state_meta.pending_player_ids (0027_game_state_meta_pending_players.sql)
+  // mirrors state.pendingPlayerIds during these simultaneous phases: everyone
+  // still owed a turn at once, not just one "active" player.
+  it('returns everyone still pending during a simultaneous selectCards/decline phase', () => {
+    expect(
+      pendingActorIdsFor(makeSummary({ roundPhase: 'selectCards', activePlayerId: null, pendingPlayerIds: ['p1', 'p2'] })),
+    ).toEqual(['p1', 'p2'])
+    expect(
+      pendingActorIdsFor(makeSummary({ roundPhase: 'decline', activePlayerId: null, pendingPlayerIds: ['p2'] })),
+    ).toEqual(['p2'])
   })
 
-  // Same reasoning for boardSetup: the current tile/unit placer isn't
-  // denormalized anywhere (see engine/boardSetup.ts), so this can't recover
-  // it from GameStateSummary alone.
-  it('is empty during board setup, even though someone is really placing', () => {
-    expect(pendingActorIdsFor(makeSummary({ status: 'boardSetup', roundPhase: null }))).toEqual([])
+  // decline's pendingPlayerIds can repeat a player id (once per card still
+  // owed) — pendingActorIdsFor collapses that to the distinct set of ids.
+  it('dedupes repeated ids in a simultaneous phase', () => {
+    expect(
+      pendingActorIdsFor(makeSummary({ roundPhase: 'decline', activePlayerId: null, pendingPlayerIds: ['p1', 'p1', 'p2'] })),
+    ).toEqual(['p1', 'p2'])
+  })
+
+  // The board-setup tile/unit placer (engine/boardSetup.ts's
+  // currentTilePlacerId/currentUnitPlacerId) is derived by the same trigger
+  // into pending_player_ids, so this can recover it from GameStateSummary
+  // alone.
+  it('returns the current placer during board setup', () => {
+    expect(pendingActorIdsFor(makeSummary({ status: 'boardSetup', roundPhase: null, pendingPlayerIds: ['p2'] }))).toEqual(['p2'])
+  })
+
+  it('is empty during board setup with nobody currently placing (e.g. between tile and unit placement)', () => {
+    expect(pendingActorIdsFor(makeSummary({ status: 'boardSetup', roundPhase: null, pendingPlayerIds: [] }))).toEqual([])
   })
 })
 

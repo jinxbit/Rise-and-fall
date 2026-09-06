@@ -54,7 +54,7 @@ function makePlayers(gameId: string): PlayerRow[] {
 }
 
 function makeSummary(overrides: Partial<GameStateSummary> = {}): GameStateSummary {
-  return { status: 'active', roundPhase: 'actions', turn: 1, activePlayerId: 'p1', ...overrides }
+  return { status: 'active', roundPhase: 'actions', turn: 1, activePlayerId: 'p1', pendingPlayerIds: [], ...overrides }
 }
 
 function makeEntry(overrides: Partial<MyGameEntry> = {}): MyGameEntry {
@@ -129,13 +129,28 @@ describe('isMyTurn', () => {
     expect(isMyTurn(makeEntry({ myPlayerIds: ['p1', 'p2'], stateSummary: makeSummary({ activePlayerId: 'p2' }) }))).toBe(true)
   })
 
-  // GameStateSummary can't tell who's pending during a simultaneous
-  // selectCards/decline phase (issue #441 — no cheap projection of
-  // state.pendingPlayerIds exists), so it deliberately reports "not my
-  // turn" rather than guessing.
-  it('is false during a simultaneous phase, even if I am really one of the pending players', () => {
+  // game_state_meta.pending_player_ids (issue #441 follow-up) mirrors
+  // state.pendingPlayerIds during a simultaneous phase, so this can tell
+  // when one of my seats is one of the players still pending.
+  it('is true during a simultaneous phase when one of my seats is really pending', () => {
     expect(
-      isMyTurn(makeEntry({ myPlayerIds: ['p1'], stateSummary: makeSummary({ roundPhase: 'selectCards', activePlayerId: null }) })),
+      isMyTurn(
+        makeEntry({
+          myPlayerIds: ['p1'],
+          stateSummary: makeSummary({ roundPhase: 'selectCards', activePlayerId: null, pendingPlayerIds: ['p1', 'p2'] }),
+        }),
+      ),
+    ).toBe(true)
+  })
+
+  it('is false during a simultaneous phase when none of my seats is pending', () => {
+    expect(
+      isMyTurn(
+        makeEntry({
+          myPlayerIds: ['p1'],
+          stateSummary: makeSummary({ roundPhase: 'selectCards', activePlayerId: null, pendingPlayerIds: ['p2'] }),
+        }),
+      ),
     ).toBe(false)
   })
 })

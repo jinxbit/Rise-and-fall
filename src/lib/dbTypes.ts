@@ -174,13 +174,13 @@ export interface GameStateRow {
 
 /**
  * Slim public projection of `GameStateRow` (`0025_game_state_meta.sql`):
- * status/roundPhase/turn/version only, kept in sync with `game_state` by a
- * `security definer` trigger on every insert/update — clients never write
- * this table directly. Originally landed for `HIDDEN_INFORMATION_PLAN.md`'s
- * future redaction work, but also the cheap source gameApi.ts's
- * `fetchGameStateSummaries` reads for listing screens (issue #441) so they
- * never need to download/decompress the full `state` blob just to show a
- * game's phase/round/last-updated.
+ * status/roundPhase/turn/version/pendingPlayerIds only, kept in sync with
+ * `game_state` by a `security definer` trigger on every insert/update —
+ * clients never write this table directly. Originally landed for
+ * `HIDDEN_INFORMATION_PLAN.md`'s future redaction work, but also the cheap
+ * source gameApi.ts's `fetchGameStateSummaries` reads for listing screens
+ * (issue #441) so they never need to download/decompress the full `state`
+ * blob just to show a game's phase/round/last-updated/turn-highlighting.
  */
 export interface GameStateMetaRow {
   game_id: string
@@ -188,6 +188,8 @@ export interface GameStateMetaRow {
   round_phase: string | null
   turn: number
   version: number
+  /** See `0027_game_state_meta_pending_players.sql`'s column comment for exactly what this holds per phase. */
+  pending_player_ids: string[]
   updated_at: string
 }
 

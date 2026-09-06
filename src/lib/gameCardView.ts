@@ -10,10 +10,11 @@ import type { GameRow, GameSettings } from './dbTypes'
 
 /**
  * Lightweight, cheap-to-query summary of a game's `game_state` row for
- * listing screens (issue #441): `status`/`roundPhase`/`turn` come from the
- * pre-existing `game_state_meta` projection (`0025_game_state_meta.sql`,
+ * listing screens (issue #441): `status`/`roundPhase`/`turn`/
+ * `pendingPlayerIds` come from the pre-existing `game_state_meta` projection
+ * (`0025_game_state_meta.sql`/`0027_game_state_meta_pending_players.sql`,
  * kept in sync by a DB trigger on every `game_state` write), and
- * `activePlayerId` from `game_state.active_player_id` — both plain scalar
+ * `activePlayerId` from `game_state.active_player_id` — all plain scalar
  * columns, never the compressed `game_state.state` blob that used to be
  * downloaded and decompressed for every listed game (the actual cause of
  * issue #441's repeated multi-MB bandwidth). `null` means no `game_state`
@@ -21,35 +22,42 @@ import type { GameRow, GameSettings } from './dbTypes'
  * used to carry.
  *
  * This intentionally can't answer everything the full `GameState` could:
- * - `activePlayerId` is only meaningful outside the simultaneous
- *   `selectCards`/`decline` round phases (see engine/types.ts's
- *   `GameState.activePlayerId`) — during those, and during `boardSetup`,
- *   `pendingActorIdsFor` below can't recover who's actually pending (that's
- *   `state.pendingPlayerIds`/the board-setup placer, neither of which is
- *   denormalized anywhere) and deliberately reports "nobody" rather than
- *   guessing, so a card's turn highlighting degrades to silence in those
- *   windows, never a false positive.
- * - Per-player scores/VP breakdown (issue #204) needed the full
- *   `GameState.players` plus achievement/tale content to compute — there's
- *   no cheap projection of that, so it's no longer available on listing
- *   cards at all; open the game itself to see current scores.
+ * per-player scores/VP breakdown (issue #204) needed the full
+ * `GameState.players` plus achievement/tale content to compute — there's no
+ * cheap projection of that, so it's no longer available on listing cards at
+ * all; open the game itself to see current scores. Turn highlighting
+ * (`pendingActorIdsFor` below), by contrast, is fully answerable from this
+ * summary — see `pendingPlayerIds`.
  */
 export interface GameStateSummary {
   status: GameStatus
   roundPhase: RoundPhase | null
   turn: number
   activePlayerId: string | null
+  /**
+   * Player ids still owed a turn right now, straight from
+   * `game_state_meta.pending_player_ids` — see that column's comment
+   * (`0027_game_state_meta_pending_players.sql`) for exactly what it holds
+   * per phase: `state.pendingPlayerIds` during the simultaneous
+   * `selectCards`/`decline` phases (everyone pending at once, so this can
+   * repeat ids for decline's per-player card count — dedupe before display),
+   * the derived board-setup tile/unit placer during `boardSetup` (0 or 1
+   * id), or `[]` otherwise (turn-order phases use `activePlayerId` instead).
+   */
+  pendingPlayerIds: string[]
 }
 
 /**
  * The seated players who must act next, or `[]` if nobody's turn is pending
- * (lobby/completed/boardSetup/a simultaneous selectCards-decline phase — see
- * GameStateSummary's doc comment for why the latter two can't be answered
- * from this summary alone).
+ * (lobby/completed).
  */
 export function pendingActorIdsFor(summary: GameStateSummary | null): string[] {
-  if (!summary || summary.status !== 'active') return []
-  if (summary.roundPhase === 'selectCards' || summary.roundPhase === 'decline') return []
+  if (!summary) return []
+  if (summary.status === 'boardSetup') return summary.pendingPlayerIds
+  if (summary.status !== 'active') return []
+  if (summary.roundPhase === 'selectCards' || summary.roundPhase === 'decline') {
+    return [...new Set(summary.pendingPlayerIds)]
+  }
   return summary.activePlayerId ? [summary.activePlayerId] : []
 }
 
