@@ -332,6 +332,21 @@ async function fetchGameStateSummaries(
 }
 
 /**
+ * Every `games` column except `settings` — used wherever a list of rooms is
+ * fetched (listMyGames/listPublicRooms/listAllRooms below) rather than a
+ * single room. `settings.mapPoolBoard` embeds a full `Board` (one Tile per
+ * hex — see GameSettings' doc comment in dbTypes.ts), tens of KB per
+ * map-pool game; none of these list views' consumers (myGamesView.ts,
+ * publicRoomsView.ts, MyGamesPage/HomePage/PublicRoomsPage/AdminRoomsPage)
+ * read `.settings` at all, so fetching it here just re-downloads every
+ * map-pool game's board on every list refresh for no reason (issue #444).
+ * Single-room reads (getGameByRoomCode et al.) still need the full row and
+ * keep using plain `select()`.
+ */
+const GAME_LIST_COLUMNS =
+  'id, room_code, name, play_mode, status, min_players, max_players, created_by, created_at, updated_at, config_version, visibility'
+
+/**
  * Every game the given user is seated in — for the "My games" screen
  * (MyGamesPage.tsx). Includes each game's cheap GameStateSummary (issue
  * #441 — see fetchGameStateSummaries/gameCardView.ts's GameStateSummary) so
@@ -359,7 +374,7 @@ export async function listMyGames(userId: string, excludeGameId?: string): Promi
     { data: allPlayers, error: allPlayersError },
     { summaryByGame, updatedAtByGame },
   ] = await Promise.all([
-    supabase.from('games').select().in('id', gameIds),
+    supabase.from('games').select(GAME_LIST_COLUMNS).in('id', gameIds),
     supabase.from('players').select().in('game_id', gameIds),
     fetchGameStateSummaries(gameIds),
   ])
@@ -397,7 +412,7 @@ export async function listMyGames(userId: string, excludeGameId?: string): Promi
 export async function listPublicRooms(): Promise<PublicRoomEntry[]> {
   const { data: games, error: gamesError } = await supabase
     .from('games')
-    .select()
+    .select(GAME_LIST_COLUMNS)
     .eq('visibility', 'public')
     .neq('status', 'canceled')
     .order('updated_at', { ascending: false })
@@ -428,7 +443,7 @@ export async function listPublicRooms(): Promise<PublicRoomEntry[]> {
 export async function listAllRooms(): Promise<PublicRoomEntry[]> {
   const { data: games, error: gamesError } = await supabase
     .from('games')
-    .select()
+    .select(GAME_LIST_COLUMNS)
     .neq('status', 'canceled')
     .order('updated_at', { ascending: false })
   if (gamesError) throw gamesError
