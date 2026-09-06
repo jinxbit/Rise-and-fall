@@ -206,9 +206,21 @@ RLS-readable by the same audience `game_state` itself currently is
 (`0021_remove_observers.sql`, `0024_admin_read_all_game_state.sql`), added to
 the `supabase_realtime` publication. Landed ahead of the RLS lockdown it's
 actually for (see `RULE_ENFORCEMENT_PLAN.md` §6), same "safe to land early,
-deploys generically" reasoning `RULE_ENFORCEMENT_PLAN.md` §7's workflow used
-— it's inert (nothing reads it) until phase 8 subscribes to it instead of
-`game_state` directly.
+deploys generically" reasoning `RULE_ENFORCEMENT_PLAN.md` §7's workflow used.
+
+**Update (2026-09-06, issue #448):** no longer inert. `gameApi.ts`'s
+`subscribeToGameState` now subscribes to `game_state_meta` instead of
+`game_state` directly — Realtime broadcasts a changed row's full contents
+over the websocket regardless of what actually changed, so subscribing to
+the authoritative row meant pushing the entire `GameState` (routinely
+~200kb, including the whole `actionHistory`) uncompressed on every move.
+`game_state_meta`'s tiny broadcast is just the "something changed" signal;
+the client then fetches the full state via the existing `getGameState` REST
+call, which gets ordinary HTTP gzip compression the websocket never did.
+This is only the read-side piece §5.2/(a) already described for phase 8 —
+it doesn't touch `game_state`'s RLS, writes, or redaction, so `get_game_state`
+(§5) and the write-side lockdown (`RULE_ENFORCEMENT_PLAN.md` §6/§8 phase 8)
+are unaffected and still outstanding.
 
 - ~~**New: reveal high-water mark (§5.3)**~~ — **turned out to be
   unnecessary as persisted state.** `computeRevealedPhaseMarks()`
