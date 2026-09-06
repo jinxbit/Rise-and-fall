@@ -4,7 +4,14 @@ import { BoardSetupView } from '../components/BoardSetupView'
 import { EndGameView } from '../components/EndGameView'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { RoundView } from '../components/RoundView'
-import { resolveAchievementContent, resolveBoardGenerationContent, resolveTaleContent, resolveUnitContent } from '../content/resolveContent'
+import {
+  listMapTemplates,
+  listTales,
+  resolveAchievementContent,
+  resolveBoardGenerationContent,
+  resolveTaleContent,
+  resolveUnitContent,
+} from '../content/resolveContent'
 import type { Action, LoggedAction } from '../engine/actions'
 import { applyAction } from '../engine/applyAction'
 import { stripOccupants } from '../engine/board'
@@ -112,6 +119,8 @@ export function GamePage() {
   /** True while a move submitted via submitAction() is in flight — surfaced as a small "Sending…" badge in the board's top-right corner (issue #434). */
   const [submitting, setSubmitting] = useState(false)
   const [showStateJson, setShowStateJson] = useState(false)
+  /** Site-admin-only "Room configuration" panel (issue #453) — a readable summary of `game.settings`, primarily so an admin can confirm whether RULE_ENFORCEMENT_PLAN.md's `ruleEnforcementEnabled` is on for this room without decoding the full state JSON. */
+  const [showRoomConfig, setShowRoomConfig] = useState(false)
   /** The top-left hamburger menu (Main menu, Show/Hide game state JSON) — see the click-outside/Escape effect below. */
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -1490,6 +1499,21 @@ export function GamePage() {
                   </button>
                 )}
                 {isAdmin && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    aria-pressed={showRoomConfig}
+                    onClick={() => {
+                      setMenuOpen(false)
+                      setShowRoomConfig((v) => !v)
+                    }}
+                    title="Show this room's configuration — map source, game length, Tales, and whether backend rule enforcement is on. Site admins only."
+                    className={`px-3 py-2 text-left hover:bg-neutral-800 ${showRoomConfig ? 'text-amber-400' : ''}`}
+                  >
+                    {showRoomConfig ? 'Hide' : 'Show'} room configuration
+                  </button>
+                )}
+                {isAdmin && (
                   <div
                     title="Cumulative size of network traffic to and from Supabase during this session. Doesn't include realtime/websocket updates."
                     className="px-3 py-2 text-left text-neutral-500"
@@ -1733,6 +1757,49 @@ export function GamePage() {
         <div className="rounded-md bg-neutral-800/60 p-3 text-sm text-neutral-300">
           This room was canceled{isCreator ? '' : ' by the host'}. Play is disabled — it stays here for reference until{' '}
           {isCreator ? 'you delete it.' : 'the host deletes it.'}
+        </div>
+      )}
+
+      {showRoomConfig && isAdmin && (
+        <div className="flex flex-col gap-2 rounded-md border border-neutral-800 bg-neutral-900 p-4 text-sm">
+          <div className="font-medium text-neutral-200">Room configuration</div>
+          <div className={game.settings.ruleEnforcementEnabled ? 'font-medium text-amber-400' : 'font-medium text-neutral-400'}>
+            Backend rule enforcement: {game.settings.ruleEnforcementEnabled ? 'ON' : 'OFF'}
+          </div>
+          <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-neutral-300">
+            <dt className="text-neutral-500">Play mode</dt>
+            <dd>{game.play_mode}</dd>
+            <dt className="text-neutral-500">Visibility</dt>
+            <dd>{game.visibility}</dd>
+            <dt className="text-neutral-500">Players</dt>
+            <dd>
+              {game.min_players}–{game.max_players}
+            </dd>
+            <dt className="text-neutral-500">Game length</dt>
+            <dd>{game.settings.gameLength} achievements</dd>
+            <dt className="text-neutral-500">Map source</dt>
+            <dd>
+              {game.settings.mapTemplateId
+                ? (listMapTemplates().find((t) => t.id === game.settings.mapTemplateId)?.name ?? game.settings.mapTemplateId)
+                : game.settings.mapPoolBoard
+                  ? `saved map (${game.settings.mapPoolMapId ?? 'unknown'})`
+                  : game.settings.mapPoolRandomAtStart
+                    ? 'random saved map (picked when the game starts)'
+                    : game.settings.soloBuildMap
+                      ? `interactive, built alone by ${game.settings.soloBuilderSelection === 'random' ? 'a random player' : 'the host'}`
+                      : 'interactive, built together'}
+            </dd>
+            <dt className="text-neutral-500">Skip hotseat pass gate</dt>
+            <dd>{game.settings.skipHotseatPassGate ? 'Yes' : 'No'}</dd>
+            <dt className="text-neutral-500">Tales</dt>
+            <dd>
+              {game.settings.activeTaleIds.length > 0
+                ? game.settings.activeTaleIds.map((id) => listTales().find((t) => t.id === id)?.name ?? id).join(', ')
+                : 'None'}
+            </dd>
+            <dt className="text-neutral-500">Config version</dt>
+            <dd>{game.config_version}</dd>
+          </dl>
         </div>
       )}
 
