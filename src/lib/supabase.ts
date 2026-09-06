@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { createJwtRetryFetch } from './jwtRetryFetch'
+import { trackFetch } from './trafficTracker'
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -11,5 +12,5 @@ if (!supabaseUrl || !supabaseAnonKey) {
 }
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  global: { fetch: createJwtRetryFetch(fetch) },
+  global: { fetch: createJwtRetryFetch(trackFetch(fetch)) },
 })
