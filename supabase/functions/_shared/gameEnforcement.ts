@@ -38,6 +38,7 @@ import {
 } from '../../../src/content/resolveContent.ts'
 import { buildGenesisState } from '../../../src/lib/gameGenesis.ts'
 import type { GameRow as FullGameRow, PlayerRow as FullPlayerRow } from '../../../src/lib/dbTypes.ts'
+import { compressGameStateForStorage, decompressGameStateFromStorage, type StoredGameState } from '../../../src/lib/gameStateCompression.ts'
 
 export const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -59,8 +60,15 @@ export interface PlayerRow {
   id: string
   user_id: string
 }
+/** The row's logical (decompressed) shape — see loadGameContext, which decompresses before this ever reaches a caller. */
 export interface GameStateRow {
   state: GameState
+  version: number
+}
+
+/** The row's actual on-disk shape, before loadGameContext decompresses it — see gameStateCompression.ts. */
+interface RawGameStateRow {
+  state: StoredGameState
   version: number
 }
 
@@ -113,10 +121,11 @@ export async function loadGameContext(supabase: SupabaseClient, gameId: string, 
   const { data: profile, error: profileError } = await supabase.from('profiles').select('is_admin').eq('user_id', callerUserId).maybeSingle()
   if (profileError) throw profileError
 
+  const rawGameState = gameState as RawGameStateRow
   return {
     game,
     players,
-    gameState,
+    gameState: { state: await decompressGameStateFromStorage(rawGameState.state), version: rawGameState.version },
     isOwnerOrAdmin: game.created_by === callerUserId || (profile?.is_admin ?? false),
   }
 }
@@ -181,11 +190,22 @@ export function applyActionFullyEnforced(state: GameState, action: Action, playe
  * today. Returns the new version, or null if another write raced this one
  * (caller should re-fetch and retry, or surface a 409 to the client — this
  * is expected to happen occasionally under concurrent submissions, not a bug).
+ *
+ * This is the one path (shared by apply-action/undo-action/redo-action, and
+ * only ever invoked for `ruleEnforcementEnabled` games — see GamePage.tsx's
+ * branch in submitAction/handleUndo/handleRedo) that gzip+base64-compresses
+ * `state` before it's written, shrinking the stored row — which shrinks both
+ * every subscribed client's Realtime broadcast of it and every later REST
+ * read (getGameState/listMyGames/etc. in gameApi.ts). A client-trusted game's
+ * direct writes (gameApi.ts's writeGameState/insertGameState) are unaffected
+ * — see gameStateCompression.ts's doc comment for why this is scoped here
+ * rather than to every write.
  */
 export async function writeGameStateCAS(supabase: SupabaseClient, gameId: string, state: GameState, expectedVersion: number): Promise<number | null> {
+  const compressed = await compressGameStateForStorage(state)
   const { data, error } = await supabase
     .from('game_state')
-    .update({ state, turn: state.turn, active_player_id: state.activePlayerId, version: expectedVersion + 1 })
+    .update({ state: compressed, turn: state.turn, active_player_id: state.activePlayerId, version: expectedVersion + 1 })
     .eq('game_id', gameId)
     .eq('version', expectedVersion)
     .select('version')
