@@ -145,7 +145,11 @@ export function applyActionWithSteps(
   // logged for the new round later on, since both would then share the
   // same `turn` number.
   const finalState = steps.steps[steps.steps.length - 1].after
-  const loggedAction: LoggedAction = { action, turn: state.turn, timestamp: new Date().toISOString() }
+  // See LoggedAction.viaAdminMode's doc comment (./actions.ts): reflects
+  // whether admin mode was already on going into this dispatch, not the
+  // SET_ADMIN_MODE action that's flipping it on right now.
+  const viaAdminMode = Boolean(state.adminModeActive) && action.type !== 'SET_ADMIN_MODE'
+  const loggedAction: LoggedAction = { action, turn: state.turn, timestamp: new Date().toISOString(), ...(viaAdminMode ? { viaAdminMode: true as const } : {}) }
   return { ok: true, state: { ...finalState, actionHistory: [...finalState.actionHistory, loggedAction] }, steps: steps.steps }
 }
 
@@ -351,6 +355,9 @@ function dispatchAction(
   }
   if (action.type === 'PLACE_UNIT') {
     return placeUnit(state, action.playerId, action.unitKind, action.coord, unitContent)
+  }
+  if (action.type === 'SET_ADMIN_MODE') {
+    return applySetAdminMode(state, action.enabled)
   }
 
   if (state.status !== 'active') {
@@ -883,4 +890,19 @@ function applyConcede(state: GameState, playerId: string, achievementContent: Ac
       break
   }
   return { ok: true, state: nextState }
+}
+
+/**
+ * See SetAdminModeAction (./actions.ts) for the "why". Not tied to
+ * `status: 'active'` (dispatched before that guard, same as PLACE_TILE/
+ * PLACE_UNIT) — a room owner may reasonably want to toggle it during board
+ * setup or after the game's already completed (e.g. to review/fix up a
+ * finished game's history). Rejects a redundant flip to the state it's
+ * already in, same as every other action here refusing a vacuous no-op.
+ */
+function applySetAdminMode(state: GameState, enabled: boolean): ActionResult {
+  if (Boolean(state.adminModeActive) === enabled) {
+    return { ok: false, error: enabled ? 'Admin mode is already on.' : 'Admin mode is already off.' }
+  }
+  return { ok: true, state: { ...state, adminModeActive: enabled } }
 }

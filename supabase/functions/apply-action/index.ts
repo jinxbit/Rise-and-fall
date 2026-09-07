@@ -19,7 +19,9 @@
 // src/engine/actions.ts for Action's shape). UNDO_ACTION/REDO_ACTION are
 // rejected here (same as applyAction() itself) — submit those to
 // undo-action/redo-action instead, which replay from genesis rather than
-// stepping forward.
+// stepping forward. SET_ADMIN_MODE (issue #464) IS handled here — it's an
+// ordinary forward step from `state` like any other action, just with its
+// own owner-or-admin authorization instead of the usual per-seat one.
 import type { Action } from '../../../src/engine/actions.ts'
 import {
   applyActionFullyEnforced,
@@ -62,11 +64,35 @@ Deno.serve(async (req) => {
   const ctx = await loadGameContext(supabase, gameId, callerUserId)
   if (!ctx) return jsonResponse(404, { ok: false, error: 'Game not found, or has no state yet (still in the lobby?).' })
 
-  if (!isAuthorizedToActAs(ctx, callerUserId, action.playerId)) {
-    return jsonResponse(403, { ok: false, error: "You may not submit an action on another player's behalf." })
-  }
-  if (requiresOwnerOverride(ctx.gameState.state.actionHistory, action.playerId) && !ctx.isOwnerOrAdmin) {
-    return jsonResponse(403, { ok: false, error: "Submitting this action would discard another player's undone move — only the room owner or an admin may do that." })
+  // SET_ADMIN_MODE (issue #464) has no seat to check `isAuthorizedToActAs`
+  // against (`playerId` is narration-only, like Undo/Redo) — who may flip it
+  // is its own, simpler question: only the room owner or a site admin, same
+  // `isOwnerOrAdmin` check §4.5's other carve-outs already use. It's also
+  // deliberately exempt from the owner-override branch-pruning check below:
+  // that check exists to gate the very privilege this action turns on, so
+  // requiring it already be on would make it unreachable the one time
+  // there's actually a pending redo to preserve.
+  if (action.type === 'SET_ADMIN_MODE') {
+    if (!ctx.isOwnerOrAdmin) {
+      return jsonResponse(403, { ok: false, error: 'Only the room owner or an admin may toggle admin mode.' })
+    }
+  } else {
+    if (!isAuthorizedToActAs(ctx, callerUserId, action.playerId)) {
+      return jsonResponse(403, { ok: false, error: "You may not submit an action on another player's behalf." })
+    }
+    // §4.5/issue #464: the room owner/admin's override to discard another
+    // player's undone action via a branching submission now additionally
+    // requires room admin mode to be switched on (GameState.adminModeActive,
+    // toggled by SET_ADMIN_MODE above) — being the owner or an admin is no
+    // longer sufficient by itself, so this privilege is something they have
+    // to deliberately opt into rather than silently always have.
+    const ownerOverrideAvailable = ctx.isOwnerOrAdmin && Boolean(ctx.gameState.state.adminModeActive)
+    if (requiresOwnerOverride(ctx.gameState.state.actionHistory, action.playerId) && !ownerOverrideAvailable) {
+      return jsonResponse(403, {
+        ok: false,
+        error: "Submitting this action would discard another player's undone move — only the room owner or an admin, with room admin mode on, may do that.",
+      })
+    }
   }
 
   const result = applyActionFullyEnforced(ctx.gameState.state, action, ctx.players.length)

@@ -86,6 +86,7 @@ export function createNewGame(params: {
     boardSetup: null,
     idSequence: 0,
     actionHistory: [],
+    adminModeActive: false,
   }
 }
 

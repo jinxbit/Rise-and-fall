@@ -324,6 +324,34 @@ entry happens to sit at the tip. Concretely:
 
 ### 4.5 Admin / room-owner privileges (issue #391)
 
+**Update (2026-09-07, issue #464): the room owner/admin no longer get either
+privilege below unconditionally — both now require "room admin mode" to be
+explicitly switched on.** Issue #464 revisited this section's premise: being
+the room owner or a site admin was, by itself, enough to discard another
+player's undone action via the owner-override branch-prune (the second
+bullet below) at any time, with no toggle and no record of it having
+happened — the opposite of "the room owner should be treated like a normal
+player." `GameState.adminModeActive` (`src/engine/types.ts`) is now a real,
+persisted, replay-derived flag, toggled only by a new logged action,
+`SET_ADMIN_MODE` (`src/engine/actions.ts`) — submitting it is itself gated on
+`isCreator || isAdmin` client-side and `ctx.isOwnerOrAdmin` server-side, the
+same checks this section already used. The owner-override check in
+`apply-action` (`requiresOwnerOverride`,
+`supabase/functions/_shared/gameEnforcement.ts`) now additionally requires
+`ctx.gameState.state.adminModeActive`, not just `ctx.isOwnerOrAdmin`. Every
+other action submitted while it's on is stamped
+`LoggedAction.viaAdminMode: true` (`src/engine/applyAction.ts`) and
+surfaced in the narration log (`GameEvent.adminMode`, `src/engine/gameLog.ts`
++ `RoundView.tsx`'s "(admin mode)" tag) — so unlike the original design
+below, this is no longer a silent, unconditional identity check but a
+deliberate, logged, on/off mode the room can see was active. The "take a
+turn for another player" mechanism (`me` following `pendingActorId`) is
+unchanged in *how* it works, but now reads the same persisted
+`adminModeActive` flag instead of a page-local `useState`, so it's shared
+across clients/reloads too. See the hidden-information update below this
+section for the one privilege issue #464 confirmed should stay OFF the
+table entirely, admin mode or not.
+
 Two distinct asks, tracked separately because they land on different sides
 of the trust boundary this document is about:
 
@@ -382,6 +410,17 @@ mode" trust boundary (the room owner and any site admin can already see/do
 almost everything else in this app), not an oversight — call it out
 explicitly in the `get_game_state` implementation (phase 5 of that
 document's execution plan) so it isn't missed.
+
+**Update (2026-09-07, issue #464): superseded — this carve-out was never
+implemented, and issue #464 confirmed it should stay that way.** The room
+owner has no redaction bypass today (`src/engine/redaction.ts` has no
+owner/admin special-casing at all), room admin mode or not — "the room owner
+should not have any special privileges... no ability to see hidden
+information" was issue #464's explicit second ask, kept as-is. Site admins
+still get their own, separate bypass via **cheat mode** (issue #430,
+`cheatModeEnabled` in `GamePage.tsx`) — an unrelated, admin-only *testing*
+tool, not something room admin mode grants, and not something a mere room
+owner (who isn't also a site admin) has access to.
 
 ## 6. Data model changes
 

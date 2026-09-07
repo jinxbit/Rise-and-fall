@@ -698,6 +698,7 @@ function LogPanel({ gameLog, players }: { gameLog: GameEvent[]; players: PlayerR
           <p key={entry.id}>
             {time && <span className="text-neutral-600">[{time}] </span>}
             {renderLogMessage(entry.message, entry.playerId, players)}
+            {entry.adminMode && <span className="text-amber-500"> (admin mode)</span>}
           </p>
         )
       })}
