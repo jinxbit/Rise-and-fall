@@ -145,15 +145,21 @@ export function GamePage() {
    */
   const [adminOverrideEnabled, setAdminOverrideEnabled] = useState(false)
   /**
-   * Cheat mode (issue #430): a site-admin-only testing aid that adds a "Move
-   * anywhere (cheat)" option to every acting unit's menu (RoundView.tsx),
-   * letting the admin submit a movement action targeting any hex on the
-   * board instead of just its legal destinations. It's still a completely
-   * ordinary RESOLVE_UNIT_ACTION submission — the point is to exercise the
-   * real rule-enforcement path (applyMove, src/engine/unitActions.ts) and
-   * confirm the server actually refuses an illegal target rather than
-   * trusting the client. Not persisted — resets to off on reload, same as
-   * every other page-local UI toggle here.
+   * Cheat mode (issue #430, extended by issue #456): a site-admin-only
+   * testing aid with two effects while on:
+   * - Adds a "Move anywhere (cheat)" option to every acting unit's menu
+   *   (RoundView.tsx), letting the admin submit a movement action targeting
+   *   any hex on the board instead of just its legal destinations. It's
+   *   still a completely ordinary RESOLVE_UNIT_ACTION submission — the point
+   *   is to exercise the real rule-enforcement path (applyMove,
+   *   src/engine/unitActions.ts) and confirm the server actually refuses an
+   *   illegal target rather than trusting the client.
+   * - Lets `visibleGameLog` (below) show the fully unredacted narration log
+   *   instead of the same per-viewer-redacted view every other player gets —
+   *   without this toggle, admins (and the room owner, who never gets this
+   *   bypass at all) see hidden information masked exactly like anyone else.
+   * Not persisted — resets to off on reload, same as every other page-local
+   * UI toggle here.
    */
   const [cheatModeEnabled, setCheatModeEnabled] = useState(false)
   /**
@@ -866,17 +872,21 @@ export function GamePage() {
    * still-secret CHOOSE_CARD pick reads as redacted for anyone but the
    * player who made it, and automatically reveals once that round's
    * selectCards phase resolves — see redactGameLog's own doc comment for why
-   * that can't just be decided once at narration time. Site admins (see
-   * useIsAdmin) keep seeing the unredacted log, the same carve-out
-   * RULE_ENFORCEMENT_PLAN.md §4.4 already grants admin mode elsewhere.
+   * that can't just be decided once at narration time.
+   *
+   * Neither the room owner nor a site admin gets a free pass here (issue
+   * #456) — both see the same redacted log as any other player unless the
+   * admin-only "Cheat mode" toggle (issue #430, see cheatModeEnabled above)
+   * is explicitly switched on, same opt-in pattern as that toggle's "Move
+   * anywhere" board option.
    */
   const visibleGameLog = useMemo(() => {
     const source = isReviewingHistory ? reviewGameLog : gameLog
-    if (isAdmin) return source
+    if (isAdmin && cheatModeEnabled) return source
     const redactionState = isReviewingHistory ? reviewState : gameState
     if (!redactionState) return source
     return redactGameLog(source, redactionState, me?.id ?? null)
-  }, [isReviewingHistory, reviewGameLog, gameLog, isAdmin, reviewState, gameState, me?.id])
+  }, [isReviewingHistory, reviewGameLog, gameLog, isAdmin, cheatModeEnabled, reviewState, gameState, me?.id])
 
   /** The action most recently applied as of `reviewIndex`, for the review banner's label — null at genesis (reviewIndex 0). */
   const reviewActionMeta = reviewIndex !== null && reviewIndex > 0 ? (gameState?.actionHistory[reviewIndex - 1] ?? null) : null
@@ -1490,7 +1500,7 @@ export function GamePage() {
                       setMenuOpen(false)
                       setCheatModeEnabled((v) => !v)
                     }}
-                    title="Cheat mode: adds a 'Move anywhere' option to every unit, submitted as a normal action — for testing that the server's rule engine actually rejects an illegal move. Site admins only."
+                    title="Cheat mode: adds a 'Move anywhere' option to every unit (submitted as a normal action, for testing that the server's rule engine actually rejects an illegal move) and reveals hidden information in the log. Site admins only."
                     className={`px-3 py-2 text-left hover:bg-neutral-800 ${
                       cheatModeEnabled ? 'text-amber-400' : ''
                     }`}
