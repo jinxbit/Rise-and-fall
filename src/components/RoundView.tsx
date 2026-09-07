@@ -388,7 +388,14 @@ function PlayersStrip({
           // revealed once the actions phase begins for that player's turn.
           // During selectCards it's still a secret simultaneous pick, so
           // don't show it as "Playing" or drop it from the hand display.
-          const chosenKind = state.roundPhase === 'actions' && chosenCardId ? state.cards[chosenCardId]?.kind : undefined
+          // chosenCardIdByPlayerId itself isn't cleared when a turn resolves
+          // (finishActionsTurn just moves the card hand -> currentlyPlayed ->
+          // discard), so once that card has landed in discard the player's
+          // action is done for the round and "Playing" must stop showing —
+          // check the card's zone rather than just chosenCardId's presence.
+          const chosenCardZone = chosenCardId ? findCardZone(player, chosenCardId) : undefined
+          const chosenKind =
+            state.roundPhase === 'actions' && chosenCardId && chosenCardZone !== 'discard' ? state.cards[chosenCardId]?.kind : undefined
           // Chosen-but-not-yet-resolved card stays in handCardIds until the
           // player's turn finishes (finishActionsTurn moves it hand ->
           // currentlyPlayed -> discard). Once the actions phase reveals it
