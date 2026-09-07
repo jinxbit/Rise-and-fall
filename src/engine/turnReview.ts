@@ -1,7 +1,7 @@
 import type { Action, LoggedAction } from './actions'
 import { EMPTY_ACHIEVEMENT_CONTENT } from './achievementContent'
 import type { AchievementContent } from './achievementContent'
-import { applyAction } from './applyAction'
+import { applyAction, applyActionWithSteps } from './applyAction'
 import { EMPTY_BOARD_GENERATION_CONTENT } from './boardGenerationContent'
 import type { BoardGenerationContent } from './boardGenerationContent'
 import { replayActions } from './replay'
@@ -204,23 +204,122 @@ export function roundPhaseForRecap(actionHistory: LoggedAction[], stopEnd: numbe
 }
 
 /**
- * Which round (`GameState.turn`) a history-review stop's `roundPhaseForRecap`
- * result is actually describing (issue #331) — usually just `state.turn`
- * itself, except once `state.roundPhase` has already auto-chained past the
- * round being recapped (the same "raced ahead" situation `roundPhaseForRecap`
- * itself has to account for — see its `'actions'`/`'declinePurchase'` forced
- * branches, and `roundPhaseForRecap`'s own doc comment): a raw `roundPhase`
- * of `'selectCards'` (or a `'completed'` status) means `finishRound` already
- * bumped `state.turn` for the *next* round before this log entry was even
- * produced, so the round actually finishing here is `state.turn - 1`, not
- * `state.turn`. Needed alongside `roundPhaseForRecap`'s phase string by
+ * Which round (`GameState.turn`) a history-review stop ending at `stopEnd`
+ * is actually describing (issue #331, hardened by issue #462's second
+ * follow-up) — needed alongside `roundPhaseForRecap`'s phase string by
  * `shouldShowCardChoiceRecap`, which otherwise can't tell "this round's
  * recap, still on screen" from "a different round's recap that happens to
  * report the identical phase string" — see that function's own doc comment.
+ *
+ * Reads `actionHistory[stopEnd - 1].turn` — the triggering entry's OWN
+ * logged turn, always the round it was genuinely submitted in (see
+ * `applyActionWithSteps`' doc comment in ./applyAction.ts: that field is
+ * stamped from `state.turn` *before* dispatch, specifically so a
+ * round-ending action tags itself with the round it just finished rather
+ * than whatever round `finishRound` chained into) — rather than the
+ * replayed state's own `roundPhase`/`turn`. The naive "trust `state.turn`
+ * unless `roundPhase` says `selectCards`" check this used to do broke once a
+ * forced pick (RULE_ENFORCEMENT_PLAN.md §4.2/§4.3, e.g. every remaining
+ * player having only one card left in hand) let the SAME dispatch chain not
+ * just into the next round's `selectCards` but all the way through its own
+ * `'actions'` phase too: the replayed state then reads `roundPhase:
+ * 'actions'` again, indistinguishable by that check from a genuinely
+ * still-mid-round state, so it reported the *next* round's turn number
+ * instead of the one actually being recapped. `stopEnd`'s own triggering
+ * entry can't lie about this the same way — its `turn` is fixed the moment
+ * it's logged, no matter how far the resulting state goes on to chain.
+ * Falls back to `state.turn` only at `stopEnd === 0` (genesis — nothing
+ * logged yet to read).
  */
-export function recapTurnFor(state: GameState): number {
-  const stillMidRound = state.roundPhase === 'actions' || state.roundPhase === 'decline' || state.roundPhase === 'purchase'
-  return stillMidRound ? state.turn : state.turn - 1
+export function recapTurnFor(actionHistory: LoggedAction[], stopEnd: number, state: GameState): number {
+  return stopEnd > 0 ? actionHistory[stopEnd - 1].turn : state.turn
+}
+
+/**
+ * Every CHOOSE_CARD/MOVE_TO_DECLINE/PURCHASE_CARD actually resolved for
+ * round `recapTurn`, for CardChoiceHistoryPanel's recap (RoundView.tsx) —
+ * NOT recoverable by filtering `actionHistory` for those action types
+ * directly (what this replaced, issue #462's second follow-up): a forced
+ * single-option follow-up (RULE_ENFORCEMENT_PLAN.md §4.2/§4.3 — a one-card
+ * hand's CHOOSE_CARD, or a hand+discard that exactly matches what's still
+ * owed for MOVE_TO_DECLINE) never gets its own `actionHistory` entry, only a
+ * step folded into whatever else triggered it (applyActionWithSteps,
+ * ./applyAction.ts) — so once every remaining player is down to a one-card
+ * hand (routine by the endgame), an entire round's worth of picks can be
+ * folded into a single PRIOR round's entry and simply invisible to a scan
+ * over top-level entries. PURCHASE_CARD is never a forced follow-up itself,
+ * but is collected here too so the whole `'purchase'`-recap branch has one
+ * source of truth.
+ *
+ * Re-derives every individual dispatched step the same way gameLog.ts's
+ * `extendGameLog` does (`applyActionWithSteps` per logged entry, trusted
+ * replay), but only over the small suffix of `actionHistory` that could
+ * possibly contain round `recapTurn`'s picks: walking backward from
+ * `stopEnd` while an entry's own logged `turn` (see `recapTurnFor`'s doc
+ * comment for why that field alone is trustworthy) is still `recapTurn` or
+ * the round immediately before it — a forced pick only ever folds into the
+ * SINGLE most recent real submission, never further back, and every round's
+ * `'actions'` phase always requires at least one genuinely-submitted,
+ * separately-logged entry (RESOLVE_UNIT_ACTION/PASS_ACTIONS is never
+ * forced), so that boundary is never more than one round away regardless of
+ * how many consecutive rounds' `selectCards` picks were themselves forced.
+ *
+ * `statesBefore[i]` must be the real state right before `actionHistory[i]`
+ * was dispatched — GamePage's replay cache already holds one state per
+ * `actionHistory` index, so this never needs its own from-genesis replay.
+ * A player's LAST CHOOSE_CARD (or last-standing MOVE_TO_DECLINE additions)
+ * for `recapTurn` wins, same as before, since entries are walked in order
+ * and later ones simply overwrite/append.
+ */
+export interface CardChoiceRecap {
+  chosenCardIdByPlayerId: Record<string, string>
+  purchasedCardIdsByPlayerId: Record<string, string[]>
+  declinedCardIdsByPlayerId: Record<string, string[]>
+}
+
+export function cardChoicesForRecap(
+  actionHistory: LoggedAction[],
+  statesBefore: GameState[],
+  stopEnd: number,
+  recapTurn: number,
+  unitContent: UnitContent,
+  achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT,
+  boardGenerationContent: BoardGenerationContent = EMPTY_BOARD_GENERATION_CONTENT,
+  taleContent: TaleContent = EMPTY_TALE_CONTENT,
+): CardChoiceRecap {
+  const chosenCardIdByPlayerId: Record<string, string> = {}
+  const purchasedCardIdsByPlayerId: Record<string, string[]> = {}
+  const declinedCardIdsByPlayerId: Record<string, string[]> = {}
+
+  let start = stopEnd
+  while (start > 0 && actionHistory[start - 1].turn >= recapTurn - 1) start--
+
+  for (let i = start; i < stopEnd; i++) {
+    const logged = actionHistory[i]
+    if (logged.action.type === 'PURCHASE_CARD' && logged.turn === recapTurn) {
+      const list = purchasedCardIdsByPlayerId[logged.action.playerId] ?? []
+      list.push(logged.action.cardId)
+      purchasedCardIdsByPlayerId[logged.action.playerId] = list
+    }
+    // UNDO_ACTION/REDO_ACTION aren't a forward dispatch step themselves (see
+    // extendGameLog's matching special-case in gameLog.ts) — no CHOOSE_CARD/
+    // MOVE_TO_DECLINE of their own to recover either way.
+    if (logged.action.type === 'UNDO_ACTION' || logged.action.type === 'REDO_ACTION') continue
+    const result = applyActionWithSteps(statesBefore[i], logged.action, unitContent, achievementContent, boardGenerationContent, taleContent, true)
+    if (!result.ok) continue
+    for (const step of result.steps) {
+      if (step.action.type === 'CHOOSE_CARD' && step.after.turn === recapTurn) {
+        chosenCardIdByPlayerId[step.action.playerId] = step.action.cardId
+      }
+      if (step.action.type === 'MOVE_TO_DECLINE' && step.after.turn === recapTurn) {
+        const list = declinedCardIdsByPlayerId[step.action.playerId] ?? []
+        list.push(step.action.cardId)
+        declinedCardIdsByPlayerId[step.action.playerId] = list
+      }
+    }
+  }
+
+  return { chosenCardIdByPlayerId, purchasedCardIdsByPlayerId, declinedCardIdsByPlayerId }
 }
 
 /**

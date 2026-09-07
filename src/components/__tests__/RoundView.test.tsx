@@ -9,7 +9,7 @@ import { createNewGame } from '../../engine/createGame'
 import { beginSelectCardsPhase } from '../../engine/round'
 import { EMPTY_TALE_CONTENT } from '../../engine/taleContent'
 import type { GameState, Player, Resources, Unit, UnitMovement } from '../../engine/types'
-import type { TurnReview } from '../../engine/turnReview'
+import type { CardChoiceRecap, TurnReview } from '../../engine/turnReview'
 import { EMPTY_UNIT_CONTENT } from '../../engine/unitContent'
 import type { UnitAction, UnitContent } from '../../engine/unitContent'
 import type { PlayerRow } from '../../lib/dbTypes'
@@ -1901,6 +1901,8 @@ describe('RoundView — history review overlay', () => {
     onExitHistory?: () => void,
     stateOverrides?: Partial<GameState>,
     showCardChoiceRecap = false,
+    cardChoiceRecapPhase?: GameState['roundPhase'],
+    cardChoiceRecap?: CardChoiceRecap,
   ) {
     const state = { ...makeState(), ...stateOverrides }
     state.board = setTile(state.board, { q: 0, r: 0 }, 'plain')
@@ -1919,6 +1921,8 @@ describe('RoundView — history review overlay', () => {
         turnReview={turnReview}
         showHistory={showHistory}
         showCardChoiceRecap={showCardChoiceRecap}
+        cardChoiceRecapPhase={cardChoiceRecapPhase}
+        cardChoiceRecap={cardChoiceRecap}
         onExitHistory={onExitHistory}
         territoryControlMode="off"
         previousHistoryState={null}
@@ -2056,8 +2060,18 @@ describe('RoundView — history review overlay', () => {
         chosenCardIdByPlayerId: { p1: cardIdFor('p1', 'nomad'), p2: cardIdFor('p2', 'city') },
         pendingPlayerIds: ['p1', 'p2'],
         activePlayerId: 'p1',
+        actionHistory: [
+          { action: { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'nomad') }, turn: 1, timestamp: '' },
+          { action: { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') }, turn: 1, timestamp: '' },
+        ],
       },
       true,
+      undefined,
+      {
+        chosenCardIdByPlayerId: { p1: cardIdFor('p1', 'nomad'), p2: cardIdFor('p2', 'city') },
+        purchasedCardIdsByPlayerId: {},
+        declinedCardIdsByPlayerId: {},
+      },
     )
 
     expect(screen.getByText('Played cards:')).toBeInTheDocument()
@@ -2070,6 +2084,51 @@ describe('RoundView — history review overlay', () => {
 
     expect(screen.getByTitle('Nomad')).toBeInTheDocument()
     expect(screen.getByTitle('City')).toBeInTheDocument()
+  })
+
+  it("shows the played-cards recap, not an empty purchased/declined recap, once finishRound has already chained the replayed state past an empty decline/purchase phase into the next round's selectCards (issue #462)", () => {
+    // Mirrors GamePage's own roundPhaseForRecap forcing 'actions' for this
+    // review stop (see engine/turnReview.ts's doc comment): the round being
+    // recapped needed no decline/purchase, so `finishRound` chained straight
+    // from the last RESOLVE_UNIT_ACTION into the next round's selectCards —
+    // `state.roundPhase` below reflects that raced-ahead reality, exactly
+    // like a real replayed historical state would.
+    renderWithReview(
+      { events: [], resourceDeltaByPlayerId: {} },
+      true,
+      undefined,
+      {
+        roundPhase: 'selectCards',
+        // Reset for round 2, exactly like beginSelectCardsPhase (round.ts)
+        // really does — proves the recap below can't be reading this field.
+        chosenCardIdByPlayerId: { p1: null, p2: null },
+        pendingPlayerIds: ['p1', 'p2'],
+        activePlayerId: null,
+        turn: 2,
+        actionHistory: [
+          { action: { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'nomad') }, turn: 1, timestamp: '' },
+          { action: { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') }, turn: 1, timestamp: '' },
+        ],
+      },
+      true,
+      'actions',
+      {
+        // The played-card recap now comes from GamePage's own
+        // cardChoicesForRecap (issue #462's second follow-up), not derived
+        // by RoundView from `state` — see CardChoiceHistoryPanel's doc
+        // comment for why `state.actionHistory` alone can't be trusted (a
+        // forced single-option CHOOSE_CARD never gets its own entry).
+        chosenCardIdByPlayerId: { p1: cardIdFor('p1', 'nomad'), p2: cardIdFor('p2', 'city') },
+        purchasedCardIdsByPlayerId: {},
+        declinedCardIdsByPlayerId: {},
+      },
+    )
+
+    expect(screen.queryByText('Purchased cards:')).not.toBeInTheDocument()
+    expect(screen.queryByText('Declined cards:')).not.toBeInTheDocument()
+    const playedRow = screen.getByText('Played cards:').nextElementSibling as HTMLElement
+    expect(within(playedRow).getByTitle('Nomad')).toBeInTheDocument()
+    expect(within(playedRow).getByTitle('City')).toBeInTheDocument()
   })
 
   it('shows the interactive card picker, not the read-only history recap, during live play (issue #314)', () => {
@@ -2101,6 +2160,12 @@ describe('RoundView — history review overlay', () => {
         ],
       },
       true,
+      undefined,
+      {
+        chosenCardIdByPlayerId: {},
+        purchasedCardIdsByPlayerId: { p1: [purchasedCardId] },
+        declinedCardIdsByPlayerId: { p2: [declinedCardId] },
+      },
     )
 
     expect(screen.getByText('Purchased cards:')).toBeInTheDocument()
@@ -2167,6 +2232,12 @@ describe('RoundView — history review overlay', () => {
         ],
       },
       true,
+      undefined,
+      {
+        chosenCardIdByPlayerId: {},
+        purchasedCardIdsByPlayerId: { p2: [cardId] },
+        declinedCardIdsByPlayerId: { p2: [cardId] },
+      },
     )
 
     const purchasedRow = screen.getByText('Purchased cards:').nextElementSibling as HTMLElement
@@ -2203,6 +2274,12 @@ describe('RoundView — history review overlay', () => {
         ],
       },
       true,
+      undefined,
+      {
+        chosenCardIdByPlayerId: {},
+        purchasedCardIdsByPlayerId: { p1: [purchasedCardId] },
+        declinedCardIdsByPlayerId: { p2: [declinedCardId] },
+      },
     )
 
     expect(screen.getByText('Purchased cards:')).toBeInTheDocument()

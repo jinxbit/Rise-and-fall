@@ -16,13 +16,13 @@ import { PLAYER_PLACEHOLDER } from '../engine/gameLog'
 import { legalMoveDestinations } from '../engine/movement'
 import { calculatePurchaseCost } from '../engine/purchaseCost'
 import { calculateChangedTerritoryHexes, calculateTerritoryControlByHex } from '../engine/scoring'
-import type { TurnReview, UnitReviewEvent } from '../engine/turnReview'
+import type { CardChoiceRecap, TurnReview, UnitReviewEvent } from '../engine/turnReview'
 import { calculateVPBreakdown } from '../engine/victoryPoints'
 import type { VPBreakdown } from '../engine/victoryPoints'
 import type { AchievementContent } from '../engine/achievementContent'
 import type { TaleContent } from '../engine/taleContent'
 import { listAchievements } from '../content/resolveContent'
-import type { Card, Coordinate, GameEvent, GameState, Player, Resources, Unit } from '../engine/types'
+import type { Card, Coordinate, GameEvent, GameState, Player, Resources, RoundPhase, Unit } from '../engine/types'
 import type { UnitAction, UnitContent } from '../engine/unitContent'
 import type { PlayerRow } from '../lib/dbTypes'
 import type { UnitPlateColors } from '../lib/unitColors'
@@ -978,41 +978,10 @@ function PurchasePanel(props: {
   )
 }
 
-/** Every card kind a player has bought back so far during the current round's purchase phase (rule 4) — derived from `state.actionHistory` (a PURCHASE_CARD entry logged the recapped round's turn, see `kindsByPlayerIdForActionThisTurn`), since GameState itself only tracks the *current* decline zone, not what's already left it this round. Safe against a replayed historical `state` (see CardChoiceHistoryPanel's doc comment): its `actionHistory` only ever holds entries up to the reviewed point. */
-function purchasedKindsByPlayerId(state: GameState): Map<string, string[]> {
-  return kindsByPlayerIdForActionThisTurn(state, 'PURCHASE_CARD')
-}
-
-/** Every card kind a player chose to move to decline this round — derived from `state.actionHistory` (a MOVE_TO_DECLINE entry logged the recapped round's turn, see `kindsByPlayerIdForActionThisTurn`), the same way redactStateForPlayer's declineAdditionsThisPhase (engine/redaction.ts) recovers a still-in-progress decline phase's picks. Deliberately not `player.declineCardIds` itself: that zone accumulates across every round until a card is bought back, so it would also surface an earlier round's still-unpurchased declines, and would silently drop this round's pick again once it's bought back later in the very same purchase phase. */
-function declinedKindsByPlayerId(state: GameState): Map<string, string[]> {
-  return kindsByPlayerIdForActionThisTurn(state, 'MOVE_TO_DECLINE')
-}
-
-/**
- * Filters `state.actionHistory` to one action type, restricted to the round
- * this recap is actually showing — NOT always `state.turn` itself (issue
- * #326's second follow-up): this panel is only ever reached (see its
- * `roundPhase === 'actions'` guard above) with `state.roundPhase` one of
- * `'decline'`/`'purchase'`/`'selectCards'`. The first two mean the round
- * being recapped is still genuinely the current one (`state.turn` as-is);
- * `'selectCards'` means `finishRound` (engine/round.ts) already incremented
- * `state.turn` and chained straight into the *next* round's card-selection
- * in the very same action that completed this one (see
- * `roundPhaseForRecap`'s doc comment) — so the round actually being
- * recapped is `state.turn - 1`.
- */
-function kindsByPlayerIdForActionThisTurn(state: GameState, actionType: 'PURCHASE_CARD' | 'MOVE_TO_DECLINE'): Map<string, string[]> {
-  const recapTurn = state.roundPhase === 'decline' || state.roundPhase === 'purchase' ? state.turn : state.turn - 1
-  const byPlayerId = new Map<string, string[]>()
-  for (const entry of state.actionHistory) {
-    if (entry.turn !== recapTurn || entry.action.type !== actionType) continue
-    const kind = state.cards[entry.action.cardId]?.kind
-    if (!kind) continue
-    const list = byPlayerId.get(entry.action.playerId) ?? []
-    list.push(kind)
-    byPlayerId.set(entry.action.playerId, list)
-  }
-  return byPlayerId
+/** Every card id in a `CardChoiceRecap` map's per-player list, turned into its display kind — drops an id whose card can't be found rather than showing a broken icon. */
+function kindsForCardIds(cardIds: string[] | undefined, cards: Record<string, Card>): string[] {
+  if (!cardIds) return []
+  return cardIds.map((id) => cards[id]?.kind).filter((kind): kind is string => Boolean(kind))
 }
 
 /** One section of CardChoiceHistoryPanel: a label followed by every eligible player's icon row, all wrapped into as few rows as will fit rather than one row per player. */
@@ -1034,47 +1003,64 @@ function CardChoiceHistorySection({ label, players, eligiblePlayers, kindsByPlay
 
 /**
  * Read-only recap of card selection/purchase shown on the board while
- * reviewing history (issue #314) — `state` is the actual replayed
- * historical state at the point being reviewed, so `chosenCardIdByPlayerId`
- * and `actionHistory` already reflect exactly what's happened so far, with
- * no separate tracking needed.
+ * reviewing history (issue #314). `recap` is GamePage's own
+ * `cardChoicesForRecap` result (engine/turnReview.ts) — NOT derived here
+ * from `state.actionHistory`/`chosenCardIdByPlayerId`/`player.declineCardIds`
+ * directly (issue #462's second follow-up): a forced single-option pick
+ * (RULE_ENFORCEMENT_PLAN.md §4.2/§4.3 — e.g. every remaining player's hand
+ * down to one card) never gets its own `actionHistory` entry, only a step
+ * folded into whatever triggered it, so a scan over top-level entries (or
+ * the live, mutable fields, which get reset/mutated the instant the *next*
+ * round's phase begins) can silently come up empty for an entire round's
+ * picks. GamePage already has the genesis/content needed to re-derive those
+ * folded-in steps (see `cardChoicesForRecap`'s own doc comment) — this panel
+ * doesn't.
  *
  * Only ever rendered for a review stop GamePage has computed
  * `roundPhaseForRecap`/`showCardChoiceRecap` true for (engine/turnReview.ts)
  * — `'actions'` (below) or a completed `declinePurchase` group (else
  * branch), never for `selectCards`/`decline` themselves (issue #316: don't
  * reveal a partial "n of N chosen" picture while eligible players are still
- * mid-pick). Note the else branch's `state.roundPhase` itself can actually
- * be `'selectCards'` here (issue #326's second follow-up): a completed
- * `declinePurchase` group's stop replays with `finishRound` already having
- * chained into the *next* round's `selectCards` phase — see
- * `roundPhaseForRecap`'s doc comment — so `kindsByPlayerIdForActionThisTurn`
- * below accounts for that when picking which turn's actions to recap.
+ * mid-pick). `roundPhase` is that same `roundPhaseForRecap` result, NOT
+ * `state.roundPhase` (issue #462): a completed `actions` group's stop can
+ * itself replay with `finishRound` already having chained straight through
+ * an empty decline/purchase phase into the *next* round's `selectCards` —
+ * trusting the raw field here would flip this panel into the "Purchased
+ * cards"/"Declined cards" branch (both empty, since nothing was actually
+ * declined/purchased that round) instead of the "Played cards" recap the
+ * `'actions'` group is actually showing.
  */
-function CardChoiceHistoryPanel({ state, players }: { state: GameState; players: PlayerRow[] }) {
+function CardChoiceHistoryPanel({ state, players, roundPhase, recap }: { state: GameState; players: PlayerRow[]; roundPhase: RoundPhase; recap: CardChoiceRecap }) {
   const eligiblePlayers = state.players.filter((p) => !p.eliminated)
 
-  if (state.roundPhase === 'actions') {
+  if (roundPhase === 'actions') {
     return (
       <CardChoiceHistorySection
         label="Played cards:"
         players={players}
         eligiblePlayers={eligiblePlayers}
         kindsByPlayerId={(playerId) => {
-          const cardId = state.chosenCardIdByPlayerId[playerId]
-          const kind = cardId ? state.cards[cardId]?.kind : undefined
-          return kind ? [kind] : []
+          const cardId = recap.chosenCardIdByPlayerId[playerId]
+          return cardId ? kindsForCardIds([cardId], state.cards) : []
         }}
       />
     )
   }
 
-  const purchased = purchasedKindsByPlayerId(state)
-  const declined = declinedKindsByPlayerId(state)
   return (
     <div className="flex flex-col gap-2">
-      <CardChoiceHistorySection label="Purchased cards:" players={players} eligiblePlayers={eligiblePlayers} kindsByPlayerId={(playerId) => purchased.get(playerId)} />
-      <CardChoiceHistorySection label="Declined cards:" players={players} eligiblePlayers={eligiblePlayers} kindsByPlayerId={(playerId) => declined.get(playerId)} />
+      <CardChoiceHistorySection
+        label="Purchased cards:"
+        players={players}
+        eligiblePlayers={eligiblePlayers}
+        kindsByPlayerId={(playerId) => kindsForCardIds(recap.purchasedCardIdsByPlayerId[playerId], state.cards)}
+      />
+      <CardChoiceHistorySection
+        label="Declined cards:"
+        players={players}
+        eligiblePlayers={eligiblePlayers}
+        kindsByPlayerId={(playerId) => kindsForCardIds(recap.declinedCardIdsByPlayerId[playerId], state.cards)}
+      />
     </div>
   )
 }
@@ -1129,6 +1115,25 @@ export function RoundView(props: {
    * (most tests) don't need to pass it.
    */
   showCardChoiceRecap?: boolean
+  /**
+   * Which recap section (issue #462) `showCardChoiceRecap`'s overlay should
+   * show — GamePage's `roundPhaseForRecap` result, the same value it
+   * compared against to decide `showCardChoiceRecap` itself. Deliberately
+   * NOT re-derived from `state.roundPhase` inside CardChoiceHistoryPanel:
+   * see that component's own doc comment for why the raw field can lie
+   * about which group's stop this actually is. Meaningless (and unused)
+   * while `showCardChoiceRecap` is false, so it's optional like that prop.
+   */
+  cardChoiceRecapPhase?: RoundPhase
+  /**
+   * The actual card-id data `showCardChoiceRecap`'s overlay renders (issue
+   * #462's second follow-up) — GamePage's `cardChoicesForRecap` result
+   * (engine/turnReview.ts), re-derived from a small bounded replay rather
+   * than read off `state` directly; see CardChoiceHistoryPanel's own doc
+   * comment for why. Meaningless (and unused) while `showCardChoiceRecap` is
+   * false, so it's optional like that prop; defaults to empty maps.
+   */
+  cardChoiceRecap?: CardChoiceRecap
   /**
    * Returns to live play from history review — called when the player
    * clicks the board while `showHistory` is true (issue #285), same as the
@@ -1204,6 +1209,8 @@ export function RoundView(props: {
     turnReview,
     showHistory,
     showCardChoiceRecap = false,
+    cardChoiceRecapPhase,
+    cardChoiceRecap,
     cheatModeEnabled = false,
     territoryControlMode,
     previousHistoryState,
@@ -1562,7 +1569,12 @@ export function RoundView(props: {
               `showCardChoiceRecap` doc comment. */}
           {showCardChoiceRecap && (
             <div className="pointer-events-none absolute left-2 top-2 z-10 max-w-[calc(100%_-_1rem)] rounded-md border border-neutral-700 bg-neutral-900/90 p-3 shadow-lg">
-              <CardChoiceHistoryPanel state={state} players={players} />
+              <CardChoiceHistoryPanel
+                state={state}
+                players={players}
+                roundPhase={cardChoiceRecapPhase ?? state.roundPhase}
+                recap={cardChoiceRecap ?? { chosenCardIdByPlayerId: {}, purchasedCardIdsByPlayerId: {}, declinedCardIdsByPlayerId: {} }}
+              />
             </div>
           )}
           {/* Overlaid on the board's own top-right corner rather than a separate row above it (issue #434 follow-up: grouped in a row with the "Sending…" badge below so neither overlaps the other) — a standard collapse/expand chevron, flipping direction with sidebarHidden. */}
