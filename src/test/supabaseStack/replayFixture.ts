@@ -10,6 +10,7 @@
 // at a game it just played — so the replay path itself stays covered in CI
 // even before any production export is checked in.
 
+import { applyActionWithSteps } from '../../engine/applyAction.ts'
 import type { GameState } from '../../engine/types.ts'
 import type { ProductionGameFixture } from '../fixtures/productionGames/loadFixtures.ts'
 import { normalizeStateForComparison } from '../fixtures/productionGames/loadFixtures.ts'
@@ -42,17 +43,62 @@ export function submitLoggedEntry(stack: ProductionStack, fixture: ProductionGam
   return stack.applyAction(userId, gameId, entry.action)
 }
 
+export interface ReplayOutcome {
+  /** The `game_state.version` the row is on once the whole history has been submitted. */
+  version: number
+  /** Indices into the fixture's raw history that had nothing left to submit — see `isStaleForcedFollowUp` below. */
+  foldedEntryIndices: number[]
+}
+
+/**
+ * Is this logged entry something today's engine has already done, as part of
+ * the preceding entry's own cascade?
+ *
+ * Since the §4.2/§4.3 fold-in, a forced single-option follow-up (a tile tier
+ * with one legal arrangement left, a one-card hand's pick) no longer gets its
+ * own actionHistory entry — applyAction folds it into whatever triggered it.
+ * A game played before that change has standalone entries for those, and its
+ * own reconstruction paths (replayActions, gameLog, turnReview) already skip
+ * them: applyAction's `isStaleForcedFollowUp` branch. A *live* submission
+ * deliberately does not, so that a player resubmitting a stale action still
+ * gets a real rejection — which means a replay driving the live path has to
+ * make the same distinction the reconstruction paths make.
+ *
+ * Asked of the engine rather than reimplemented: dispatched as a trusted
+ * replay, a stale follow-up is the one case that succeeds with no steps.
+ */
+function isStaleForcedFollowUp(state: GameState, entry: LoggedEntry, fixture: ProductionGameFixture): boolean {
+  if (entry.action.type === 'UNDO_ACTION' || entry.action.type === 'REDO_ACTION') return false
+  const { content } = fixture
+  const result = applyActionWithSteps(
+    state,
+    entry.action,
+    content.unitContent,
+    content.achievementContent,
+    content.boardGenerationContent,
+    content.taleContent,
+    true,
+  )
+  return result.ok && result.steps.length === 0
+}
+
 /**
  * Submits every entry in order, failing with the action's position and the
  * server's own message the moment one is rejected — which is the useful half
  * of a failure here: "action 143/210, RESOLVE_UNIT_ACTION by seat-2, 400: ..."
  * localizes a rules or enforcement regression to one move of one real game.
- * Returns the `game_state.version` the row should be on afterwards.
  */
-export async function replayFixtureThroughStack(stack: ProductionStack, fixture: ProductionGameFixture): Promise<number> {
+export async function replayFixtureThroughStack(stack: ProductionStack, fixture: ProductionGameFixture): Promise<ReplayOutcome> {
   const history = fixture.finalState.actionHistory
+  const foldedEntryIndices: number[] = []
+  let state = fixture.genesis
   let version = 0
+
   for (const [index, entry] of history.entries()) {
+    if (isStaleForcedFollowUp(state, entry, fixture)) {
+      foldedEntryIndices.push(index)
+      continue
+    }
     const result = await submitLoggedEntry(stack, fixture, entry)
     if (!result.ok) {
       throw new Error(
@@ -63,8 +109,22 @@ export async function replayFixtureThroughStack(stack: ProductionStack, fixture:
     if (result.version !== version) {
       throw new Error(`[${fixture.name}] action ${index + 1}/${history.length} left game_state at version ${result.version}, expected ${version}.`)
     }
+    state = result.state
   }
-  return version
+  return { version, foldedEntryIndices }
+}
+
+/**
+ * The exported state as the replay should have reproduced it: identical in
+ * every respect except that the entries `replayFixtureThroughStack` had
+ * nothing to submit for are gone from the log. Each one is a no-op against
+ * today's engine by construction (that is what made it skippable), so
+ * dropping it changes the log and nothing else about the game.
+ */
+export function expectedFinalState(fixture: ProductionGameFixture, outcome: ReplayOutcome): GameState {
+  if (outcome.foldedEntryIndices.length === 0) return fixture.finalState
+  const folded = new Set(outcome.foldedEntryIndices)
+  return { ...fixture.finalState, actionHistory: fixture.finalState.actionHistory.filter((_, index) => !folded.has(index)) }
 }
 
 /**

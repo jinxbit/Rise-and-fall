@@ -1,0 +1,7 @@
+{
+  "name": "jinxbit vs sornars — red runs away with it in async play",
+  "expected": {
+    "finalScores": { "jinxbit": 266, "sornars": 161 },
+    "winners": ["jinxbit"]
+  }
+}

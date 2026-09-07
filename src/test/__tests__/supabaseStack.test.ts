@@ -346,8 +346,12 @@ describe('production Supabase stack', () => {
       const replay = await createProductionStack()
       try {
         await replay.seedStartedGame({ game: fixture.game, players: fixture.players, genesis: fixture.genesis, admins: [fixture.game.created_by] })
-        const version = await replayFixtureThroughStack(replay, fixture)
-        expect(version).toBe(finalState.actionHistory.length)
+        const outcome = await replayFixtureThroughStack(replay, fixture)
+        // A game played by this file is played against today's engine, so
+        // nothing in its log is a stale forced follow-up — every entry is a
+        // real submission.
+        expect(outcome.foldedEntryIndices).toEqual([])
+        expect(outcome.version).toBe(finalState.actionHistory.length)
         const stored = await replay.readGameState(fixture.players[0].user_id, fixture.game.id)
         expect(normalizeForComparison(stored!.state)).toEqual(normalizeForComparison(finalState))
       } finally {

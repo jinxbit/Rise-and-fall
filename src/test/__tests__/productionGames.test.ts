@@ -23,7 +23,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import type { CompressedGameState, StoredGameState } from '../../lib/gameStateCompression.ts'
 import { loadProductionGameFixtures } from '../fixtures/productionGames/loadFixtures.ts'
 import { createProductionStack, type ProductionStack } from '../supabaseStack/index.ts'
-import { normalizeForComparison, replayFixtureThroughStack } from '../supabaseStack/replayFixture.ts'
+import { expectedFinalState, normalizeForComparison, replayFixtureThroughStack } from '../supabaseStack/replayFixture.ts'
 
 const fixtures = await loadProductionGameFixtures()
 
@@ -56,11 +56,11 @@ describe('production game replays', () => {
     it('replays the whole game through the Edge Functions and ends where production ended', async () => {
       await seedGame()
 
-      const version = await replayFixtureThroughStack(stack, fixture)
+      const outcome = await replayFixtureThroughStack(stack, fixture)
 
       const stored = await stack.readGameState(fixture.players[0].user_id, fixture.game.id)
-      expect(stored?.version).toBe(version)
-      expect(normalizeForComparison(stored!.state)).toEqual(normalizeForComparison(fixture.finalState))
+      expect(stored?.version).toBe(outcome.version)
+      expect(normalizeForComparison(stored!.state)).toEqual(normalizeForComparison(expectedFinalState(fixture, outcome)))
       // Stated separately from the deep equality above so a divergence in how
       // the game *ended* reads as its own failure rather than a diff of the
       // entire board.
@@ -124,6 +124,32 @@ describe('production game replays', () => {
             .sort(),
         )
       }
+    })
+
+    it('refuses the game’s first action from a signed-in user who is not seated in it', async () => {
+      await seedGame()
+      stack.addUser('auth-user-not-in-this-game')
+      const first = fixture.finalState.actionHistory[0]
+
+      if (fixture.game.settings.ruleEnforcementEnabled && first.action.type !== 'UNDO_ACTION' && first.action.type !== 'REDO_ACTION') {
+        // §4.1: live/async needs an exact (game, seat, caller) match, and even
+        // hotseat's blanket "any seat" only extends to players enrolled in
+        // that game.
+        const result = await stack.applyAction('auth-user-not-in-this-game', fixture.game.id, first.action)
+        expect(result).toMatchObject({ ok: false, status: 403 })
+      }
+
+      // And the direct write path is closed to them too, enforced or not —
+      // 0001_init_schema.sql's update policy has always required a seat.
+      const { data } = await stack
+        .clientFor('auth-user-not-in-this-game')
+        .from('game_state')
+        .update({ state: fixture.finalState, turn: fixture.finalState.turn, active_player_id: null, version: 1 })
+        .eq('game_id', fixture.game.id)
+        .eq('version', 0)
+        .select('version')
+      expect(data).toEqual([])
+      expect((await stack.readGameState(fixture.players[0].user_id, fixture.game.id))?.version).toBe(0)
     })
 
     it("refuses the game's first action from a seat that did not make it", async () => {

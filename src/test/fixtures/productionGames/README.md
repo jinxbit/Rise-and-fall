@@ -41,6 +41,22 @@ that moved every total in step would still satisfy "the replay matches the
 export" — both sides move together — but it cannot satisfy a number that came
 from outside the code.
 
+## Entries that no longer need submitting
+
+A game played before the §4.2/§4.3 fold-in can have a standalone history entry
+for something today's engine does automatically as part of the preceding
+action — a tile tier down to one legal arrangement, a one-card hand's pick.
+The app's own reconstruction paths (`replayActions`, `gameLog`, `turnReview`)
+already skip those; a live submission deliberately does not, so that a player
+resubmitting a stale action still gets a real rejection.
+
+The replay makes the same distinction, asking the engine rather than guessing:
+dispatched as a trusted replay, such an entry is the one case that succeeds
+with no steps. Those entries are skipped, and the final state is compared with
+them dropped from the expected log — they are no-ops by construction, so
+nothing else about the game changes. `red-beats-blue-async` has 12 of them out
+of 263.
+
 ## Which write path a game is replayed on
 
 The app has two, and a game is replayed on the one it was actually played on
@@ -73,6 +89,8 @@ For each game:
   it. A rejection fails with that action's position in the history and the
   server's own message.
 - `game_state.version` advances by exactly one per action.
+- Nobody outside the game can act: a signed-in user with no seat in it is
+  refused, on the Edge Function path and the direct-write path alike.
 - The state stored at the end matches the exported one — including `status`,
   `winnerPlayerIds` and `claimedByAchievementId`, asserted separately so
   "the game ended differently" reads as its own failure.
