@@ -234,6 +234,55 @@ describe('RoundView — player status summary and achievements panel', () => {
     expect(screen.getByTitle('Ship')).toBeInTheDocument()
   })
 
+  it("stops showing a player's card as 'Playing' once their turn has resolved it to discard (issue #460)", () => {
+    // finishActionsTurn moves the chosen card hand -> currentlyPlayed -> discard
+    // but never clears chosenCardIdByPlayerId, so the badge must key off the
+    // card's zone rather than just chosenCardId being set.
+    const base = makeState()
+    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
+
+    const p1 = { ...base.players[0], handCardIds: base.players[0].handCardIds.filter((id) => id !== cardIdFor('p1', 'nomad')) }
+    p1.discardCardIds = [cardIdFor('p1', 'nomad')]
+    const state: GameState = {
+      ...base,
+      roundPhase: 'actions',
+      chosenCardIdByPlayerId: { p1: cardIdFor('p1', 'nomad'), p2: cardIdFor('p2', 'city') },
+      pendingPlayerIds: ['p2'],
+      activePlayerId: 'p2',
+      players: [p1, base.players[1]],
+    }
+
+    render(
+      <RoundView
+        state={state}
+        players={players}
+        myPlayerId="p1"
+        unitContent={EMPTY_UNIT_CONTENT}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
+        turnReview={null}
+        showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
+        gameLog={[]}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+
+    // Alice's turn already resolved (Nomad is in discard) — no "Playing" for
+    // her, only Bob's still-pending City turn shows the badge.
+    expect(screen.getAllByText('Playing')).toHaveLength(1)
+    expect(screen.getByTitle('Playing City this turn')).toBeInTheDocument()
+    expect(screen.queryByTitle('Playing Nomad this turn')).not.toBeInTheDocument()
+  })
+
   it("keeps a chosen-but-unrevealed card in the Hand display during the selectCards phase", () => {
     // https://github.com/jinxbit/Rise-and-fall/issues/122 — during the
     // simultaneous select-cards phase, choosing a card shouldn't make it
