@@ -22,21 +22,68 @@ a bug, a game using a Tale or a game length that little else covers, a game
 with undo/redo in its history, a hotseat game. Long games are fine — a few
 hundred actions replays in seconds.
 
+## Declaring the result
+
+A game's outcome is worth stating in a sidecar, from what you read off the
+end-of-game screen, rather than leaving the test to derive it:
+
+```json
+{
+  "expected": {
+    "finalScores": { "Mano": 174, "jinxbit": 138 },
+    "winners": ["Mano"]
+  }
+}
+```
+
+Players are named by display name or by engine player id. A scoring change
+that moved every total in step would still satisfy "the replay matches the
+export" — both sides move together — but it cannot satisfy a number that came
+from outside the code.
+
+## Which write path a game is replayed on
+
+The app has two, and a game is replayed on the one it was actually played on
+(the same branch `GamePage.tsx`'s `submitAction` takes):
+
+- **Rule-enforced** (`ruleEnforcementEnabled`, the default assumed here): each
+  action goes to the `apply-action`/`undo-action`/`redo-action` Edge
+  Functions, which re-derive the state server-side and write it compressed.
+- **Client-trusted**: the client applies the action itself and writes
+  `game_state` directly, under RLS and the version compare-and-swap.
+
+Most games in production still run client-trusted. Say so in the sidecar:
+
+```json
+{ "settings": { "ruleEnforcementEnabled": false } }
+```
+
+Replaying a client-trusted game through the Edge Functions would be testing it
+against rules it was never played under — and can genuinely fail: the hotseat
+game in this directory is refused under enforcement, because §4.4's
+owner-override check lacks the hotseat carve-out §4.1 has (see the
+"refuses a hotseat player acting for their other seat" test in
+`src/test/__tests__/supabaseStack.test.ts` for a minimal reproduction).
+
 ## What gets asserted
 
 For each game:
 
-- Every logged action is accepted by the Edge Function, submitted by the seat
-  that actually made it. A rejection fails with that action's position in the
-  history and the server's own message.
+- Every logged action is accepted, submitted by the seat that actually made
+  it. A rejection fails with that action's position in the history and the
+  server's own message.
 - `game_state.version` advances by exactly one per action.
 - The state stored at the end matches the exported one — including `status`,
   `winnerPlayerIds` and `claimedByAchievementId`, asserted separately so
   "the game ended differently" reads as its own failure.
-- The stored row is gzipped and its `game_state_meta` projection matches
+- The final score matches whatever the sidecar declares, and — declared or
+  not — the winner is whoever actually has the most points.
+- The stored row is shaped the way that game's write path stores it (gzipped
+  for an enforced game), and its `game_state_meta` projection matches
   (issue #451).
 - The game's first action is refused (403) when submitted by another seat.
-- A direct client `UPDATE` of `game_state` is refused by RLS
+- A direct client `UPDATE` of `game_state` is refused by RLS for an enforced
+  game and allowed for a client-trusted one
   (`0026_rule_enforcement_flag.sql`).
 
 ## What is inferred, and how to override it
@@ -58,9 +105,14 @@ the loader says so and names the fix — add a sidecar next to the export:
   "createdBy": "<auth user id of the room owner>",
   "admins": ["<auth user id>"],
   "settings": { "mapTemplateId": "classic" },
-  "userIdByPlayerId": { "<engine player id>": "<auth user id>" }
+  "userIdByPlayerId": { "<engine player id>": "<auth user id>" },
+  "expected": { "finalScores": { "<display name>": 174 }, "winners": ["<display name>"] }
 }
 ```
+
+The loader works out "build alone" games and preset-board games from the
+history on its own — `blue-beats-red` needed no settings beyond its write
+path — so reach for `settings` only when the load-time check says to.
 
 `admins` is the one to reach for if a replay is refused with *"Submitting this
 action would discard another player's undone move"*: that action was made in

@@ -23,10 +23,13 @@
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import type { Action } from '../../engine/actions.ts'
+import { applyAction } from '../../engine/applyAction.ts'
+import { applyRedoAction, applyUndoAction } from '../../engine/undoRedo.ts'
 import type { GameState } from '../../engine/types.ts'
 import type { GameRow, PlayerRow } from '../../lib/dbTypes.ts'
 import { decompressGameStateFromStorage, type StoredGameState } from '../../lib/gameStateCompression.ts'
 import { Database, type GameStateRow, type ProfileRow } from './database.ts'
+import type { GameContent } from './sampleGame.ts'
 import { loadEdgeFunctions, type EdgeFunctionName } from './edgeFunctions.ts'
 import { ANON_KEY, SERVICE_ROLE_KEY, STACK_URL, serveStackRequest, type EdgeFunctionHandler, type ServerOptions, type TokenRegistry } from './httpServer.ts'
 
@@ -61,6 +64,18 @@ export interface ProductionStack {
   applyAction(userId: string, gameId: string, action: Action): Promise<EnforcedCallResult>
   undoAction(userId: string, gameId: string): Promise<EnforcedCallResult>
   redoAction(userId: string, gameId: string): Promise<EnforcedCallResult>
+  /**
+   * The other write path: a game that never opted into enforcement, where the
+   * client applies the action itself and writes the resulting state straight
+   * to `game_state` under RLS and the version compare-and-swap — GamePage.tsx's
+   * `writeWithRetry` branch. Most games in production still run this way, so a
+   * replay of one of them has to go through here rather than the Edge
+   * Functions (which such a game's RLS would let write, but whose enforcement
+   * it was never played under).
+   */
+  applyActionClientTrusted(userId: string, gameId: string, action: Action, content: GameContent): Promise<EnforcedCallResult>
+  undoActionClientTrusted(userId: string, gameId: string, playerId: string | null, genesis: GameState, content: GameContent): Promise<EnforcedCallResult>
+  redoActionClientTrusted(userId: string, gameId: string, playerId: string | null, genesis: GameState, content: GameContent): Promise<EnforcedCallResult>
   /** Restores the global `fetch` this stack patched. Call from `afterEach`. */
   dispose(): void
 }
@@ -185,6 +200,44 @@ export async function createProductionStack(): Promise<ProductionStack> {
     return { ...(data as { ok: true; state: GameState; version: number }), status: 200 }
   }
 
+  /**
+   * GamePage.tsx's `writeWithRetry` for one attempt: read the row, apply the
+   * transition client-side, write it back guarded by the version we read (the
+   * same compare-and-swap `gameApi.ts`'s `writeGameState` uses, and the same
+   * RLS an ordinary player's write goes through). No retry loop — a replay is
+   * single-threaded, so losing the race would mean a bug in the harness, not
+   * a concurrent player.
+   */
+  async function writeClientTrusted(
+    userId: string,
+    gameId: string,
+    transition: (state: GameState) => { ok: true; state: GameState } | { ok: false; error: string },
+  ): Promise<EnforcedCallResult> {
+    const client = clientFor(userId)
+    const { data: row, error: readError } = await client.from('game_state').select('state, version').eq('game_id', gameId).maybeSingle()
+    if (readError) return { ok: false, error: readError.message, status: 500 }
+    if (!row) return { ok: false, error: 'Game not found, or has no state yet (still in the lobby?).', status: 404 }
+
+    const state = await decompressGameStateFromStorage(row.state as StoredGameState)
+    const result = transition(state)
+    if (!result.ok) return { ok: false, error: result.error, status: 400 }
+
+    const expectedVersion = row.version as number
+    const { data, error } = await client
+      .from('game_state')
+      .update({ state: result.state, turn: result.state.turn, active_player_id: result.state.activePlayerId, version: expectedVersion + 1 })
+      .eq('game_id', gameId)
+      .eq('version', expectedVersion)
+      .select('version')
+    if (error) return { ok: false, error: error.message, status: 500 }
+    if ((data?.length ?? 0) === 0) {
+      // Zero rows changed is either a lost race or RLS refusing the write —
+      // indistinguishable to a client, which is exactly what 0026 relies on.
+      return { ok: false, error: 'Game state changed concurrently, or this game is not writable directly — refetch and retry.', status: 409 }
+    }
+    return { ok: true, state: result.state, version: expectedVersion + 1, status: 200 }
+  }
+
   return {
     db,
     requests,
@@ -217,6 +270,19 @@ export async function createProductionStack(): Promise<ProductionStack> {
     applyAction: (userId, gameId, action) => invoke('apply-action', userId, { gameId, action }),
     undoAction: (userId, gameId) => invoke('undo-action', userId, { gameId }),
     redoAction: (userId, gameId) => invoke('redo-action', userId, { gameId }),
+
+    applyActionClientTrusted: (userId, gameId, action, content) =>
+      writeClientTrusted(userId, gameId, (state) =>
+        applyAction(state, action, content.unitContent, content.achievementContent, content.boardGenerationContent, content.taleContent),
+      ),
+    undoActionClientTrusted: (userId, gameId, playerId, genesis, content) =>
+      writeClientTrusted(userId, gameId, (state) =>
+        applyUndoAction(genesis, state, playerId, content.unitContent, content.achievementContent, content.boardGenerationContent, content.taleContent),
+      ),
+    redoActionClientTrusted: (userId, gameId, playerId, genesis, content) =>
+      writeClientTrusted(userId, gameId, (state) =>
+        applyRedoAction(genesis, state, playerId, content.unitContent, content.achievementContent, content.boardGenerationContent, content.taleContent),
+      ),
 
     dispose: restoreFetch,
   }

@@ -20,13 +20,35 @@
 import { resolveHistory } from '../../../engine/historyFold.ts'
 import { replayActions } from '../../../engine/replay.ts'
 import type { Board, GameState } from '../../../engine/types.ts'
+import { calculateVPBreakdown } from '../../../engine/victoryPoints.ts'
 import { buildGenesisState } from '../../../lib/gameGenesis.ts'
 import type { GameRow, GameSettings, PlayerRow } from '../../../lib/dbTypes.ts'
 import { decodeGameStateExport } from '../../../lib/gameStateExport.ts'
 import { resolveGameContent, type GameContent } from '../../supabaseStack/sampleGame.ts'
 
+/**
+ * What a game is expected to have *ended* as, declared in the sidecar rather
+ * than derived — the point being that it comes from outside the code under
+ * test. A scoring change that silently moves every game's total would still
+ * satisfy "the replay matches the export" (both sides move together); it
+ * cannot satisfy a number a human read off the end-of-game screen and wrote
+ * down here.
+ *
+ * Players are named by display name or by engine player id, whichever is
+ * easier to read for that game; an ambiguous or unknown name is an error at
+ * load time, not a silently skipped assertion.
+ */
+export interface ExpectedResult {
+  /** Final total VP per player — the "Final score" figures on EndGameView.tsx. */
+  finalScores?: Record<string, number>
+  /** Who won. Empty array asserts nobody did (an unfinished game). */
+  winners?: string[]
+}
+
 /** Optional `<name>.room.json` sidecar — anything here wins over what `reconstructRoom` infers. */
 export interface RoomOverrides {
+  /** The game's recorded outcome, asserted against the replay. */
+  expected?: ExpectedResult
   createdBy?: string
   roomCode?: string
   name?: string
@@ -51,11 +73,62 @@ export interface ProductionGameFixture {
   content: GameContent
   /** Which signed-in user submits a given seat's actions. */
   userIdForPlayer(playerId: string): string
+  /** The sidecar's declared outcome, resolved to player ids — absent when the sidecar doesn't declare one. */
+  expected: { finalScoreByPlayerId?: Record<string, number>; winnerPlayerIds?: string[] }
+  /** Final total VP per player for any state of this game, the same way EndGameView.tsx computes the "Final score" column. */
+  finalScores(state: GameState): Record<string, number>
+  /** `playerId` rendered for a failure message: display name plus colour. */
+  describePlayer(playerId: string): string
 }
 
 /** applyAction() stamps wall-clock time, so two independently-produced states never match byte-for-byte there even when every game-logic field does. */
 export function stripTimestamps(state: GameState): GameState {
   return { ...state, actionHistory: state.actionHistory.map((entry) => ({ ...entry, timestamp: '' })) }
+}
+
+/**
+ * `JSON.stringify` with object keys sorted, so two structurally identical
+ * states compare equal regardless of the order their keys happen to be in.
+ * A replayed state is built field by field by applyAction(); an exported one
+ * is whatever order it was serialized in — plain `JSON.stringify` calls those
+ * two different, which would make every fixture look unreconstructable. Array
+ * order is left alone: it is meaningful everywhere it appears here (turn
+ * order, action history, a player's cards).
+ */
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, nested]) => nested !== undefined)
+      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+    return `{${entries.map(([key, nested]) => `${JSON.stringify(key)}:${stableStringify(nested)}`).join(',')}}`
+  }
+  return JSON.stringify(value) ?? 'null'
+}
+
+/**
+ * Two states compared as the same *game*, not as the same bytes.
+ *
+ * Beyond timestamps, two of GameState's fields are documented as
+ * "absent means this" (see their doc comments in src/engine/types.ts):
+ * `adminModeActive` absent is false, and `declineSourceZoneByCardId` absent is
+ * "nothing retractable right now". A state parsed from an export written
+ * before either field existed has no key at all; one the engine just built
+ * always has both. Normalizing that is honouring the documented equivalence,
+ * not hiding a difference.
+ */
+export function normalizeStateForComparison(state: GameState): GameState {
+  return {
+    ...stripTimestamps(state),
+    adminModeActive: Boolean(state.adminModeActive),
+    declineSourceZoneByCardId: state.declineSourceZoneByCardId ?? {},
+  }
+}
+
+/** Which top-level GameState fields two states disagree on — the useful half of a "this fixture doesn't reconstruct" message. */
+function divergentFields(left: GameState, right: GameState): string[] {
+  const keys = new Set([...Object.keys(left), ...Object.keys(right)]) as Set<keyof GameState>
+  return [...keys].filter((key) => stableStringify(left[key]) !== stableStringify(right[key]))
 }
 
 /** The terrain layout with every unit cleared off it — a preset-board game's genesis board, recovered from its final board (only PLACE_TILE ever changes terrain). */
@@ -188,14 +261,34 @@ export function buildFixture(name: string, envelope: { exportedAt: string; gameS
     content.boardGenerationContent,
     content.taleContent,
   )
-  if (JSON.stringify(stripTimestamps(replayed)) !== JSON.stringify(stripTimestamps(finalState))) {
+  const diverged = divergentFields(normalizeStateForComparison(replayed), normalizeStateForComparison(finalState))
+  if (diverged.length > 0) {
     throw new Error(
-      `Fixture "${name}" could not be reconstructed: replaying its action history from the rebuilt genesis produced a different state than the export. ` +
-        `The room settings were inferred from the history (see reconstructRoom) — add a ${name}.room.json sidecar with the game's real \`settings\` to fix this.`,
+      `Fixture "${name}" could not be reconstructed: replaying its action history from the rebuilt genesis produced a different state than the export ` +
+        `(disagrees on ${diverged.join(', ')}). The room settings were inferred from the history (see reconstructRoom) — add a ${name}.room.json ` +
+        `sidecar with the game's real \`settings\` to fix this.`,
     )
   }
 
   const userIdByPlayerId = new Map(players.map((player) => [player.id, player.user_id]))
+
+  /** Resolves a sidecar's player reference — a display name or a player id — to exactly one seat. */
+  const resolvePlayerId = (reference: string): string => {
+    const byId = finalState.players.filter((player) => player.id === reference)
+    const byName = finalState.players.filter((player) => player.displayName === reference)
+    const matches = byId.length > 0 ? byId : byName
+    if (matches.length === 0) {
+      throw new Error(`Fixture "${name}" declares a result for "${reference}", which is neither a player id nor a display name in this game.`)
+    }
+    if (matches.length > 1) {
+      throw new Error(`Fixture "${name}" declares a result for "${reference}", but ${matches.length} players share that display name — use their player ids instead.`)
+    }
+    return matches[0].id
+  }
+
+  const expectedScores = overrides.expected?.finalScores
+  const expectedWinners = overrides.expected?.winners
+
   return {
     name,
     exportedAt: envelope.exportedAt,
@@ -208,6 +301,18 @@ export function buildFixture(name: string, envelope: { exportedAt: string; gameS
       const userId = userIdByPlayerId.get(playerId)
       if (!userId) throw new Error(`Fixture "${name}" has no seat for player ${playerId}.`)
       return userId
+    },
+    expected: {
+      finalScoreByPlayerId: expectedScores && Object.fromEntries(Object.entries(expectedScores).map(([reference, score]) => [resolvePlayerId(reference), score])),
+      winnerPlayerIds: expectedWinners?.map(resolvePlayerId),
+    },
+    finalScores: (state) => {
+      const breakdown = calculateVPBreakdown(state, content.achievementContent, content.taleContent)
+      return Object.fromEntries(state.players.map((player) => [player.id, breakdown[player.id]?.total ?? 0]))
+    },
+    describePlayer: (playerId) => {
+      const player = finalState.players.find((candidate) => candidate.id === playerId)
+      return player ? `${player.displayName} (${player.color})` : playerId
     },
   }
 }

@@ -264,6 +264,58 @@ describe('production Supabase stack', () => {
     })
   })
 
+  /**
+   * Found by replaying blue-beats-red (a real hotseat game) under server-side
+   * enforcement: it is refused at its second-to-last action.
+   *
+   * §4.1 deliberately scopes hotseat out of the enforcement model — one shared
+   * `auth.uid()` covers every local seat, so `isAuthorizedToActAs`
+   * (supabase/functions/_shared/gameEnforcement.ts) lets any seated player act
+   * for any seat in a hotseat game. §4.4/§4.5's owner-override check has no
+   * such carve-out, and it is about protecting one *human* from another human
+   * discarding their undone move. In hotseat there is only one human, so the
+   * check has nothing to protect and instead blocks ordinary play: undo a
+   * seat's pick during a simultaneous phase, then act for the other seat, and
+   * the submission is refused unless room admin mode happens to be on.
+   *
+   * This test documents the behaviour as it stands rather than endorsing it.
+   * If `requiresOwnerOverride`'s caller grows the same hotseat carve-out
+   * `isAuthorizedToActAs` already has, this test will fail — that is the
+   * point; delete it then.
+   */
+  it('refuses a hotseat player acting for their other seat after undoing the first one’s pick', async () => {
+    const genesis = await seed(stack, settingsFor({ mapTemplateId: 'classic' }))
+    // Both seats belong to one signed-in human, which is what hotseat means.
+    const hotseat = { ...gameRow(settingsFor()), play_mode: 'hotseat' as const }
+    stack.db.replaceRow('games', hotseat as unknown as Record<string, unknown>)
+
+    // Board setup, then the simultaneous card-selection phase both seats are
+    // pending in at once.
+    const { state: afterSetup } = await playThroughStack(stack, genesis, PLAYERS.length * 3)
+    expect(afterSetup.roundPhase).toBe('selectCards')
+    expect(afterSetup.pendingPlayerIds).toEqual(expect.arrayContaining(['seat-alice', 'seat-bob']))
+
+    const chose = await stack.applyAction(ALICE, GAME_ID, {
+      type: 'CHOOSE_CARD',
+      playerId: 'seat-alice',
+      cardId: afterSetup.players.find((player) => player.id === 'seat-alice')!.handCardIds[0],
+    })
+    if (!chose.ok) throw new Error(chose.error)
+
+    const undone = await stack.undoAction(ALICE, GAME_ID)
+    if (!undone.ok) throw new Error(undone.error)
+
+    // The same human, now playing their other seat. Nobody else's move is
+    // being discarded — there is nobody else.
+    const bob = undone.state.players.find((player) => player.id === 'seat-bob')!
+    const blocked = await stack.applyAction(ALICE, GAME_ID, { type: 'CHOOSE_CARD', playerId: 'seat-bob', cardId: bob.handCardIds[0] })
+    expect(blocked).toMatchObject({
+      ok: false,
+      status: 403,
+      error: "Submitting this action would discard another player's undone move — only the room owner or an admin, with room admin mode on, may do that.",
+    })
+  })
+
   describe('fixture reconstruction', () => {
     it('rebuilds a preset-board game’s room and genesis from nothing but its export', async () => {
       const genesis = await seed(stack)

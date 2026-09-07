@@ -1,0 +1,10 @@
+{
+  "name": "Mano vs jinxbit — blue wins on achievements",
+  "settings": {
+    "ruleEnforcementEnabled": false
+  },
+  "expected": {
+    "finalScores": { "Mano": 174, "jinxbit": 138 },
+    "winners": ["Mano"]
+  }
+}

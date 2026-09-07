@@ -12,7 +12,7 @@
 
 import type { GameState } from '../../engine/types.ts'
 import type { ProductionGameFixture } from '../fixtures/productionGames/loadFixtures.ts'
-import { stripTimestamps } from '../fixtures/productionGames/loadFixtures.ts'
+import { normalizeStateForComparison } from '../fixtures/productionGames/loadFixtures.ts'
 import type { EnforcedCallResult, ProductionStack } from './index.ts'
 
 export type LoggedEntry = GameState['actionHistory'][number]
@@ -22,10 +22,24 @@ export function submitLoggedEntry(stack: ProductionStack, fixture: ProductionGam
   // playerId (see their doc comments in src/engine/actions.ts) — a null one
   // means nobody in particular was "acting", so the room owner stands in,
   // which is also the only caller SET_ADMIN_MODE would have accepted.
-  const userId = entry.action.playerId === null ? fixture.game.created_by : fixture.userIdForPlayer(entry.action.playerId)
-  if (entry.action.type === 'UNDO_ACTION') return stack.undoAction(userId, fixture.game.id)
-  if (entry.action.type === 'REDO_ACTION') return stack.redoAction(userId, fixture.game.id)
-  return stack.applyAction(userId, fixture.game.id, entry.action)
+  const playerId = entry.action.playerId
+  const userId = playerId === null ? fixture.game.created_by : fixture.userIdForPlayer(playerId)
+  const gameId = fixture.game.id
+
+  // Which of the app's two write paths this game actually ran on — the same
+  // branch GamePage.tsx's submitAction/handleUndo/handleRedo take. Replaying a
+  // client-trusted game through the Edge Functions would be testing it against
+  // rules it was never played under; replaying an enforced one directly would
+  // skip the only thing worth testing about it.
+  if (!fixture.game.settings.ruleEnforcementEnabled) {
+    if (entry.action.type === 'UNDO_ACTION') return stack.undoActionClientTrusted(userId, gameId, playerId, fixture.genesis, fixture.content)
+    if (entry.action.type === 'REDO_ACTION') return stack.redoActionClientTrusted(userId, gameId, playerId, fixture.genesis, fixture.content)
+    return stack.applyActionClientTrusted(userId, gameId, entry.action, fixture.content)
+  }
+
+  if (entry.action.type === 'UNDO_ACTION') return stack.undoAction(userId, gameId)
+  if (entry.action.type === 'REDO_ACTION') return stack.redoAction(userId, gameId)
+  return stack.applyAction(userId, gameId, entry.action)
 }
 
 /**
@@ -54,17 +68,18 @@ export async function replayFixtureThroughStack(stack: ProductionStack, fixture:
 }
 
 /**
- * Two states compared as *games*, not as bytes.
+ * Two states compared as *games*, not as bytes — normalizeStateForComparison's
+ * timestamp and absent-optional handling, plus one thing only a replay through
+ * the server hits.
  *
- * `timestamp` is wall-clock, so it never survives a replay. An
- * UNDO_ACTION/REDO_ACTION entry's `playerId` is narration only — the server
+ * An UNDO_ACTION/REDO_ACTION entry's `playerId` is narration only: the server
  * stamps it from whoever called, and in a hotseat game several seats share one
  * auth user, so a replay can legitimately attribute a marker to a different
  * seat than production did (see UndoAction's doc comment). Everything else,
  * including every substantive entry and its order, has to match exactly.
  */
 export function normalizeForComparison(state: GameState): GameState {
-  return stripTimestamps({
+  return normalizeStateForComparison({
     ...state,
     actionHistory: state.actionHistory.map((entry) =>
       entry.action.type === 'UNDO_ACTION' || entry.action.type === 'REDO_ACTION'

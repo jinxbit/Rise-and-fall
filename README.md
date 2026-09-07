@@ -331,14 +331,15 @@ Real games can be turned into regression tests by dropping their export into
 (see `src/lib/gameStateExport.ts`), save the JSON there, and `npm run test`
 picks it up — no registration step.
 
-Each one is replayed action by action through the real `apply-action`/
-`undo-action`/`redo-action` Edge Functions, submitted by the seat that
-actually made each move, against a Supabase stack that behaves like
-production: the migrations' Row Level Security, `game_state`'s
-compare-and-swap `version`, the `game_state_sync_meta` trigger and the
-gzipped-at-rest state encoding are all in play (`src/test/supabaseStack/`).
-The test then asserts the game ends exactly where production ended it,
-winner included.
+Each one is replayed action by action, submitted by the seat that actually
+made each move, on the same write path the game was played on — the real
+`apply-action`/`undo-action`/`redo-action` Edge Functions for a rule-enforced
+game, or a direct `game_state` write for a client-trusted one — against a
+Supabase stack that behaves like production: the migrations' Row Level
+Security, `game_state`'s compare-and-swap `version`, the
+`game_state_sync_meta` trigger and the gzipped-at-rest state encoding are all
+in play (`src/test/supabaseStack/`). The test then asserts the game ends
+exactly where production ended it, final score and winner included.
 
 The only pieces that are test doubles are Postgres and the Deno Edge Runtime
 themselves, so this runs on a plain Node CI runner with no Docker. For the
