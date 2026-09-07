@@ -4,7 +4,7 @@ import { createEmptyBoard, setTile } from '../board'
 import { cardIdFor, createPlayerCards, syncCardZonesWithBoard } from '../cards'
 import { createNewGame } from '../createGame'
 import { beginSelectCardsPhase } from '../round'
-import { buildTurnReview, findReviewWindowStart, findTurnStops, recapTurnFor, reviewPhaseGroupAt, roundPhaseForRecap, shouldShowCardChoiceRecap } from '../turnReview'
+import { buildTurnReview, cardChoicesForRecap, findReviewWindowStart, findTurnStops, recapTurnFor, reviewPhaseGroupAt, roundPhaseForRecap, shouldShowCardChoiceRecap } from '../turnReview'
 import type { LoggedAction } from '../actions'
 import type { Card, GameState, Player, Terrain, Unit } from '../types'
 import type { UnitAction, UnitContent } from '../unitContent'
@@ -330,14 +330,75 @@ describe('roundPhaseForRecap', () => {
 describe('recapTurnFor', () => {
   const fakeState = (roundPhase: GameState['roundPhase'], turn: number): GameState => ({ roundPhase, turn }) as GameState
 
-  it('is the replayed turn itself while still genuinely mid-round (actions/decline/purchase)', () => {
-    expect(recapTurnFor(fakeState('actions', 3))).toBe(3)
-    expect(recapTurnFor(fakeState('decline', 3))).toBe(3)
-    expect(recapTurnFor(fakeState('purchase', 3))).toBe(3)
+  it("reads the triggering entry's own logged turn, ignoring the replayed state entirely", () => {
+    const history: LoggedAction[] = [{ action: { type: 'PASS_ACTIONS', playerId: 'p1' }, turn: 3, timestamp: '' }]
+    expect(recapTurnFor(history, 1, fakeState('actions', 3))).toBe(3)
+    expect(recapTurnFor(history, 1, fakeState('decline', 99))).toBe(3)
+    expect(recapTurnFor(history, 1, fakeState('purchase', 99))).toBe(3)
+    expect(recapTurnFor(history, 1, fakeState('selectCards', 99))).toBe(3)
   })
 
-  it("is turn - 1 once the replayed state has already auto-chained into the NEXT round's selectCards, since finishRound bumps turn before that", () => {
-    expect(recapTurnFor(fakeState('selectCards', 4))).toBe(3)
+  it('falls back to state.turn only at stopEnd 0 (genesis — nothing logged yet)', () => {
+    expect(recapTurnFor([], 0, fakeState('selectCards', 1))).toBe(1)
+  })
+
+  it("still reports the round whose action just resolved even once the SAME dispatch chained all the way through a forced next round's selectCards AND back into that next round's own 'actions' phase (issue #462's second follow-up) — the old state.roundPhase-based check misread this as the next round instead", () => {
+    // Round 1's last RESOLVE_UNIT_ACTION (turn 1) chained through an empty
+    // decline/purchase into round 2's selectCards, and every round-2 hand
+    // happened to be down to one card, so round 2's CHOOSE_CARD picks were
+    // ALSO forced-folded into this same entry, landing roundPhase straight
+    // on 'actions' again — this time genuinely describing round 2. Only the
+    // entry's own logged `turn` (always the round it was submitted in, see
+    // applyActionWithSteps) tells the two apart.
+    const history: LoggedAction[] = [{ action: { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [] }, turn: 1, timestamp: '' }]
+    expect(recapTurnFor(history, 1, fakeState('actions', 2))).toBe(1)
+  })
+})
+
+describe('cardChoicesForRecap', () => {
+  it("recovers a round's played cards even when every player's pick was forced (RULE_ENFORCEMENT_PLAN.md §4.2/§4.3) and so never became its own actionHistory entry (issue #462's second follow-up) — reproduces the real game-state scenario reported still-broken after the first fix", () => {
+    // Both p1 and p2 own exactly one unit each, of different kinds, so
+    // syncCardZonesWithBoard (called by makeGenesis) leaves each of them
+    // with exactly one card in hand — a one-card hand has no real pick left
+    // to make (applyAction.ts's nextSelectCardsFastForward).
+    const board = boardOf([
+      [0, 0, 'plain'],
+      [1, 0, 'plain'],
+    ])
+    const nomad: Unit = { id: 'nomad_a', ownerId: 'p1', kind: 'nomad', coord: { q: 0, r: 0 }, movement: content.movementByKind.nomad, traits: [] }
+    const city: Unit = { id: 'city_b', ownerId: 'p2', kind: 'city', coord: { q: 1, r: 0 }, movement: content.movementByKind.city, traits: [] }
+    const genesis = makeGenesis([nomad, city], board)
+    const p1CardId = cardIdFor('p1', 'nomad')
+    const p2CardId = cardIdFor('p2', 'city')
+
+    // p1's own manual CHOOSE_CARD auto-forces p2's single-card pick into the
+    // SAME entry — already invisible to a plain actionHistory scan (see
+    // applyAction.test.ts's matching "auto-chooses a still-pending player"
+    // test).
+    // Round numbering here starts at genesis.turn (0), not 1.
+    const round1 = genesis.turn
+    const afterChoose = drive(genesis, [{ type: 'CHOOSE_CARD', playerId: 'p1', cardId: p1CardId }])
+    const afterP1Pass = drive(afterChoose, [{ type: 'PASS_ACTIONS', playerId: 'p1' }])
+    // p2's PASS_ACTIONS closes out round 1 (nothing to decline/purchase),
+    // chaining straight through finishRound into round 2's selectCards —
+    // and since both hands recycled back to the exact same single card,
+    // round 2's picks are ALSO forced, landing roundPhase back on 'actions'
+    // again, now genuinely describing round 2, all folded into this SAME entry.
+    const afterP2Pass = drive(afterP1Pass, [{ type: 'PASS_ACTIONS', playerId: 'p2' }])
+
+    expect(afterP2Pass.actionHistory).toHaveLength(3)
+    expect(afterP2Pass.turn).toBe(round1 + 1)
+    expect(afterP2Pass.roundPhase).toBe('actions')
+
+    const statesBefore = [genesis, afterChoose, afterP1Pass]
+    const recapTurn = recapTurnFor(afterP2Pass.actionHistory, 3, afterP2Pass)
+    // NOT round1 + 1 — the naive state.roundPhase-based check would misread
+    // this stop as round 2's own recap instead of round 1's, which just
+    // finished.
+    expect(recapTurn).toBe(round1)
+
+    const recap = cardChoicesForRecap(afterP2Pass.actionHistory, statesBefore, 3, recapTurn, content)
+    expect(recap.chosenCardIdByPlayerId).toEqual({ p1: p1CardId, p2: p2CardId })
   })
 })
 

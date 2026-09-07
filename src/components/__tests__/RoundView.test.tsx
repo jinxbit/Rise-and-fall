@@ -9,7 +9,7 @@ import { createNewGame } from '../../engine/createGame'
 import { beginSelectCardsPhase } from '../../engine/round'
 import { EMPTY_TALE_CONTENT } from '../../engine/taleContent'
 import type { GameState, Player, Resources, Unit, UnitMovement } from '../../engine/types'
-import type { TurnReview } from '../../engine/turnReview'
+import type { CardChoiceRecap, TurnReview } from '../../engine/turnReview'
 import { EMPTY_UNIT_CONTENT } from '../../engine/unitContent'
 import type { UnitAction, UnitContent } from '../../engine/unitContent'
 import type { PlayerRow } from '../../lib/dbTypes'
@@ -1902,6 +1902,7 @@ describe('RoundView — history review overlay', () => {
     stateOverrides?: Partial<GameState>,
     showCardChoiceRecap = false,
     cardChoiceRecapPhase?: GameState['roundPhase'],
+    cardChoiceRecap?: CardChoiceRecap,
   ) {
     const state = { ...makeState(), ...stateOverrides }
     state.board = setTile(state.board, { q: 0, r: 0 }, 'plain')
@@ -1921,6 +1922,7 @@ describe('RoundView — history review overlay', () => {
         showHistory={showHistory}
         showCardChoiceRecap={showCardChoiceRecap}
         cardChoiceRecapPhase={cardChoiceRecapPhase}
+        cardChoiceRecap={cardChoiceRecap}
         onExitHistory={onExitHistory}
         territoryControlMode="off"
         previousHistoryState={null}
@@ -2064,6 +2066,12 @@ describe('RoundView — history review overlay', () => {
         ],
       },
       true,
+      undefined,
+      {
+        chosenCardIdByPlayerId: { p1: cardIdFor('p1', 'nomad'), p2: cardIdFor('p2', 'city') },
+        purchasedCardIdsByPlayerId: {},
+        declinedCardIdsByPlayerId: {},
+      },
     )
 
     expect(screen.getByText('Played cards:')).toBeInTheDocument()
@@ -2104,6 +2112,16 @@ describe('RoundView — history review overlay', () => {
       },
       true,
       'actions',
+      {
+        // The played-card recap now comes from GamePage's own
+        // cardChoicesForRecap (issue #462's second follow-up), not derived
+        // by RoundView from `state` — see CardChoiceHistoryPanel's doc
+        // comment for why `state.actionHistory` alone can't be trusted (a
+        // forced single-option CHOOSE_CARD never gets its own entry).
+        chosenCardIdByPlayerId: { p1: cardIdFor('p1', 'nomad'), p2: cardIdFor('p2', 'city') },
+        purchasedCardIdsByPlayerId: {},
+        declinedCardIdsByPlayerId: {},
+      },
     )
 
     expect(screen.queryByText('Purchased cards:')).not.toBeInTheDocument()
@@ -2142,6 +2160,12 @@ describe('RoundView — history review overlay', () => {
         ],
       },
       true,
+      undefined,
+      {
+        chosenCardIdByPlayerId: {},
+        purchasedCardIdsByPlayerId: { p1: [purchasedCardId] },
+        declinedCardIdsByPlayerId: { p2: [declinedCardId] },
+      },
     )
 
     expect(screen.getByText('Purchased cards:')).toBeInTheDocument()
@@ -2208,6 +2232,12 @@ describe('RoundView — history review overlay', () => {
         ],
       },
       true,
+      undefined,
+      {
+        chosenCardIdByPlayerId: {},
+        purchasedCardIdsByPlayerId: { p2: [cardId] },
+        declinedCardIdsByPlayerId: { p2: [cardId] },
+      },
     )
 
     const purchasedRow = screen.getByText('Purchased cards:').nextElementSibling as HTMLElement
@@ -2244,6 +2274,12 @@ describe('RoundView — history review overlay', () => {
         ],
       },
       true,
+      undefined,
+      {
+        chosenCardIdByPlayerId: {},
+        purchasedCardIdsByPlayerId: { p1: [purchasedCardId] },
+        declinedCardIdsByPlayerId: { p2: [declinedCardId] },
+      },
     )
 
     expect(screen.getByText('Purchased cards:')).toBeInTheDocument()
