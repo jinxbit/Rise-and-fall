@@ -1901,6 +1901,7 @@ describe('RoundView — history review overlay', () => {
     onExitHistory?: () => void,
     stateOverrides?: Partial<GameState>,
     showCardChoiceRecap = false,
+    cardChoiceRecapPhase?: GameState['roundPhase'],
   ) {
     const state = { ...makeState(), ...stateOverrides }
     state.board = setTile(state.board, { q: 0, r: 0 }, 'plain')
@@ -1919,6 +1920,7 @@ describe('RoundView — history review overlay', () => {
         turnReview={turnReview}
         showHistory={showHistory}
         showCardChoiceRecap={showCardChoiceRecap}
+        cardChoiceRecapPhase={cardChoiceRecapPhase}
         onExitHistory={onExitHistory}
         territoryControlMode="off"
         previousHistoryState={null}
@@ -2056,6 +2058,10 @@ describe('RoundView — history review overlay', () => {
         chosenCardIdByPlayerId: { p1: cardIdFor('p1', 'nomad'), p2: cardIdFor('p2', 'city') },
         pendingPlayerIds: ['p1', 'p2'],
         activePlayerId: 'p1',
+        actionHistory: [
+          { action: { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'nomad') }, turn: 1, timestamp: '' },
+          { action: { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') }, turn: 1, timestamp: '' },
+        ],
       },
       true,
     )
@@ -2070,6 +2076,41 @@ describe('RoundView — history review overlay', () => {
 
     expect(screen.getByTitle('Nomad')).toBeInTheDocument()
     expect(screen.getByTitle('City')).toBeInTheDocument()
+  })
+
+  it("shows the played-cards recap, not an empty purchased/declined recap, once finishRound has already chained the replayed state past an empty decline/purchase phase into the next round's selectCards (issue #462)", () => {
+    // Mirrors GamePage's own roundPhaseForRecap forcing 'actions' for this
+    // review stop (see engine/turnReview.ts's doc comment): the round being
+    // recapped needed no decline/purchase, so `finishRound` chained straight
+    // from the last RESOLVE_UNIT_ACTION into the next round's selectCards —
+    // `state.roundPhase` below reflects that raced-ahead reality, exactly
+    // like a real replayed historical state would.
+    renderWithReview(
+      { events: [], resourceDeltaByPlayerId: {} },
+      true,
+      undefined,
+      {
+        roundPhase: 'selectCards',
+        // Reset for round 2, exactly like beginSelectCardsPhase (round.ts)
+        // really does — proves the recap below can't be reading this field.
+        chosenCardIdByPlayerId: { p1: null, p2: null },
+        pendingPlayerIds: ['p1', 'p2'],
+        activePlayerId: null,
+        turn: 2,
+        actionHistory: [
+          { action: { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'nomad') }, turn: 1, timestamp: '' },
+          { action: { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') }, turn: 1, timestamp: '' },
+        ],
+      },
+      true,
+      'actions',
+    )
+
+    expect(screen.queryByText('Purchased cards:')).not.toBeInTheDocument()
+    expect(screen.queryByText('Declined cards:')).not.toBeInTheDocument()
+    const playedRow = screen.getByText('Played cards:').nextElementSibling as HTMLElement
+    expect(within(playedRow).getByTitle('Nomad')).toBeInTheDocument()
+    expect(within(playedRow).getByTitle('City')).toBeInTheDocument()
   })
 
   it('shows the interactive card picker, not the read-only history recap, during live play (issue #314)', () => {

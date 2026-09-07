@@ -695,15 +695,16 @@ export function GamePage() {
     eventCountAtIndex: number[]
   } | null>(null)
 
-  const { reviewState, reviewGameLog, turnHalos, previousTerritoryState, showCardChoiceRecap } = useMemo((): {
+  const { reviewState, reviewGameLog, turnHalos, previousTerritoryState, showCardChoiceRecap, cardChoiceRecapPhase } = useMemo((): {
     reviewState: EngineGameState | null
     reviewGameLog: GameEvent[]
     turnHalos: TurnReview | null
     previousTerritoryState: EngineGameState | null
     showCardChoiceRecap: boolean
+    cardChoiceRecapPhase: EngineGameState['roundPhase'] | null
   } => {
     if (reviewIndex === null || !game || !genesis || !gameState)
-      return { reviewState: null, reviewGameLog: [], turnHalos: null, previousTerritoryState: null, showCardChoiceRecap: false }
+      return { reviewState: null, reviewGameLog: [], turnHalos: null, previousTerritoryState: null, showCardChoiceRecap: false, cardChoiceRecapPhase: null }
     const actionHistory = gameState.actionHistory
     let cache = reviewCacheRef.current
 
@@ -829,12 +830,8 @@ export function GamePage() {
           previousStop = { roundPhase: roundPhaseForRecap(actionHistory, prevStop, cache.states[prevStop]), recapTurn: recapTurnFor(cache.states[prevStop]) }
         }
       }
-      const showCardChoiceRecap = shouldShowCardChoiceRecap(
-        roundPhaseForRecap(actionHistory, reviewIndex, cache.states[reviewIndex]),
-        recapTurnFor(cache.states[reviewIndex]),
-        previousStop,
-        historyStepMode,
-      )
+      const cardChoiceRecapPhase = roundPhaseForRecap(actionHistory, reviewIndex, cache.states[reviewIndex])
+      const showCardChoiceRecap = shouldShowCardChoiceRecap(cardChoiceRecapPhase, recapTurnFor(cache.states[reviewIndex]), previousStop, historyStepMode)
 
       return {
         reviewState: cache.states[reviewIndex],
@@ -842,10 +839,11 @@ export function GamePage() {
         turnHalos,
         previousTerritoryState,
         showCardChoiceRecap,
+        cardChoiceRecapPhase,
       }
     } catch {
       reviewCacheRef.current = null
-      return { reviewState: null, reviewGameLog: [], turnHalos: null, previousTerritoryState: null, showCardChoiceRecap: false }
+      return { reviewState: null, reviewGameLog: [], turnHalos: null, previousTerritoryState: null, showCardChoiceRecap: false, cardChoiceRecapPhase: null }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -1907,6 +1905,7 @@ export function GamePage() {
           turnReview={turnHalos}
           showHistory={isReviewingHistory}
           showCardChoiceRecap={showCardChoiceRecap}
+          cardChoiceRecapPhase={cardChoiceRecapPhase ?? undefined}
           cheatModeEnabled={isAdmin && cheatModeEnabled}
           onExitHistory={() => setReviewIndex(null)}
           territoryControlMode={territoryControlMode}
