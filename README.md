@@ -324,6 +324,32 @@ See `supabase/functions/notify-web-push/index.ts`'s doc comment for how the
 function decides who to ping — it's the same turn-detection logic as the
 Discord function, just a different delivery channel.
 
+## Replaying production games in tests
+
+Real games can be turned into regression tests by dropping their export into
+`src/test/fixtures/productionGames/`. Use **Copy game export** on a game page
+(see `src/lib/gameStateExport.ts`), save the JSON there, and `npm run test`
+picks it up — no registration step.
+
+Each one is replayed action by action through the real `apply-action`/
+`undo-action`/`redo-action` Edge Functions, submitted by the seat that
+actually made each move, against a Supabase stack that behaves like
+production: the migrations' Row Level Security, `game_state`'s
+compare-and-swap `version`, the `game_state_sync_meta` trigger and the
+gzipped-at-rest state encoding are all in play (`src/test/supabaseStack/`).
+The test then asserts the game ends exactly where production ended it,
+winner included.
+
+The only pieces that are test doubles are Postgres and the Deno Edge Runtime
+themselves, so this runs on a plain Node CI runner with no Docker. For the
+remaining fidelity — a real Postgres running the actual migration SQL, and
+the functions on the real Edge Runtime — bring up the local stack with
+`supabase start` && `supabase db push` && `supabase functions serve` (see
+`supabase/config.toml`).
+
+See `src/test/fixtures/productionGames/README.md` for what gets asserted,
+what the loader infers about a game's room row, and how to override it.
+
 ## Testing without Discord OAuth set up
 
 Set `VITE_ALLOW_GUEST_AUTH=true` (see `.env.example`) to show a "Continue

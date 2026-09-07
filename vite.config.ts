@@ -67,5 +67,8 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./src/test/setup.ts'],
+    alias: {
+      'jsr:@supabase/supabase-js@2': '@supabase/supabase-js',
+    },
   },
 })
