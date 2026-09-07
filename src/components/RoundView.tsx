@@ -687,11 +687,12 @@ function renderLogMessage(message: string, playerId: string | null, players: Pla
   return message
 }
 
+/** Newest-first, scrollable rather than truncated to the last few entries (issue #467) — a real game can run many turns, and clipping to a fixed count made earlier entries unrecoverable once they scrolled off. */
 function LogPanel({ gameLog, players }: { gameLog: GameEvent[]; players: PlayerRow[] }) {
-  const recent = [...gameLog].slice(-8).reverse()
+  const recent = [...gameLog].reverse()
   if (recent.length === 0) return null
   return (
-    <div className="flex flex-col gap-1 rounded-md border border-neutral-800 p-3 text-xs text-neutral-500">
+    <div className="flex max-h-64 flex-col gap-1 overflow-y-auto rounded-md border border-neutral-800 p-3 text-xs text-neutral-500">
       {recent.map((entry) => {
         const time = formatLogTimestamp(entry.timestamp)
         return (
