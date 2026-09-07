@@ -198,6 +198,30 @@ export interface RedoAction {
   playerId: string | null
 }
 
+/**
+ * Toggles `GameState.adminModeActive` on or off (issue #464) — the room
+ * owner and site admins used to get an unconditional carve-out (§4.5) to
+ * discard another player's undone action via a branching submission; this
+ * makes that privilege something they have to deliberately switch on (and
+ * remember to switch back off) rather than something they always silently
+ * have, and — the point of it being a real logged action rather than a
+ * client-local toggle — gives the room a permanent, shared record of when
+ * admin mode was on. Like Undo/Redo, `playerId` is purely for narration
+ * ("Alice turned admin mode on") and is never checked for legality — WHO
+ * may submit this is an authorization question the engine itself can't
+ * answer (it has no notion of `games.created_by`/`profiles.is_admin`), so
+ * it's checked by the caller instead: GamePage.tsx client-side, and the
+ * `apply-action` Edge Function server-side, both gating this on the same
+ * owner-or-admin check `canAdminOverride`/`ctx.isOwnerOrAdmin` already use
+ * elsewhere. See LoggedAction.viaAdminMode below for how every OTHER action
+ * taken while this is on gets marked.
+ */
+export interface SetAdminModeAction {
+  type: 'SET_ADMIN_MODE'
+  playerId: string | null
+  enabled: boolean
+}
+
 export type Action =
   | PlaceTileAction
   | PlaceUnitAction
@@ -212,6 +236,7 @@ export type Action =
   | ConcedeAction
   | UndoAction
   | RedoAction
+  | SetAdminModeAction
 
 /**
  * One entry in `GameState.actionHistory` — event sourcing: every action
@@ -235,4 +260,16 @@ export interface LoggedAction {
   action: Action
   turn: number
   timestamp: string
+  /**
+   * True if `GameState.adminModeActive` was already on when this entry was
+   * submitted (issue #464) — stamped by applyActionWithSteps
+   * (./applyAction.ts) from the pre-dispatch state. Never set on a
+   * SET_ADMIN_MODE entry itself (its own narration — "turned admin mode
+   * on/off" — already says as much); every other action submitted while
+   * admin mode is on gets it. Absent (not `false`) when admin mode wasn't
+   * active, so old history predating this field and a fresh action
+   * submitted with admin mode off serialize identically. gameLog.ts
+   * surfaces it as an "(admin mode)" tag on the narrated line.
+   */
+  viaAdminMode?: boolean
 }

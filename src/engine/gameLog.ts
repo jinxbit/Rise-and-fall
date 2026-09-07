@@ -134,6 +134,12 @@ function describePrimaryAction(action: Action, before: GameState, after: GameSta
           ? { playerId: action.playerId, message: `${PLAYER_PLACEHOLDER} redid the previously undone action` }
           : { playerId: null, message: 'The previously undone action was redone' },
       ]
+    case 'SET_ADMIN_MODE':
+      return [
+        action.playerId
+          ? { playerId: action.playerId, message: `${PLAYER_PLACEHOLDER} turned admin mode ${action.enabled ? 'on' : 'off'}` }
+          : { playerId: null, message: `Admin mode was turned ${action.enabled ? 'on' : 'off'}` },
+      ]
     default: {
       const exhaustive: never = action
       throw new Error(`Unknown action: ${JSON.stringify(exhaustive)}`)
@@ -298,6 +304,7 @@ export function extendGameLog(
         message: draft.message,
         timestamp: logged.timestamp,
         secret: draft.secret,
+        adminMode: logged.viaAdminMode,
       })
     }
 

@@ -89,9 +89,11 @@ function reviewPhaseGroupFor(action: Action, precedingGroup: ReviewPhaseGroup): 
     case 'CONCEDE':
     case 'UNDO_ACTION':
     case 'REDO_ACTION':
-      // Undo/redo (design change, issue #412) can happen at any point too —
-      // same "inherits whichever group precedes it" treatment as CONCEDE, so
-      // a rewind mid-phase doesn't itself force a new review stop.
+    case 'SET_ADMIN_MODE':
+      // Undo/redo (design change, issue #412) and toggling admin mode
+      // (issue #464) can all happen at any point too — same "inherits
+      // whichever group precedes it" treatment as CONCEDE, so none of them
+      // force a new review stop on their own.
       return precedingGroup
   }
 }

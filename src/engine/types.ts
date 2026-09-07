@@ -319,6 +319,8 @@ export interface GameEvent {
    * action than this one.
    */
   secret?: { turn: number; redactedMessage: string }
+  /** Mirrors LoggedAction.viaAdminMode (issue #464, ./actions.ts) — true when the action this line narrates was submitted while room admin mode was on. RoundView's LogPanel renders it as a small "(admin mode)" tag. */
+  adminMode?: boolean
 }
 
 export interface GameState {
@@ -458,6 +460,27 @@ export interface GameState {
    * stand.
    */
   actionHistory: LoggedAction[]
+  /**
+   * Whether "room admin mode" (issue #464) is currently on — a persisted,
+   * replay-derived on/off switch, toggled only by SET_ADMIN_MODE
+   * (./actions.ts). Optional/absent is equivalent to `false` (genesis sets
+   * it explicitly; a game state predating this field has no key at all,
+   * same convention as LoggedAction.viaAdminMode/declineSourceZoneByCardId)
+   * — always read this via `state.adminModeActive` truthiness, never assume
+   * the key is present. Outside this flag, the room owner (`games.
+   * created_by`) and a site admin (`profiles.is_admin`) are meant to be
+   * treated exactly like any other player — no ability to discard another
+   * player's undone action via a branching submission (see
+   * requiresOwnerOverride, supabase/functions/_shared/gameEnforcement.ts,
+   * which now additionally requires this flag on top of its existing
+   * owner/admin identity check). Whoever is authorized to flip it (checked
+   * by the caller — GamePage.tsx client-side, apply-action server-side —
+   * not by the engine itself, which has no notion of room ownership) is
+   * free to turn it back off the same way; every other action submitted
+   * while it's on gets stamped `LoggedAction.viaAdminMode` (see
+   * applyActionWithSteps, ./applyAction.ts) so the log can call it out.
+   */
+  adminModeActive?: boolean
   /**
    * Which zone (`hand` or `discard`) each card currently sitting in
    * someone's `declineCardIds` *because of this round's still-open decline

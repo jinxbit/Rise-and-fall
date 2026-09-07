@@ -156,6 +156,13 @@ export function isAuthorizedToActAs(ctx: GameContext, callerUserId: string, play
  * action, which is the one case §4.4 says needs the room owner (extended by
  * §4.5 to `profiles.is_admin` too — both already folded into
  * ctx.isOwnerOrAdmin).
+ *
+ * Only decides WHETHER an override is needed, not whether the caller has
+ * one — since issue #464, that's no longer just `ctx.isOwnerOrAdmin`: the
+ * caller (apply-action/index.ts) must also check `GameState.adminModeActive`
+ * (toggled by SET_ADMIN_MODE, src/engine/actions.ts) — being the room owner
+ * or a site admin is no longer sufficient by itself, it's a privilege that
+ * has to be deliberately switched on first.
  */
 export function requiresOwnerOverride(rawHistory: LoggedAction[], submittedByPlayerId: string): boolean {
   return redoableTail(rawHistory).some((entry) => entry.action.playerId !== submittedByPlayerId)

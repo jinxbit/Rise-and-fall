@@ -144,15 +144,21 @@ export function GamePage() {
   const [undoing, setUndoing] = useState(false)
   const [redoing, setRedoing] = useState(false)
   /**
-   * Admin mode (issue #391): lets the room owner or a site admin act on
-   * behalf of whichever player the game is currently waiting on — e.g. to
-   * unstick a game where someone's stepped away. Only ever changes *which*
-   * player `me` resolves to (see below); it doesn't grant any new action
-   * type or bypass engine legality, so it's safe under today's fully
-   * client-trusted model. Not persisted — resets to off on reload, same as
-   * every other page-local UI toggle here.
+   * Room admin mode (issue #391, persisted per issue #464): lets the room
+   * owner or a site admin act on behalf of whichever player the game is
+   * currently waiting on — e.g. to unstick a game where someone's stepped
+   * away — and, since #464, is also what the owner/admin override for
+   * discarding another player's undone action (via a branching Undo/Redo
+   * follow-up submission) is now gated on server-side, instead of that
+   * override being unconditionally available to them. A persisted,
+   * shared `GameState.adminModeActive` (toggled by submitting
+   * SET_ADMIN_MODE — see handleToggleAdminMode below) rather than a
+   * page-local `useState`, so it survives a reload, is the same for every
+   * client, and lands its own actionHistory entry — unlike every other
+   * toggle on this page, this one is a real, logged, shared game-state
+   * change, not a private viewing preference.
    */
-  const [adminOverrideEnabled, setAdminOverrideEnabled] = useState(false)
+  const adminModeActive = gameState?.adminModeActive ?? false
   /**
    * Cheat mode (issue #430, extended by issue #456): a site-admin-only
    * testing aid with two effects while on:
@@ -470,9 +476,11 @@ export function GamePage() {
    */
   const me = isHotseat
     ? players.find((p) => p.id === (skipHotseatGate ? pendingActorId : hotseatActivePlayerId))
-    : adminOverrideEnabled && canAdminOverride && pendingActorId
+    : adminModeActive && canAdminOverride && pendingActorId
       ? (players.find((p) => p.id === pendingActorId) ?? players.find((p) => p.user_id === session?.user.id))
       : players.find((p) => p.user_id === session?.user.id)
+  /** The signed-in user's own seat, regardless of admin mode's `me` override above — who SET_ADMIN_MODE (issue #464) should narrate as having toggled it. */
+  const ownSeat = players.find((p) => p.user_id === session?.user.id)
   // Concede (issue #172): only a seated player, in a game that's actually
   // under way, who hasn't already been eliminated — mirrors CONCEDE's own
   // engine-side rejection of an unknown/already-eliminated player
@@ -1097,6 +1105,20 @@ export function GamePage() {
   }
 
   /**
+   * Toggles room admin mode (issue #464) — submits SET_ADMIN_MODE like any
+   * other action (ruleEnforcementEnabled games reject this server-side
+   * unless the caller is actually the room owner or a site admin; the
+   * `canAdminOverride` menu item below already only renders it for them, on
+   * a client-trusted game). `playerId` is narration-only, same convention as
+   * Undo/Redo — `ownSeat` rather than `me`, so the log always attributes it
+   * to the actual signed-in owner/admin even if admin mode's own `me`
+   * override is (about to stop) making this browser act as someone else.
+   */
+  async function handleToggleAdminMode() {
+    await submitAction({ type: 'SET_ADMIN_MODE', playerId: ownSeat?.id ?? null, enabled: !adminModeActive })
+  }
+
+  /**
    * Concede (issue #172): a seated, not-yet-eliminated player gives up —
    * treated identically to an automatic no-card elimination (see
    * eliminatePlayer in engine/elimination.ts, and CONCEDE's dispatch in
@@ -1510,17 +1532,17 @@ export function GamePage() {
                   <button
                     type="button"
                     role="menuitem"
-                    aria-pressed={adminOverrideEnabled}
+                    aria-pressed={adminModeActive}
                     onClick={() => {
                       setMenuOpen(false)
-                      setAdminOverrideEnabled((v) => !v)
+                      void handleToggleAdminMode()
                     }}
-                    title="Admin mode: act on behalf of whichever player the game is currently waiting on — for unsticking a game where someone's stepped away. Only available to the room owner and site admins."
+                    title="Admin mode: act on behalf of whichever player the game is currently waiting on, and permits discarding another player's undone action. Only available to the room owner and site admins — logged in the action history and game log while on."
                     className={`px-3 py-2 text-left hover:bg-neutral-800 ${
-                      adminOverrideEnabled ? 'text-amber-400' : ''
+                      adminModeActive ? 'text-amber-400' : ''
                     }`}
                   >
-                    {adminOverrideEnabled ? 'Admin mode: ON' : 'Admin mode'}
+                    {adminModeActive ? 'Admin mode: ON' : 'Admin mode'}
                   </button>
                 )}
                 {isAdmin && (
@@ -1872,7 +1894,7 @@ export function GamePage() {
 
       {actionError && <ErrorBanner message={actionError.message} details={actionError.details} onDismiss={() => setActionError(null)} />}
 
-      {adminOverrideEnabled && canAdminOverride && !isReviewingHistory && pendingActorId && me?.id === pendingActorId && (
+      {adminModeActive && canAdminOverride && !isReviewingHistory && pendingActorId && me?.id === pendingActorId && (
         <div className="rounded-md border border-amber-700 bg-amber-950/40 px-3 py-2 text-sm text-amber-300">
           Admin mode: acting as <span className="font-medium">{me.display_name}</span>.
         </div>
