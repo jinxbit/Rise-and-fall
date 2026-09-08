@@ -1,9 +1,19 @@
 # TODO
 
-Open items surfaced while implementing the card-play and decline rules in
-`src/engine/`. Each one currently blocks a specific piece of the engine from
-being finished — the code has a clearly marked placeholder or stub at each
-spot below until the real rule is provided.
+Started as a list of open items surfaced while implementing the card-play
+and decline rules in `src/engine/` — each one blocking a specific piece of
+the engine, with a marked placeholder in the code until the rule was
+provided. It has since become **the project's changelog**: one numbered
+entry per piece of work, in the order it happened, recording what was
+asked, what was actually wrong, what was decided, what shipped, and what
+the change left open. Entries stay as written once they land, so a later
+entry supersedes an earlier one rather than editing it — read from the
+bottom for the current picture.
+
+Design documents live alongside this file (`PROJECT_PLAN.md`,
+`RULE_ENFORCEMENT_PLAN.md`, `HIDDEN_INFORMATION_PLAN.md`,
+`VARIANTS_PLAN.md`, `ELO_SYSTEM_PLAN.md`, `UnitActions.md`,
+`src/content/README.md`); this one tracks progress.
 
 ## 1. Real per-unit-kind unit limits — done
 
@@ -3554,3 +3564,81 @@ covered by an automated test (GamePage.tsx isn't unit tested anywhere in
 this codebase): the Undo/Redo buttons themselves in a live game, and
 reviewing history (`fullTurnStops`/`buildTurnReview`) across a game that
 actually used undo/redo — needs a manual check.
+
+## 71. Documentation pass: a CLAUDE.md, and every other doc reconciled with the code
+
+Requested: a `CLAUDE.md` with what's needed to work in this repo correctly
+and efficiently, then "update all the Md files as well."
+
+`CLAUDE.md` (new, repo root) is the orientation doc: verified commands and
+what CI runs, the layering, the four invariants that break replay or the
+Edge Functions if violated (`applyAction()` as the sole rules entry point,
+content resolved by callers rather than imported by the engine, append-only
+`actionHistory`, one submitted action per log entry), the two write paths
+`ruleEnforcementEnabled` selects between, the Supabase/Edge Function
+gotchas that only fail at deploy time, how the test stack and production-
+game fixtures work, the code style in use, and a map of these documents.
+
+The rest of the pass was reconciliation — the design docs had stayed
+current through their own "Update (date)" annotations, but the
+status-bearing docs had drifted a long way behind the code:
+
+- **`README.md`** still described a milestone-1 scaffold: a "placeholder
+  in-game board view," `MOVE_UNIT`/`PLAY_CARD` as stubs, and hotseat's
+  identity approach as an open A-vs-B tradeoff. Rewrote the architecture
+  section (adding `src/content/`, `supabase/functions/` and `src/test/`),
+  replaced the three milestone sections with what is and isn't built,
+  replaced the hotseat tradeoff with what actually shipped (neither A nor
+  B: one signed-in host seats several local players under their own
+  account, `0003_hotseat_local_players.sql`, with a pass-the-device gate),
+  documented server-side rule enforcement as its own section, and fixed the
+  setup steps to apply every migration rather than only `0001`.
+- **`PROJECT_PLAN.md`** had sections 3-7 entirely unchecked while the work
+  was done: the real board rendering, unit icons, targeting, hand, log,
+  phase indicators, both notification channels, hotseat, Vercel deploy, and
+  five Tales. Checked them off with citations, and rewrote "open decisions"
+  — both original blockers (the rules spec, hotseat identity) are resolved;
+  what's actually open is `get_game_state`'s implementation language,
+  whether client-trusted games stay, and the Guilds track's scope.
+- **`src/content/README.md`** opened with "Not wired into the engine or UI
+  yet," and still called the unit VP curves and terrain VP values
+  placeholders — all three are false. Also listed three Tales where five
+  ship.
+- **`RULE_ENFORCEMENT_PLAN.md` §9 / `HIDDEN_INFORMATION_PLAN.md` §9** both
+  said Edge Function testing "requires a live Supabase project — out of
+  reach in this sandbox." That stopped being true with #70's follow-up
+  work: `src/test/supabaseStack/` now runs the real handlers, the
+  migrations' RLS, the sync trigger and the CAS write in-process on every
+  PR. Listed what that actually covers, and narrowed what still needs the
+  maintainer's own environment (the real Edge Runtime, a two-browser
+  session, and the owner-override's *allow* path — its refusal path is
+  covered, including the hotseat rough edge it produces).
+- **`HIDDEN_INFORMATION_PLAN.md`** gained a §5.4 recording what runs today:
+  `redactGameLog` client-side, with no free pass for the room owner or a
+  site admin (#456) beyond the deliberate admin-only cheat toggle (#430) —
+  and stating plainly that this is a UX guarantee, not a security one,
+  since the client still fetches the whole row. That's exactly what phase 5
+  exists to close.
+- **`VARIANTS_PLAN.md`** gained a status block and ✅/⬜ markers on its
+  roadmap: phase 0 done (with a deviation — `activeTaleIds` rather than the
+  planned `taleVariant`/`guildVariant` pair), phase 1 mostly done but built
+  per-Tale rather than up front, phase 2 built out of order (group 4 first,
+  then two of group 5), Guilds not started.
+- **`UnitActions.md`** was accurate at 27/27; added a scope note that Tales
+  append six more actions onto the same kinds through the same path.
+- **`todo.md`** — this file — described itself as a list of blockers, which
+  it hasn't been for ~69 entries. Header now says what it is.
+
+Two inaccuracies found in the code's own documentation while cross-checking
+and fixed in passing: `PROJECT_PLAN.md` and `src/content/README.md` both
+pointed at `applyActionAndFastForwardTiles()`, deleted when §4.2 folded
+forced follow-ups into `applyAction()` itself; and `gameApi.ts`'s
+`createGame` doc comment claimed `CreateGamePage.tsx`'s enforcement
+checkbox "defaults to unchecked" when issue #432 flipped it to checked —
+that one had propagated into the first draft of `CLAUDE.md` before the
+`RULE_ENFORCEMENT_PLAN.md` §10 entry recording the flip turned up.
+
+No behavior change: `npm run lint`, `npm run test` (1118 tests, 61 files)
+and `npm run build` all pass. Nothing was removed from `todo.md`'s existing
+entries — superseded claims elsewhere were rewritten in place, but this
+file stays append-only.

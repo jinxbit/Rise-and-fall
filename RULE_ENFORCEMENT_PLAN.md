@@ -708,16 +708,41 @@ to rule enforcement (2, 5) are omitted here.
   action reopens `pendingPlayerIds` for every player whose pick was
   discarded; cross-player pruning here still requires the owner-override
   gate.
-- **Edge Function level:** requires a live Supabase project — out of reach
-  in this sandbox (no credentials/Docker), consistent with existing
-  `todo.md` notes about board-setup/round-view verification. Maintainer
-  verification needed post-merge for each of phases 6–9, specifically:
-  `action.playerId !== callerSeat` rejection, admin/owner override paths,
-  and version compare-and-swap on concurrent writes.
-- **Regression:** existing `src/engine/__tests__/` suite (220+ tests as of
-  this writing) must continue passing unmodified — this work changes *who*
-  calls the engine and *what subset* of its output a given viewer receives,
-  not the engine's rules themselves.
+- **Edge Function level — no longer out of reach (update, 2026-09-07).**
+  This section originally said these checks needed a live Supabase project
+  and so had to wait for maintainer verification post-merge. They now run on
+  every pull request instead, on a plain Node runner with no Docker, against
+  an in-process stack that behaves like production
+  (`src/test/supabaseStack/`, `src/test/__tests__/supabaseStack.test.ts`):
+  requests go through a real `@supabase/supabase-js` client, a patched
+  `fetch`, the **real** `apply-action`/`undo-action`/`redo-action` handlers,
+  a second real (service-role) client, and a Postgres double that applies the
+  migrations' RLS, the `game_state_sync_meta` trigger and the `version`
+  compare-and-swap. Only Postgres itself and the Deno Edge Runtime are
+  doubles; every line of enforcement, authorization, content resolution and
+  state compression in between is the code that ships. Covered today:
+  §4.1's `action.playerId !== callerSeat` rejection (403), unauthenticated
+  callers (401), an illegal action rejected with the engine's own message and
+  the row left untouched, concurrent submissions serialized with a 409 rather
+  than a lost update, undo/redo through the real functions, the gzip-at-rest
+  encoding plus the plaintext keys the trigger reads, `0026`'s RLS blocking a
+  direct write to an enforced game while still allowing one for a
+  client-trusted game, `0021`'s read policy, and a hotseat player being
+  refused their other seat's turn — that last one documenting a rough edge
+  rather than endorsing it: in hotseat one human owns every seat, so
+  §4.4/§4.5's owner-override gate (which has no hotseat carve-out, unlike
+  `isAuthorizedToActAs`) has nothing to protect and instead blocks ordinary
+  play unless room admin mode is on. What still needs the maintainer's own
+  environment is narrower than this section first assumed: the real Edge
+  Runtime, a genuine two-browser session (phase 9), and the owner-override's
+  *allow* path with admin mode on (its refusal path is covered above).
+- **Regression:** the existing suite (1118 tests across 61 files, up from
+  the 220+ this section was written against) must continue passing
+  unmodified — this work changes *who* calls the engine and *what subset* of
+  its output a given viewer receives, not the engine's rules themselves.
+  Whole finished games are also replayed through the enforced write path
+  from their production exports (`src/test/fixtures/productionGames/`), and
+  asserted to end on the same final score and winner production recorded.
 
 (See `HIDDEN_INFORMATION_PLAN.md` §9 for redaction-specific testing.)
 

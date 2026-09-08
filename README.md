@@ -17,15 +17,38 @@ reproduced.
 ## Architecture
 
 - `src/engine/` — the rules engine. Pure TypeScript, zero React/Supabase
-  imports, fully unit-testable. Everything else in the app treats
-  `GameState` as opaque and only mutates it by calling `applyAction()` here.
+  imports, no JSON imports, fully unit-testable. Everything else in the app
+  treats `GameState` as opaque and only mutates it by calling
+  `applyAction()` here. A game's current state is always reconstructable by
+  replaying its append-only `actionHistory` from genesis (event sourcing),
+  which is what makes undo/redo, history review and the replay tests work.
+- `src/content/` — hand-authored game data (units, terrain, resources,
+  achievements, tales, map templates) as JSON + JSON Schema, plus
+  `resolveContent.ts`, which resolves it into the content-agnostic bundles
+  the engine takes as parameters. See `src/content/README.md` — the most
+  detailed description of the actual game rules in the repo.
 - `src/lib/` — Supabase client, auth helpers, and typed query functions
-  (`gameApi.ts`) that read/write the `games` / `players` / `game_state`
-  tables.
-- `src/pages/` + `src/components/` — the UI: lobby (create/join by room
-  code, pick play mode) and a placeholder in-game board view.
-- `supabase/migrations/` — SQL migrations, run manually in the Supabase SQL
-  editor (see below).
+  (`gameApi.ts`) that read/write the `games` / `players` / `game_state` /
+  `game_state_meta` / `profiles` / `map_pool` tables, plus the storage
+  encoding (`gameStateCompression.ts`) and the export format
+  (`gameStateExport.ts`).
+- `src/pages/` + `src/components/` — the UI: home/lobby/create screens, the
+  SVG hex board (`HexBoard.tsx`), interactive board setup
+  (`BoardSetupView.tsx`), the round cycle (`RoundView.tsx`), the end-of-game
+  breakdown (`EndGameView.tsx`), and admin/map-builder screens.
+- `supabase/migrations/` — SQL migrations. Applied automatically on push to
+  `main` by `.github/workflows/deploy-supabase.yml`, or by hand (see below).
+- `supabase/functions/` — Edge Functions: the `apply-action` /
+  `undo-action` / `redo-action` trio that enforce the rules server-side for
+  games that opt in (see below), plus the `notify-discord-turn` /
+  `notify-web-push` turn notifiers. The enforcement functions import
+  `src/engine/` unmodified — there is no second copy of the rules.
+- `src/test/` — vitest setup, an in-process Supabase stack that behaves like
+  production (`supabaseStack/`), and real games replayed as regression tests
+  (`fixtures/productionGames/`).
+
+`CLAUDE.md` at the repo root is the short orientation doc: the same layering
+plus the invariants and gotchas worth knowing before changing anything.
 
 **Play modes** (`live` / `async` / `hotseat`) share the same rules engine
 and the same `GameState` JSON shape end to end. The only thing that differs
@@ -39,8 +62,10 @@ learns about updates:
   Optional "your turn" pings go out over Discord webhooks (see below) —
   each player supplies their own; a Supabase Edge Function sends the ping
   server-side.
-- **Hotseat:** one device, players take turns in person. See the tradeoff
-  note below — the switching mechanism itself isn't built yet.
+- **Hotseat:** one device, players take turns in person. Every seat belongs
+  to the one signed-in host account, and the app gates each handover behind
+  a "pass the device" screen so the next player doesn't see the previous
+  one's secrets (skippable per game — see the hotseat section below).
 
 ## Getting started
 
@@ -53,10 +78,14 @@ npm run dev
 Other scripts:
 
 ```bash
-npm run test    # run the rules-engine test suite (vitest)
-npm run lint    # oxlint
-npm run build   # typecheck + production build
+npm run test        # the whole test suite (vitest) — engine, UI, and replays
+npm run test:watch  # the same, in watch mode
+npm run lint        # oxlint
+npm run build       # typecheck (3 tsconfig projects) + production build
 ```
+
+CI (`.github/workflows/ci.yml`) runs lint, test, and build on every pull
+request; all three also run in a few seconds to half a minute locally.
 
 If `.env.local` isn't set up yet, the app renders a "Configuration error"
 message instead of a blank screen — that's expected until you complete the
@@ -65,14 +94,22 @@ Supabase setup below.
 ## Supabase setup (do this yourself)
 
 1. Create a new project at [supabase.com](https://supabase.com).
-2. In the SQL editor, run `supabase/migrations/0001_init_schema.sql`. It
-   creates `games`, `players`, and `game_state` (one JSON-state row per
-   game, with a `play_mode` column on `games`), sets up Row Level Security
-   so only seated players can read/write a game's state, and adds all three
-   tables to the `supabase_realtime` publication.
+2. Apply every migration in `supabase/migrations/`, in filename order. The
+   easy way is the CLI — `supabase link --project-ref <your-project-ref>`
+   then `supabase db push` — which applies all of them and records what it
+   applied; the SQL editor works too if you paste them in order. `0001` is
+   the foundation (`games`, `players`, `game_state`, Row Level Security so
+   only seated players can read/write a game's state, and the
+   `supabase_realtime` publication); the rest add `profiles`,
+   `game_state_meta`, `push_subscriptions`, `map_pool`, per-game settings
+   and the later RLS refinements, and the app assumes all of them.
 3. Copy your project's **Project URL** and **anon public key** (Settings →
    API) into `.env.local` as `VITE_SUPABASE_URL` and
    `VITE_SUPABASE_ANON_KEY`.
+4. Deploy the Edge Functions if you want server-side rule enforcement or
+   turn notifications — `supabase functions deploy` — plus the per-function
+   secrets described in the sections below. Everything else works without
+   them.
 
 ## Deploying Supabase changes (optional)
 
@@ -366,29 +403,30 @@ sign-ins** to be enabled in the Supabase dashboard (off by default).
 Leave `VITE_ALLOW_GUEST_AUTH` unset in production — Discord sign-in is
 meant to be mandatory there; this is a testing-only escape hatch.
 
-## Hotseat identity — tradeoff to decide before it's built
+## Hotseat identity — how it works
 
-The spec asks for one of two approaches for switching the active player on
-a shared device:
+The original write-up here posed a choice between re-authenticating each
+player every turn and holding several Supabase sessions in one browser at
+once. What shipped is neither: **one signed-in host seats several named
+local players under their own account.**
+`0003_hotseat_local_players.sql` dropped the old
+`unique (game_id, user_id)` constraint so several `players` rows can share
+one `user_id` (`unique (game_id, seat_index)` still keeps seats distinct),
+and the host adds them in the lobby with `addLocalPlayer()`
+(`src/lib/gameApi.ts`). No player but the host ever signs in, and there is
+no multi-session juggling.
 
-- **A. Re-authenticate each turn.** Each player signs in with Discord when
-  it becomes their turn (and signs out after). Simple to reason about —
-  the Supabase session always matches "whose turn is it" — but adds an
-  OAuth round-trip every single turn, which is friction for in-person play.
-- **B. Pre-authenticate once, then switch in-app.** All participating
-  players sign in with Discord once at game start (e.g. one after another
-  in the same browser); the app then holds all their sessions/tokens
-  locally and just switches which one is "active" as turns pass, no
-  re-login. Smoother turn-to-turn, but requires the client to juggle
-  multiple Supabase sessions at once (Supabase's JS client is built around
-  one active session at a time, so this needs a small custom session-store
-  layer instead of relying on the client's built-in session handling).
+In game, `GamePage.tsx` makes "which player is this browser acting as"
+follow whoever must act next (`currentActorId`, `src/engine/turnOrder.ts`)
+rather than a fixed identity, and puts a **"pass the device"
+confirmation** in front of each handover so the next player doesn't see the
+previous one's hand. A game can opt out of that gate
+(`settings.skipHotseatPassGate`) when players don't care about hiding
+information from each other.
 
-Milestone 1 only implements the play-mode picker (hotseat is selectable in
-the lobby); the actual turn-switching mechanism is intentionally not built
-yet. Recommendation: **B**, since in-person play is exactly the case where
-turn-to-turn friction matters most — but it's your call, and it changes how
-much auth-layer work the next milestone needs.
+The same "act as whoever is pending" mechanism is what admin mode reuses
+for live/async games, where a room owner or site admin can take a turn on
+behalf of the player the game is waiting on.
 
 ## Debugging: game state export
 
@@ -432,43 +470,82 @@ There's also a **"Show game state JSON"** toggle in the same menu that
 prints the current state as plain (uncompressed) pretty-printed JSON
 inline in the page, for quick eyeballing without decoding anything.
 
-## What's built (milestone 1)
+## Server-side rule enforcement (opt-in, per game)
 
-- Repo scaffold: Vite + React + TS + Tailwind v4.
-- Rules engine skeleton (`src/engine/`): `Board`/`Tile`/`Unit`/`Player`/`Card`/`GameState`
-  types, a typed `applyAction()` with `END_TURN` fully implemented (turn
-  order, log, immutability) and `MOVE_UNIT`/`PLAY_CARD` as typed
-  not-yet-implemented placeholders, plus `createNewGame`/`startGame`
-  factories. 13 passing unit tests.
-- Supabase schema + RLS policies for `games` / `players` / `game_state`.
-- Supabase client, Discord OAuth sign-in/out, `useAuth()` hook.
-- Lobby: create a game (pick play mode), join by room code, live player
-  list via Realtime, host-gated "start game" button.
-- Placeholder in-game board view rendering a hardcoded hex board from the
-  engine's `Board` type, to confirm the data path from engine → UI works.
+By default a game is *client-trusted*: each client runs the engine itself
+and writes the resulting `game_state` row directly, with the `version`
+column providing compare-and-swap concurrency. That is fine among friends
+but takes every client at its word.
 
-## What's stubbed / not yet built
+**"Enable server-side rule enforcement"** on the create-game screen
+(`settings.ruleEnforcementEnabled`) switches that game onto the
+`apply-action` / `undo-action` / `redo-action` Edge Functions instead. It is
+**checked by default** for new games (issue #432, after the enforced path
+ran without surprises); unchecking it puts that game back on the
+client-trusted path. The
+client then submits the raw *action*, and the server resolves the caller's
+seat from their JWT, refuses any action naming somebody else's seat,
+re-derives the state with the same engine code the client bundles, and does
+its own compare-and-swap write. `0026_rule_enforcement_flag.sql` makes RLS
+reject direct `game_state` writes for these games, so the Edge Functions
+are the only way in. Their state is also stored gzipped.
 
-- Actual board generation/drafting at game start (`startGame()` in the
-  engine takes starting positions as a parameter — nothing calls it yet
-  with a real drafted board).
-- `MOVE_UNIT`, `PLAY_CARD`, and all other game actions/rules (unit
-  abilities, card effects, cliffs-only movement, win conditions) — this is
-  the bulk of the actual game and needs the detailed rules from you first.
-- Hotseat turn-switching (see tradeoff above).
-- Any real game UI beyond the placeholder board: unit sprites, tile
-  interaction, hand of cards, action log display.
+The flag is per game and fixed at creation, and every game created before
+it existed reads as off, so no in-progress game was affected by the switch.
+Both paths are exercised by the test suite. See `RULE_ENFORCEMENT_PLAN.md`
+for the design and `HIDDEN_INFORMATION_PLAN.md` for the still-open read-side
+half (server-side redaction of other players' secrets — today's redaction
+runs client-side, so an opponent's still-secret card pick is hidden in the
+UI but present in the row the client fetched).
 
-## Proposed next milestone
+## What's built
 
-Once you've walked through the Discord OAuth setup and confirmed sign-in
-works end to end:
+The game is complete end to end and being played: create or join a room,
+build the map, play the round cycle, and finish with a scored end-game
+screen.
 
-1. Nail down the exact rules with you (unit stats/abilities, the full card
-   list and their effects, cliff-traversal specifics, win conditions) and
-   encode them as `MOVE_UNIT` / `PLAY_CARD` / etc. in `applyAction()`.
-2. Build board generation/drafting for game start and wire it into
-   `startGame()` from the lobby's "Start game" button.
-3. Decide and build the hotseat identity approach from the tradeoff above.
-4. Replace the placeholder board with real tile rendering + interaction
-   (click a unit, see legal moves, click a card, see legal targets).
+- **Rules engine** (`src/engine/`, ~8k lines + ~1100 tests): board setup,
+  all six unit kinds and their actions (create/transform/convert/income/
+  produce/trade/trade-resource/move), cliffs and terrain movement,
+  resources and the shared bank, the four-phase round cycle
+  (select cards → actions → decline → purchase), achievements, elimination,
+  concede, all five VP sources, win determination, and event-sourced
+  undo/redo with history review.
+- **Board setup**: the real tier-by-tier tile-laying procedure with
+  rotation, legality and no-space checks, auto-placement of forced
+  arrangements, then starting-unit placement — or skip it with a map
+  template, a saved map from the map pool, or a random map.
+- **Full game UI**: an SVG hex board with terrain, cliff edges, unit
+  pictograms and per-unit action targeting; hand/round/phase panels; a
+  narrated game log; per-player score breakdowns; the end-game screen; and
+  a map builder plus admin screens for maps and rooms.
+- **All three play modes**, including hotseat with the pass-the-device gate
+  (above) and admin mode for taking a turn on someone's behalf.
+- **Accounts and identity**: Discord and Google OAuth, email/password with
+  reset, opt-in guest sign-in for testing, custom display names, per-user
+  colour and display preferences.
+- **Turn notifications**: Discord webhooks and Web Push, both sent
+  server-side by Edge Functions so they fire with every tab closed.
+- **PWA**: installable, with a custom service worker and an update banner
+  when a newer build is live.
+- **Server-side rule enforcement** as an opt-in per game (above).
+- **Testing**: the engine suite, component tests, an in-process Supabase
+  stack that behaves like production, and real games replayed as regression
+  tests.
+
+## What's not built yet
+
+- **Server-side redaction** (`HIDDEN_INFORMATION_PLAN.md` phase 5): a
+  `get_game_state` read path that strips other players' secrets before they
+  reach the client. Redaction exists and is tested, but runs client-side.
+- **Guilds variant** and the remaining 18 Tales — `VARIANTS_PLAN.md` has the
+  full design; five Tales (Capital, Majestic Bridge, Banks, Ports,
+  Cathedral) are implemented.
+- **ELO ratings** — designed in `ELO_SYSTEM_PLAN.md`, not started.
+- **An accessibility pass** (keyboard navigation, contrast, focus states).
+- **End-to-end verification of enforcement and redaction in a real
+  two-browser session** against a deployed project — the in-process stack
+  covers the same checks, but not the real Edge Runtime or a real browser.
+
+Ongoing work is tracked as numbered entries in `todo.md`, which doubles as
+the project's changelog.
