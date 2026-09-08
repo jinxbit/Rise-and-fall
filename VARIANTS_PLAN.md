@@ -19,13 +19,19 @@ kept as section 4/5 for stable cross-references, but read section 5 first.
 
 ## 0. Where this sits relative to the base game
 
-The base engine isn't fully built out yet either (real board-generation UI,
-some of section 3's UI items are still open per `PROJECT_PLAN.md`). This
-plan doesn't assume those gaps are closed first — the engine-side variant
-work is independent of the UI layer and can proceed in parallel — but the
-**variant UI** (screens, board rendering of special tiles/creatures) does
-depend on the base board/round UI existing, so that part naturally queues
-up behind it.
+**Update (2026-09-07): that dependency has resolved itself.** This section
+was written while the base game's board-generation and round UI were still
+open; both are built now (`PROJECT_PLAN.md` sections 2-3), so variant UI no
+longer queues up behind anything.
+
+**Status:** the Tales track is under way — phase 1's infrastructure is
+built, and five of the 23 elements ship today: **The Capital (#4), The
+Majestic Bridge (#5), The Banks (#6), The Ports (#7), The Cathedral (#8)**
+(`src/content/tales.json`, `src/engine/tales.ts`). Tales are opt-in per
+game, chosen at creation (`TaleSelector.tsx`,
+`GameSettings.activeTaleIds` → `GameState.activeTaleIds`); a game with
+none active behaves exactly as it did before the variant existed. The
+Guilds track has not started. See §7 for what's left.
 
 ## 1. Decisions log
 
@@ -400,41 +406,66 @@ them afterward:
 
 ### Tales track (built first)
 
-**Phase 0 — Scaffolding.** `tales.json`/`guilds.json` + schemas (ids/
-names/descriptions only), `GameState.taleVariant`/`guildVariant`,
-`resolveContent.ts` additions. Setup UI for Tale selection (blind draw +
-host-pick, decision 7) and a stub for the Guild mode picker (built out for
-real once the Guilds track starts). No card/tale effects yet. Tests:
-setup/selection only.
+**Phase 0 — Scaffolding.** ✅ **Done**, with one deviation: what shipped is
+`GameState.activeTaleIds` (a plain id list carried from
+`games.settings.activeTaleIds` at genesis) rather than a
+`taleVariant`/`guildVariant` pair — see §3. `tales.json` + its schema and
+`resolveContent.ts`'s `resolveTaleContent()`/`listTales()` are in place, and
+`TaleSelector.tsx` on the create-game screen does selection (checkbox list
+plus a "Randomize" shuffle). No Guild mode picker stub was built; that waits
+for the Guilds track. `todo.md` #62.
 
-**Phase 1 — Tales infra.** Generalized Trophy-claim predicates, Fantastic
-Event framework (`tales.ts`), board-setup hook table, "laid down" status,
-no-entry hex, majority-control helper, mid-game terrain mutation,
-site-gated actions, companion-piece activation, `ResourceSwapEffect`,
-`StealResourceEffect`, conversion range/cost-scaling/immunity machinery
-(built generically here — see section 6, items 2 and 4).
+**Phase 1 — Tales infra.** ✅ **Mostly done** — built incrementally,
+each piece driven out by the first Tale that needed it rather than all at
+once up front. In place: `applyTaleModifiers()` merging Tale-contributed
+units/actions/movement onto resolved content (`tales.ts`), the Fantastic
+Event framework (resolved by `finishRound()` in ascending Tale-number
+order), companion-piece registration and activation
+(`companionOfKind`/`companionKindsByCardKind`, plus
+`GameState.unitsCreatedThisTurn` for the shared "can't activate the turn
+it's built" rule), Tale-contributed controllable structures as a fifth VP
+source (`calculateControllableStructureVP`), site-gated and site-creating
+actions (`SiteCreateEffect`), conversion range and cost-scaling machinery
+(`maxDistance`, `extraCostPerBoardUnitCount`, `requiredOwnKindCount`,
+`forbiddenIfBoardHasKind`, `requiredAdjacentTerrain`/
+`requiredAdjacentOwnUnitKind`), and structure-crossing movement
+(`canCrossOntoStructureKinds`, `canEndMoveOnAlliedUnitTypes`). Not built
+yet, because no shipped Tale has needed them: "laid down" status, the
+no-entry hex, the board-setup hook table, mid-game terrain mutation,
+`ResourceSwapEffect` and `StealResourceEffect`. A general conversion-
+immunity flag isn't built either, though immobile companion pieces are
+already effectively immune through `targetMobileOnly` (tested for both Bank
+and Cathedral in `tales.test.ts`).
 
 **Phase 2 — Tale elements**, in this order (each group leans on Phase 1 +
-earlier groups' infra):
-1. Gigantic Cavern, Tower of the Alchemists, the Waterfall, Monastery of
+earlier groups' infra). **The actual build order diverged from this list:**
+group 4's Capital/Ports/Cathedral shipped first (they exercised the
+companion-piece machinery most directly), followed by The Banks and The
+Majestic Bridge from group 5. Groups 1-3 and the rest of 5-7 are untouched.
+Marked below: ✅ shipped, ⬜ not started.
+1. ⬜ Gigantic Cavern, Tower of the Alchemists, the Waterfall, Monastery of
    the Psy-Monks, Lair of the Thieves' Guild.
-2. Storm Peak, the Typhoon, the Dragon, Worshipers of the Volcano God.
-3. Water Elemental, Floating Cities, the Sunken City (+ its board-gen
+2. ⬜ Storm Peak, the Typhoon, the Dragon, Worshipers of the Volcano God.
+3. ⬜ Water Elemental, Floating Cities, the Sunken City (+ its board-gen
    "reserve a hole" exception), the Leviathan (no Trophy — just the
    creature + Fantastic Event, decision 1).
-4. Capital, the Ports, the Cathedral.
-5. The Banks, the Majestic Bridge, the Orb of Acceleration, the
-   Caravansary, Dolmens.
-6. The Swamp (new `Terrain` value — isolated on purpose, touches the most
+4. ✅ Capital, the Ports, the Cathedral — all three shipped
+   (`todo.md` #61/#63/#64).
+5. The Banks ✅, the Majestic Bridge ✅, the Orb of Acceleration ⬜, the
+   Caravansary ⬜, Dolmens ⬜.
+6. ⬜ The Swamp (new `Terrain` value — isolated on purpose, touches the most
    files of any single Tale).
-7. Doppelganger's House — implement its site-action/draw-pile mechanics
+7. ⬜ Doppelganger's House — implement its site-action/draw-pile mechanics
    now, but gate it inert whenever Shared guild mode is later selected
    (decision 3) — the check itself is a placeholder until the Guilds track
    defines `GuildVariantState`.
 
-**Phase 3 — Tales UI & checkpoint.** Board rendering of special tiles/
-creatures on `HexBoard`, Fantastic Event narration in the game log, the
-Tale-selection setup screen polished end-to-end, full regression suite.
+**Phase 3 — Tales UI & checkpoint.** Partly done ahead of order: companion
+pieces render and are playable on `HexBoard`/`RoundView` (`todo.md` #63,
+including the stacked-hex rendering fix it surfaced), and the
+Tale-selection screen exists. Still open: board rendering of the remaining
+special tiles/creatures, Fantastic Event narration in the game log, and the
+full-variant regression pass.
 **Tales variant is feature-complete here** — a natural point to ship/
 playtest before starting Guilds.
 
@@ -475,10 +506,13 @@ single global banner (Shared mode).
 
 ### Both tracks
 
-**Phase 10 — Docs.** Update `content/README.md`, `PROJECT_PLAN.md`,
-`todo.md` per the existing conventions once implementation actually
-starts (this plan doc records the *design*; those track *progress*, same
-split as today).
+**Phase 10 — Docs.** Ongoing rather than a final step: `content/README.md`
+documents `tales.json` and every effect type the shipped Tales added,
+`PROJECT_PLAN.md` section 7 tracks the variant's progress, and `todo.md`
+#61-#64 records the individual changes. The split still holds — this plan
+doc records the *design*, those track *progress* — with the exception of
+§0's status block and this section's ✅/⬜ markers, which exist so a reader
+of the design can tell which parts of it are real.
 
 ## 8. Testing strategy
 

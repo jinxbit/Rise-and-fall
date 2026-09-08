@@ -1,9 +1,17 @@
 # Game content data
 
 Hand-authored game content, kept separate from `src/engine/` (rules logic)
-and `src/lib/` (Supabase/network). Not wired into the engine or UI yet —
-these are editable JSON files for you to fill in; the next milestone reads
-them and encodes the actual `applyAction()` logic against them.
+and `src/lib/` (Supabase/network). Every file here is live: the engine
+itself never imports JSON, so `resolveContent.ts` resolves these files into
+the content-agnostic bundles (`UnitContent`, `AchievementContent`,
+`BoardGenerationContent`, `TaleContent`) that `applyAction()` and friends
+take as explicit parameters, and the UI passes them in. Editing a value
+here changes the game; editing a *shape* means updating the matching
+`*.schema.json` and whichever engine module reads it.
+
+This file is also the closest thing the repo has to a rules reference —
+each section below explains what a field means and names the engine
+function that implements it.
 
 ## `units.json` (validated by `units.schema.json`)
 
@@ -57,7 +65,11 @@ One entry per unit type. `id` matches the engine's `Unit.kind` field
   is the score for having exactly 1 of this unit on the board, index 1 for
   2, etc. (e.g. `[1, 2, 3, 4]` scores 1/2/3/4 units as 1/2/3/4 points). 0
   units always scores 0; a count past the array's length scores the last
-  entry. Empty until the real curve is decided.
+  entry. The real curves are filled in, and deliberately differ in shape per
+  kind — linear odd numbers for City, square numbers for Merchant, steep
+  steps for the capped kinds (Temple, Mountaineer, Ship). Read them off
+  `units.json` itself; `calculateBoardCountVP`
+  (`src/engine/victoryPoints.ts`) is what consumes them.
 - `actions` — the list of actions this unit's card can trigger. A card is
   associated with exactly one unit type; playing it lets the player pick,
   independently for each unit of that type they control, one action from
@@ -71,8 +83,9 @@ One entry per unit type. `id` matches the engine's `Unit.kind` field
   implementation originally rested a documented assumption on.
 
 Pre-filled with the six unit kinds (city, temple, nomad, merchant, ship,
-mountaineer). `description` and `victoryPoints.byBoardCount` are still
-blank/placeholder where the rules aren't decided yet.
+mountaineer), all with real supply, movement, actions and VP curves.
+`description` is still blank throughout — nothing reads it, and it exists
+for a future card/unit-reference UI.
 
 ## `terrain.json` (validated by `terrain.schema.json`)
 
@@ -92,8 +105,9 @@ The 5 terrain types (water, plain, forest, mountain, glacier) plus:
   player with more units on hexes in that region than any other player
   scores this value times the region's hex count (e.g. a 5-hex water region
   at `victoryPoints: 1` scores 5). A region with no clear majority scores
-  nothing, for anyone. Placeholder `0` until the real value is decided.
-  Unused for Glacier — see `scoresAs`.
+  nothing, for anyone. The real values are in place — Plain 1, Water 2,
+  Forest 3, Mountain 4 (`todo.md` #42), rising with elevation. Unused for
+  Glacier — see `scoresAs`.
 - `scoresAs` — which terrain id this terrain's hexes count as for territory
   scoring only. Every terrain is `scoresAs` itself except Glacier, which is
   `"mountain"`: Glacier hexes don't form their own regions or score on
@@ -153,7 +167,10 @@ own units/tiles. If a placement leaves only one possible way left for
 the rest of the tier's tiles to go, that's not a real decision anymore —
 the engine places them automatically instead of making players confirm
 a foregone conclusion, still respecting turn order for bookkeeping (see
-`findForcedPlacement()`/`applyActionAndFastForwardTiles()`).
+`findForcedPlacement()`, dispatched by `applyAction()` itself as part of
+its forced-follow-up convergence — `RULE_ENFORCEMENT_PLAN.md` §4.2, which
+replaced the `applyActionAndFastForwardTiles()` wrapper this originally
+described).
 
 **Placement rule:** a tile may only be placed where every hex it covers
 is *currently* the one terrain type immediately below it in the
@@ -225,11 +242,14 @@ Once board setup finishes, `GamePage.tsx` switches to
 (select-cards/actions/decline/purchase), reading achievement content via
 `resolveContent.ts`'s new `resolveAchievementContent()`.
 
-See `todo.md` #7 for the full breakdown of what's covered and what's
-still open (mainly: the no-space/move-tiles search, and that none of
-this UI has been click-tested end-to-end against a live Supabase
-project yet). See `PROJECT_PLAN.md` section 2's board
-generation item.
+`todo.md` #7 has the full breakdown of how this was built, and #40/#43-#48
+the refinements that followed. Both gaps that entry originally left open
+are closed: the no-space rule was settled by ruling as "reject the
+placement" rather than a relocation search (#40/#43), and the whole flow
+has since been played end to end against a real Supabase project — several
+finished games are checked in as replay tests
+(`src/test/fixtures/productionGames/`). See `PROJECT_PLAN.md` section 2's
+board generation item.
 
 ## `achievements.json` (validated by `achievements.schema.json`)
 
@@ -287,11 +307,13 @@ change how many of a kind a player controls. All the achievement/VP-curve
 content this needs is bundled as `AchievementContent`
 (`src/engine/achievementContent.ts`, same content-agnostic pattern as
 `UnitContent`) and threaded through `applyAction()`'s optional
-`achievementContent` param. Caveat: `calculateBoardCountVP`/
-`calculateTerrainControlVP` still only have placeholder VP numbers and no
-real generated board to run against, so a finished game today is decided
-almost entirely by achievement VP — the win-condition wiring itself is
-complete and tested.
+`achievementContent` param. The caveat this section used to carry — that
+`calculateBoardCountVP`/`calculateTerrainControlVP` had only placeholder
+numbers and no real board to run against, leaving a finished game decided
+almost entirely by achievement VP — no longer applies: the real unit curves
+are in place, so are the terrain values (`todo.md` #41/#42), board
+generation is implemented, and finished production games replay to their
+exact recorded final scores.
 
 Claiming an achievement also drives the decline phase's multi-card rule: a
 player must decline more than one card if more than one achievement was
@@ -338,9 +360,11 @@ ts` and `UnitActions.md` at the repo root.
 ## `tales.json` (validated by `tales.schema.json`)
 
 The Tales variant's numbered elements (see `VARIANTS_PLAN.md` at the repo
-root for the full design across all 23; Tale #6 (The Banks), Tale #7 (The
-Ports), and Tale #8 (The Cathedral) are implemented so far — `todo.md`
-#56/#57). Unlike every other content file, this one is entirely **opt-in**:
+root for the full design across all 23). Five are implemented so far:
+Tale #4 (The Capital), #5 (The Majestic Bridge), #6 (The Banks), #7 (The
+Ports) and #8 (The Cathedral) — see `todo.md` #61-#64 for the Ports and
+Capital work and the shared infrastructure it drove out. Unlike every other
+content file, this one is entirely **opt-in**:
 a base game with no Tales active never reads it. Each Tale is
 self-contained:
 
@@ -376,8 +400,7 @@ self-contained:
   `TaleContent.fantasticEvents` to `finishRound`, which now also takes an
   optional `taleContent` parameter (threaded the same way
   `achievementContent` already was, through `applyAction`/
-  `applyActionAndFastForwardTiles`/`replayActions`/`buildTurnReview`/
-  `buildGameLog`).
+  `replayActions`/`buildTurnReview`/`buildGameLog`).
 - `controllableStructures` — end-of-game "whoever controls this unique
   piece scores N VP" bonuses (e.g. The Cathedral's 15 VP), also bypassing
   `UnitContent` entirely: `TaleContent.controllableStructures` flows

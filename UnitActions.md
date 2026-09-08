@@ -117,6 +117,19 @@ a straightforward 1-for-5 conversion each way.
 `units.json`/`terrain.json`/`resources.json`), and `movement.test.ts` (the
 `legalMoveDestinations` BFS in isolation).
 
+**Scope note:** this checklist covers the *base game* only. The Tales
+variant appends further actions onto these same kinds
+(`extraActionsByKind` in `src/content/tales.json`, merged by
+`applyTaleModifiers()` in `src/engine/tales.ts`) — Construct the Capital,
+Construct a Port (Nomad and Ship), Construct the Bridge, Construct a Bank,
+Increase Taxes, Construct the Cathedral. They resolve through exactly the
+same `RESOLVE_UNIT_ACTION` → `applyUnitActionEffect()` path and the same
+`UnitActionEffect` types (plus the Tale-only `SiteCreateEffect` and
+`RegionUnitCountIncomeEffect`), and they only exist for a game that opted
+into the Tale that contributes them. See `VARIANTS_PLAN.md` and
+`src/content/README.md`'s `tales.json` section; they're tested in
+`src/engine/__tests__/tales.test.ts`/`bridge.test.ts`/`capital.test.ts`.
+
 ## Resolved questions
 
 All four open questions from the first implementation pass are resolved:

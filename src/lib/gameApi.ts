@@ -195,7 +195,7 @@ export async function createGame(params: {
   soloBuilderUnitOrder?: GameSettings['soloBuilderUnitOrder']
   /** Hotseat only: skip the "pass the device" confirmation gate between local players' turns (see GamePage.tsx). Ignored for live/async. Defaults to false (gate shown) when omitted; CreateGamePage.tsx's checkbox defaults to checked (true). */
   skipHotseatPassGate?: boolean
-  /** Opt in to RULE_ENFORCEMENT_PLAN.md's server-side rule enforcement for this game (see GameSettings.ruleEnforcementEnabled). Defaults to false when omitted; CreateGamePage.tsx's checkbox defaults to unchecked. */
+  /** Opt in to RULE_ENFORCEMENT_PLAN.md's server-side rule enforcement for this game (see GameSettings.ruleEnforcementEnabled). Defaults to false when omitted, so a caller that doesn't care gets the client-trusted path; CreateGamePage.tsx's checkbox itself defaults to *checked* (issue #432), so games created through the UI are enforced unless the creator opts out. */
   ruleEnforcementEnabled?: boolean
   /** Content ids of active Tales (src/content/tales.json) for the Tales variant, or omitted/empty for none. */
   activeTaleIds?: string[]

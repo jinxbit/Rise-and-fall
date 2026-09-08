@@ -196,6 +196,31 @@ it just because someone is reviewing history), while still resetting
 cleanly the moment that revelation's own causal history is actually
 discarded.
 
+### 5.4 What actually runs today (client-side)
+
+**Update (2026-09-07).** §5.2's server-side read path doesn't exist yet
+(phase 5), but redaction is not sitting unused in the meantime — it is
+applied client-side, which hides secrets in the *UI* without keeping them
+off the wire:
+
+- `redactGameLog(events, state, viewerId)` (`src/engine/redaction.ts`)
+  masks a narration line for a still-secret `CHOOSE_CARD` — every
+  `GameEvent` carries a `secret.redactedMessage` alternative — and reveals
+  it automatically once that round's `selectCards` phase resolves.
+  `GamePage.tsx`'s `visibleGameLog` applies it against whichever state the
+  log is sourced from, the live game or the state being reviewed, so
+  scrubbing history doesn't leak either.
+- **Neither the room owner nor a site admin gets a free pass** (issue
+  #456): both see the same redacted log as any other player. The one
+  bypass is the admin-only "Cheat mode" toggle (issue #430), which must be
+  switched on deliberately and isn't persisted.
+
+The limitation is exactly the one phase 5 exists to close, and it is worth
+being blunt about: the client fetches the whole `game_state` row and hides
+part of it locally, so an opponent's still-secret pick **is** present in
+the payload their browser received. Client-side redaction is a UX
+guarantee, not a security one.
+
 ## 6. Data model changes
 
 **Update (2026-09-04, phase 4, §8): `game_state_meta` — done**
@@ -293,7 +318,8 @@ to hidden information (6) are omitted here.
 9. **End-to-end verification against a real two-browser Supabase
    session**, inspecting actual network payloads (not just UI rendering)
    to confirm secret fields never reach an opponent's client during the
-   `selectCards`/`decline` windows, and that a reviewed-but-not-branched
+   `selectCards`/`decline` windows — today they still do, since redaction
+   runs client-side and the client fetches the whole row, and that a reviewed-but-not-branched
    rewind never re-masks an already-revealed pick (§5.3). This sandbox has
    no live Supabase project to test against, so this phase requires the
    maintainer's own environment, same limitation noted throughout `todo.md`.
@@ -311,16 +337,21 @@ to hidden information (6) are omitted here.
   mark so redaction re-masks it, consistent with
   `RULE_ENFORCEMENT_PLAN.md` §4.4's owner-override gate covering that same
   branch.
-- **Edge Function/RPC level:** requires a live Supabase project — out of
-  reach in this sandbox (no credentials/Docker), consistent with existing
-  `todo.md` notes about board-setup/round-view verification. Maintainer
-  verification needed post-merge for each of phases 5, 8–9: confirm
-  `get_game_state` never leaks a secret field over the wire, including via
-  Realtime broadcast of the raw row (§5.2).
-- **Regression:** existing `src/engine/__tests__/` suite (220+ tests as of
-  this writing) must continue passing unmodified — this work changes *what
-  subset* of the engine's output a given viewer receives, not the engine's
-  rules themselves.
+- **Edge Function/RPC level:** still the gap, but for a narrower reason than
+  when this was written. `RULE_ENFORCEMENT_PLAN.md` §9's in-process stack
+  (`src/test/supabaseStack/`) now exercises real Edge Function handlers,
+  RLS and the storage encoding on every pull request with no Docker, so
+  "requires a live Supabase project" no longer holds for the *write* path.
+  It doesn't help this document yet only because phase 5's `get_game_state`
+  doesn't exist — once it does, it can be tested there the same way, and
+  what genuinely needs a live project shrinks to §5.2's Realtime concern:
+  confirming the raw row broadcast to subscribers doesn't carry secrets the
+  RPC strips. Maintainer verification is still needed post-merge for
+  phases 5 and 8-9.
+- **Regression:** the existing suite (1118 tests across 61 files, up from
+  the 220+ this section was written against) must continue passing
+  unmodified — this work changes *what subset* of the engine's output a
+  given viewer receives, not the engine's rules themselves.
 
 (See `RULE_ENFORCEMENT_PLAN.md` §9 for authorization/undo-redo-specific
 testing.)

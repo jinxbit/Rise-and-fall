@@ -81,11 +81,15 @@ break replay, the Edge Functions, or both:
 
 ## The two write paths
 
-Per-game opt-in flag `games.settings.ruleEnforcementEnabled` (default
-`false`) selects which one a game uses. `GamePage.tsx`'s `submitAction`
-branches on it:
+Per-game flag `games.settings.ruleEnforcementEnabled` selects which one a
+game uses. It reads as `false` for any game predating it (`createGame()`
+defaults it to `false` when omitted), but `CreateGamePage.tsx` ships the
+checkbox **checked**, so games created through the UI are enforced unless
+the creator opts out (issue #432; `RULE_ENFORCEMENT_PLAN.md` §10).
+`GamePage.tsx`'s `submitAction` branches on it:
 
-- **Client-trusted (default, and every older game):** the client runs
+- **Client-trusted (every older game, and any game whose creator unticked
+  the box):** the client runs
   `applyAction()` itself and writes `game_state` directly, with an
   optimistic-concurrency retry loop against the `version` column
   (`writeWithRetry`). State is stored as a plain JSON `GameState`.
@@ -179,7 +183,7 @@ storage must work on **both** paths.
 
 | File | What it is |
 | --- | --- |
-| `README.md` | Setup: Supabase, Discord/Google OAuth, Discord + Web Push turn notifications, guest auth, game-state export. Its "milestone 1" tail is stale — trust the code. |
+| `README.md` | Setup and operations: Supabase, Discord/Google OAuth, Discord + Web Push turn notifications, guest auth, hotseat, server-side rule enforcement, game-state export, and what is and isn't built. |
 | `todo.md` | The de-facto changelog: 70 numbered entries, each a problem, its investigation, and what shipped. **Check here first when touching anything that looks like it has history.** |
 | `PROJECT_PLAN.md` | Overall roadmap and open decisions. |
 | `RULE_ENFORCEMENT_PLAN.md` | The server-authority design: enforcement model, forced-action semantics, `ruleEnforcementEnabled` rollout, phases. |
