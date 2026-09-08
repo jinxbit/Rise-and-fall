@@ -46,7 +46,7 @@ export interface LiveProjectConfig {
 export function liveProjectConfigFromEnv(env: Record<string, string | undefined>): LiveProjectConfig {
   const missing = ['SMOKE_SUPABASE_URL', 'SMOKE_SUPABASE_ANON_KEY', 'SMOKE_SUPABASE_SERVICE_ROLE_KEY'].filter((name) => !env[name])
   if (missing.length > 0) {
-    throw new Error(`The production smoke test needs ${missing.join(', ')} in the environment — see .github/workflows/production-smoke.yml.`)
+    throw new Error(`The production smoke test needs ${missing.join(', ')} in the environment — see .github/workflows/smoke.yml.`)
   }
   return {
     url: env.SMOKE_SUPABASE_URL!,

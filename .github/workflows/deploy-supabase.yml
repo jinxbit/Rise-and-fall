@@ -1,5 +1,17 @@
 name: Deploy Supabase
 
+# Pushes migrations and Edge Functions to ONE Supabase project, chosen by
+# environment (DELIVERY_PIPELINE_PLAN.md §4). Today `main` maps to
+# production, which is exactly what this workflow did before it learned about
+# environments — the mapping in the `resolve` job below is the single place
+# that changes when phase 3 makes `main` deploy to staging and a `production`
+# branch release instead.
+#
+# Secrets resolve through the GitHub Environment named by that mapping. Until
+# environment-scoped secrets exist, the repository-level ones are inherited
+# unchanged, so adding the environments later is additive rather than a
+# cutover.
+
 on:
   push:
     branches: [main]
@@ -8,11 +20,52 @@ on:
       - 'supabase/functions/**'
       - 'src/lib/**'
       - '.github/workflows/deploy-supabase.yml'
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Which environment to deploy to'
+        type: choice
+        options: [production, staging]
+        default: production
+
+# One deploy per environment at a time. Never cancel one in flight: a
+# half-applied `db push` is worse than a queued run.
+concurrency:
+  group: deploy-supabase-${{ github.event.inputs.environment || github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
-  deploy:
+  resolve:
     runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.pick.outputs.environment }}
+    steps:
+      - name: Resolve the target environment
+        id: pick
+        env:
+          REQUESTED: ${{ github.event.inputs.environment }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          if [ -n "$REQUESTED" ]; then
+            resolved="$REQUESTED"
+          else
+            # THE branch -> environment mapping. See this file's header, and
+            # DELIVERY_PIPELINE_PLAN.md §3 for where it is heading.
+            case "$BRANCH" in
+              main) resolved=production ;;
+              *)
+                echo "::error::No environment is mapped for branch '$BRANCH'. Add it to the case in .github/workflows/deploy-supabase.yml."
+                exit 1
+                ;;
+            esac
+          fi
+          echo "environment=$resolved" >> "$GITHUB_OUTPUT"
+          echo "Deploying to: $resolved"
+
+  deploy:
+    needs: resolve
+    runs-on: ubuntu-latest
+    environment: ${{ needs.resolve.outputs.environment }}
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
@@ -25,6 +78,11 @@ jobs:
         uses: supabase/setup-cli@v1
         with:
           version: latest
+
+      # Deploying the wrong project is the one mistake this workflow could
+      # make that is genuinely hard to undo, so say out loud which one it is.
+      - name: Report the target
+        run: echo "Environment ${{ needs.resolve.outputs.environment }} -> Supabase project ${SUPABASE_PROJECT_ID}"
 
       - name: Link Supabase project
         run: supabase link --project-ref "$SUPABASE_PROJECT_ID"

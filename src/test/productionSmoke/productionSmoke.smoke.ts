@@ -4,8 +4,8 @@
 // Named `.smoke.ts` rather than `.test.ts` on purpose — vitest's default
 // `include` only matches `*.test.*`/`*.spec.*`, so `npm run test` and CI never
 // pick this up and never touch production. It runs only through
-// `npm run test:production` (vitest.production.config.ts), which is what
-// .github/workflows/production-smoke.yml invokes after a Supabase deploy and
+// `npm run test:smoke` (vitest.smoke.config.ts), which is what
+// .github/workflows/smoke.yml invokes after a Supabase deploy and
 // nightly.
 //
 // Required environment (see that workflow for how they're supplied):

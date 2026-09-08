@@ -1,11 +1,11 @@
 import { defineConfig } from 'vitest/config'
 
-// Runs ONLY the production smoke test (src/test/productionSmoke/*.smoke.ts),
-// which talks to the real deployed Supabase project. Kept in its own config
-// rather than behind a flag in vite.config.ts so there is no path by which
-// `npm run test` — the one CI runs on every PR — can reach production: that
-// config's default `include` matches `*.test.*` only, and this one matches
-// `*.smoke.ts` only.
+// Runs ONLY the smoke test (src/test/productionSmoke/*.smoke.ts), which talks
+// to whichever real deployed Supabase project the SMOKE_* environment
+// variables name. Kept in its own config rather than behind a flag in
+// vite.config.ts so there is no path by which `npm run test` — the one CI
+// runs on every PR — can reach a live project: that config's default
+// `include` matches `*.test.*` only, and this one matches `*.smoke.ts` only.
 //
 // `node` environment (this is server-side work, no DOM), no jsdom setup file,
 // and a long timeout: a full game is hundreds of sequential HTTPS round trips

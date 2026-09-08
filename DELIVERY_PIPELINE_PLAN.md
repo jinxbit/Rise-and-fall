@@ -29,7 +29,7 @@ never to production — the maintainer's explicit choice).
 | Claude reviews a PR | `.github/workflows/claude-code-review.yml` | every PR |
 | Supabase migrations + functions deploy | `.github/workflows/deploy-supabase.yml` | push to `main` touching `supabase/migrations/**`, `supabase/functions/**`, `src/lib/**` |
 | Frontend deploy | Vercel | push to `main` (production), other branches (preview) |
-| Real games replayed against the deployed backend | `.github/workflows/production-smoke.yml` | after a successful Supabase deploy, and nightly |
+| Real games replayed against the deployed backend | `.github/workflows/smoke.yml` | after a successful Supabase deploy, and nightly |
 
 Test layers, innermost first: engine tests (`src/engine/__tests__/`), the
 in-process production-like stack (`src/test/supabaseStack/`), real games
@@ -111,7 +111,7 @@ diverges from `staging` and needs merging back. That bookkeeping is exactly
 the kind of step that gets skipped once and then silently rots.
 
 **Cost of the recommended option:** `deploy-supabase.yml` retargets;
-`production-smoke.yml` retargets; branch protection has to be set up on
+`smoke.yml` retargets; branch protection has to be set up on
 `production`; and every place that says "main is production" needs updating
 (`CLAUDE.md`'s Supabase section, `README.md`). It is a rename of meaning, not
 a restructuring of work.
@@ -190,7 +190,7 @@ fifteen minutes of setting a game up.
 `workflow_dispatch` on a promotion workflow that names the commit being
 promoted. The `production` GitHub Environment's required reviewer means it
 waits for an explicit approval. The push deploys to the production Supabase
-project and Vercel Production, and `production-smoke.yml` runs against
+project and Vercel Production, and `smoke.yml` runs against
 production as it does today.
 
 ---
@@ -250,10 +250,17 @@ not the same as proving the app works.
 ## 9. Phases
 
 0. **This document.** ✅
-1. **Parameterise the workflows by environment.** `deploy-supabase.yml` and
-   `production-smoke.yml` take an environment, defaulting to production, so
-   nothing changes behaviour until a staging environment exists to point at.
-   Landable on its own, inert until phase 2.
+1. **Parameterise the workflows by environment.** ✅ (2026-09-08)
+   `deploy-supabase.yml` and `smoke.yml` (renamed from
+   `production-smoke.yml`, since it is no longer production-only) each
+   resolve a target environment from one commented branch mapping, and run
+   their real job under a GitHub Environment of that name. `main` still maps
+   to production, so behaviour is unchanged; a `workflow_dispatch` input can
+   already target staging the moment that environment exists. Secrets resolve
+   through the environment, and repository-level secrets are inherited until
+   environment-scoped ones are added, so phase 2 is additive rather than a
+   cutover. `npm run test:production` became `npm run test:smoke` for the
+   same reason.
 2. **Stand up staging.** Maintainer: create the Supabase project, set the
    Vercel Preview variables and branch domain, add the GitHub Environments
    and their secrets, create the `production` branch at the current `main`,

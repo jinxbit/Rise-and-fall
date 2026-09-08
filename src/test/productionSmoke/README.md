@@ -15,10 +15,10 @@ keys still valid. Neither substitutes for the other.
 SMOKE_SUPABASE_URL=https://<project-ref>.supabase.co \
 SMOKE_SUPABASE_ANON_KEY=<anon key> \
 SMOKE_SUPABASE_SERVICE_ROLE_KEY=<service role key> \
-npm run test:production
+npm run test:smoke
 ```
 
-`.github/workflows/production-smoke.yml` runs it after every successful
+`.github/workflows/smoke.yml` runs it after every successful
 Supabase deploy, nightly, and on demand. `SMOKE_SUPABASE_URL` defaults to the
 `SUPABASE_PROJECT_ID` secret the deploy workflow already uses, so only the two
 key secrets need adding.
