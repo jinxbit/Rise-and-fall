@@ -422,6 +422,18 @@ still get their own, separate bypass via **cheat mode** (issue #430,
 tool, not something room admin mode grants, and not something a mere room
 owner (who isn't also a site admin) has access to.
 
+**Update (2026-09-08, phase 5 shipped):** `get-game-state`
+(`supabase/functions/get-game-state/index.ts`) now exists and follows
+through on this. Its raw-state carve-out checks `ctx.isAdmin`
+(`profiles.is_admin` only) — a new, narrower field on `GameContext`
+alongside the existing `isOwnerOrAdmin` — not the room owner, exactly
+matching issue #464's "no special privileges for the room owner" answer
+above. `isAuthorizedToActAs`/`requiresOwnerOverride` (the *write-side*
+act-as-any-player/history-override checks, §4.4/§4.5) are unaffected and
+still use the broader `isOwnerOrAdmin` — forcing a stuck player's action
+through is a distinct, unchanged owner responsibility, orthogonal to
+reading that player's still-secret state.
+
 ## 6. Data model changes
 
 **Update (2026-09-04, phase 4, §8): smaller than originally scoped.**
@@ -643,6 +655,11 @@ to rule enforcement (2, 5) are omitted here.
    both flagged and unflagged games; an enforcement-enabled game just reads
    its own unredacted `game_state` row like every other game does until
    that phase lands.
+   **Update (2026-09-08): phase 5's blocker is gone — `get-game-state` now
+   exists (`HIDDEN_INFORMATION_PLAN.md` §8 phase 5) — but the read-side
+   rewire itself hasn't happened yet.** `gameApi.ts`'s `getGameState()`
+   still reads `game_state` directly for every game regardless of its flag;
+   this remains the next concrete piece of phase 8.
    **Write-side half done (2026-09-05):**
    - `GameSettings.ruleEnforcementEnabled` (`src/lib/dbTypes.ts`), a
      `createGame()` param, and a `CreateGamePage.tsx` checkbox ("Enable
@@ -801,6 +818,11 @@ to rule enforcement (2, 5) are omitted here.
   condition, unredacted `get_game_state` for admin/owner) need to land
   *with* phases 5–6, not after — otherwise admin mode either breaks or
   becomes an unreviewed impersonation hole the moment enforcement ships.
+  **Resolved (2026-09-08), and narrower than originally scoped here:**
+  `get-game-state`'s unredacted carve-out is `profiles.is_admin` only, not
+  "admin/owner" — issue #464 (§4.5 above) had already settled that the room
+  owner gets no special read access to hidden information, so the "owner"
+  half of this bullet's own parenthetical never shipped, deliberately.
 - **Resolved (2026-09-05): the `CreateGamePage.tsx` checkbox is visible to
   any room creator from day one** (labeled "experimental") rather than gated
   behind an admin/dev-only affordance.
