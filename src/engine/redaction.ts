@@ -1,3 +1,4 @@
+import type { Action, ChooseCardAction, LoggedAction, MoveToDeclineAction } from './actions.ts'
 import type { GameEvent, GameState, Player } from './types.ts'
 
 /**
@@ -17,9 +18,33 @@ export type RedactedPlayer = Omit<Player, 'declineCardIds'> & {
   declineCardIds: (string | null)[]
 }
 
-export type RedactedGameState = Omit<GameState, 'chosenCardIdByPlayerId' | 'players'> & {
+/**
+ * One GameState.actionHistory entry as seen by a particular viewer — the raw
+ * log carries the same two secrets chosenCardIdByPlayerId/declineCardIds do
+ * (a CHOOSE_CARD/MOVE_TO_DECLINE action's own `cardId` payload), so a reader
+ * who only had those two fields nulled could still recover a still-secret
+ * pick straight out of the log (see redactStateForPlayer's doc comment).
+ * Every other action type passes through with its real payload unchanged —
+ * this is not a general Action-redaction mechanism, just these two fields.
+ */
+export type RedactedLoggedAction = Omit<LoggedAction, 'action'> & {
+  action:
+    | Exclude<Action, ChooseCardAction | MoveToDeclineAction>
+    | (Omit<ChooseCardAction, 'cardId'> & { cardId: string | null })
+    | (Omit<MoveToDeclineAction, 'cardId'> & { cardId: string | null })
+}
+
+export type RedactedGameState = Omit<GameState, 'chosenCardIdByPlayerId' | 'players' | 'actionHistory'> & {
   chosenCardIdByPlayerId: Record<string, RedactedChoice>
   players: RedactedPlayer[]
+  /**
+   * Not replayable through applyAction()/replayActions() — a masked
+   * CHOOSE_CARD/MOVE_TO_DECLINE entry's `cardId: null` is not a legal action
+   * payload. This is a display-only log for a viewer who isn't entitled to
+   * the real one yet; genesis + replay always uses the real, unredacted
+   * GameState.actionHistory. See get-game-state/index.ts, the only caller.
+   */
+  actionHistory: RedactedLoggedAction[]
 }
 
 /**
@@ -42,10 +67,21 @@ export type RedactedGameState = Omit<GameState, 'chosenCardIdByPlayerId' | 'play
  * Pure and side-effect-free, like the rest of src/engine/ — the caller
  * (the `get-game-state` Edge Function, see §5.2) is responsible for
  * actually keeping this the only view an opponent's client ever receives.
- * Note this does NOT redact `actionHistory` — see §5.2 for why that's a
- * separate, later concern (a raw-row Realtime broadcast bypasses this
- * function entirely, so scrubbing this return value alone can't be the
- * whole fix; the RPC that eventually wraps this needs its own handling).
+ *
+ * Also redacts `actionHistory` (added 2026-09-08, alongside `get-game-state`
+ * becoming the redacted read path an app client actually calls —
+ * RULE_ENFORCEMENT_PLAN.md §8 phase 8): the raw log's own CHOOSE_CARD/
+ * MOVE_TO_DECLINE entries carry the exact same secret `cardId` payload
+ * chosenCardIdByPlayerId/declineCardIds mask above, under the same two
+ * conditions (still-pending selectCards, or this-phase-only decline
+ * additions) — so scrubbing only the derived fields and shipping the raw
+ * log alongside them would leak the very same value straight back out. This
+ * still doesn't cover a raw-row Realtime broadcast bypassing this function
+ * entirely (§5.2's original concern) — but `subscribeToGameState`
+ * (`src/lib/gameApi.ts`) already subscribes to `game_state_meta`, not
+ * `game_state` itself (issue #448, for bandwidth, before this document even
+ * had a redaction concern), so nothing broadcasts the raw row over
+ * Realtime today regardless.
  *
  * §5.3's "reveal high-water mark" (keeping an already-resolved phase from
  * flickering back to masked for a viewer who rewinds *review-only*, with no
@@ -83,7 +119,18 @@ export function redactStateForPlayer(state: GameState, viewerId: string | null):
     }
   })
 
-  return { ...state, chosenCardIdByPlayerId, players }
+  const actionHistory: RedactedLoggedAction[] = state.actionHistory.map((entry) => {
+    const { action } = entry
+    if (action.type === 'CHOOSE_CARD' && action.playerId !== viewerId && hideChosenCards && entry.turn === state.turn) {
+      return { ...entry, action: { ...action, cardId: null } }
+    }
+    if (action.type === 'MOVE_TO_DECLINE' && action.playerId !== viewerId && declineAdditionsThisPhaseByPlayerId.get(action.playerId)?.has(action.cardId)) {
+      return { ...entry, action: { ...action, cardId: null } }
+    }
+    return entry
+  })
+
+  return { ...state, chosenCardIdByPlayerId, players, actionHistory }
 }
 
 /**

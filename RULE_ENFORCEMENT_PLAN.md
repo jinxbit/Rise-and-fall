@@ -660,6 +660,17 @@ to rule enforcement (2, 5) are omitted here.
    rewire itself hasn't happened yet.** `gameApi.ts`'s `getGameState()`
    still reads `game_state` directly for every game regardless of its flag;
    this remains the next concrete piece of phase 8.
+   **Scoped in more detail (2026-09-08):** this isn't just a `gameApi.ts`
+   data-plumbing swap — `get-game-state`'s redacted response
+   (`RedactedGameState`) is a structurally different type from `GameState`
+   (`chosenCardIdByPlayerId`, `players[].declineCardIds`, and now
+   `actionHistory` all change shape — see `HIDDEN_INFORMATION_PLAN.md`'s
+   redaction.ts doc comment), and `RoundView.tsx` reads those fields
+   directly in several places assuming the real shape. Consuming the
+   redacted read for real needs new UI logic for rendering a masked pick,
+   not just a fetch swap, which needs actual browser verification before
+   it can be called done — see `HIDDEN_INFORMATION_PLAN.md`'s §8 phase 8
+   entry for the full breakdown.
    **Write-side half done (2026-09-05):**
    - `GameSettings.ruleEnforcementEnabled` (`src/lib/dbTypes.ts`), a
      `createGame()` param, and a `CreateGamePage.tsx` checkbox ("Enable

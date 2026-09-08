@@ -92,6 +92,40 @@ describe('redactStateForPlayer', () => {
       expect(asP2.chosenCardIdByPlayerId.p1).toEqual({ chosen: true, cardId: cardIdFor('p1', 'city') })
       expect(asP2.chosenCardIdByPlayerId.p2).toEqual({ chosen: true, cardId: cardIdFor('p2', 'city') })
     })
+
+    it("masks another player's CHOOSE_CARD actionHistory entry the same way it masks chosenCardIdByPlayerId, but not the viewer's own", () => {
+      const base = makeActiveGameWithFullHands()
+      const state = requireOk(applyAction(base, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }))
+      expect(state.pendingPlayerIds).toEqual(['p2'])
+
+      const asP2 = redactStateForPlayer(state, 'p2')
+      const p1Entry = asP2.actionHistory.find((e) => e.action.type === 'CHOOSE_CARD' && e.action.playerId === 'p1')!
+      expect(p1Entry.action).toMatchObject({ type: 'CHOOSE_CARD', cardId: null })
+
+      const asP1 = redactStateForPlayer(state, 'p1')
+      const ownEntry = asP1.actionHistory.find((e) => e.action.type === 'CHOOSE_CARD' && e.action.playerId === 'p1')!
+      expect(ownEntry.action).toMatchObject({ type: 'CHOOSE_CARD', cardId: cardIdFor('p1', 'city') })
+    })
+
+    it('reveals a masked CHOOSE_CARD actionHistory entry once the phase resolves, but never re-masks an earlier round once a new one starts', () => {
+      const base = makeActiveGameWithFullHands()
+      let state = requireOk(applyAction(base, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }))
+      state = requireOk(applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') }))
+      expect(state.roundPhase).toBe('actions')
+
+      const asP2 = redactStateForPlayer(state, 'p2')
+      const p1Entry = asP2.actionHistory.find((e) => e.action.type === 'CHOOSE_CARD' && e.action.playerId === 'p1')!
+      expect(p1Entry.action).toMatchObject({ type: 'CHOOSE_CARD', cardId: cardIdFor('p1', 'city') })
+
+      // A later round's own still-pending selectCards phase must not reach
+      // back and re-mask this already-resolved round's entry (same
+      // turn-scoping bug class chosenCardIdByPlayerId is immune to since it
+      // only ever holds the current round's picks).
+      const laterRoundState = { ...state, turn: state.turn + 1, roundPhase: 'selectCards' as const, pendingPlayerIds: ['p2'] }
+      const asP2Later = redactStateForPlayer(laterRoundState, 'p2')
+      const p1EntryLater = asP2Later.actionHistory.find((e) => e.action.type === 'CHOOSE_CARD' && e.action.playerId === 'p1')!
+      expect(p1EntryLater.action).toMatchObject({ type: 'CHOOSE_CARD', cardId: cardIdFor('p1', 'city') })
+    })
   })
 
   describe('decline phase', () => {
@@ -124,11 +158,20 @@ describe('redactStateForPlayer', () => {
       const asP1 = redactStateForPlayer(state, 'p1')
       expect(asP1.players.find((p) => p.id === 'p1')!.declineCardIds).toEqual([p1Temple])
 
+      // The same masking applies to the raw MOVE_TO_DECLINE actionHistory
+      // entry, not just the derived declineCardIds array above.
+      const p1LogEntry = asP2.actionHistory.find((e) => e.action.type === 'MOVE_TO_DECLINE' && e.action.playerId === 'p1')!
+      expect(p1LogEntry.action).toMatchObject({ type: 'MOVE_TO_DECLINE', cardId: null })
+      const p1LogEntryAsP1 = asP1.actionHistory.find((e) => e.action.type === 'MOVE_TO_DECLINE' && e.action.playerId === 'p1')!
+      expect(p1LogEntryAsP1.action).toMatchObject({ type: 'MOVE_TO_DECLINE', cardId: p1Temple })
+
       // Once the whole phase resolves, it's public to everyone.
       state = requireOk(applyAction(state, { type: 'MOVE_TO_DECLINE', playerId: 'p2', cardId: cardIdFor('p2', 'temple') }))
       expect(state.roundPhase).toBe('purchase')
       const resolvedAsP2 = redactStateForPlayer(state, 'p2')
       expect(resolvedAsP2.players.find((p) => p.id === 'p1')!.declineCardIds).toEqual([p1Temple])
+      const resolvedLogEntry = resolvedAsP2.actionHistory.find((e) => e.action.type === 'MOVE_TO_DECLINE' && e.action.playerId === 'p1')!
+      expect(resolvedLogEntry.action).toMatchObject({ type: 'MOVE_TO_DECLINE', cardId: p1Temple })
     })
 
     it("keeps an earlier round's already-public decline pile visible during a later, still-in-progress decline phase", () => {
@@ -158,6 +201,13 @@ describe('redactStateForPlayer', () => {
       const asP2 = redactStateForPlayer(state, 'p2')
       const p1AsSeenByP2 = asP2.players.find((p) => p.id === 'p1')!.declineCardIds
       expect(p1AsSeenByP2).toEqual([oldCardId, null])
+
+      // The earlier round's own MOVE_TO_DECLINE actionHistory entry is
+      // unaffected — only this round's still-open addition is masked.
+      const oldLogEntry = asP2.actionHistory.find((e) => e.action.type === 'MOVE_TO_DECLINE' && e.turn === state.turn - 1)!
+      expect(oldLogEntry.action).toMatchObject({ type: 'MOVE_TO_DECLINE', cardId: oldCardId })
+      const newLogEntry = asP2.actionHistory.find((e) => e.action.type === 'MOVE_TO_DECLINE' && e.turn === state.turn)!
+      expect(newLogEntry.action).toMatchObject({ type: 'MOVE_TO_DECLINE', cardId: null })
     })
 
     it('keeps masking a multi-card decline addition until every owed card has been supplied and the phase resolves', () => {
@@ -200,6 +250,17 @@ describe('redactStateForPlayer', () => {
 
       const asP2 = redactStateForPlayer(state, 'p2')
       expect(asP2.players.find((p) => p.id === 'p1')!.declineCardIds).toEqual([cardIdFor('p1', 'nomad')])
+    })
+
+    it('leaves every other actionHistory entry — including a still-pending phase\'s non-CHOOSE_CARD/MOVE_TO_DECLINE actions — unchanged', () => {
+      const base = makeActiveGameWithFullHands()
+      const state = requireOk(applyAction(base, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }))
+      const asP2 = redactStateForPlayer(state, 'p2')
+      expect(asP2.actionHistory).toHaveLength(state.actionHistory.length)
+      for (const [redactedEntry, originalEntry] of asP2.actionHistory.map((e, i) => [e, state.actionHistory[i]] as const)) {
+        if (redactedEntry.action.type === 'CHOOSE_CARD' && redactedEntry.action.playerId !== 'p2') continue // covered by the selectCards describe block above
+        expect(redactedEntry).toEqual(originalEntry)
+      }
     })
   })
 })
