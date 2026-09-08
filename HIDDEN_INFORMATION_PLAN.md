@@ -429,6 +429,98 @@ to hidden information (6) are omitted here.
    hotseat's one shared `auth.uid()` across every local seat (§2) makes
    `get-game-state`'s per-seat masking actively wrong there — it would hide
    a local player's own pick from the very device they're using to make it.
+
+   **Blocking issue found while attempting this phase (2026-09-08, resuming
+   on issue #473): the client cannot simply start reading
+   `RedactedGameState.actionHistory` as if it were `GameState.actionHistory`
+   — five existing call sites replay `actionHistory` through
+   `applyAction()`/`applyActionWithSteps()`/`replayActions()` client-side,
+   and every one of them assumes every logged action is a legally-replayable
+   payload. A masked `CHOOSE_CARD`/`MOVE_TO_DECLINE` entry's `cardId: null`
+   fails that replay (`applyChooseCard` rejects it at
+   `applyAction.ts:417`'s `player.handCardIds.includes(cardId)` check, the
+   `MOVE_TO_DECLINE` handler analogously), and this was never exercised
+   before because the client has only ever replayed its own, fully-real
+   `actionHistory` — nothing has fed it a redacted one until phase 8 tries
+   to. Traced each call site rather than assuming:
+   - `gameLog.ts`'s `extendGameLog` (line 292) calls `applyActionWithSteps`,
+     which returns `{ok: false}` on the masked entry; `extendGameLog`
+     already has a defensive bail for exactly that shape of failure (line
+     293, `if (!result.ok) return {..., ok: false}`, written for "a
+     validly-logged action should never fail to reapply") — so it wouldn't
+     throw, but it would silently stop narrating the *live* game log from
+     that entry onward, for as long as the phase stays open. That's every
+     round, not an edge case.
+   - `turnReview.ts`'s `buildTurnReview` (line 525) has the identical
+     defensive bail (`break`, line 526) for an ordinary entry — but its
+     separate UNDO_ACTION/REDO_ACTION branch (line 500) calls
+     `replayActions()` directly, which **throws** on any rejected entry
+     (`replay.ts:59-61`, by design — it also backs the event-sourcing
+     correctness guarantee CLAUDE.md's invariant 3 describes, so it can't
+     just be made lenient without losing that guarantee for its other,
+     legitimate caller). A review window spanning an earlier undo/redo and
+     a currently-masked entry would throw uncaught.
+   - `undoRedo.ts`'s `applyUndoAction`/`applyRedoAction` (lines 50, 67) both
+     call `replayActions()` over the whole history from genesis — same
+     throw. Only reachable for a **client-trusted** game today (a
+     `ruleEnforcementEnabled` game's undo/redo already goes through the
+     `undo-action`/`redo-action` Edge Functions instead, per
+     `GamePage.tsx`'s branch around lines 1188/1238) — which matters,
+     see below.
+   - `scoreHistory.ts`/`unitValue.ts` also replay the full history through
+     `applyAction()`, but checked their only call sites (`GamePage.tsx`
+     lines 970-999) and both are guarded on `gameState.status ===
+     'completed'` — a completed game can't have an unresolved
+     `selectCards`/`decline` phase, so these two are **not** actually at
+     risk. Recording that so a future pass doesn't have to re-derive it.
+   - `historyPointer.ts`'s `stateAtPointer`/`applyActionAtPointer` have the
+     identical throw risk, but are unused in production (the §4.4
+     pointer-move design they were built for was superseded by the
+     append-only `resolveHistory`/`applyUndoAction` model, todo.md #70) —
+     not an active bug, just a landmine if they're ever revived.
+
+   Separately, but compounding this: `apply-action`/`undo-action`/
+   `redo-action` (`supabase/functions/*/index.ts`) return `result.state`
+   **unredacted** today — the real state `applyActionFullyEnforced` computed
+   server-side, including any opponent's still-secret pick, which
+   `GamePage.tsx`'s `runEnforced` (lines 1035-1043) sets straight into local
+   state. That leaks exactly what `get-game-state`'s read path exists to
+   stop leaking, and needs the same `redactStateForPlayer(result.state,
+   callerPlayerId)` treatment — independently worth fixing, and lower-risk
+   *for the write path itself* (the caller's next apply-action call
+   re-derives from the server's own real DB row, never the client's cached
+   copy) — but it feeds the client the exact same masked `actionHistory` the
+   read path would, so it doesn't sidestep the replay hazard above; it's the
+   same problem from the other door (and, in a 3+-player game, reachable
+   *without* even touching the read path: the second-to-last player's own
+   apply-action response can already come back with an earlier player's pick
+   masked).
+
+   **Recommendation, not yet decided:** (a) `gameLog.ts`/`turnReview.ts`'s
+   ordinary-entry path already degrades instead of throwing — it would need
+   to stop treating that as "should never happen" and instead resume once a
+   later, unmasked refetch arrives, and the two `replayActions()`-throws
+   (`turnReview.ts`'s undo/redo branch, `undoRedo.ts`) need a distinct,
+   explicitly-lenient replay entry point rather than a flag on the one used
+   for authoritative reconstruction. (b) Once `gameLog.ts` can produce its
+   own "hidden" line directly from `cardId: null`, `redactGameLog`/
+   `GameEvent.secret` (`redaction.ts` lines 136-165, `types.ts:309-321`)
+   become redundant — the server already redacted per-viewer — and could be
+   deleted as a simplification, not a requirement. (c) `undoRedo.ts`'s
+   throw only matters for client-trusted games, which raises a scoping
+   question §2 never separated: a client-trusted game's *write* path already
+   trusts the client with the real state (`writeGameState`), so redacting
+   only its *reads* is the same asymmetry §5.4 already flagged as "a UX
+   guarantee, not a security one" — recommend scoping phase 8's read rewire
+   to `ruleEnforcementEnabled` games only, leaving client-trusted games on
+   today's direct (unredacted) read, which also removes `undoRedo.ts` from
+   the list of call sites needing (a)'s tolerance, since it never runs for
+   enforced games.
+
+   Not fixed this session — flagging as blocking rather than shipping a
+   rewire that would regress the live game log (and, in some cases, throw)
+   every round a simultaneous phase is genuinely open, which is not a rare
+   condition.
 9. **End-to-end verification against a real two-browser Supabase
    session**, inspecting actual network payloads (not just UI rendering)
    to confirm secret fields never reach an opponent's client during the
@@ -512,6 +604,18 @@ testing.)
   subsumes it, but the migration needs to preserve that bug's fix (public
   rooms' `status` must stay visible to non-participants) once redaction
   lands.
+- **New (2026-09-08): phase 8's client rewire is blocked on a client-side
+  replay hazard, not just the UI/type work §8 already scoped.** See phase
+  8's own entry above for the full trace — five call sites
+  (`gameLog.ts`, `turnReview.ts`, `undoRedo.ts`, plus two confirmed-safe
+  ones) replay `actionHistory` through `applyAction()`/`replayActions()`
+  client-side and were never built to tolerate a masked entry, which a
+  redacted read/response now hands them every round a simultaneous phase is
+  genuinely open. Needs the (a)/(b)/(c) recommendation there decided (or a
+  better alternative) before `gameApi.ts`'s read path can safely be rewired
+  onto `get-game-state` — attempting the rewire without resolving this
+  first would regress the live game log (and sometimes throw) in ordinary
+  play, not just in a corner case.
 
 (See `RULE_ENFORCEMENT_PLAN.md` §10 for enforcement-specific open items:
 `RETRACT_CHOICE`/`RETRACT_DECLINE` design decisions, Edge Function
