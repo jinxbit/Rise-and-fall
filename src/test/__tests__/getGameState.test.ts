@@ -1,15 +1,18 @@
 // @vitest-environment node
 //
 // Self-test for the get-game-state Edge Function (HIDDEN_INFORMATION_PLAN.md
-// phase 5) against the production-simulating Supabase stack
+// phase 5/8) against the production-simulating Supabase stack
 // (src/test/supabaseStack/) — see supabaseStack.test.ts's own doc comment for
-// what "production-simulating" means here. Nothing calls this function from
-// the app yet (phase 8 is the client rewire), so this is currently the only
-// place its authorization/redaction behavior runs against the real
-// canReadGameState()/redactStateForPlayer() code paths rather than just the
+// what "production-simulating" means here. gameApi.ts's getGameStateRedacted
+// is the app's only caller (GamePage.tsx, for a game with both
+// ruleEnforcementEnabled and hiddenInformationEnabled on), so this is where
+// its authorization/redaction/opt-in-gating behavior runs against the real
+// canReadGameState()/redactStateForPlayer() code paths, rather than just the
 // engine-level redaction.test.ts unit tests.
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { buildGameLogFrom } from '../../engine/gameLog.ts'
+import { toClientGameState } from '../../engine/redaction.ts'
 import { buildGenesisState } from '../../lib/gameGenesis.ts'
 import type { GameRow, GameSettings, PlayerRow } from '../../lib/dbTypes.ts'
 import { createProductionStack, type ProductionStack } from '../supabaseStack/index.ts'
@@ -34,18 +37,22 @@ function settingsFor(overrides: Partial<GameSettings> = {}): GameSettings {
     soloBuilderTurnOrder: null,
     skipHotseatPassGate: false,
     ruleEnforcementEnabled: true,
+    // This file's default is opted in — most tests here are exercising
+    // actual redaction (GameSettings.hiddenInformationEnabled). The
+    // "not opted in"/hotseat tests below override it back to false.
+    hiddenInformationEnabled: true,
     activeTaleIds: [],
     gameLength: 3,
     ...overrides,
   }
 }
 
-function gameRow(settings: GameSettings, status: GameRow['status'] = 'active'): GameRow {
+function gameRow(settings: GameSettings, status: GameRow['status'] = 'active', playMode: GameRow['play_mode'] = 'live'): GameRow {
   return {
     id: GAME_ID,
     room_code: 'GETST',
     name: 'get-game-state self-test',
-    play_mode: 'live',
+    play_mode: playMode,
     status,
     min_players: 2,
     max_players: 2,
@@ -74,8 +81,8 @@ describe('get-game-state Edge Function', () => {
   })
 
   /** Plays board setup to completion (every starting unit placed) via the real apply-action function, landing on the round cycle's simultaneous selectCards phase with both seats pending. */
-  async function reachSelectCardsPhase() {
-    const game = gameRow(settingsFor())
+  async function reachSelectCardsPhase(settingsOverrides: Partial<GameSettings> = {}, playMode: GameRow['play_mode'] = 'live') {
+    const game = gameRow(settingsFor(settingsOverrides), 'active', playMode)
     const genesis = buildGenesisState(game, PLAYERS)
     await stack.seedStartedGame({ game, players: PLAYERS, genesis })
     stack.addUser(CAROL)
@@ -114,7 +121,7 @@ describe('get-game-state Edge Function', () => {
     expect(asBob.state.chosenCardIdByPlayerId['seat-bob']).toEqual({ chosen: true, cardId: bobCard })
   })
 
-  it('gives a site admin the raw, unredacted state', async () => {
+  it('gives a site admin the real pick, wrapped in the same RedactedGameState shape everyone else gets', async () => {
     const setup = await reachSelectCardsPhase()
     const bobCard = setup.players.find((p) => p.id === 'seat-bob')!.handCardIds[0]
     const chose = await stack.applyAction(BOB, GAME_ID, { type: 'CHOOSE_CARD', playerId: 'seat-bob', cardId: bobCard })
@@ -122,9 +129,36 @@ describe('get-game-state Edge Function', () => {
 
     const asAdmin = await stack.getGameState(ADMIN, GAME_ID)
     if (!asAdmin.ok) throw new Error(asAdmin.error)
-    // The raw (unredacted) shape, not RedactedChoice — the admin branch
-    // returns ctx.gameState.state as-is, never through redactStateForPlayer.
-    expect(asAdmin.state.chosenCardIdByPlayerId['seat-bob']).toBe(bobCard)
+    // Nothing is actually masked (revealedGameStateView, not
+    // redactStateForPlayer) — but the response is still RedactedChoice-shaped
+    // like every other caller's, so gameApi.ts's toClientGameState never has
+    // to sniff which shape it got back.
+    expect(asAdmin.state.chosenCardIdByPlayerId['seat-bob']).toEqual({ chosen: true, cardId: bobCard })
+  })
+
+  it("doesn't redact a game that hasn't opted into hiddenInformationEnabled, even with ruleEnforcementEnabled on", async () => {
+    const setup = await reachSelectCardsPhase({ hiddenInformationEnabled: false })
+    const bobCard = setup.players.find((p) => p.id === 'seat-bob')!.handCardIds[0]
+    const chose = await stack.applyAction(BOB, GAME_ID, { type: 'CHOOSE_CARD', playerId: 'seat-bob', cardId: bobCard })
+    if (!chose.ok) throw new Error(chose.error)
+
+    const asOwner = await stack.getGameState(ALICE, GAME_ID)
+    if (!asOwner.ok) throw new Error(asOwner.error)
+    expect(asOwner.state.chosenCardIdByPlayerId['seat-bob']).toEqual({ chosen: true, cardId: bobCard })
+  })
+
+  it('never redacts a hotseat game, regardless of hiddenInformationEnabled', async () => {
+    const setup = await reachSelectCardsPhase({ hiddenInformationEnabled: true }, 'hotseat')
+    const bobCard = setup.players.find((p) => p.id === 'seat-bob')!.handCardIds[0]
+    const chose = await stack.applyAction(BOB, GAME_ID, { type: 'CHOOSE_CARD', playerId: 'seat-bob', cardId: bobCard })
+    if (!chose.ok) throw new Error(chose.error)
+
+    // Asking as Alice's own auth user still sees Bob's real pick: one shared
+    // auth.uid() per local device means per-seat masking would just hide a
+    // local player's own pick from the device they're using to make it.
+    const asAlice = await stack.getGameState(ALICE, GAME_ID)
+    if (!asAlice.ok) throw new Error(asAlice.error)
+    expect(asAlice.state.chosenCardIdByPlayerId['seat-bob']).toEqual({ chosen: true, cardId: bobCard })
   })
 
   it('lets a signed-in stranger read a started game redacted with no seat of their own, but refuses a lobby game', async () => {
@@ -161,6 +195,26 @@ describe('get-game-state Edge Function', () => {
     stack.addUser(ALICE)
     const missing = await stack.getGameState(ALICE, '3f1c2d4e-0000-4000-8000-00000000dead')
     expect(missing).toMatchObject({ ok: false, status: 404 })
+  })
+
+  it("the client-side collapse (toClientGameState) of a real redacted response never crashes the game log while a pick is still pending — the phase-8 replay blocker this opt-in was scoped to close", async () => {
+    const setup = await reachSelectCardsPhase()
+    const genesis = buildGenesisState(gameRow(settingsFor()), PLAYERS)
+    const bobCard = setup.players.find((p) => p.id === 'seat-bob')!.handCardIds[0]
+    const chose = await stack.applyAction(BOB, GAME_ID, { type: 'CHOOSE_CARD', playerId: 'seat-bob', cardId: bobCard })
+    if (!chose.ok) throw new Error(chose.error)
+
+    const asOwner = await stack.getGameState(ALICE, GAME_ID)
+    if (!asOwner.ok) throw new Error(asOwner.error)
+    const client = toClientGameState(asOwner.state)
+
+    // Bob's still-secret pick simply isn't in the truncated actionHistory
+    // yet (unredactedPrefix) — buildGameLogFrom must not throw trying to
+    // replay a masked entry, which is exactly what the previous session
+    // found broken before this opt-in/truncation landed.
+    expect(() => buildGameLogFrom(genesis, client.actionHistory)).not.toThrow()
+    const { events } = buildGameLogFrom(genesis, client.actionHistory)
+    expect(events.some((e) => e.message.includes('chose to play'))).toBe(false)
   })
 
   it('reveals both picks once the selectCards phase resolves and moves on', async () => {

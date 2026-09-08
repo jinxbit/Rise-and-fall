@@ -17,27 +17,38 @@
 // "is this caller entitled to read this game's state at all" (canReadGameState,
 // mirroring game_state's current SELECT RLS policies, which this function's
 // service-role client otherwise bypasses entirely), then which *view* of it
-// they get: a `profiles.is_admin` caller gets the raw, unredacted state
-// (§4.5's admin carve-out — otherwise admin mode couldn't act on a
-// still-secret in-progress choice it can't see), a seated player gets
-// redactStateForPlayer keyed to their own seat, and anyone else entitled to
-// read at all — including the room owner, who is NOT trusted with another
-// player's hidden information just for having created the room (issue #450)
-// — gets it keyed to no seat at all, i.e. everything currently secret from
-// every player.
+// they get: a `profiles.is_admin` caller, or anyone reading a game that
+// isn't both ruleEnforcementEnabled and opted into
+// GameSettings.hiddenInformationEnabled, or hotseat (one shared auth.uid()
+// across every local seat — see below), gets revealedGameStateView — the
+// same RedactedGameState *shape* redactStateForPlayer returns, but with
+// nothing actually masked (§4.5's admin carve-out — otherwise admin mode
+// couldn't act on a still-secret in-progress choice it can't see). A seated
+// player in a hidden-information game gets redactStateForPlayer keyed to
+// their own seat, and anyone else entitled to read at all — including the
+// room owner, who is NOT trusted with another player's hidden information
+// just for having created the room (issue #450) — gets it keyed to no seat
+// at all, i.e. everything currently secret from every player.
 //
-// redactStateForPlayer also redacts `actionHistory` itself (2026-09-08),
-// not just the derived chosenCardIdByPlayerId/declineCardIds fields above —
-// see its own doc comment (redaction.ts) for why the raw log needed the
-// same treatment. Still not the sole read path yet: gameApi.ts's
-// getGameState() itself still reads the raw game_state row directly for
-// every game (RULE_ENFORCEMENT_PLAN.md §8 phase 8's still-outstanding
-// client rewire), so this is landing ahead of, and unconsumed by, that
-// rewire — the same safe-to-merge-early pattern this function's own initial
-// version (phase 5) already followed.
+// redactStateForPlayer also redacts `actionHistory` itself, not just the
+// derived chosenCardIdByPlayerId/declineCardIds fields above — see its own
+// doc comment (redaction.ts) for why the raw log needed the same treatment.
+//
+// gameApi.ts's getGameStateRedacted (RULE_ENFORCEMENT_PLAN.md §8 phase 8)
+// only actually calls this for a ruleEnforcementEnabled game that also
+// opted into GameSettings.hiddenInformationEnabled — every other game keeps
+// reading the `game_state` row directly via RLS, completely unaffected, so
+// this function's own behavior for the not-opted-in/hotseat/admin cases
+// above matters only for callers that go out of their way to invoke it
+// directly (e.g. this file's own test suite, or the admin room-configuration
+// panel), not for gameApi.ts's actual routing decision. Always returning the
+// same RedactedGameState *shape* regardless of whether anything's actually
+// masked (revealedGameStateView) keeps that decision simple on the rare
+// caller that does hit both branches, rather than making them sniff which
+// shape came back.
 //
 // Request body: `{ gameId: string }` — a read, so no action payload.
-import { redactStateForPlayer } from '../../../src/engine/redaction.ts'
+import { redactStateForPlayer, revealedGameStateView } from '../../../src/engine/redaction.ts'
 import { canReadGameState, corsHeaders, getCallerUserId, jsonResponse, loadGameContext, serviceRoleClient } from '../_shared/gameEnforcement.ts'
 
 interface GetGameStateRequest {
@@ -67,8 +78,23 @@ Deno.serve(async (req) => {
     return jsonResponse(403, { ok: false, error: 'You may not view this game.' })
   }
 
-  if (ctx.isAdmin) {
-    return jsonResponse(200, { ok: true, state: ctx.gameState.state, version: ctx.gameState.version })
+  // Opt-in (GameSettings.hiddenInformationEnabled, carried onto GameState at
+  // genesis — see its own doc comment): every game that existed before this
+  // flag, or didn't check the box, gets the same response shape but with
+  // nothing actually masked, same as the admin/hotseat carve-outs below —
+  // this function becomes the sole read path for every ruleEnforcementEnabled
+  // game (gameApi.ts), not just ones that opted into redaction.
+  //
+  // Hotseat is also never redacted regardless of the flag: one shared
+  // `auth.uid()` covers every local seat (HIDDEN_INFORMATION_PLAN.md §2), so
+  // `callerPlayerId` below would resolve to whichever seat happens to come
+  // first in `ctx.players` — meaningless for per-seat masking, and actively
+  // wrong (it would hide a local player's own pick from the very device
+  // they're using to make it).
+  const shouldRedact = ctx.gameState.state.hiddenInformationEnabled && ctx.game.play_mode !== 'hotseat'
+
+  if (ctx.isAdmin || !shouldRedact) {
+    return jsonResponse(200, { ok: true, state: revealedGameStateView(ctx.gameState.state), version: ctx.gameState.version })
   }
 
   const callerPlayerId = ctx.players.find((p) => p.user_id === callerUserId)?.id ?? null

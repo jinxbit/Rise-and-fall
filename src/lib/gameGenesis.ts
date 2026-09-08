@@ -29,6 +29,7 @@ export function buildGenesisState(game: GameRow, players: PlayerRow[]): GameStat
     resourceBank: resolveResourceBank(players.length),
     activeTaleIds: game.settings.activeTaleIds,
     gameLength: game.settings.gameLength,
+    hiddenInformationEnabled: game.settings.hiddenInformationEnabled,
   })
 
   if (game.settings.mapTemplateId) {

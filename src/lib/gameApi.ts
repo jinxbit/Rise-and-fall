@@ -10,6 +10,7 @@ import type { UnitPlateColorOverrides } from './unitColors'
 import { resolveUnitReserveDisplayMode, type UnitReserveDisplayMode } from './unitReserveDisplay'
 import type { Board, GameState as EngineGameState, GameStatus, PlayMode, RoundPhase } from '../engine/types'
 import type { Action } from '../engine/actions'
+import { toClientGameState, type RedactedGameState } from '../engine/redaction'
 
 /**
  * Reads a user's Discord webhook URL (supabase/migrations/0005_discord_webhooks.sql).
@@ -197,6 +198,8 @@ export async function createGame(params: {
   skipHotseatPassGate?: boolean
   /** Opt in to RULE_ENFORCEMENT_PLAN.md's server-side rule enforcement for this game (see GameSettings.ruleEnforcementEnabled). Defaults to false when omitted, so a caller that doesn't care gets the client-trusted path; CreateGamePage.tsx's checkbox itself defaults to *checked* (issue #432), so games created through the UI are enforced unless the creator opts out. */
   ruleEnforcementEnabled?: boolean
+  /** Opt in to HIDDEN_INFORMATION_PLAN.md's redacted read path (see GameSettings.hiddenInformationEnabled) — only meaningful alongside ruleEnforcementEnabled. Defaults to false when omitted. */
+  hiddenInformationEnabled?: boolean
   /** Content ids of active Tales (src/content/tales.json) for the Tales variant, or omitted/empty for none. */
   activeTaleIds?: string[]
   /** Total achievements claimed (across all players) that ends the game — content/achievements.json's gameLength.min/max bounds it (1-6). Defaults to gameLength.default (4). */
@@ -222,6 +225,7 @@ export async function createGame(params: {
     soloBuilderTurnOrder: null,
     skipHotseatPassGate: params.skipHotseatPassGate ?? false,
     ruleEnforcementEnabled: params.ruleEnforcementEnabled ?? false,
+    hiddenInformationEnabled: params.hiddenInformationEnabled ?? false,
     activeTaleIds: params.activeTaleIds ?? [],
     gameLength: params.gameLength ?? 4,
   }
@@ -752,6 +756,27 @@ export async function getGameState(gameId: string): Promise<GameStateSnapshot | 
 }
 
 /**
+ * HIDDEN_INFORMATION_PLAN.md §8 phase 8's redacted read path: reads via the
+ * `get-game-state` Edge Function instead of the raw `game_state` row, so a
+ * still-secret pick never reaches this browser's network stack in the first
+ * place — see that function's own doc comment for exactly which callers get
+ * masked. Only ever called for a game with both
+ * GameSettings.ruleEnforcementEnabled and hiddenInformationEnabled true (see
+ * GamePage.tsx's callers below); every other game keeps calling getGameState
+ * above, completely unaffected by this function's existence. `null` covers
+ * both "no game_state row yet" (404) and any other non-2xx response, mirroring
+ * getGameState's own "no row" contract rather than surfacing transient errors
+ * differently from that path.
+ */
+export async function getGameStateRedacted(gameId: string): Promise<GameStateSnapshot | null> {
+  const { data, error } = await supabase.functions.invoke('get-game-state', { body: { gameId } })
+  if (error) return null
+  const result = data as { ok: true; state: RedactedGameState; version: number } | { ok: false; error: string }
+  if (!result.ok) return null
+  return { state: toClientGameState(result.state), version: result.version }
+}
+
+/**
  * Writes a new GameState produced by applyAction(), guarded by the row's
  * `version` (see 0001_init_schema.sql's game_state comment) so two clients
  * racing to submit an action can't silently clobber each other — returns
@@ -831,17 +856,22 @@ export async function redoActionEnforced(gameId: string): Promise<GameEnforcemen
  * This is deliberately just the read-side subscription swap this table was
  * already landed for (see its migration's doc comment and
  * `HIDDEN_INFORMATION_PLAN.md` §5.2/§6) — it doesn't touch `game_state`'s
- * RLS, writes, or redaction, so it's independent of `RULE_ENFORCEMENT_PLAN.md`
- * §8 phase 8's larger, still-in-progress rewire.
+ * RLS or writes.
+ *
+ * `redacted` (default false) swaps the refetch onto getGameStateRedacted
+ * instead of getGameState — pass true for a game with both
+ * ruleEnforcementEnabled and hiddenInformationEnabled on (GamePage.tsx),
+ * same condition as every other read-path choice in this file.
  */
-export function subscribeToGameState(gameId: string, onChange: (snapshot: GameStateSnapshot) => void): () => void {
+export function subscribeToGameState(gameId: string, onChange: (snapshot: GameStateSnapshot) => void, redacted = false): () => void {
+  const fetchState = redacted ? getGameStateRedacted : getGameState
   const channel = supabase
     .channel(`game_state:${gameId}`)
     .on(
       'postgres_changes',
       { event: '*', schema: 'public', table: 'game_state_meta', filter: `game_id=eq.${gameId}` },
       () => {
-        void getGameState(gameId).then((snapshot) => {
+        void fetchState(gameId).then((snapshot) => {
           if (snapshot) onChange(snapshot)
         })
       },

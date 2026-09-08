@@ -134,6 +134,67 @@ export function redactStateForPlayer(state: GameState, viewerId: string | null):
 }
 
 /**
+ * The `RedactedGameState` shape with nothing actually masked — every
+ * `chosenCardIdByPlayerId` entry reported as its real value regardless of
+ * viewer. Used by get-game-state/index.ts for callers `redactStateForPlayer`
+ * itself never masks anything from (the §4.5 site-admin carve-out, and
+ * hotseat's one-shared-`auth.uid()` case — see that function's own doc
+ * comment), so every caller of get-game-state gets the same response shape
+ * back regardless of whether they're actually being redacted, and
+ * gameApi.ts's toClientGameState below never needs to sniff which shape it
+ * received.
+ */
+export function revealedGameStateView(state: GameState): RedactedGameState {
+  const chosenCardIdByPlayerId: Record<string, RedactedChoice> = {}
+  for (const [playerId, cardId] of Object.entries(state.chosenCardIdByPlayerId)) {
+    chosenCardIdByPlayerId[playerId] = cardId === null ? { chosen: false } : { chosen: true, cardId }
+  }
+  return { ...state, chosenCardIdByPlayerId }
+}
+
+/**
+ * The client-side inverse of redactStateForPlayer/revealedGameStateView —
+ * collapses a get-game-state response back into a plain GameState so the
+ * rest of the app (gameLog.ts, turnReview.ts, scoreHistory.ts, unitValue.ts,
+ * historyFold.ts, every RoundView.tsx render path) can keep consuming
+ * `GameState` exactly as it always has, with no separate redacted-state
+ * type threaded through the client. The only caller is gameApi.ts's
+ * getGameStateRedacted.
+ *
+ * Two fields are genuinely lossy, both deliberately:
+ * - `chosenCardIdByPlayerId`: `{chosen: true, cardId: null}` (masked, but
+ *   chosen) collapses to `null`, same as `{chosen: false}` (not chosen) —
+ *   indistinguishable once collapsed. Every current reader of another
+ *   player's entry in this field (RoundView.tsx) only actually looks at it
+ *   once `roundPhase === 'actions'`, by which point that phase has
+ *   necessarily resolved and nothing is masked anymore (see
+ *   redactStateForPlayer) — so this collapse never actually loses
+ *   information a reader depends on today. A future reader that wants to
+ *   show "chosen, not yet revealed" during selectCards itself would need to
+ *   consume `RedactedChoice` directly instead of calling this function.
+ * - `players[].declineCardIds`: masked entries are kept as `null` in place
+ *   (array length/order preserved) rather than filtered out — every reader
+ *   (kindsInZone/sortCardIdsForDisplay in RoundView.tsx/EndGameView.tsx)
+ *   already does a `cards[id]` lookup that quietly drops an unrecognized id,
+ *   so a `null` here just under-counts a still-secret pile by omission
+ *   rather than crashing or fabricating a value — and only for an *other*
+ *   player's pile; a viewer's own is never masked.
+ *
+ * `actionHistory` is truncated via unredactedPrefix rather than collapsed —
+ * see that function's own doc comment for why dropping the still-secret
+ * tail, rather than inventing placeholder cardIds for it, is the safe
+ * choice there.
+ */
+export function toClientGameState(redacted: RedactedGameState): GameState {
+  const chosenCardIdByPlayerId: Record<string, string | null> = {}
+  for (const [playerId, choice] of Object.entries(redacted.chosenCardIdByPlayerId)) {
+    chosenCardIdByPlayerId[playerId] = choice.chosen ? choice.cardId : null
+  }
+  const players = redacted.players.map((player) => ({ ...player, declineCardIds: player.declineCardIds as string[] }))
+  return { ...redacted, chosenCardIdByPlayerId, players, actionHistory: unredactedPrefix(redacted.actionHistory) }
+}
+
+/**
  * Read-side view of a narration log (see GameEvent/gameLog.ts) for a
  * specific viewer (`viewerId`, null for a non-player observer) — masks the
  * same still-secret-pick window `redactStateForPlayer` masks in
@@ -162,6 +223,42 @@ export function redactGameLog(events: GameEvent[], state: GameState, viewerId: s
     if (!hideChosenCards || event.secret.turn !== state.turn) return event
     return { ...event, message: event.secret.redactedMessage }
   })
+}
+
+/**
+ * The longest prefix of a (possibly redacted) actionHistory that's safe to
+ * feed straight into applyAction()/replayActions() — i.e. everything before
+ * the first still-masked CHOOSE_CARD/MOVE_TO_DECLINE entry, if any (see
+ * RedactedGameState's own doc comment: a masked entry's `cardId: null` isn't
+ * a legal action payload, and replayActions throws outright on one).
+ *
+ * A masked entry, once it exists at all, is always part of the *current*
+ * still-unresolved simultaneous phase (redactStateForPlayer only ever masks
+ * `entry.turn === state.turn` while that phase hasn't resolved) — so nothing
+ * downstream of it changes VP/resources/board (CHOOSE_CARD/MOVE_TO_DECLINE
+ * never do), and truncating there simply means derived views (the game log,
+ * "Show history" turn stops, score/unit-value history) stop exactly where
+ * the viewer's own knowledge does, then catch up in one step once the
+ * server sends the real entries back unmasked (see
+ * HIDDEN_INFORMATION_PLAN.md §5.1/§8's "reveals automatically once the phase
+ * resolves"). `pendingPlayerIds`/`roundPhase` (never masked — see
+ * redactStateForPlayer) already tell a viewer "N players still deciding"
+ * independent of this.
+ *
+ * The only caller today is gameApi.ts's toClientGameState — the client-side
+ * collapse of a RedactedGameState response back into a plain GameState the
+ * rest of the app (gameLog.ts, turnReview.ts, scoreHistory.ts, unitValue.ts,
+ * historyFold.ts — none of which know anything about redaction) can keep
+ * consuming completely unmodified.
+ */
+export function unredactedPrefix(actionHistory: RedactedLoggedAction[]): LoggedAction[] {
+  const firstMaskedIndex = actionHistory.findIndex(
+    (entry) =>
+      (entry.action.type === 'CHOOSE_CARD' || entry.action.type === 'MOVE_TO_DECLINE') && entry.action.cardId === null,
+  )
+  const prefix = firstMaskedIndex === -1 ? actionHistory : actionHistory.slice(0, firstMaskedIndex)
+  // Safe: nothing in `prefix` has a null cardId by construction above.
+  return prefix as LoggedAction[]
 }
 
 /**
