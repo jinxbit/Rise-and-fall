@@ -1,14 +1,4 @@
-import { EMPTY_ACHIEVEMENT_CONTENT } from './achievementContent'
-import type { AchievementContent } from './achievementContent'
-import type { LoggedAction } from './actions'
-import { EMPTY_BOARD_GENERATION_CONTENT } from './boardGenerationContent'
-import type { BoardGenerationContent } from './boardGenerationContent'
-import { computeRevealedPhaseMarks, revealMarkKey, stateAtPointer } from './historyPointer'
-import { EMPTY_TALE_CONTENT } from './taleContent'
-import type { TaleContent } from './taleContent'
-import type { GameEvent, GameState, Player } from './types'
-import { EMPTY_UNIT_CONTENT } from './unitContent'
-import type { UnitContent } from './unitContent'
+import type { GameEvent, GameState, Player } from './types.ts'
 
 /**
  * A player's simultaneous-phase card pick (GameState.chosenCardIdByPlayerId),
@@ -34,7 +24,8 @@ export type RedactedGameState = Omit<GameState, 'chosenCardIdByPlayerId' | 'play
 
 /**
  * Read-side view of GameState for a specific viewer (`viewerId`, one of
- * GameState.players[].id, or a non-player observer). Masks the two windows
+ * GameState.players[].id, or `null` for a non-player observer — same
+ * convention as redactGameLog below). Masks the two windows
  * of transient hidden information the game has per
  * HIDDEN_INFORMATION_PLAN.md §2/§5.1:
  *
@@ -49,26 +40,26 @@ export type RedactedGameState = Omit<GameState, 'chosenCardIdByPlayerId' | 'play
  * resources, VP, etc.) is public per §2 and passes through unchanged.
  *
  * Pure and side-effect-free, like the rest of src/engine/ — the caller
- * (eventually the `get_game_state` RPC, see §5.2) is responsible for
+ * (the `get-game-state` Edge Function, see §5.2) is responsible for
  * actually keeping this the only view an opponent's client ever receives.
  * Note this does NOT redact `actionHistory` — see §5.2 for why that's a
  * separate, later concern (a raw-row Realtime broadcast bypasses this
  * function entirely, so scrubbing this return value alone can't be the
  * whole fix; the RPC that eventually wraps this needs its own handling).
  *
- * `revealed` (default false) is §5.3's reveal high-water mark, already
- * resolved by the caller for `state`'s own (turn, roundPhase) — pass true
- * to force this phase's masking off even though `state.pendingPlayerIds`
- * looks mid-phase, for a viewer who already legitimately saw it resolve on
- * the live tip before a review-only pointer rewind replayed back into it.
- * Most callers reading the live tip state (where "resolved" and
- * "`pendingPlayerIds` empty" always agree) can safely omit it; only a
- * pointer-aware caller like redactStateForPlayerAtPointer below needs to
- * pass it explicitly.
+ * §5.3's "reveal high-water mark" (keeping an already-resolved phase from
+ * flickering back to masked for a viewer who rewinds *review-only*, with no
+ * branch, back into it) was scoped for this function but dropped per
+ * jinxbit, 2026-09-06: this always derives strictly from `state`'s own
+ * `roundPhase`/`pendingPlayerIds`, so a reviewed-but-not-branched rewind
+ * re-masks an already-seen phase exactly as if it hadn't resolved yet. This
+ * is a display flicker on review, not a leak (the viewer's own client
+ * already rendered the real value before the rewind), and dropping it is
+ * what let `get-game-state` ship as a straight read of the live state
+ * instead of needing a full engine replay to compute the mark.
  */
-export function redactStateForPlayer(state: GameState, viewerId: string, opts: { revealed?: boolean } = {}): RedactedGameState {
-  const revealed = opts.revealed ?? false
-  const hideChosenCards = !revealed && state.roundPhase === 'selectCards' && state.pendingPlayerIds.length > 0
+export function redactStateForPlayer(state: GameState, viewerId: string | null): RedactedGameState {
+  const hideChosenCards = state.roundPhase === 'selectCards' && state.pendingPlayerIds.length > 0
 
   const chosenCardIdByPlayerId: Record<string, RedactedChoice> = {}
   for (const [playerId, cardId] of Object.entries(state.chosenCardIdByPlayerId)) {
@@ -80,7 +71,7 @@ export function redactStateForPlayer(state: GameState, viewerId: string, opts: {
     chosenCardIdByPlayerId[playerId] = { chosen: true, cardId: visible ? cardId : null }
   }
 
-  const declineAdditionsThisPhaseByPlayerId = revealed ? new Map<string, Set<string>>() : declineAdditionsThisPhase(state)
+  const declineAdditionsThisPhaseByPlayerId = declineAdditionsThisPhase(state)
 
   const players: RedactedPlayer[] = state.players.map((player) => {
     const secretCardIds = player.id === viewerId ? undefined : declineAdditionsThisPhaseByPlayerId.get(player.id)
@@ -93,35 +84,6 @@ export function redactStateForPlayer(state: GameState, viewerId: string, opts: {
   })
 
   return { ...state, chosenCardIdByPlayerId, players }
-}
-
-/**
- * §5.3's pointer-aware entry point: redacts the state as of `pointer`, but
- * — unlike calling stateAtPointer + redactStateForPlayer directly — never
- * re-masks a `selectCards`/`decline` phase that already resolved somewhere
- * on the live tip (`tipHistory`), even when `pointer` rewinds back into it
- * with no branch involved. `tipHistory` must be the *actual, unpruned* tip
- * history (not `history.slice(0, pointer)`): computeRevealedPhaseMarks
- * needs the full log to know what's genuinely resolved, and a branch that
- * prunes a resolving entry naturally stops producing that mark the next
- * time this is called with the new tip — see computeRevealedPhaseMarks'
- * own doc comment for why that needs no separate delete step.
- */
-export function redactStateForPlayerAtPointer(
-  genesis: GameState,
-  tipHistory: LoggedAction[],
-  pointer: number,
-  viewerId: string,
-  unitContent: UnitContent = EMPTY_UNIT_CONTENT,
-  achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT,
-  boardGenerationContent: BoardGenerationContent = EMPTY_BOARD_GENERATION_CONTENT,
-  taleContent: TaleContent = EMPTY_TALE_CONTENT,
-): RedactedGameState {
-  const state = stateAtPointer(genesis, tipHistory, pointer, unitContent, achievementContent, boardGenerationContent, taleContent)
-  const revealedMarks = computeRevealedPhaseMarks(genesis, tipHistory, unitContent, achievementContent, boardGenerationContent, taleContent)
-  const revealed =
-    (state.roundPhase === 'selectCards' || state.roundPhase === 'decline') && revealedMarks.has(revealMarkKey(state.turn, state.roundPhase))
-  return redactStateForPlayer(state, viewerId, { revealed })
 }
 
 /**

@@ -108,6 +108,21 @@ view, not a rule):
 
 ### 5.2 Where redaction runs
 
+**Update (2026-09-08, phase 5 shipped): this section's original framing was
+superseded — see §10 for the full story.** `get_game_state` was scoped below
+as a plain SQL/plpgsql RPC on the theory that redaction is pure
+field-nulling, not game rules. That held until §5.3's reveal high-water mark
+needed a full engine replay to compute, which would have meant duplicating
+`applyAction()` logic in SQL. §5.3 was dropped (2026-09-06, see that
+section) specifically to avoid that duplication, which reopened the plain
+field-nulling framing — but by then the decision had already landed the
+other way: `get-game-state` shipped as a Deno/TS Edge Function
+(`supabase/functions/get-game-state/index.ts`) reusing
+`redactStateForPlayer()` unmodified, consistent with
+`RULE_ENFORCEMENT_PLAN.md` §3's reuse-the-engine principle, rather than as a
+Postgres RPC. The rest of this section (the original SQL-RPC framing below)
+is left as the historical record of the initial design; it did not ship.
+
 The masking logic is field-nulling, not game rules, so it doesn't need to
 live in an Edge Function. Read-side redaction runs as a
 `SECURITY DEFINER` Postgres RPC, `get_game_state(game_id)`, deployed via an
@@ -137,6 +152,27 @@ subsumes `game_state_meta`'s existing purpose today (see
 full state and would need reworking either way).
 
 ### 5.3 Sticky reveal across undo — the reveal high-water mark
+
+**Dropped (2026-09-06), per jinxbit's offer to simplify if it complicated
+phase 5 — it did.** Computing the mark requires `computeRevealedPhaseMarks()`
+to replay the *entire* history through `applyAction()` (see §10's account of
+why that's in tension with `get_game_state` being simple field-nulling), and
+with the mark gone, `redactStateForPlayer()` needs no `revealed` parameter
+and reuses cleanly from `get-game-state` (§5.2, §8 phase 5) with no replay at
+all. `computeRevealedPhaseMarks`/`revealMarkKey`/`redactStateForPlayerAtPointer`
+are deleted (`src/engine/historyPointer.ts`, `src/engine/redaction.ts`) along
+with their tests — they were dead code in production (only phase 3 built
+them; nothing downstream ever called them, since phase 5 is what would have
+called `redactStateForPlayerAtPointer`). The rest of this section is kept
+below as the historical record of the design that was dropped.
+
+**What this actually trades away:** a review-only pointer rewind (no
+branch) back into an already-resolved `selectCards`/`decline` phase now
+flickers back to masked for the duration of the rewind, instead of staying
+revealed. Per this section's own §5.3 analysis, that's "a flicker, not a
+leak" — the viewer's client already rendered the real value before the
+rewind, and nothing new reaches the network. Acceptable given the
+alternative (an engine replay inside a "just field-nulling" read function).
 
 [Issue #407](https://github.com/jinxbit/Rise-and-fall/issues/407) proposed
 moving hidden fields into a dedicated column that's cleared into the public
@@ -198,6 +234,17 @@ discarded.
 
 ### 5.4 What actually runs today (client-side)
 
+**Update (2026-09-08): phase 5's `get-game-state` Edge Function now exists
+(`supabase/functions/get-game-state/index.ts`), but nothing calls it yet.**
+`gameApi.ts`'s `getGameState()` still reads the raw `game_state` row
+directly for every caller — the rewire onto `get-game-state` is
+`RULE_ENFORCEMENT_PLAN.md` §8 phase 8, a separate, larger step. Until that
+lands, the paragraph below (written 2026-09-07, before phase 5) still
+accurately describes what's actually reachable over the network: this
+section's own point stands unchanged — client-side redaction is a UX
+guarantee, not a security one, until phase 8 makes `get-game-state` the
+only read path.
+
 **Update (2026-09-07).** §5.2's server-side read path doesn't exist yet
 (phase 5), but redaction is not sitting unused in the meantime — it is
 applied client-side, which hides secrets in the *UI* without keeping them
@@ -247,16 +294,15 @@ it doesn't touch `game_state`'s RLS, writes, or redaction, so `get_game_state`
 (§5) and the write-side lockdown (`RULE_ENFORCEMENT_PLAN.md` §6/§8 phase 8)
 are unaffected and still outstanding.
 
-- ~~**New: reveal high-water mark (§5.3)**~~ — **turned out to be
-  unnecessary as persisted state.** `computeRevealedPhaseMarks()`
-  (`src/engine/historyPointer.ts`) is already "deliberately a pure function
-  of `history` rather than separately persisted, mutable state" (its own
-  doc comment) — a mark can't outlive the resolving entry that produced it,
-  since it's recomputed from `actionHistory` on every call. §10 has an open
-  item on what this means for `get_game_state`'s implementation, though:
-  computing it requires replaying the *engine*, not just field-nulling,
-  which is more than the "field-nulling, not game rules" characterization
-  §5.2 gives `get_game_state` accounted for.
+- ~~**New: reveal high-water mark (§5.3)**~~ — **dropped outright
+  (2026-09-06)**, not just simplified. It was already "deliberately a pure
+  function of `history` rather than separately persisted, mutable state"
+  (its own doc comment) — no column was ever needed regardless — but
+  computing it still requires replaying the *engine* on every read, not
+  just field-nulling, which was in tension with `get_game_state`'s "just
+  field-nulling" framing enough that it was simplest to drop it rather than
+  resolve that tension. See §5.3 and §10 for the full story; no data-model
+  change resulted either way.
 - `game_state`'s RLS lockdown to service-role-only, and the removal of the
   `historyPointer`/archived-tail columns this document's prior draft also
   scoped here, live in `RULE_ENFORCEMENT_PLAN.md` §6 — they're enforcement
@@ -297,16 +343,29 @@ to hidden information (6) are omitted here.
    because a pruned resolving entry just isn't in the new tip anymore, no
    explicit delete step needed. `redactStateForPlayerAtPointer()`
    (`redaction.ts`) is the pointer-aware entry point that consults it.
+   **Later dropped in full (2026-09-06) — see §5.3.**
 4. **DB migration** — **`game_state_meta` done** (§6,
    `0025_game_state_meta.sql`). Nothing else needed on this document's side
    of phase 4 (the reveal high-water mark needed no column — §6 above).
-5. **`get_game_state` SQL RPC** (read-side redaction, §5.1–5.2) + migration
-   — **open design question first, see §10:** §5.3's reveal high-water mark
-   needs a full engine replay (`computeRevealedPhaseMarks()`), not the plain
-   field-nulling §5.2 originally scoped this RPC as, which is a real tension
-   with implementing it as plain SQL/plpgsql instead of an Edge Function.
+5. **`get-game-state` read path (§5.1–5.2) — done (2026-09-08).** The §10
+   open question resolved in favor of an Edge Function
+   (`supabase/functions/get-game-state/index.ts`), not a SQL RPC, once §5.3
+   was dropped, removing the tension that question was about: no replay
+   needed, so it's a straight reuse of `redactStateForPlayer()` against the
+   live state. Gates access with `canReadGameState()`
+   (`supabase/functions/_shared/gameEnforcement.ts`), mirroring
+   `game_state`'s current RLS SELECT policies since the service-role client
+   bypasses RLS entirely. Returns the raw, unredacted state only for
+   `profiles.is_admin` callers (§4.5's carve-out) — **not** the room owner,
+   per jinxbit's 2026-09-06 follow-up on issue #450: creating a room is not
+   a reason to see another player's still-secret pick. Everyone else
+   (seated players, and any other visitor `canReadGameState` admits) gets
+   `redactStateForPlayer` keyed to their own seat (or no seat, for a
+   non-player visitor). Nothing calls this function yet — see phase 8.
 7. **CI deploy workflow** — done, see `RULE_ENFORCEMENT_PLAN.md` §7; covers
-   this document's `get_game_state` deploy too.
+   this document's `get-game-state` deploy too (`supabase functions deploy`
+   with no arguments deploys every function under `supabase/functions/`
+   generically, so the new function needed no separate wiring there).
 8. **Rewire `gameApi.ts`** and every call site (`GamePage.tsx`,
    `LobbyPage.tsx`, `RoundView.tsx`, `BoardSetupView.tsx`) from direct
    `game_state` reads onto `get_game_state` specifically (see

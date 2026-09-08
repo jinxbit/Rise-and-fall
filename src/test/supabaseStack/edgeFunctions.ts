@@ -1,5 +1,5 @@
-// Loads the three real Edge Functions — supabase/functions/{apply,undo,redo}
-// -action/index.ts, unmodified — into the vitest process.
+// Loads the real Edge Functions — supabase/functions/{apply,undo,redo}-action
+// and get-game-state's index.ts, unmodified — into the vitest process.
 //
 // Each of those files ends in a top-level `Deno.serve(handler)`, so stubbing
 // `Deno.serve` is all it takes to capture the handler and then call it with
@@ -17,7 +17,7 @@
 
 import { ANON_KEY, SERVICE_ROLE_KEY, STACK_URL, type EdgeFunctionHandler } from './httpServer.ts'
 
-export const EDGE_FUNCTION_NAMES = ['apply-action', 'undo-action', 'redo-action'] as const
+export const EDGE_FUNCTION_NAMES = ['apply-action', 'undo-action', 'redo-action', 'get-game-state'] as const
 export type EdgeFunctionName = (typeof EDGE_FUNCTION_NAMES)[number]
 
 const EDGE_FUNCTION_ENV: Record<string, string> = {
@@ -60,6 +60,8 @@ async function captureHandlers(): Promise<Map<string, EdgeFunctionHandler>> {
   await import('../../../supabase/functions/undo-action/index.ts')
   loading = 'redo-action'
   await import('../../../supabase/functions/redo-action/index.ts')
+  loading = 'get-game-state'
+  await import('../../../supabase/functions/get-game-state/index.ts')
   loading = null
 
   for (const name of EDGE_FUNCTION_NAMES) {

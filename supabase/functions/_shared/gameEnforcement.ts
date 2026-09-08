@@ -55,6 +55,8 @@ export interface GameRow {
   id: string
   play_mode: 'hotseat' | 'live' | 'async'
   created_by: string
+  /** Room lifecycle status (0008_room_lifecycle.sql) — only get-game-state's read-visibility check (mirroring 0021_remove_observers.sql's RLS policy) uses this today; apply-action/undo-action/redo-action ignore it. */
+  status: 'lobby' | 'active' | 'completed' | 'canceled'
 }
 export interface PlayerRow {
   id: string
@@ -102,14 +104,16 @@ export interface GameContext {
   game: GameRow
   players: PlayerRow[]
   gameState: GameStateRow
-  /** games.created_by or profiles.is_admin — §4.5's carve-out, checked from the DB rather than trusted from the client. */
+  /** profiles.is_admin, checked from the DB rather than trusted from the client. The one caller get-game-state trusts with a still-secret pick (§4.5) — unlike isOwnerOrAdmin below, the room owner does NOT get this, per jinxbit's follow-up on issue #450: an owner is still just a player, with no rules reason to see another player's hidden information. */
+  isAdmin: boolean
+  /** games.created_by or profiles.is_admin — §4.4/§4.5's write-side act-as-any-player/history-override carve-out. Deliberately broader than isAdmin: forcing an action through (e.g. for a stuck/AFK player) is an owner responsibility today, unrelated to reading someone else's still-secret state (see isAdmin above, and get-game-state/index.ts's use of isAdmin instead of this for its unredacted-read branch). */
   isOwnerOrAdmin: boolean
 }
 
 /** Loads everything apply-action/undo-action/redo-action need about one game in one place, or null if the game/its state doesn't exist. */
 export async function loadGameContext(supabase: SupabaseClient, gameId: string, callerUserId: string): Promise<GameContext | null> {
   const [{ data: game, error: gameError }, { data: players, error: playersError }, { data: gameState, error: stateError }] = await Promise.all([
-    supabase.from('games').select('id, play_mode, created_by').eq('id', gameId).maybeSingle(),
+    supabase.from('games').select('id, play_mode, created_by, status').eq('id', gameId).maybeSingle(),
     supabase.from('players').select('id, user_id').eq('game_id', gameId),
     supabase.from('game_state').select('state, version').eq('game_id', gameId).maybeSingle(),
   ])
@@ -121,12 +125,14 @@ export async function loadGameContext(supabase: SupabaseClient, gameId: string, 
   const { data: profile, error: profileError } = await supabase.from('profiles').select('is_admin').eq('user_id', callerUserId).maybeSingle()
   if (profileError) throw profileError
 
+  const isAdmin = profile?.is_admin ?? false
   const rawGameState = gameState as RawGameStateRow
   return {
     game,
     players,
     gameState: { state: await decompressGameStateFromStorage(rawGameState.state), version: rawGameState.version },
-    isOwnerOrAdmin: game.created_by === callerUserId || (profile?.is_admin ?? false),
+    isAdmin,
+    isOwnerOrAdmin: game.created_by === callerUserId || isAdmin,
   }
 }
 
@@ -142,6 +148,22 @@ export function isAuthorizedToActAs(ctx: GameContext, callerUserId: string, play
   if (ctx.isOwnerOrAdmin) return true
   if (ctx.game.play_mode === 'hotseat') return ctx.players.some((p) => p.user_id === callerUserId)
   return ctx.players.some((p) => p.id === playerId && p.user_id === callerUserId)
+}
+
+/**
+ * get-game-state's read-visibility check — mirrors `game_state`'s current
+ * SELECT RLS policies (0021_remove_observers.sql: seated player, or any
+ * signed-in user once the game is past 'lobby'; 0024_admin_read_all_game_state.sql:
+ * an admin, of anything, always) exactly, since a service-role-client Edge
+ * Function bypasses RLS entirely and so has to reimplement whatever gate RLS
+ * would otherwise have provided. Deliberately keyed on `isAdmin`, not the
+ * broader `isOwnerOrAdmin` — RLS itself gives the room owner no special read
+ * access beyond being a seated player, so neither should this.
+ */
+export function canReadGameState(ctx: GameContext, callerUserId: string): boolean {
+  if (ctx.isAdmin) return true
+  if (ctx.players.some((p) => p.user_id === callerUserId)) return true
+  return ctx.game.status !== 'lobby'
 }
 
 /**

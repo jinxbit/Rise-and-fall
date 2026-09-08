@@ -25,6 +25,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import type { Action } from '../../engine/actions.ts'
 import { applyAction } from '../../engine/applyAction.ts'
 import { applyRedoAction, applyUndoAction } from '../../engine/undoRedo.ts'
+import type { RedactedGameState } from '../../engine/redaction.ts'
 import type { GameState } from '../../engine/types.ts'
 import type { GameRow, PlayerRow } from '../../lib/dbTypes.ts'
 import { decompressGameStateFromStorage, type StoredGameState } from '../../lib/gameStateCompression.ts'
@@ -38,6 +39,9 @@ export type { GameStateRow, ProfileRow }
 
 /** Mirrors gameApi.ts's GameEnforcementResult, plus the HTTP status so a test can assert 403 vs 409 vs 400. */
 export type EnforcedCallResult = ({ ok: true; state: GameState; version: number } | { ok: false; error: string }) & { status: number }
+
+/** get-game-state's response shape — `state` is redacted for anyone but a `profiles.is_admin` caller (see canReadGameState/index.ts). */
+export type GameStateReadResult = ({ ok: true; state: GameState | RedactedGameState; version: number } | { ok: false; error: string }) & { status: number }
 
 export interface ProductionStack {
   /** RLS-free access to the tables, for arranging fixtures and asserting on what landed. */
@@ -58,8 +62,10 @@ export interface ProductionStack {
    * insert policy is exercised rather than bypassed.
    */
   seedStartedGame(options: { game: GameRow; players: PlayerRow[]; genesis: GameState; admins?: string[] }): Promise<void>
-  /** gameApi.ts's getGameState, as `userId` — decompressed, RLS-gated, null if the row isn't readable or doesn't exist. */
+  /** gameApi.ts's getGameState, as `userId` — decompressed, RLS-gated, null if the row isn't readable or doesn't exist. This is the current (unredacted) direct-table read; nothing calls get-game-state yet (HIDDEN_INFORMATION_PLAN.md §8 phase 8 still outstanding), which is exactly what getGameState below exists to exercise ahead of that rewire. */
   readGameState(userId: string, gameId: string): Promise<{ state: GameState; version: number } | null>
+  /** Calls the real get-game-state Edge Function as `userId` — the redacted read path HIDDEN_INFORMATION_PLAN.md phase 5 added, not yet wired into any client call site. */
+  getGameState(userId: string, gameId: string): Promise<GameStateReadResult>
   /** Submits `action` to the real apply-action Edge Function as `userId`, the way gameApi.ts's applyActionEnforced does. */
   applyAction(userId: string, gameId: string, action: Action): Promise<EnforcedCallResult>
   undoAction(userId: string, gameId: string): Promise<EnforcedCallResult>
@@ -181,7 +187,7 @@ export async function createProductionStack(): Promise<ProductionStack> {
    * own `{ok:false, error}` body inside `error.context`. Reproducing that
    * unwrapping here is the point — it's the shape the app has to cope with.
    */
-  async function invoke(name: EdgeFunctionName, userId: string, body: Record<string, unknown>): Promise<EnforcedCallResult> {
+  async function invoke<TState = GameState>(name: EdgeFunctionName, userId: string, body: Record<string, unknown>): Promise<({ ok: true; state: TState; version: number } | { ok: false; error: string }) & { status: number }> {
     const { data, error } = await clientFor(userId).functions.invoke(name, { body })
     if (error) {
       const context = (error as { context?: Response }).context
@@ -197,7 +203,7 @@ export async function createProductionStack(): Promise<ProductionStack> {
       }
       return { ok: false, error: error.message, status: 0 }
     }
-    return { ...(data as { ok: true; state: GameState; version: number }), status: 200 }
+    return { ...(data as { ok: true; state: TState; version: number }), status: 200 }
   }
 
   /**
@@ -267,6 +273,7 @@ export async function createProductionStack(): Promise<ProductionStack> {
       return { state: await decompressGameStateFromStorage(data.state as StoredGameState), version: data.version as number }
     },
 
+    getGameState: (userId, gameId) => invoke<GameState | RedactedGameState>('get-game-state', userId, { gameId }),
     applyAction: (userId, gameId, action) => invoke('apply-action', userId, { gameId, action }),
     undoAction: (userId, gameId) => invoke('undo-action', userId, { gameId }),
     redoAction: (userId, gameId) => invoke('redo-action', userId, { gameId }),
