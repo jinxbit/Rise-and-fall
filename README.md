@@ -388,6 +388,34 @@ the functions on the real Edge Runtime — bring up the local stack with
 See `src/test/fixtures/productionGames/README.md` for what gets asserted,
 what the loader infers about a game's room row, and how to override it.
 
+## Smoke-testing the live deployment
+
+`npm run test` verifies the code against an in-process stack. It cannot tell
+you whether a migration actually applied, an Edge Function actually deployed,
+or a policy was edited in the dashboard. `npm run test:production` does: it
+replays the same real games against the **live** Supabase project, through the
+deployed `apply-action`/`undo-action`/`redo-action` functions, and checks each
+one finishes on the score and winner it finished on in production.
+
+```bash
+SMOKE_SUPABASE_URL=https://<project-ref>.supabase.co \
+SMOKE_SUPABASE_ANON_KEY=<anon key> \
+SMOKE_SUPABASE_SERVICE_ROLE_KEY=<service role key> \
+npm run test:production
+```
+
+`.github/workflows/production-smoke.yml` runs it after every successful
+Supabase deploy, nightly, and on demand — add `SMOKE_SUPABASE_ANON_KEY` and
+`SMOKE_SUPABASE_SERVICE_ROLE_KEY` as repository secrets and it works (the URL
+falls back to the `SUPABASE_PROJECT_ID` secret the deploy workflow already
+uses).
+
+It writes to production, so each run works in an isolated, private `live`-mode
+room owned by throwaway accounts it deletes afterwards, and can never page a
+real player (both notification functions only fire for `async` games). See
+`src/test/productionSmoke/README.md` for the full isolation story, which games
+are eligible, and the per-run cost.
+
 ## Testing without Discord OAuth set up
 
 Set `VITE_ALLOW_GUEST_AUTH=true` (see `.env.example`) to show a "Continue

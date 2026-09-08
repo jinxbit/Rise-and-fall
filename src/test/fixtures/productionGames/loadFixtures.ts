@@ -136,8 +136,13 @@ export function normalizeStateForComparison(state: GameState): GameState {
   }
 }
 
-/** Which top-level GameState fields two states disagree on — the useful half of a "this fixture doesn't reconstruct" message. */
-function divergentFields(left: GameState, right: GameState): string[] {
+/**
+ * Which top-level GameState fields two states disagree on — the useful half of
+ * any "these two states should be the same game" failure. Compared with keys
+ * sorted, since a replayed state is built field by field and an exported one
+ * is in whatever order it was serialized.
+ */
+export function divergentStateFields(left: GameState, right: GameState): string[] {
   const keys = new Set([...Object.keys(left), ...Object.keys(right)]) as Set<keyof GameState>
   return [...keys].filter((key) => stableStringify(left[key]) !== stableStringify(right[key]))
 }
@@ -272,7 +277,7 @@ export function buildFixture(name: string, envelope: { exportedAt: string; gameS
     content.boardGenerationContent,
     content.taleContent,
   )
-  const diverged = divergentFields(normalizeStateForComparison(replayed), normalizeStateForComparison(finalState))
+  const diverged = divergentStateFields(normalizeStateForComparison(replayed), normalizeStateForComparison(finalState))
   if (diverged.length > 0) {
     throw new Error(
       `Fixture "${name}" could not be reconstructed: replaying its action history from the rebuilt genesis produced a different state than the export ` +

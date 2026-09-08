@@ -19,8 +19,9 @@ card text, or artwork.
 ```bash
 npm install          # or npm ci
 npm run dev          # Vite dev server on :5173
-npm run test         # vitest run — 61 files / 1118 tests, ~30s
+npm run test         # vitest run — 62 files / ~1130 tests, ~35s
 npm run test:watch   # vitest watch
+npm run test:production  # smoke-test the LIVE Supabase project (needs SMOKE_* secrets)
 npm run lint         # oxlint (not eslint) — sub-second
 npm run build        # tsc -b (3 projects) + vite build — ~10s
 ```
@@ -161,6 +162,16 @@ storage must work on **both** paths.
   See that folder's README.
 - Prefer adding a fixture or an engine test over a component test when a bug
   is reproducible at the rules level.
+- `src/test/productionSmoke/` replays those same fixtures against the **live**
+  project through the deployed Edge Functions (`npm run test:production`,
+  `.github/workflows/production-smoke.yml`, after each Supabase deploy and
+  nightly). It is deliberately unreachable from `npm run test`: vitest's
+  default `include` matches `*.test.*`, and those files are `*.smoke.ts` under
+  their own config. The runner itself is covered on every PR by
+  `src/test/__tests__/productionSmokeRunner.test.ts`, which points it at the
+  in-process stack. Read that folder's README before changing it — its
+  isolation rules (private room, `play_mode: 'live'` so no notification can
+  fire, delete the room *before* the throwaway users) are load-bearing.
 
 ## Code style
 

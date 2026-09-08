@@ -1,0 +1,82 @@
+name: Production Smoke
+
+# Replays real games (src/test/fixtures/productionGames/) against the LIVE
+# Supabase project, through the deployed apply-action/undo-action/redo-action
+# Edge Functions, and checks each one finishes on the score and winner it
+# finished on in production.
+#
+# This is the half `npm run test` can't cover. CI proves the code is right
+# against an in-process stack; this proves the deployment is: migrations
+# actually applied, functions actually deployed and booting, RLS actually as
+# written, keys still valid.
+#
+# It writes to production, so isolation is the safety story (see
+# src/test/productionSmoke/liveProject.ts): throwaway users created and
+# deleted per run, a `private` room so it never lists publicly, `play_mode:
+# 'live'` so neither notification function can page anyone (both early-return
+# unless the game is 'async'), and teardown that deletes the room before the
+# users — `games.created_by` and `players.user_id` reference `auth.users` with
+# no cascade, so the other order fails and strands the room.
+#
+# Leftovers, if a run is ever killed hard enough to skip teardown, are one
+# `[smoke] …` private room and its throwaway accounts.
+
+on:
+  # After a deploy actually lands — the failure this is most likely to catch.
+  workflow_run:
+    workflows: ['Deploy Supabase']
+    types: [completed]
+  # And nightly, for drift no deploy caused: a policy edited in the dashboard,
+  # a project setting, an expired key.
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch: {}
+
+# Never two runs at once: each creates and deletes real rows, and serializing
+# keeps a failure's leftovers unambiguous.
+concurrency:
+  group: production-smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    # A deploy that failed tells us nothing about the deployment we'd be
+    # testing, so only follow a successful one. Scheduled and manual runs have
+    # no workflow_run context and always proceed.
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    env:
+      # SMOKE_SUPABASE_URL is optional — it defaults to the project ref the
+      # deploy workflow already uses, so a standard project needs only the two
+      # key secrets added.
+      SMOKE_SUPABASE_URL: ${{ secrets.SMOKE_SUPABASE_URL || format('https://{0}.supabase.co', secrets.SUPABASE_PROJECT_ID) }}
+      SMOKE_SUPABASE_ANON_KEY: ${{ secrets.SMOKE_SUPABASE_ANON_KEY }}
+      # Used for exactly two things: creating the run's throwaway users and
+      # deleting them again (plus the room teardown). Every game action is
+      # submitted as a real signed-in player over the anon key, because
+      # submitting as the service role would bypass the authorization this is
+      # here to test.
+      SMOKE_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SMOKE_SUPABASE_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Check the smoke secrets are configured
+        run: |
+          missing=()
+          [ -n "$SMOKE_SUPABASE_URL" ] || missing+=("SMOKE_SUPABASE_URL or SUPABASE_PROJECT_ID")
+          [ -n "$SMOKE_SUPABASE_ANON_KEY" ] || missing+=("SMOKE_SUPABASE_ANON_KEY")
+          [ -n "$SMOKE_SUPABASE_SERVICE_ROLE_KEY" ] || missing+=("SMOKE_SUPABASE_SERVICE_ROLE_KEY")
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Missing repository secrets: ${missing[*]}. See .github/workflows/production-smoke.yml's header."
+            exit 1
+          fi
+
+      - name: Replay production games against the live project
+        run: npm run test:production

@@ -32,7 +32,7 @@ import { decompressGameStateFromStorage, type StoredGameState } from '../../lib/
 import { Database, type GameStateRow, type ProfileRow } from './database.ts'
 import type { GameContent } from './sampleGame.ts'
 import { loadEdgeFunctions, type EdgeFunctionName } from './edgeFunctions.ts'
-import { ANON_KEY, SERVICE_ROLE_KEY, STACK_URL, serveStackRequest, type EdgeFunctionHandler, type ServerOptions, type TokenRegistry } from './httpServer.ts'
+import { ANON_KEY, SERVICE_ROLE_KEY, STACK_URL, serveStackRequest, type AccountRegistry, type EdgeFunctionHandler, type ServerOptions, type TokenRegistry } from './httpServer.ts'
 
 export { Database, STACK_URL, ANON_KEY, SERVICE_ROLE_KEY }
 export type { GameStateRow, ProfileRow }
@@ -44,6 +44,15 @@ export type EnforcedCallResult = ({ ok: true; state: GameState; version: number 
 export type GameStateReadResult = ({ ok: true; state: GameState | RedactedGameState; version: number } | { ok: false; error: string }) & { status: number }
 
 export interface ProductionStack {
+  /**
+   * Where this stack answers, and the two keys it answers to — the same three
+   * values a real project is configured with. Exposed so code written against
+   * a deployed project (../productionSmoke/) can be pointed at this stack
+   * instead and exercised in CI, rather than only ever running in production.
+   */
+  readonly url: string
+  readonly anonKey: string
+  readonly serviceRoleKey: string
   /** RLS-free access to the tables, for arranging fixtures and asserting on what landed. */
   readonly db: Database
   /** Every HTTP request the stack served, in order — `"POST /functions/v1/apply-action"`, `"PATCH /rest/v1/game_state?..."`, and so on. */
@@ -148,13 +157,41 @@ function mintAccessToken(userId: string): string {
 export async function createProductionStack(): Promise<ProductionStack> {
   const db = new Database()
   const tokens: TokenRegistry = new Map()
+  const accounts: AccountRegistry = new Map()
   const requests: string[] = []
   const edgeFunctions: Map<string, EdgeFunctionHandler> = await loadEdgeFunctions()
 
-  installFetch({ db, tokens, edgeFunctions, requestLog: requests })
-
   const tokenByUserId = new Map<string, string>()
   const clients = new Map<string, SupabaseClient>()
+
+  installFetch({
+    db,
+    tokens,
+    accounts,
+    edgeFunctions,
+    requestLog: requests,
+    // Deliberately no `profiles` row: production doesn't create one when an
+    // account is made either (they're upserted lazily by the settings
+    // screens), and `loadGameContext` copes with its absence.
+    createUser(email, password) {
+      const userId = globalThis.crypto.randomUUID()
+      const accessToken = mintAccessToken(userId)
+      tokenByUserId.set(userId, accessToken)
+      tokens.set(accessToken, { userId, email })
+      accounts.set(email, { userId, password })
+      return { userId, accessToken }
+    },
+    deleteUser(userId) {
+      const accessToken = tokenByUserId.get(userId)
+      if (!accessToken) return false
+      tokenByUserId.delete(userId)
+      tokens.delete(accessToken)
+      clients.delete(userId)
+      for (const [email, account] of accounts) if (account.userId === userId) accounts.delete(email)
+      db.deleteProfileFor(userId)
+      return true
+    },
+  })
 
   function clientFor(userId: string): SupabaseClient {
     const token = tokenByUserId.get(userId)
@@ -245,6 +282,9 @@ export async function createProductionStack(): Promise<ProductionStack> {
   }
 
   return {
+    url: STACK_URL,
+    anonKey: ANON_KEY,
+    serviceRoleKey: SERVICE_ROLE_KEY,
     db,
     requests,
     clientFor,
