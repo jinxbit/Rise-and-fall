@@ -202,6 +202,7 @@ storage must work on **both** paths.
 | `VARIANTS_PLAN.md` | Guilds & Tales variants — 23 Tales designed, a handful implemented. |
 | `UnitActions.md` | Per-unit-action implementation checklist + resolved rules questions. |
 | `ELO_SYSTEM_PLAN.md` | Rating system design (not built). |
+| `DELIVERY_PIPELINE_PLAN.md` | How a change reaches production: the pre-production environment, branch topology, what auto-merges and what never does (design agreed, not built). |
 | `src/content/README.md` | **The most important single doc**: every content file's fields, the board-generation rules, achievements/VP, resources, and Tales, each cross-referenced to the engine module that implements it. |
 
 ## Working conventions
