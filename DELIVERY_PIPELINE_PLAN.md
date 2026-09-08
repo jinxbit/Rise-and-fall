@@ -57,7 +57,31 @@ Decided (2026-09-08): **a second Supabase project the maintainer creates**,
 rather than Supabase Branching (a paid feature, and its interaction with
 Edge Function deploys needs verifying before relying on it) or a staging
 frontend against the production project (which would test no migration and
-no function change before production — most of the value).
+no function change before production — most of the value). Confirmed the
+same day that the plan allows a second project.
+
+**Self-hosting was considered and deferred.** The maintainer has a Synology
+DS1522+ running continuously — x86-64, so Supabase's amd64 self-hosted
+images would run on it (RAM is the binding constraint, not CPU: 8GB base
+against a stack of ten-odd containers, trimmable by dropping the analytics
+components, and the box takes up to 32GB). It would rehearse the highest-risk
+thing faithfully — `supabase db push` takes a `--db-url`, so migrations are
+the same SQL against the same Postgres — plus RLS and Edge Function
+behaviour, since the self-hosted `edge-runtime` is the same Deno image.
+
+What it would *not* rehearse is the hosted platform itself: `supabase
+functions deploy` (self-hosted serves functions from a mounted directory),
+Database Webhooks (a dashboard feature hosted, a hand-written `pg_net`
+trigger self-hosted), and platform behaviour generally — cold starts, rate
+limits, the per-invocation latency questions. It also needs TLS reachable
+from both GitHub Actions and a browser, since a Vercel preview is HTTPS and
+browsers block HTTPS-to-HTTP.
+
+Deferred rather than rejected: it is the escalation path if hosted costs
+become a factor. It would also fill a role a hosted staging project cannot
+(see §8) — seeding hundreds of synthetic games to find out whether a
+migration locks a table, which is not something to do on a shared free-tier
+project.
 
 ---
 
@@ -205,7 +229,9 @@ not the same as proving the app works.
   are fixtures. A migration that is instant on staging can lock a table for
   minutes on production data; a query that is fine against three games is not
   necessarily fine against three hundred. Staging catches *shape* problems,
-  not *scale* problems.
+  not *scale* problems. Closing that gap needs an environment where hundreds
+  of synthetic games can be generated and thrown away cheaply, which is the
+  one job the self-hosted option in §2 would do better than a hosted project.
 - **Two projects, two migration histories.** They can drift apart from each
   other as well as from the files. `audit-and-fix-migrations.yml` should be
   parameterised by environment at the same time as the deploy workflow, so
@@ -249,9 +275,10 @@ is dashboard work.
 
 ## 10. Open questions
 
-- **Does the Supabase plan allow a second project?** The free plan's project
-  limit is the first thing to check; if it does not, phase 2 either costs
-  money or the design falls back to Supabase Branching (§2).
+- ~~**Does the Supabase plan allow a second project?**~~ Resolved
+  (2026-09-08): it does. Phase 2 proceeds as written; self-hosting on the
+  maintainer's NAS stays documented in §2 as the escalation path if hosted
+  costs become a factor.
 - **Should the nightly smoke run against both environments,** or only
   production? Both, probably — it keeps staging awake (§8) and catches drift
   there before a promotion does.
