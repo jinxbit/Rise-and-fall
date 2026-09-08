@@ -26,12 +26,15 @@
 // — gets it keyed to no seat at all, i.e. everything currently secret from
 // every player.
 //
-// Deliberately does NOT redact `actionHistory` (see redaction.ts's doc
-// comment on redactStateForPlayer) — nothing calls this yet (see
-// RULE_ENFORCEMENT_PLAN.md §8 phase 8's still-outstanding gameApi.ts
-// rewire), so it isn't the sole read path yet either; the `actionHistory`
-// half of §5.2 has to land together with that rewire, not before it, since
-// only then does this become the only way a client can read game_state.
+// redactStateForPlayer also redacts `actionHistory` itself (2026-09-08),
+// not just the derived chosenCardIdByPlayerId/declineCardIds fields above —
+// see its own doc comment (redaction.ts) for why the raw log needed the
+// same treatment. Still not the sole read path yet: gameApi.ts's
+// getGameState() itself still reads the raw game_state row directly for
+// every game (RULE_ENFORCEMENT_PLAN.md §8 phase 8's still-outstanding
+// client rewire), so this is landing ahead of, and unconsumed by, that
+// rewire — the same safe-to-merge-early pattern this function's own initial
+// version (phase 5) already followed.
 //
 // Request body: `{ gameId: string }` — a read, so no action payload.
 import { redactStateForPlayer } from '../../../src/engine/redaction.ts'

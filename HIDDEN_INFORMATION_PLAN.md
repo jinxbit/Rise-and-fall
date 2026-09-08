@@ -151,6 +151,19 @@ subsumes `game_state_meta`'s existing purpose today (see
 `0019_public_game_state_visible.sql`'s public-room read path, which reads
 full state and would need reworking either way).
 
+**Resolved (2026-09-08): both (a) and (b), as it turns out, not an
+either/or.** (a) was already true by the time this mattered — issue #448
+(bandwidth, unrelated to this document) had already moved
+`subscribeToGameState` (`src/lib/gameApi.ts`) onto subscribing to
+`game_state_meta` rather than `game_state` itself, so the raw row was never
+actually broadcast over Realtime by the time phase 5 shipped. That leaves
+(b) — a plain REST/RPC read of the raw row, not a Realtime broadcast — as
+the one path this section's masking still needed to cover, and it now does:
+`redactStateForPlayer()` masks `actionHistory`'s `CHOOSE_CARD`/
+`MOVE_TO_DECLINE` entries' `cardId` under the same conditions as
+`chosenCardIdByPlayerId`/`declineCardIds` above (see `redaction.ts`'s doc
+comment, and phase 5's entry in §8 for when this landed).
+
 ### 5.3 Sticky reveal across undo — the reveal high-water mark
 
 **Dropped (2026-09-06), per jinxbit's offer to simplify if it complicated
@@ -362,6 +375,20 @@ to hidden information (6) are omitted here.
    (seated players, and any other visitor `canReadGameState` admits) gets
    `redactStateForPlayer` keyed to their own seat (or no seat, for a
    non-player visitor). Nothing calls this function yet — see phase 8.
+   **`actionHistory` redaction added (2026-09-08).** §5.2's remaining gap —
+   `redactStateForPlayer` masked `chosenCardIdByPlayerId`/`declineCardIds`
+   but shipped the raw `actionHistory` log unmodified, which carries the
+   exact same secret `cardId` inside each still-secret `CHOOSE_CARD`/
+   `MOVE_TO_DECLINE` entry's own payload — closed the same way: those two
+   action types' `cardId` is nulled under the identical conditions (see
+   `redaction.ts`'s doc comment and its new `RedactedLoggedAction` type).
+   Landed as its own engine-only, server-side-only change — safe to merge
+   ahead of phase 8 the same way `get-game-state` itself was, since nothing
+   consumes it yet. Deliberately does **not** make `RedactedGameState`
+   replayable through `applyAction()`/`replayActions()` — a masked entry's
+   `cardId: null` isn't a legal action payload, so this is a display-only
+   log for a viewer not yet entitled to the real one; genesis + replay
+   always uses the real, unredacted `game_state` row server-side.
 7. **CI deploy workflow** — done, see `RULE_ENFORCEMENT_PLAN.md` §7; covers
    this document's `get-game-state` deploy too (`supabase functions deploy`
    with no arguments deploys every function under `supabase/functions/`
@@ -374,6 +401,34 @@ to hidden information (6) are omitted here.
    client-side for optimistic UI (legal-move highlighting, immediate
    feedback) but never treat its output as authoritative — always reconcile
    against the server's redacted response.
+   **Scoped in more detail (2026-09-08), while looking for the next
+   concrete step to implement: this is a larger change than "swap
+   `gameApi.ts`'s `getGameState()` implementation."** `RedactedGameState`
+   (`redaction.ts`) is not structurally the same type as `GameState` —
+   `chosenCardIdByPlayerId` becomes `Record<string, RedactedChoice>` instead
+   of `Record<string, string | null>`, `players[].declineCardIds` becomes
+   `(string | null)[]`, and (per this phase's own note above)
+   `actionHistory` becomes `RedactedLoggedAction[]`, non-replayable. Every
+   consumer of these fields — `RoundView.tsx` reads
+   `state.chosenCardIdByPlayerId[playerId]` and `player.declineCardIds`
+   directly in about five places to decide what to render (hand contents,
+   the "Playing" indicator, the decline buy-back list) — currently assumes
+   the real, un-redacted shape. Wiring a rule-enforced game's `gameState`
+   onto the redacted read therefore isn't just an API/data-plumbing change:
+   it needs new UI logic for rendering an opponent's masked pick (a
+   `{chosen: true, cardId: null}` needs its own "chose a card, not yet
+   revealed" treatment distinct from the real card art), a client-side type
+   distinction between a live enforced game's `RedactedGameState` and every
+   other game's plain `GameState`, and — being a rendering change — real
+   browser verification (golden path *and* the masked-pick edge case)
+   before it can be called done, which no sandbox environment used for this
+   issue so far has been able to do (see phase 9 below). Also still true
+   from this phase's original scoping: it must correctly bypass redaction
+   for hotseat (`GameState.play_mode === 'hotseat'`, or actually the
+   `games` row's `play_mode`) regardless of `ruleEnforcementEnabled`, since
+   hotseat's one shared `auth.uid()` across every local seat (§2) makes
+   `get-game-state`'s per-seat masking actively wrong there — it would hide
+   a local player's own pick from the very device they're using to make it.
 9. **End-to-end verification against a real two-browser Supabase
    session**, inspecting actual network payloads (not just UI rendering)
    to confirm secret fields never reach an opponent's client during the
