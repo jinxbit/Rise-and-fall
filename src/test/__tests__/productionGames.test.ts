@@ -27,6 +27,13 @@ import { expectedFinalState, normalizeForComparison, replayFixtureThroughStack }
 
 const fixtures = await loadProductionGameFixtures()
 
+// A full replay submits every logged action through the real Edge Functions
+// one at a time — hundreds of round trips for a full game — so it can
+// legitimately run past vitest's 5000ms default `testTimeout` on a loaded CI
+// runner even though nothing is hung. Generous on purpose: a bigger checked-in
+// game should fail on a real regression, not on the clock.
+const REPLAY_TIMEOUT_MS = 30_000
+
 describe('production game replays', () => {
   it('loads every checked-in game export', () => {
     // Nothing to replay yet is a legitimate state for this suite — see
@@ -67,7 +74,7 @@ describe('production game replays', () => {
       expect(stored!.state.status).toBe(fixture.finalState.status)
       expect(stored!.state.winnerPlayerIds).toEqual(fixture.finalState.winnerPlayerIds)
       expect(stored!.state.claimedByAchievementId).toEqual(fixture.finalState.claimedByAchievementId)
-    })
+    }, REPLAY_TIMEOUT_MS)
 
     it('stores the game the way its own write path stores it, with a matching meta projection', async () => {
       await seedGame()
@@ -87,7 +94,7 @@ describe('production game replays', () => {
       // exactly this (issue #451).
       const meta = stack.db.table<{ status: string; turn: number; version: number }>('game_state_meta')[0]
       expect(meta).toMatchObject({ status: fixture.finalState.status, turn: fixture.finalState.turn, version: stored.version })
-    })
+    }, REPLAY_TIMEOUT_MS)
 
     it('ends on the final score production recorded', async () => {
       await seedGame()
@@ -124,7 +131,7 @@ describe('production game replays', () => {
             .sort(),
         )
       }
-    })
+    }, REPLAY_TIMEOUT_MS)
 
     it('refuses the game’s first action from a signed-in user who is not seated in it', async () => {
       await seedGame()
