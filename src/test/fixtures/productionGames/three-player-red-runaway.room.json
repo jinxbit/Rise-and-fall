@@ -1,0 +1,7 @@
+{
+  "name": "jinxbit vs derekmd33 vs yeknom02 — three-player async on a preset board",
+  "expected": {
+    "finalScores": { "jinxbit": 217, "derekmd33": 135, "yeknom02": 68 },
+    "winners": ["jinxbit"]
+  }
+}

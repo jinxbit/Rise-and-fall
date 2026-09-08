@@ -55,7 +55,14 @@ dispatched as a trusted replay, such an entry is the one case that succeeds
 with no steps. Those entries are skipped, and the final state is compared with
 them dropped from the expected log — they are no-ops by construction, so
 nothing else about the game changes. `red-beats-blue-async` has 12 of them out
-of 263.
+of 263, `three-player-red-runaway` 18 out of 229.
+
+One field is likewise left out of the comparison:
+`declineSourceZoneByCardId` is checked only while a decline phase is open,
+which is the only window anything reads it (it exists so `RETRACT_DECLINE` can
+put a card back where it came from). Its own doc comment calls it live scratch
+state rather than part of the replayable log, and a real game bears that out —
+see `normalizeStateForComparison` in `loadFixtures.ts`.
 
 ## Which write path a game is replayed on
 

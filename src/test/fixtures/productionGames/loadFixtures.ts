@@ -109,19 +109,30 @@ function stableStringify(value: unknown): string {
 /**
  * Two states compared as the same *game*, not as the same bytes.
  *
- * Beyond timestamps, two of GameState's fields are documented as
- * "absent means this" (see their doc comments in src/engine/types.ts):
- * `adminModeActive` absent is false, and `declineSourceZoneByCardId` absent is
- * "nothing retractable right now". A state parsed from an export written
- * before either field existed has no key at all; one the engine just built
- * always has both. Normalizing that is honouring the documented equivalence,
- * not hiding a difference.
+ * `adminModeActive` is documented as "absent means false" (see its doc
+ * comment in src/engine/types.ts). A state parsed from an export written
+ * before that field existed has no key at all; one the engine just built
+ * always has it. Reading the two as equal is honouring the documented
+ * equivalence, not hiding a difference.
+ *
+ * `declineSourceZoneByCardId` is compared only while a decline phase is
+ * actually open, which is the only window anything reads it: it exists so
+ * RETRACT_DECLINE can put a card back where it came from, and RETRACT_DECLINE
+ * is legal only during that phase. Its own doc comment is explicit that it is
+ * "live scratch state for what to do right now, not part of the replayable
+ * action log" — and a real game bears that out: three-player-red-runaway's
+ * exported state carries only the last player's two entries from its final
+ * decline phase, where a replay against today's engine derives all six.
+ * Nothing in that game depends on the difference (the phase closed long
+ * before it ended), and every field that does describe the game matches
+ * exactly.
  */
 export function normalizeStateForComparison(state: GameState): GameState {
+  const declinePhaseOpen = state.status === 'active' && state.roundPhase === 'decline'
   return {
     ...stripTimestamps(state),
     adminModeActive: Boolean(state.adminModeActive),
-    declineSourceZoneByCardId: state.declineSourceZoneByCardId ?? {},
+    declineSourceZoneByCardId: declinePhaseOpen ? (state.declineSourceZoneByCardId ?? {}) : {},
   }
 }
 
