@@ -14,9 +14,15 @@ Steps 1 and 4 mostly exist today. Steps 2 and 3 do not exist at all — there
 is no pre-production anything. This document is the design for building it,
 and the record of which decisions were made and why.
 
-Status: **design agreed, nothing built.** Decisions taken so far are in §3
-(branch topology, recommended) and §7 (auto-merge to the integration branch,
-never to production — the maintainer's explicit choice).
+Status: **pre-production exists and is verified** (2026-09-09). Phases 0-1
+are done and phase 2 is all but finished: a second Supabase project holds the
+full migration history and every Edge Function, and a real production game
+replays against it end to end. What remains of phase 2 is the frontend
+(Vercel) and the `production` branch; nothing after phase 2 has started.
+
+Decisions taken so far are in §2 (a second hosted project, self-hosting
+deferred), §3 (branch topology, recommended, not yet acted on) and §7
+(auto-merge to the integration branch, never to production).
 
 ---
 
@@ -286,21 +292,25 @@ not the same as proving the app works.
    environment-scoped ones are added, so phase 2 is additive rather than a
    cutover. `npm run test:production` became `npm run test:smoke` for the
    same reason.
-2. **Stand up staging.** Note before starting: a GitHub Environment that does
-   not define a secret inherits the repository-level one, so a
-   pre-production environment missing `SUPABASE_PROJECT_ID` — or simply named
-   differently from what the workflow asks for — silently targets
-   **production**.
-   That happened on 2026-09-09 — a `Deploy Supabase` run requested for
-   "staging" deployed to production instead, because no environment of that
-   name existed (the real one is called `Preview`) and GitHub
-   auto-created an empty one. Both workflows now refuse to
-   continue unless the resolved project ref matches the environment, checked
-   against a repository variable `PRODUCTION_SUPABASE_PROJECT_ID`; set that
-   variable first. Maintainer: create the Supabase project, set the
-   Vercel Preview variables and branch domain, add the GitHub Environments
-   and their secrets, create the `production` branch at the current `main`,
-   set branch protection. Then the first staging deploy and smoke run.
+2. **Stand up pre-production.** Mostly ✅ (2026-09-09). The Supabase project
+   exists, the GitHub `Preview` environment carries its four project-specific
+   secrets, and the repository variable `PRODUCTION_SUPABASE_PROJECT_ID`
+   guards both workflows. `Deploy Supabase -> Preview` applied all 27
+   migrations to an empty database in one pass — the first time that sequence
+   has ever run start to finish rather than incrementally, which is most of
+   why this environment is worth having — and deployed every Edge Function.
+   `Smoke -> Preview` then replayed a real production game against it and it
+   finished on the recorded score.
+
+   Two mis-steps on the way, both now designed out and recorded in §8: a run
+   requested for an environment name that did not exist deployed to
+   production instead, because GitHub auto-creates an empty environment and
+   an empty environment inherits production's secrets.
+
+   Still outstanding: the Vercel side (Preview-scoped `VITE_SUPABASE_*`
+   pointing at the new project, and a stable branch domain), and creating the
+   `production` branch with its protection.
+
 3. **Retarget `main`, and the docs with it.** `main` deploys to staging;
    `production` deploys to production. Update `CLAUDE.md` and `README.md` in
    the same commit — they currently state that main is production.
