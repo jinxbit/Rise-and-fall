@@ -1,4 +1,5 @@
 import type { Action, ChooseCardAction, LoggedAction, MoveToDeclineAction } from './actions.ts'
+import { resolveHistory } from './historyFold.ts'
 import type { GameEvent, GameState, Player } from './types.ts'
 
 /**
@@ -228,22 +229,30 @@ export function redactGameLog(events: GameEvent[], state: GameState, viewerId: s
 /**
  * The longest prefix of a (possibly redacted) actionHistory that's safe to
  * feed straight into applyAction()/replayActions() — i.e. everything before
- * the first still-masked CHOOSE_CARD/MOVE_TO_DECLINE entry, if any (see
- * RedactedGameState's own doc comment: a masked entry's `cardId: null` isn't
- * a legal action payload, and replayActions throws outright on one).
+ * the first still-masked CHOOSE_CARD/MOVE_TO_DECLINE entry that's actually
+ * still *in effect* (see RedactedGameState's own doc comment: a masked
+ * entry's `cardId: null` isn't a legal action payload, and replayActions
+ * throws outright on one it tries to replay).
  *
- * A masked entry, once it exists at all, is always part of the *current*
- * still-unresolved simultaneous phase (redactStateForPlayer only ever masks
- * `entry.turn === state.turn` while that phase hasn't resolved) — so nothing
- * downstream of it changes VP/resources/board (CHOOSE_CARD/MOVE_TO_DECLINE
- * never do), and truncating there simply means derived views (the game log,
- * "Show history" turn stops, score/unit-value history) stop exactly where
- * the viewer's own knowledge does, then catch up in one step once the
- * server sends the real entries back unmasked (see
- * HIDDEN_INFORMATION_PLAN.md §5.1/§8's "reveals automatically once the phase
- * resolves"). `pendingPlayerIds`/`roundPhase` (never masked — see
- * redactStateForPlayer) already tell a viewer "N players still deciding"
- * independent of this.
+ * Deliberately keyed on `resolveHistory(...).effective`, not "the first
+ * masked entry in raw order" (issue #498): a masked entry that's since been
+ * undone (behind the fold's pointer — see historyFold.ts) is never replayed
+ * by replayActions() either, which only ever walks `.effective` — so it's
+ * safe to keep it, `cardId: null` and all, in the returned array rather than
+ * truncating there. That matters because UNDO_ACTION/REDO_ACTION entries
+ * carry no secret and are never masked themselves (see redactStateForPlayer),
+ * so truncating at an already-undone masked entry used to throw away every
+ * real entry that came after it too — including the very UNDO_ACTION that
+ * undid it — which corrupted every other viewer's client-side
+ * resolveHistory().canRedo (the Redo button) and made both the undoer and
+ * the undone player's own client disagree with the server about whether
+ * anything was redoable. A masked entry that's still effective (the
+ * ordinary "still-pending selectCards" case) is unaffected by this change —
+ * see this function's git history for the previous, simpler version and its
+ * own reasoning about why truncating there is safe (nothing downstream of a
+ * masked entry changes VP/resources/board, and `pendingPlayerIds`/
+ * `roundPhase`, never masked, already tell a viewer "N players still
+ * deciding" independent of this).
  *
  * The only caller today is gameApi.ts's toClientGameState — the client-side
  * collapse of a RedactedGameState response back into a plain GameState the
@@ -252,12 +261,21 @@ export function redactGameLog(events: GameEvent[], state: GameState, viewerId: s
  * consuming completely unmodified.
  */
 export function unredactedPrefix(actionHistory: RedactedLoggedAction[]): LoggedAction[] {
-  const firstMaskedIndex = actionHistory.findIndex(
+  // resolveHistory/walkHistory (historyFold.ts) only ever inspect
+  // `entry.action.type`, never the payload — so it's safe to run on a
+  // still-masked array before we know yet whether any of it needs
+  // truncating. Cast, not a copy: `effective`'s entries are the exact same
+  // object references as `actionHistory`'s, which the Set below relies on.
+  const effective = resolveHistory(actionHistory as unknown as LoggedAction[]).effective
+  const effectiveEntries = new Set<RedactedLoggedAction>(effective as unknown as RedactedLoggedAction[])
+  const firstUnsafeIndex = actionHistory.findIndex(
     (entry) =>
-      (entry.action.type === 'CHOOSE_CARD' || entry.action.type === 'MOVE_TO_DECLINE') && entry.action.cardId === null,
+      (entry.action.type === 'CHOOSE_CARD' || entry.action.type === 'MOVE_TO_DECLINE') &&
+      entry.action.cardId === null &&
+      effectiveEntries.has(entry),
   )
-  const prefix = firstMaskedIndex === -1 ? actionHistory : actionHistory.slice(0, firstMaskedIndex)
-  // Safe: nothing in `prefix` has a null cardId by construction above.
+  const prefix = firstUnsafeIndex === -1 ? actionHistory : actionHistory.slice(0, firstUnsafeIndex)
+  // Safe: nothing in `prefix` has a null cardId that's still in effect, by construction above.
   return prefix as LoggedAction[]
 }
 

@@ -531,6 +531,35 @@ to hidden information (6) are omitted here.
    revealed once that seat submits too, and that a game without
    `hiddenInformationEnabled` sees no behavior change.
 
+   **Update (2026-09-09, issue #498): `unredactedPrefix` truncated past a
+   real `UNDO_ACTION`/`REDO_ACTION` too — closed.** The phase-8 reasoning
+   above ("a masked entry only ever exists for the *current*, still-
+   unresolved simultaneous phase... so nothing downstream of the cut is
+   lost") assumed a masked entry, once it existed, was always the raw
+   history's tip. Undo breaks that: undoing a still-secret `CHOOSE_CARD`
+   leaves the masked entry sitting in the *middle* of the raw log, followed
+   by a perfectly ordinary, never-masked `UNDO_ACTION` marker — and the old
+   "truncate at the first masked entry" logic dropped that marker (and
+   anything else after it) right along with the secret, even though nothing
+   about it was actually secret. That corrupted `resolveHistory`
+   (`historyFold.ts`) on the client: `GamePage.tsx`'s `historyPointer.canRedo`
+   — the Redo button — read `false` for any viewer whose truncated
+   `actionHistory` no longer contained the marker, even though the server
+   genuinely had something to redo, matching the bug report exactly (undoing
+   one player's pick left both that player's *and* the undoer's own client
+   showing Redo as unavailable, since Redo delegates straight to
+   `redo-action`/`undo-action`'s server-side truth with no owner-override
+   check of its own — RULE_ENFORCEMENT_PLAN.md §4.4 — so the game wasn't
+   actually stuck, only the button was). Fixed by keying the truncation on
+   `resolveHistory(actionHistory).effective` instead of raw order: a masked
+   entry that's since been undone (or branched away) is never in `.effective`
+   either, so `replayActions` never touches its `cardId: null` regardless of
+   whether it's still physically present in the array — only a masked entry
+   that's still genuinely *in effect* (the ordinary still-pending case) needs
+   to cut the prefix short. Covered by `redaction.test.ts` (`unredactedPrefix`,
+   `toClientGameState`) and `writePathRedaction.test.ts` (the same scenario
+   through the real `undo-action`/`get-game-state` Edge Functions).
+
    **Decided (2026-09-09, issue #481): `CreateGamePage.tsx`'s checkbox now
    defaults to checked**, matching `ruleEnforcementEnabled`'s own
    issue-#432 default next to it — hiding in-progress picks was off unless

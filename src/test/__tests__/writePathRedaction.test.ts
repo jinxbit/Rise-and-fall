@@ -18,7 +18,8 @@
 // pending after the acting player's own submission.
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import type { RedactedGameState } from '../../engine/redaction.ts'
+import { resolveHistory } from '../../engine/historyFold.ts'
+import { toClientGameState, type RedactedGameState } from '../../engine/redaction.ts'
 import { buildGenesisState } from '../../lib/gameGenesis.ts'
 import type { GameRow, GameSettings, PlayerRow } from '../../lib/dbTypes.ts'
 import { createProductionStack, type ProductionStack } from '../supabaseStack/index.ts'
@@ -160,5 +161,67 @@ describe('apply-action/undo-action/redo-action write-path redaction (issue #478)
     const aliceChose = await stack.applyAction(ALICE, GAME_ID, { type: 'CHOOSE_CARD', playerId: 'seat-alice', cardId: aliceCard })
     if (!aliceChose.ok) throw new Error(aliceChose.error)
     expect(aliceChose.state.chosenCardIdByPlayerId['seat-bob']).toBe(bobCard)
+  })
+})
+
+describe('undo-action leaves the Redo button usable for a viewer whose actionHistory redacts the undone pick (issue #498)', () => {
+  let stack: ProductionStack
+
+  beforeEach(async () => {
+    stack = await createProductionStack()
+  })
+  afterEach(() => {
+    stack.dispose()
+  })
+
+  /** Same setup as the describe block above — see reachSelectCardsPhase there for what it's doing. */
+  async function reachSelectCardsPhase(settingsOverrides: Partial<GameSettings> = {}) {
+    const game = gameRow(settingsFor(settingsOverrides))
+    const genesis = buildGenesisState(game, PLAYERS)
+    await stack.seedStartedGame({ game, players: PLAYERS, genesis })
+
+    const content = resolveGameContent(genesis, PLAYERS.length)
+    let state = genesis
+    for (let guard = 0; state.status !== 'active' || state.roundPhase !== 'selectCards'; guard++) {
+      if (guard > 500) throw new Error('setup ran on far longer than a board-setup-to-selectCards transition should take')
+      const action = nextLegalAction(state, content)
+      if (!action?.playerId) throw new Error('setup ran out of legal actions before reaching selectCards')
+      const result = await stack.applyAction(USER_ID_FOR_SEAT[action.playerId]!, GAME_ID, action)
+      if (!result.ok) throw new Error(`setup failed: ${result.error}`)
+      state = result.state
+    }
+    return state
+  }
+
+  it("keeps a bystander's own client-side actionHistory agreeing with the server about whether a redo is available, after another player's still-secret pick gets undone", async () => {
+    const setup = await reachSelectCardsPhase()
+    const aliceCard = setup.players.find((p) => p.id === 'seat-alice')!.handCardIds[0]
+
+    // Alice picks — pending: Bob, Charlie. Nobody else has picked yet, so
+    // nothing else is secret from either of them besides Alice's own pick.
+    const aliceChose = await stack.applyAction(ALICE, GAME_ID, { type: 'CHOOSE_CARD', playerId: 'seat-alice', cardId: aliceCard })
+    if (!aliceChose.ok) throw new Error(aliceChose.error)
+    expect(aliceChose.state.pendingPlayerIds).toEqual(expect.arrayContaining(['seat-bob', 'seat-charlie']))
+
+    // Bob undoes Alice's still-secret pick. undo-action's own response is
+    // redacted+collapsed for the caller too (issue #478), same as
+    // apply-action's — so even Bob's own undo response must agree a redo is
+    // available, despite Alice's pick still being masked from him.
+    const bobUndo = await stack.undoAction(BOB, GAME_ID)
+    if (!bobUndo.ok) throw new Error(bobUndo.error)
+    expect(resolveHistory(bobUndo.state.actionHistory).canRedo).toBe(true)
+
+    // Bob's own client re-fetches through get-game-state and collapses the
+    // response the same way gameApi.ts's getGameStateRedacted does
+    // (toClientGameState) — the collapsed actionHistory must agree that a
+    // redo is available. Before the fix, unredactedPrefix truncated the
+    // whole raw history at Alice's still-masked CHOOSE_CARD entry, silently
+    // dropping the real UNDO_ACTION entry that came right after it too, so
+    // this read back false — permanently disabling Bob's own Redo button
+    // (GamePage.tsx's historyPointer.canRedo).
+    const bobRead = await stack.getGameState(BOB, GAME_ID)
+    if (!bobRead.ok) throw new Error(bobRead.error)
+    const bobClient = toClientGameState(bobRead.state)
+    expect(resolveHistory(bobClient.actionHistory).canRedo).toBe(true)
   })
 })
