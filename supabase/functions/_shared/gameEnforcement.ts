@@ -28,6 +28,7 @@ import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2'
 import { applyAction } from '../../../src/engine/applyAction.ts'
 import type { Action, LoggedAction } from '../../../src/engine/actions.ts'
 import { redoableTail } from '../../../src/engine/historyFold.ts'
+import { redactStateForPlayer, revealedGameStateView, type RedactedGameState } from '../../../src/engine/redaction.ts'
 import { applyTaleAchievementModifiers, applyTaleModifiers } from '../../../src/engine/tales.ts'
 import type { ActionResult, GameState } from '../../../src/engine/types.ts'
 import {
@@ -164,6 +165,36 @@ export function canReadGameState(ctx: GameContext, callerUserId: string): boolea
   if (ctx.isAdmin) return true
   if (ctx.players.some((p) => p.user_id === callerUserId)) return true
   return ctx.game.status !== 'lobby'
+}
+
+/**
+ * Write-side mirror of `get-game-state`'s redaction gate (see that
+ * function's own doc comment for the condition and the admin/hotseat
+ * carve-outs — this reuses the exact same one, keyed off the *result*
+ * state's own `hiddenInformationEnabled`/nothing-play-mode-specific fields
+ * rather than re-deriving it) — issue #478: apply-action/undo-action/
+ * redo-action hand the caller back the very state their own compare-and-
+ * swap just wrote, so without this the write response leaks exactly the
+ * still-secret pick the read path withholds. Keyed on the caller's own seat
+ * (`ctx.players`/`callerUserId`), not `action.playerId` — the owner/admin
+ * override (§4.5) lets someone submit on another seat's behalf, but the
+ * response still lands in *this* caller's own browser, so it's their own
+ * knowledge that gates what they see back, exactly like a read.
+ *
+ * Always wraps in the `RedactedGameState` shape, even when nothing is
+ * actually masked (`revealedGameStateView`) — same reasoning as
+ * `get-game-state`: every caller gets one predictable shape, so
+ * `gameApi.ts`'s callers can unconditionally run the response through
+ * `toClientGameState` rather than sniffing which shape came back. That
+ * collapse is a lossless round trip whenever nothing was masked (see
+ * `toClientGameState`'s own doc comment), so this is not a behavior change
+ * for a game without `hiddenInformationEnabled`.
+ */
+export function redactedResponseState(ctx: GameContext, callerUserId: string, state: GameState): RedactedGameState {
+  const shouldRedact = state.hiddenInformationEnabled && ctx.game.play_mode !== 'hotseat'
+  if (ctx.isAdmin || !shouldRedact) return revealedGameStateView(state)
+  const callerPlayerId = ctx.players.find((p) => p.user_id === callerUserId)?.id ?? null
+  return redactStateForPlayer(state, callerPlayerId)
 }
 
 /**

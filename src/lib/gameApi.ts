@@ -807,6 +807,16 @@ export type GameEnforcementResult = { ok: true; state: EngineGameState; version:
  * into `error.context` (the raw Response) to recover the `{ok:false, error}`
  * message the function actually sent, falling back to the generic
  * FunctionsError message if that response body isn't there or isn't JSON.
+ *
+ * A success response's `state` is `RedactedGameState`-shaped, same as
+ * `getGameStateRedacted` below (issue #478: the write endpoints redact their
+ * response the same way `get-game-state` redacts a read) — `toClientGameState`
+ * collapses it back to a plain `GameState` here, at the network boundary, so
+ * `GamePage.tsx`'s submitAction/handleUndo/handleRedo keep consuming
+ * `GameEnforcementResult.state` exactly as before. This is a lossless round
+ * trip whenever nothing was actually masked (see `toClientGameState`'s own
+ * doc comment), so a game without `hiddenInformationEnabled` sees no
+ * behavior change.
  */
 async function invokeGameFunction(name: 'apply-action' | 'undo-action' | 'redo-action', body: Record<string, unknown>): Promise<GameEnforcementResult> {
   const { data, error } = await supabase.functions.invoke(name, { body })
@@ -822,7 +832,9 @@ async function invokeGameFunction(name: 'apply-action' | 'undo-action' | 'redo-a
     }
     return { ok: false, error: error.message }
   }
-  return data as GameEnforcementResult
+  const result = data as { ok: true; state: RedactedGameState; version: number } | { ok: false; error: string }
+  if (!result.ok) return result
+  return { ok: true, state: toClientGameState(result.state), version: result.version }
 }
 
 /** §4.1-enforced action submission for a ruleEnforcementEnabled game — see supabase/functions/apply-action/index.ts. */

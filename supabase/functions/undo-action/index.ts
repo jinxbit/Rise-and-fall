@@ -18,6 +18,10 @@
 // Request body: `{ gameId: string }` — no action payload, by design (§4.4:
 // "no payload; no per-action legality check applies to moving the pointer
 // itself").
+//
+// The response's `state` is redacted the same way apply-action's is (issue
+// #478, HIDDEN_INFORMATION_PLAN.md §8) — see redactedResponseState
+// (../_shared/gameEnforcement.ts).
 import { applyUndoAction } from '../../../src/engine/undoRedo.ts'
 import {
   buildGenesisState,
@@ -26,6 +30,7 @@ import {
   jsonResponse,
   loadFullGameAndPlayers,
   loadGameContext,
+  redactedResponseState,
   resolveGameContent,
   serviceRoleClient,
   writeGameStateCAS,
@@ -85,5 +90,7 @@ Deno.serve(async (req) => {
     return jsonResponse(409, { ok: false, error: 'Game state changed concurrently — refetch and retry.' })
   }
 
-  return jsonResponse(200, { ok: true, state: result.state, version: newVersion })
+  // issue #478: same write-side redaction as apply-action — see
+  // redactedResponseState's doc comment.
+  return jsonResponse(200, { ok: true, state: redactedResponseState(ctx, callerUserId, result.state), version: newVersion })
 })

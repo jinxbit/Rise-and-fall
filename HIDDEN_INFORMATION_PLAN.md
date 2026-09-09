@@ -479,6 +479,35 @@ to hidden information (6) are omitted here.
      above, an intentionally-unimplemented "chosen, hidden" UI treatment for
      opponents' live picks — currently invisible either way, so nothing
      regressed by leaving it for a later increment if it's ever wanted.
+
+   **Update (2026-09-09, issue #478): the write endpoints leaked the exact
+   same secret straight back out — closed.** `apply-action`/`undo-action`/
+   `redo-action` returned the *result* of the caller's own compare-and-swap
+   write unredacted: for a `hiddenInformationEnabled` game, the moment a
+   player submitted their own `CHOOSE_CARD` while another seat was still
+   pending, the response handed their browser that seat's real `cardId` —
+   these are writes, not reads, so `get-game-state`'s guarantee (§5, phase
+   8 above) never applied to them, and the acting player is exactly the one
+   who most wants to peek. Closed by `redactedResponseState()`
+   (`supabase/functions/_shared/gameEnforcement.ts`), the write-side mirror
+   of `get-game-state`'s own gate (opt-in flag, hotseat bypass, admin
+   carve-out), applied to all three functions' final response — the CAS
+   write itself still always persists the real, unredacted state; only the
+   HTTP response back to the caller is masked. Every consumer of that
+   response collapses it back through `toClientGameState` immediately, the
+   same network-boundary pattern `getGameStateRedacted` already used, so
+   nothing downstream had to learn about the redacted shape: `gameApi.ts`'s
+   `invokeGameFunction`, and both test doubles that satisfy `ReplayTarget`
+   (`src/test/supabaseStack/index.ts`'s `applyAction`/`undoAction`/
+   `redoAction`, `src/test/productionSmoke/liveProject.ts`'s `invoke`) — so
+   every existing fixture replay kept passing unmodified. Covered by
+   `src/test/__tests__/writePathRedaction.test.ts`: a three-seat game (two
+   isn't enough to exercise this — in a two-player game the acting player is
+   always the *last* to choose, so the phase has already resolved by the
+   time their own response comes back) proves a still-pending third seat's
+   pick is masked in the *acting* player's own raw `apply-action` response,
+   revealed once that seat submits too, and that a game without
+   `hiddenInformationEnabled` sees no behavior change.
 9. **End-to-end verification against a real two-browser Supabase
    session** — still outstanding. Phase 8's own automated coverage (the
    in-process `supabaseStack`) proves the *server's* response body never

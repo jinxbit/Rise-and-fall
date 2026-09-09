@@ -2,7 +2,9 @@
 // index.ts; see that file's doc comment (and apply-action/index.ts's) for
 // the shared background. Same authorization (any seated player, or the room
 // owner/an admin — no per-seat ownership check, no owner-override), same
-// genesis-replay approach, same no-payload request body.
+// genesis-replay approach, same no-payload request body, same write-side
+// response redaction (issue #478 — see redactedResponseState in
+// ../_shared/gameEnforcement.ts).
 import { applyRedoAction } from '../../../src/engine/undoRedo.ts'
 import {
   buildGenesisState,
@@ -11,6 +13,7 @@ import {
   jsonResponse,
   loadFullGameAndPlayers,
   loadGameContext,
+  redactedResponseState,
   resolveGameContent,
   serviceRoleClient,
   writeGameStateCAS,
@@ -67,5 +70,7 @@ Deno.serve(async (req) => {
     return jsonResponse(409, { ok: false, error: 'Game state changed concurrently — refetch and retry.' })
   }
 
-  return jsonResponse(200, { ok: true, state: result.state, version: newVersion })
+  // issue #478: same write-side redaction as apply-action — see
+  // redactedResponseState's doc comment.
+  return jsonResponse(200, { ok: true, state: redactedResponseState(ctx, callerUserId, result.state), version: newVersion })
 })

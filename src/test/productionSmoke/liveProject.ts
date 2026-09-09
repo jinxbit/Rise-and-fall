@@ -27,6 +27,7 @@
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import type { Action } from '../../engine/actions.ts'
+import { toClientGameState, type RedactedGameState } from '../../engine/redaction.ts'
 import type { GameState } from '../../engine/types.ts'
 import { buildGenesisState } from '../../lib/gameGenesis.ts'
 import type { GameRow, PlayerRow } from '../../lib/dbTypes.ts'
@@ -79,7 +80,11 @@ function randomPassword(): string {
  * Mirrors gameApi.ts's `invokeGameFunction`: supabase-js reports a non-2xx
  * Edge Function response as `error` with `data: null`, hiding the function's
  * own `{ok:false, error}` body inside `error.context`. The app has to reach
- * in there, so a test of the app's backend does too.
+ * in there, so a test of the app's backend does too. Also mirrors that
+ * function's `toClientGameState` collapse of the `RedactedGameState`-shaped
+ * success response (issue #478) back into a plain `GameState`, so
+ * `replayFixtureThroughStack`'s local re-application and final fixture
+ * comparison see the same shape they always have.
  */
 async function invoke(client: SupabaseClient, name: string, body: Record<string, unknown>): Promise<EnforcedCallResult> {
   const { data, error } = await client.functions.invoke(name, { body })
@@ -97,7 +102,8 @@ async function invoke(client: SupabaseClient, name: string, body: Record<string,
     }
     return { ok: false, error: error.message, status: 0 }
   }
-  return { ...(data as { ok: true; state: GameState; version: number }), status: 200 }
+  const result = data as { ok: true; state: RedactedGameState; version: number }
+  return { ok: true, state: toClientGameState(result.state), version: result.version, status: 200 }
 }
 
 /**
