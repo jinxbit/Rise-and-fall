@@ -155,6 +155,16 @@ at that branch's latest deployment. Only the per-*deployment* hash URLs are
 unstable. A custom subdomain is optional and free if the domain is already
 owned; buying one is not required.
 
+**Every non-production build says so on screen.** `VITE_ENVIRONMENT` is set
+on Vercel's Preview scope only, and the app renders a corner badge naming
+that environment and the Supabase project ref it is actually talking to
+(`src/components/environmentBadge.ts`). Production leaves the variable unset
+and shows nothing, so the safe state is the one requiring no configuration.
+This exists because a build is configured entirely at build time: without it,
+the only ways to tell pre-production from production are reading the deployed
+JavaScript or noticing that your account does not exist there. Both have been
+needed already.
+
 **Auth on staging needs its own setup.** OAuth redirect URIs are registered
 per Supabase project, so Discord and Google sign-in will not work on staging
 until they are configured there too. The cheap path is to lean on
