@@ -123,6 +123,7 @@ a restructuring of work.
 | | Pre-production | Production |
 | --- | --- | --- |
 | Branch | `main` | `production` |
+| GitHub Environment | `PreProduction` | `production` |
 | Supabase project | new, e.g. `rise-and-fall-staging` | the existing one |
 | Frontend | Vercel Preview env, with a stable branch domain | Vercel Production |
 | Data | disposable; seeded on demand | real games |
@@ -262,10 +263,14 @@ not the same as proving the app works.
    cutover. `npm run test:production` became `npm run test:smoke` for the
    same reason.
 2. **Stand up staging.** Note before starting: a GitHub Environment that does
-   not define a secret inherits the repository-level one, so a `staging`
-   environment missing `SUPABASE_PROJECT_ID` silently targets **production**.
+   not define a secret inherits the repository-level one, so a
+   pre-production environment missing `SUPABASE_PROJECT_ID` — or simply named
+   differently from what the workflow asks for — silently targets
+   **production**.
    That happened on 2026-09-09 — a `Deploy Supabase` run requested for
-   staging deployed to production instead. Both workflows now refuse to
+   "staging" deployed to production instead, because no environment of that
+   name existed (the real one is called `PreProduction`) and GitHub
+   auto-created an empty one. Both workflows now refuse to
    continue unless the resolved project ref matches the environment, checked
    against a repository variable `PRODUCTION_SUPABASE_PROJECT_ID`; set that
    variable first. Maintainer: create the Supabase project, set the

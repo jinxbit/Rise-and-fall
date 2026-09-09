@@ -42,8 +42,15 @@ on:
       environment:
         description: 'Which environment to smoke-test'
         type: choice
-        options: [production, staging]
-        default: production
+        # Names must match the GitHub Environments exactly — a name with no
+        # environment behind it gets auto-created empty, and an empty
+        # environment inherits the repository-level secrets, i.e. production.
+        # That is how a run requested for "staging" reached production on
+        # 2026-09-09, before the guard below existed.
+        options: [PreProduction, production]
+        # Pre-production first, so the riskier target is never the one a
+        # mis-click selects.
+        default: PreProduction
 
 # Never two runs against the same environment at once: each creates and
 # deletes real rows, and serializing keeps a failure's leftovers unambiguous.
@@ -74,6 +81,9 @@ jobs:
           else
             # Mirrors deploy-supabase.yml's mapping — change both together.
             case "$BRANCH" in
+              # Phase 3 (DELIVERY_PIPELINE_PLAN.md §3) changes this one line:
+              # main starts resolving to PreProduction, and a new `production`
+              # branch takes over releasing.
               main) resolved=production ;;
               *)
                 echo "::error::No environment is mapped for branch '$BRANCH'. Add it to the case in .github/workflows/smoke.yml (and deploy-supabase.yml)."

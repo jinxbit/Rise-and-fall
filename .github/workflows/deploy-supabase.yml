@@ -28,8 +28,15 @@ on:
       environment:
         description: 'Which environment to deploy to'
         type: choice
-        options: [production, staging]
-        default: production
+        # Names must match the GitHub Environments exactly — a name with no
+        # environment behind it gets auto-created empty, and an empty
+        # environment inherits the repository-level secrets, i.e. production.
+        # That is how a run requested for "staging" reached production on
+        # 2026-09-09, before the guard below existed.
+        options: [PreProduction, production]
+        # Pre-production first, so the riskier target is never the one a
+        # mis-click selects.
+        default: PreProduction
 
 # One deploy per environment at a time. Never cancel one in flight: a
 # half-applied `db push` is worse than a queued run.
@@ -55,6 +62,9 @@ jobs:
             # THE branch -> environment mapping. See this file's header, and
             # DELIVERY_PIPELINE_PLAN.md §3 for where it is heading.
             case "$BRANCH" in
+              # Phase 3 (DELIVERY_PIPELINE_PLAN.md §3) changes this one line:
+              # main starts resolving to PreProduction, and a new `production`
+              # branch takes over releasing.
               main) resolved=production ;;
               *)
                 echo "::error::No environment is mapped for branch '$BRANCH'. Add it to the case in .github/workflows/deploy-supabase.yml."
