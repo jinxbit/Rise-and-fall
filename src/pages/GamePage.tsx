@@ -67,7 +67,7 @@ import { encodeGameStateExport } from '../lib/gameStateExport'
 import { saveMapToPool } from '../lib/mapPoolApi'
 import { gamePath, isFinished as isMyGameFinished, isCanceled as isMyGameCanceled, isMyTurn as isMyGameTurn, latestUpdatedAt as latestMyGameUpdatedAt, type MyGameEntry } from '../lib/myGamesView'
 import { setPendingRedirect } from '../lib/pendingRedirect'
-import { shouldRetractOwnChoice } from '../lib/undoDecision'
+import { shouldRetractOwnChoice, shouldRetractOwnDecline } from '../lib/undoDecision'
 
 /**
  * Two players' writes racing the game_state row's optimistic-concurrency
@@ -1215,6 +1215,15 @@ export function GamePage() {
    * is an ordinary action (not a pointer move), so it's dispatched through
    * `submitAction` like any other and needs no special-casing there for
    * either write path.
+   *
+   * Issue #505 gives the `decline` phase's own interleaving pair the same
+   * treatment: if `me` still has any of their own additions standing from
+   * the currently-open decline phase, Undo submits `RETRACT_DECLINE` with no
+   * `cardId` — retracting all of them in one action, even if another player
+   * has moved a card to decline more recently, as long as the phase (and so
+   * the information) is still open. See `shouldRetractOwnDecline`
+   * (`../lib/undoDecision.ts`) and `RetractDeclineAction`'s own doc comment
+   * for why "all at once" rather than one card at a time.
    */
   async function handleUndo() {
     if (!game) return
@@ -1222,6 +1231,10 @@ export function GamePage() {
     try {
       if (me && gameState && shouldRetractOwnChoice(gameState, me.id)) {
         await submitAction({ type: 'RETRACT_CHOICE', playerId: me.id })
+        return
+      }
+      if (me && gameState && shouldRetractOwnDecline(gameState, me.id)) {
+        await submitAction({ type: 'RETRACT_DECLINE', playerId: me.id })
         return
       }
       // ruleEnforcementEnabled: delegate to undo-action instead of replaying

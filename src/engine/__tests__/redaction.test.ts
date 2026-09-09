@@ -226,6 +226,54 @@ describe('redactStateForPlayer', () => {
       asP2 = redactStateForPlayer(state, 'p2')
       expect(asP2.players.find((p) => p.id === 'p1')!.declineCardIds).toEqual([null, null])
     })
+
+    it("masks a single-card RETRACT_DECLINE naming a still-secret addition (issue #505) — otherwise the retraction's own payload would leak what the masked MOVE_TO_DECLINE hid", () => {
+      let state = reachDeclinePhase(2) // owes 2, so the phase stays open after retracting one
+      const p1Temple = cardIdFor('p1', 'temple')
+      state = requireOk(applyAction(state, { type: 'MOVE_TO_DECLINE', playerId: 'p1', cardId: p1Temple }))
+      state = requireOk(applyAction(state, { type: 'RETRACT_DECLINE', playerId: 'p1', cardId: p1Temple }))
+      expect(state.roundPhase).toBe('decline')
+
+      const asP2 = redactStateForPlayer(state, 'p2')
+      const retractEntry = asP2.actionHistory.find((e) => e.action.type === 'RETRACT_DECLINE')!
+      expect(retractEntry.action).toMatchObject({ type: 'RETRACT_DECLINE', cardId: null })
+
+      const asP1 = redactStateForPlayer(state, 'p1')
+      const ownRetractEntry = asP1.actionHistory.find((e) => e.action.type === 'RETRACT_DECLINE')!
+      expect(ownRetractEntry.action).toMatchObject({ type: 'RETRACT_DECLINE', cardId: p1Temple })
+    })
+
+    it('never masks a no-cardId "retract everything this phase" RETRACT_DECLINE, since it carries nothing to leak', () => {
+      let state = reachDeclinePhase(2)
+      const p1Temple = cardIdFor('p1', 'temple')
+      const p1Nomad = cardIdFor('p1', 'nomad')
+      state = requireOk(applyAction(state, { type: 'MOVE_TO_DECLINE', playerId: 'p1', cardId: p1Temple }))
+      state = requireOk(applyAction(state, { type: 'MOVE_TO_DECLINE', playerId: 'p1', cardId: p1Nomad }))
+      state = requireOk(applyAction(state, { type: 'RETRACT_DECLINE', playerId: 'p1' }))
+      expect(state.roundPhase).toBe('decline')
+
+      const asP2 = redactStateForPlayer(state, 'p2')
+      const retractEntry = asP2.actionHistory.find((e) => e.action.type === 'RETRACT_DECLINE')!
+      expect(retractEntry.action.type).toBe('RETRACT_DECLINE')
+      expect((retractEntry.action as { cardId?: string | null }).cardId).toBeUndefined()
+    })
+
+    it('reveals a masked RETRACT_DECLINE entry once the phase resolves', () => {
+      let state = reachDeclinePhase(2)
+      const p1Temple = cardIdFor('p1', 'temple')
+      state = requireOk(applyAction(state, { type: 'MOVE_TO_DECLINE', playerId: 'p1', cardId: p1Temple }))
+      state = requireOk(applyAction(state, { type: 'RETRACT_DECLINE', playerId: 'p1', cardId: p1Temple }))
+      // p1 re-declines and both players finish supplying every owed card, resolving the phase.
+      state = requireOk(applyAction(state, { type: 'MOVE_TO_DECLINE', playerId: 'p1', cardId: p1Temple }))
+      state = requireOk(applyAction(state, { type: 'MOVE_TO_DECLINE', playerId: 'p1', cardId: cardIdFor('p1', 'nomad') }))
+      state = requireOk(applyAction(state, { type: 'MOVE_TO_DECLINE', playerId: 'p2', cardId: cardIdFor('p2', 'temple') }))
+      state = requireOk(applyAction(state, { type: 'MOVE_TO_DECLINE', playerId: 'p2', cardId: cardIdFor('p2', 'nomad') }))
+      expect(state.roundPhase).toBe('purchase')
+
+      const asP2 = redactStateForPlayer(state, 'p2')
+      const retractEntry = asP2.actionHistory.find((e) => e.action.type === 'RETRACT_DECLINE')!
+      expect(retractEntry.action).toMatchObject({ type: 'RETRACT_DECLINE', cardId: p1Temple })
+    })
   })
 
   describe('passthrough', () => {
@@ -345,6 +393,43 @@ describe('unredactedPrefix', () => {
     // p1's second (still-in-effect, still-secret) pick masks the same way,
     // and there's nothing safe to replay past it.
     expect(unredactedPrefix(asP2.actionHistory)).toEqual([])
+  })
+
+  it("truncates before a still-masked decline addition even once it's been retracted — the retraction doesn't unmask it (issue #505)", () => {
+    const base = { ...makeActiveGameWithFullHands(), achievementsClaimedThisRound: 2 }
+    let state = requireOk(applyAction(base, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }))
+    state = requireOk(applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') }))
+    state = requireOk(applyAction(state, { type: 'PASS_ACTIONS', playerId: 'p1' }))
+    state = requireOk(applyAction(state, { type: 'PASS_ACTIONS', playerId: 'p2' }))
+    expect(state.roundPhase).toBe('decline')
+    const p1Temple = cardIdFor('p1', 'temple')
+    state = requireOk(applyAction(state, { type: 'MOVE_TO_DECLINE', playerId: 'p1', cardId: p1Temple }))
+    state = requireOk(applyAction(state, { type: 'RETRACT_DECLINE', playerId: 'p1', cardId: p1Temple }))
+
+    const asP2 = redactStateForPlayer(state, 'p2')
+    // Both the original MOVE_TO_DECLINE and the RETRACT_DECLINE that follows
+    // it are masked, and still in effect (RETRACT_DECLINE is an ordinary
+    // action, not an UNDO_ACTION, so resolveHistory never folds either away)
+    // — everything up to (not including) the MOVE_TO_DECLINE survives, but
+    // nothing from there on is safe to replay.
+    expect(unredactedPrefix(asP2.actionHistory).map((e) => e.action.type)).toEqual(['CHOOSE_CARD', 'CHOOSE_CARD', 'PASS_ACTIONS', 'PASS_ACTIONS'])
+  })
+
+  it('keeps a no-cardId "retract everything this phase" RETRACT_DECLINE in the prefix when nothing before it was masked', () => {
+    const base = { ...makeActiveGameWithFullHands(), achievementsClaimedThisRound: 1 }
+    let state = requireOk(applyAction(base, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }))
+    state = requireOk(applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') }))
+    state = requireOk(applyAction(state, { type: 'PASS_ACTIONS', playerId: 'p1' }))
+    state = requireOk(applyAction(state, { type: 'PASS_ACTIONS', playerId: 'p2' }))
+    expect(state.roundPhase).toBe('decline')
+    // p1's own only owed card this phase — p1 no longer has anything of
+    // their own to retract by the time p2 is the viewer below, so there's
+    // nothing left for p2 to have masked either.
+    state = requireOk(applyAction(state, { type: 'MOVE_TO_DECLINE', playerId: 'p1', cardId: cardIdFor('p1', 'temple') }))
+    state = requireOk(applyAction(state, { type: 'RETRACT_DECLINE', playerId: 'p1' }))
+
+    const asP1 = redactStateForPlayer(state, 'p1')
+    expect(unredactedPrefix(asP1.actionHistory).map((e) => e.action.type)).toEqual(['CHOOSE_CARD', 'CHOOSE_CARD', 'PASS_ACTIONS', 'PASS_ACTIONS', 'MOVE_TO_DECLINE', 'RETRACT_DECLINE'])
   })
 })
 

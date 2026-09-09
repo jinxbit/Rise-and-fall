@@ -500,6 +500,72 @@ describe('RETRACT_DECLINE (RULE_ENFORCEMENT_PLAN.md §10)', () => {
     const result = applyAction(eliminatedState, { type: 'RETRACT_DECLINE', playerId: 'p1', cardId: templeId })
     expect(result.ok).toBe(false)
   })
+
+  describe('retracting all at once (no cardId, issue #505)', () => {
+    it("retracts every one of the caller's own additions from this phase in a single call, each back to its own source zone", () => {
+      const declineState = reachDeclinePhase(makeActiveGameWithFullHands(), 2)
+      const templeId = cardIdFor('p1', 'temple')
+      const cityId = cardIdFor('p1', 'city') // this round's played card, sitting in discard
+      let result = applyAction(declineState, { type: 'MOVE_TO_DECLINE', playerId: 'p1', cardId: templeId })
+      if (!result.ok) throw new Error('setup failed')
+      result = applyAction(result.state, { type: 'MOVE_TO_DECLINE', playerId: 'p1', cardId: cityId })
+      if (!result.ok) throw new Error('setup failed')
+      expect(result.state.pendingPlayerIds.filter((id) => id === 'p1')).toHaveLength(0)
+
+      const retracted = applyAction(result.state, { type: 'RETRACT_DECLINE', playerId: 'p1' })
+      expect(retracted.ok).toBe(true)
+      if (!retracted.ok) return
+      const p1 = retracted.state.players.find((p) => p.id === 'p1')!
+      expect(p1.declineCardIds).not.toContain(templeId)
+      expect(p1.declineCardIds).not.toContain(cityId)
+      expect(p1.handCardIds).toContain(templeId)
+      expect(p1.discardCardIds).toContain(cityId)
+      // Both owed cards are back to being pending, as if neither had been declined yet.
+      expect(retracted.state.pendingPlayerIds.filter((id) => id === 'p1')).toHaveLength(2)
+    })
+
+    it('is legal even though another player has acted since, as long as the phase is still open', () => {
+      // Both owe 2 so the phase stays open after p1 declines both and p2 declines one.
+      const declineState = reachDeclinePhase(makeActiveGameWithFullHands(), 2)
+      const templeId = cardIdFor('p1', 'temple')
+      const nomadId = cardIdFor('p1', 'nomad')
+      const p2ShipId = cardIdFor('p2', 'ship')
+      let result = applyAction(declineState, { type: 'MOVE_TO_DECLINE', playerId: 'p1', cardId: templeId })
+      if (!result.ok) throw new Error('setup failed')
+      result = applyAction(result.state, { type: 'MOVE_TO_DECLINE', playerId: 'p1', cardId: nomadId })
+      if (!result.ok) throw new Error('setup failed')
+      // p2 acts in between p1's declines and p1's retraction.
+      result = applyAction(result.state, { type: 'MOVE_TO_DECLINE', playerId: 'p2', cardId: p2ShipId })
+      if (!result.ok) throw new Error('setup failed')
+
+      const retracted = applyAction(result.state, { type: 'RETRACT_DECLINE', playerId: 'p1' })
+      expect(retracted.ok).toBe(true)
+      if (!retracted.ok) return
+      const p1 = retracted.state.players.find((p) => p.id === 'p1')!
+      expect(p1.declineCardIds).toEqual([])
+      // p2's own still-secret addition is untouched.
+      const p2 = retracted.state.players.find((p) => p.id === 'p2')!
+      expect(p2.declineCardIds).toContain(p2ShipId)
+    })
+
+    it('rejects when the caller has nothing of their own to retract this phase', () => {
+      const declineState = reachDeclinePhase(makeActiveGameWithFullHands())
+      const result = applyAction(declineState, { type: 'RETRACT_DECLINE', playerId: 'p1' })
+      expect(result.ok).toBe(false)
+    })
+
+    it('retracts only cards still standing from the current phase, not an already-public prior round addition', () => {
+      let state = reachDeclinePhase(makeActiveGameWithFullHands())
+      const nomadId = cardIdFor('p1', 'nomad')
+      const declined = applyAction(state, { type: 'MOVE_TO_DECLINE', playerId: 'p1', cardId: nomadId })
+      if (!declined.ok) throw new Error('setup failed')
+      // Simulate that decline having resolved into a later phase (declineSourceZoneByCardId reset).
+      state = { ...declined.state, declineSourceZoneByCardId: {} }
+
+      const result = applyAction(state, { type: 'RETRACT_DECLINE', playerId: 'p1' })
+      expect(result.ok).toBe(false)
+    })
+  })
 })
 
 describe('applyAction — resyncs unit movement from unitContent before dispatching', () => {
