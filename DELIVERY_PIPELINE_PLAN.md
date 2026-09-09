@@ -14,11 +14,12 @@ Steps 1 and 4 mostly exist today. Steps 2 and 3 do not exist at all — there
 is no pre-production anything. This document is the design for building it,
 and the record of which decisions were made and why.
 
-Status: **pre-production exists and is verified** (2026-09-09). Phases 0-1
-are done and phase 2 is all but finished: a second Supabase project holds the
-full migration history and every Edge Function, and a real production game
-replays against it end to end. What remains of phase 2 is the frontend
-(Vercel) and the `production` branch; nothing after phase 2 has started.
+Status: **pre-production is complete and verified end to end** (2026-09-09).
+Phases 0-2 are done: a second Supabase project holds the full migration
+history and every Edge Function, a real production game replays against it,
+and the Vercel Preview build talks to it — confirmed by signing in and
+finding no games, on a separate auth store. Phase 3 is next and has not
+started.
 
 Decisions taken so far are in §2 (a second hosted project, self-hosting
 deferred), §3 (branch topology, recommended, not yet acted on) and §7
@@ -335,9 +336,19 @@ not the same as proving the app works.
    production instead, because GitHub auto-creates an empty environment and
    an empty environment inherits production's secrets.
 
-   Still outstanding: the Vercel side (Preview-scoped `VITE_SUPABASE_*`
-   pointing at the new project, and a stable branch domain), and creating the
-   `production` branch with its protection.
+   The Vercel half took two goes. Preview-scoped `VITE_SUPABASE_*` had no
+   effect at first because the existing entries were scoped to *all*
+   environments, which wins over an environment-specific one — the build
+   looked correctly configured and silently used production. What surfaced it
+   was the environment badge (§4): the page named the project it was really
+   talking to. Narrowing the originals to Production and adding Preview-scoped
+   copies fixed it, confirmed by signing in on the preview and finding no
+   games. The Preview project also needed its own Authentication -> URL
+   Configuration, since a fresh project's Site URL is `localhost`.
+
+   Outstanding, and a prerequisite for phase 3 rather than phase 2: branch
+   protection on `production` (no force-pushes, no deletions). The branch
+   exists, at the same commit as `main`.
 
 3. **Retarget `main`, and the docs with it.** `main` deploys to
    pre-production; `production` deploys to production. Three things move
