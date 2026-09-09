@@ -530,6 +530,28 @@ to hidden information (6) are omitted here.
    pick is masked in the *acting* player's own raw `apply-action` response,
    revealed once that seat submits too, and that a game without
    `hiddenInformationEnabled` sees no behavior change.
+
+   **Decided (2026-09-09, issue #481): `CreateGamePage.tsx`'s checkbox now
+   defaults to checked**, matching `ruleEnforcementEnabled`'s own
+   issue-#432 default next to it — hiding in-progress picks was off unless
+   a room creator went looking for it, which in practice meant nobody used
+   it. `hiddenInformationAvailable` (now `src/lib/hiddenInformationEligibility.ts`,
+   split out of the page component so it's unit-testable) still gates it
+   exactly as before: unavailable, and never submitted, for hotseat or
+   whenever rule enforcement itself is unticked — unticking rule
+   enforcement leaves the submitted value `false` regardless of the
+   checkbox's own visual state. `createGame()`'s own `hiddenInformationEnabled
+   ?? false` default is unchanged; only the UI's default moved, the same
+   split `ruleEnforcementEnabled` already has (see `CLAUDE.md`'s "two write
+   paths" section). **New games only** — this is a creation-time setting
+   stored in `games.settings` and copied onto `GameState` at genesis; every
+   existing game keeps whatever it was created with, and nothing migrates.
+   By the time this landed, issue #480 (the end-to-end wire verification,
+   §8 phase 9 below) had already closed and passed, so the guarantee this
+   turns on by default is verified at the wire level, not just engine/
+   Edge-Function level, before any UI default changed. Even so: `main` is
+   pre-production, so this reaches the Preview Supabase project and not
+   players; production needs a separate `promote.yml` approval regardless.
 9. **End-to-end verification against a real Supabase project — closed
    (2026-09-09, issue #480).** The "this sandbox has no live project"
    limitation this section used to record is gone: a pre-production
