@@ -35,6 +35,7 @@ function makeSettings(overrides: Partial<GameSettings> = {}): GameSettings {
     soloBuilderTurnOrder: null,
     skipHotseatPassGate: false,
     ruleEnforcementEnabled: false,
+    hiddenInformationEnabled: false,
     activeTaleIds: [],
     gameLength: 4,
     ...overrides,

@@ -247,16 +247,19 @@ discarded.
 
 ### 5.4 What actually runs today (client-side)
 
-**Update (2026-09-08): phase 5's `get-game-state` Edge Function now exists
-(`supabase/functions/get-game-state/index.ts`), but nothing calls it yet.**
-`gameApi.ts`'s `getGameState()` still reads the raw `game_state` row
-directly for every caller — the rewire onto `get-game-state` is
-`RULE_ENFORCEMENT_PLAN.md` §8 phase 8, a separate, larger step. Until that
-lands, the paragraph below (written 2026-09-07, before phase 5) still
-accurately describes what's actually reachable over the network: this
-section's own point stands unchanged — client-side redaction is a UX
-guarantee, not a security one, until phase 8 makes `get-game-state` the
-only read path.
+**Update (2026-09-08, phase 8): `get-game-state` is now a real read path —
+for a `GameSettings.hiddenInformationEnabled` game.** `gameApi.ts`'s
+`getGameStateRedacted()`/`subscribeToGameState(..., redacted: true)` call it
+instead of reading `game_state` directly, gated on `GamePage.tsx`'s
+`usesRedactedReads(game)` (`ruleEnforcementEnabled && hiddenInformationEnabled`,
+never hotseat). For a game with the flag on, the paragraph below (written
+2026-09-07, before this landed) is no longer accurate — a still-secret pick
+genuinely never reaches an opponent's client, network tab included, per
+`getGameState.test.ts`'s coverage against the real Edge Function. For every
+other game — the flag off, unchecked, or unavailable (client-trusted games
+have no server authority to redact from in the first place, per
+`GameSettings.hiddenInformationEnabled`'s own doc comment) — the paragraph
+below still describes exactly what happens: nothing changed for them.
 
 **Update (2026-09-07).** §5.2's server-side read path doesn't exist yet
 (phase 5), but redaction is not sitting unused in the meantime — it is
@@ -275,11 +278,15 @@ off the wire:
   bypass is the admin-only "Cheat mode" toggle (issue #430), which must be
   switched on deliberately and isn't persisted.
 
-The limitation is exactly the one phase 5 exists to close, and it is worth
-being blunt about: the client fetches the whole `game_state` row and hides
-part of it locally, so an opponent's still-secret pick **is** present in
-the payload their browser received. Client-side redaction is a UX
-guarantee, not a security one.
+The limitation above is exactly what phase 8 closes for a game that opts in
+(`GameSettings.hiddenInformationEnabled`): its client fetches only the
+redacted view, so an opponent's still-secret pick is never present in the
+payload their browser received at all — client-side redaction there is
+belt-and-suspenders on top of a real server-side guarantee, not the whole
+guarantee. For any other game, this section's original point stands
+unchanged: the client fetches the whole `game_state` row and hides part of
+it locally, so client-side redaction is a UX guarantee only, not a security
+one.
 
 ## 6. Data model changes
 
@@ -393,52 +400,100 @@ to hidden information (6) are omitted here.
    this document's `get-game-state` deploy too (`supabase functions deploy`
    with no arguments deploys every function under `supabase/functions/`
    generically, so the new function needed no separate wiring there).
-8. **Rewire `gameApi.ts`** and every call site (`GamePage.tsx`,
-   `LobbyPage.tsx`, `RoundView.tsx`, `BoardSetupView.tsx`) from direct
-   `game_state` reads onto `get_game_state` specifically (see
-   `RULE_ENFORCEMENT_PLAN.md` §8 phase 8 for the write-side
-   `apply-action`/`undo-action`/`redo-action` half). Keep the engine bundled
-   client-side for optimistic UI (legal-move highlighting, immediate
-   feedback) but never treat its output as authoritative — always reconcile
-   against the server's redacted response.
-   **Scoped in more detail (2026-09-08), while looking for the next
-   concrete step to implement: this is a larger change than "swap
-   `gameApi.ts`'s `getGameState()` implementation."** `RedactedGameState`
-   (`redaction.ts`) is not structurally the same type as `GameState` —
-   `chosenCardIdByPlayerId` becomes `Record<string, RedactedChoice>` instead
-   of `Record<string, string | null>`, `players[].declineCardIds` becomes
-   `(string | null)[]`, and (per this phase's own note above)
-   `actionHistory` becomes `RedactedLoggedAction[]`, non-replayable. Every
-   consumer of these fields — `RoundView.tsx` reads
-   `state.chosenCardIdByPlayerId[playerId]` and `player.declineCardIds`
-   directly in about five places to decide what to render (hand contents,
-   the "Playing" indicator, the decline buy-back list) — currently assumes
-   the real, un-redacted shape. Wiring a rule-enforced game's `gameState`
-   onto the redacted read therefore isn't just an API/data-plumbing change:
-   it needs new UI logic for rendering an opponent's masked pick (a
-   `{chosen: true, cardId: null}` needs its own "chose a card, not yet
-   revealed" treatment distinct from the real card art), a client-side type
-   distinction between a live enforced game's `RedactedGameState` and every
-   other game's plain `GameState`, and — being a rendering change — real
-   browser verification (golden path *and* the masked-pick edge case)
-   before it can be called done, which no sandbox environment used for this
-   issue so far has been able to do (see phase 9 below). Also still true
-   from this phase's original scoping: it must correctly bypass redaction
-   for hotseat (`GameState.play_mode === 'hotseat'`, or actually the
-   `games` row's `play_mode`) regardless of `ruleEnforcementEnabled`, since
-   hotseat's one shared `auth.uid()` across every local seat (§2) makes
-   `get-game-state`'s per-seat masking actively wrong there — it would hide
-   a local player's own pick from the very device they're using to make it.
+8. **Rewire `gameApi.ts`'s read path onto `get-game-state` — done
+   (2026-09-08), landed opt-in rather than for every `ruleEnforcementEnabled`
+   game.** This phase was scoped the same day (see the paragraph this
+   replaces, kept below in spirit) as needing three things beyond a bare
+   `getGameState()` swap: a way past `RedactedGameState` not being
+   structurally the same type as `GameState`, a resolution for the §5.4/§8
+   blocker found while scoping it (gameLog.ts/turnReview.ts replaying a
+   masked `CHOOSE_CARD`/`MOVE_TO_DECLINE` entry — a `cardId: null` isn't a
+   legal `Action` payload, and `replayActions` throws outright on one), and
+   real browser verification this sandbox can't do. Here's how each landed:
+   - **New opt-in flag, `GameSettings.hiddenInformationEnabled`** (only
+     offered once `ruleEnforcementEnabled` is checked, and never for hotseat
+     — see `CreateGamePage.tsx`), carried onto `GameState` at genesis like
+     `activeTaleIds`/`gameLength`. `get-game-state` only actually calls
+     `redactStateForPlayer` when this is on (and the caller isn't an admin
+     or in a hotseat game) — every other caller, including every game that
+     predates this flag, gets `revealedGameStateView(state)`: the exact same
+     `RedactedGameState` *shape* with nothing masked, so gameApi.ts's
+     `getGameStateRedacted` always gets one predictable shape back regardless
+     of who's asking. This is also what made the blast radius safe to land
+     without a live browser: `gameApi.ts`'s `getGameState()` (the raw-row
+     read) is completely untouched, and `getGameStateRedacted()` /
+     `subscribeToGameState(..., redacted: true)` are only ever called
+     (`GamePage.tsx`'s `usesRedactedReads`) for a game with the flag on — so
+     every pre-existing game, and every enforced game that doesn't opt in,
+     reads exactly the code path it always has.
+   - **The replay blocker resolved by truncation, not by teaching
+     gameLog.ts/turnReview.ts about redaction.** `redaction.ts`'s new
+     `unredactedPrefix(actionHistory)` drops a `RedactedLoggedAction[]`'s
+     tail from its first masked entry onward — sound because a masked entry
+     only ever exists for the *current*, still-unresolved simultaneous
+     phase (`entry.turn === state.turn`, per `redactStateForPlayer`), and
+     `CHOOSE_CARD`/`MOVE_TO_DECLINE` never themselves move VP/resources/the
+     board, so nothing downstream of the cut is lost. `toClientGameState`
+     (also `redaction.ts`) calls it once, at the network boundary, and
+     collapses `RedactedChoice`/`declineCardIds` back into `GameState`'s own
+     shapes (keeping a masked decline id as `null` in place rather than
+     filtering it out, so pile length/order survive) — so `GamePage.tsx`
+     stores a plain `GameState` exactly as before, and gameLog.ts,
+     turnReview.ts, scoreHistory.ts, unitValue.ts, historyFold.ts and every
+     `RoundView.tsx` render path needed **zero** changes; they simply never
+     see a masked entry. `undoRedo.ts`'s own `replayActions` calls turned out
+     not to be reachable here at all: `GamePage.tsx` already delegates
+     Undo/Redo to the `undo-action`/`redo-action` Edge Functions for every
+     `ruleEnforcementEnabled` game (server-side, real unredacted history),
+     never running `applyUndoAction`/`applyRedoAction` against client state
+     for one — so hiddenInformationEnabled (enforced-only by construction)
+     never reaches that path.
+   - **No RoundView.tsx changes needed, on inspection — not "deferred".**
+     The "about five places" the 2026-09-08 scoping worried about turned out
+     to already gate every *other* player's `chosenCardIdByPlayerId` read on
+     `roundPhase === 'actions'` (the "Playing" indicator, the hand-hiding
+     filter, a unit's `cardState: 'selected'`) — which is exactly the
+     condition under which that phase has already resolved and nothing is
+     masked. `declineCardIds`' two read sites (`kindsInZone` for another
+     player's pile) already drop an unrecognized id rather than crash, so a
+     masked `null` just under-counts a still-secret pile by omission until
+     it resolves. `toClientGameState`'s own doc comment records this
+     reasoning inline, including the one real trade-off: there's no distinct
+     "chosen, not yet revealed" treatment for an opponent's live pick during
+     `selectCards` itself, since collapsing `{chosen: true, cardId: null}`
+     to `null` reads the same as "hasn't chosen yet" — nothing today renders
+     that distinction anyway (RoundView only surfaces it once resolved), so
+     this is a documented limitation, not a regression.
+   - **Admin room-configuration panel** (`GamePage.tsx`, issue #453) now
+     also reports "Hidden information: ON/OFF" alongside "Backend rule
+     enforcement", off the same `usesRedactedReads(game)` check gameApi.ts
+     uses to pick a read path.
+   - Engine/Edge-Function-level coverage: `redaction.test.ts` (`revealedGameStateView`/
+     `unredactedPrefix`/`toClientGameState`, including the round-trip and the
+     decline-null-preserved-in-place cases) and `getGameState.test.ts`
+     (the opt-in gating, the hotseat bypass, admin's now-uniformly-shaped
+     response, and — directly regression-testing the blocker this phase was
+     stuck on — a real redacted response run through `toClientGameState`
+     then `buildGameLogFrom` without throwing). What's still open is real
+     two-browser verification (phase 9 below) and, per the RoundView note
+     above, an intentionally-unimplemented "chosen, hidden" UI treatment for
+     opponents' live picks — currently invisible either way, so nothing
+     regressed by leaving it for a later increment if it's ever wanted.
 9. **End-to-end verification against a real two-browser Supabase
-   session**, inspecting actual network payloads (not just UI rendering)
-   to confirm secret fields never reach an opponent's client during the
-   `selectCards`/`decline` windows — today they still do, since redaction
-   runs client-side and the client fetches the whole row, and that a reviewed-but-not-branched
-   rewind never re-masks an already-revealed pick (§5.3). This sandbox has
-   no live Supabase project to test against, so this phase requires the
-   maintainer's own environment, same limitation noted throughout `todo.md`.
-   See `RULE_ENFORCEMENT_PLAN.md` §8 phase 9 for the companion verification
-   of action authorization in the same session.
+   session** — still outstanding. Phase 8's own automated coverage (the
+   in-process `supabaseStack`) proves the *server's* response body never
+   carries a still-secret `cardId` for a `hiddenInformationEnabled` game, and
+   that the client-side collapse of that response doesn't crash — but not
+   that the browser's own network stack (DevTools Network tab, a
+   Realtime/Websocket frame, a service-worker cache) never independently
+   surfaces it, nor that a reviewed-but-not-branched rewind never re-masks
+   an already-revealed pick (§5.3's flicker, expected but unverified in a
+   real UI). A game *without* the flag on is unaffected either way — it
+   never calls `get-game-state` at all (§8), same as before this phase
+   landed. This sandbox has no live Supabase project to test against, so
+   this phase requires the maintainer's own environment, same limitation
+   noted throughout `todo.md`. See `RULE_ENFORCEMENT_PLAN.md` §8 phase 9 for
+   the companion verification of action authorization in the same session.
 
 ## 9. Testing strategy
 
@@ -451,18 +506,23 @@ to hidden information (6) are omitted here.
   mark so redaction re-masks it, consistent with
   `RULE_ENFORCEMENT_PLAN.md` §4.4's owner-override gate covering that same
   branch.
-- **Edge Function/RPC level:** still the gap, but for a narrower reason than
-  when this was written. `RULE_ENFORCEMENT_PLAN.md` §9's in-process stack
-  (`src/test/supabaseStack/`) now exercises real Edge Function handlers,
-  RLS and the storage encoding on every pull request with no Docker, so
-  "requires a live Supabase project" no longer holds for the *write* path.
-  It doesn't help this document yet only because phase 5's `get_game_state`
-  doesn't exist — once it does, it can be tested there the same way, and
-  what genuinely needs a live project shrinks to §5.2's Realtime concern:
-  confirming the raw row broadcast to subscribers doesn't carry secrets the
-  RPC strips. Maintainer verification is still needed post-merge for
-  phases 5 and 8-9.
-- **Regression:** the existing suite (1118 tests across 61 files, up from
+- **Edge Function level: done (2026-09-08, phase 8), via
+  `getGameState.test.ts`** against `RULE_ENFORCEMENT_PLAN.md` §9's
+  in-process stack (`src/test/supabaseStack/`) — real Edge Function
+  handlers, RLS and the storage encoding, no Docker needed. Covers the
+  opt-in gating (redacted only with both `ruleEnforcementEnabled` and
+  `hiddenInformationEnabled` on), the hotseat bypass, admin's now-uniformly-
+  RedactedChoice-shaped response (`revealedGameStateView`), and — the
+  regression test for the blocker phase 8 was originally stuck on — a real
+  redacted response run through `toClientGameState` then `gameLog.ts`'s
+  `buildGameLogFrom` without throwing. What genuinely still needs a live
+  project shrinks to §5.2's original Realtime concern (confirming no raw-row
+  broadcast bypasses this function — already believed closed by issue #448's
+  unrelated `game_state_meta` subscription swap, per §5.2's "Resolved
+  (2026-09-08)" note, but never verified against a real socket) and phase 9's
+  browser-network-tab check below. Maintainer verification is still needed
+  post-merge for phase 9.
+- **Regression:** the existing suite (1137 tests across 62 files, up from
   the 220+ this section was written against) must continue passing
   unmodified — this work changes *what subset* of the engine's output a
   given viewer receives, not the engine's rules themselves.
@@ -512,6 +572,14 @@ testing.)
   subsumes it, but the migration needs to preserve that bug's fix (public
   rooms' `status` must stay visible to non-participants) once redaction
   lands.
+- New from phase 8 (2026-09-08): a `RedactedChoice` of `{chosen: true,
+  cardId: null}` (an opponent's live, still-secret pick) and `{chosen:
+  false}` (hasn't picked) both collapse to the same `null` through
+  `toClientGameState`, since nothing in `RoundView.tsx` currently
+  distinguishes them (see §8 phase 8's landing note). A future "show that
+  someone's picked, without showing what" UI treatment during `selectCards`
+  itself would need to consume `RedactedChoice` directly instead of calling
+  `toClientGameState` — not needed today since nothing renders that signal.
 
 (See `RULE_ENFORCEMENT_PLAN.md` §10 for enforcement-specific open items:
 `RETRACT_CHOICE`/`RETRACT_DECLINE` design decisions, Edge Function

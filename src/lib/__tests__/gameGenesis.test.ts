@@ -28,6 +28,7 @@ function makeGame(overrides: Partial<GameRow> = {}, settingsOverrides: Partial<G
       soloBuilderTurnOrder: null,
       skipHotseatPassGate: false,
       ruleEnforcementEnabled: false,
+      hiddenInformationEnabled: false,
       activeTaleIds: [],
       gameLength: 4,
       ...settingsOverrides,
@@ -58,6 +59,7 @@ function makeSettings(overrides: Partial<GameSettings> = {}): GameSettings {
     soloBuilderTurnOrder: null,
     skipHotseatPassGate: false,
     ruleEnforcementEnabled: false,
+    hiddenInformationEnabled: false,
     activeTaleIds: [],
     gameLength: 4,
     ...overrides,
@@ -134,6 +136,14 @@ describe('buildGenesisState', () => {
     const genesis = buildGenesisState(makeGame({}, { activeTaleIds: ['the-ports'], gameLength: 6 }), makePlayers())
     expect(genesis.activeTaleIds).toEqual(['the-ports'])
     expect(genesis.gameLength).toBe(6)
+  })
+
+  // Same carry-through as activeTaleIds/gameLength above — get-game-state
+  // (supabase/functions/) decides whether to redact off GameState, not the
+  // games row, so this needs to land on genesis too.
+  it("carries the game row's settings.hiddenInformationEnabled into GameState", () => {
+    const genesis = buildGenesisState(makeGame({}, { ruleEnforcementEnabled: true, hiddenInformationEnabled: true }), makePlayers())
+    expect(genesis.hiddenInformationEnabled).toBe(true)
   })
 
   it('undo mechanism: replaying genesis + history.slice(0, -1) reconstructs the pre-action state', () => {

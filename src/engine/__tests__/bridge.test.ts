@@ -65,6 +65,7 @@ function makeState(overrides: Partial<GameState> = {}): GameState {
     resourceBank: { gold: 1000, wood: 1000, stone: 1000 },
     activeTaleIds: [],
     gameLength: Infinity,
+    hiddenInformationEnabled: false,
     winnerPlayerIds: [],
     claimedByAchievementId: {},
     achievementsClaimedThisRound: 0,

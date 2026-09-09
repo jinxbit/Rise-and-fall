@@ -132,6 +132,10 @@ export function normalizeStateForComparison(state: GameState): GameState {
   return {
     ...stripTimestamps(state),
     adminModeActive: Boolean(state.adminModeActive),
+    // Same "an export predating this field has it undefined, not false"
+    // coercion as adminModeActive above — hiddenInformationEnabled didn't
+    // exist when older production exports were captured.
+    hiddenInformationEnabled: Boolean(state.hiddenInformationEnabled),
     declineSourceZoneByCardId: declinePhaseOpen ? (state.declineSourceZoneByCardId ?? {}) : {},
   }
 }
@@ -235,6 +239,7 @@ function reconstructRoom(finalState: GameState, overrides: RoomOverrides): { gam
     soloBuilderTurnOrder: null,
     skipHotseatPassGate: false,
     ruleEnforcementEnabled: true,
+    hiddenInformationEnabled: finalState.hiddenInformationEnabled ?? false,
     activeTaleIds: finalState.activeTaleIds,
     gameLength: finalState.gameLength,
     ...mapSettings,

@@ -348,6 +348,21 @@ export interface GameState {
    * value a caller should actually resolve it against.
    */
   gameLength: number
+  /**
+   * Opt-in switch for HIDDEN_INFORMATION_PLAN.md's redacted read path — a
+   * creation-time choice (games.settings.hiddenInformationEnabled),
+   * immutable for the whole game, carried here for the same reason as
+   * activeTaleIds/gameLength above. Only meaningful alongside
+   * ruleEnforcementEnabled (CreateGamePage.tsx only offers the checkbox
+   * once rule enforcement is on, and never for hotseat — one shared
+   * `auth.uid()` across every local seat makes per-seat masking actively
+   * wrong there, see redaction.ts) — a client-trusted game has no server
+   * authority to redact from in the first place, so this is meaningless
+   * (and never set) for one. The engine itself never reads this field
+   * directly; get-game-state (supabase/functions/) is the only consumer,
+   * deciding whether to run redactStateForPlayer at all.
+   */
+  hiddenInformationEnabled: boolean
   /** Round number — increments each time a round finishes (see ./round.ts). */
   turn: number
   /**

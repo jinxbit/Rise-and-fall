@@ -110,6 +110,22 @@ export interface GameSettings {
    * genesis time.
    */
   ruleEnforcementEnabled: boolean
+  /**
+   * Opt-in switch for HIDDEN_INFORMATION_PLAN.md's redacted read path
+   * (§8 phase 8, decided 2026-09-08): when true (and only meaningful
+   * alongside `ruleEnforcementEnabled` — a client-trusted game has no
+   * server authority to redact from), `gameApi.ts` reads this game's state
+   * through the `get-game-state` Edge Function instead of the raw
+   * `game_state` row, so a still-secret simultaneous pick
+   * (chosenCardIdByPlayerId/declineCardIds mid selectCards/decline) never
+   * reaches an opponent's browser at all. CreateGamePage.tsx only offers
+   * the checkbox once rule enforcement is checked, and never for hotseat
+   * (one shared `auth.uid()` across every local seat makes per-seat
+   * masking actively wrong there — see get-game-state/index.ts). Defaults
+   * to `false`, same as ruleEnforcementEnabled, and every game that
+   * existed before this key was added reads as `false` too.
+   */
+  hiddenInformationEnabled: boolean
   /** Content ids of active Tales (src/content/tales.json). Empty = Tales variant off. */
   activeTaleIds: string[]
   /** Total achievements claimed (across all players) that ends the game. content/achievements.json's gameLength.min/max bounds it (1-6). */

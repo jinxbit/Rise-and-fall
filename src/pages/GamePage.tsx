@@ -50,6 +50,8 @@ import {
   duplicateGameAsHotseat,
   getGameByRoomCode,
   getGameState,
+  getGameStateRedacted,
+  type GameStateSnapshot,
   listMyGames,
   listPlayers,
   redoActionEnforced,
@@ -80,6 +82,24 @@ import { setPendingRedirect } from '../lib/pendingRedirect'
  * error instead of hanging.
  */
 const MAX_WRITE_RETRIES = 3
+
+/**
+ * HIDDEN_INFORMATION_PLAN.md §8 phase 8: whether this game's state reads
+ * should go through the redacted get-game-state Edge Function
+ * (getGameStateRedacted) instead of the raw game_state row (getGameState).
+ * Only true when both GameSettings.ruleEnforcementEnabled and
+ * hiddenInformationEnabled are on — every other game (the default, and
+ * every game that existed before either flag) keeps reading the raw row,
+ * completely unaffected.
+ */
+function usesRedactedReads(game: GameRow): boolean {
+  return game.settings.ruleEnforcementEnabled && game.settings.hiddenInformationEnabled
+}
+
+/** Picks getGameState vs getGameStateRedacted per usesRedactedReads above. */
+function fetchGameState(game: GameRow): Promise<GameStateSnapshot | null> {
+  return usesRedactedReads(game) ? getGameStateRedacted(game.id) : getGameState(game.id)
+}
 
 /**
  * The review banner's territory-control toggle (see `territoryControlMode`
@@ -338,7 +358,7 @@ export function GamePage() {
     void getGameByRoomCode(roomCode).then((fresh) => {
       if (fresh) setGame(fresh)
     })
-    void getGameState(game.id).then((snapshot) => {
+    void fetchGameState(game).then((snapshot) => {
       if (snapshot) {
         setGameState(snapshot.state)
         setVersion(snapshot.version)
@@ -350,20 +370,25 @@ export function GamePage() {
   useEffect(() => {
     if (!game) return
     const gameId = game.id
+    const redacted = usesRedactedReads(game)
     let cancelled = false
 
     void (async () => {
-      const snapshot = await getGameState(gameId)
+      const snapshot = await fetchGameState(game)
       if (!cancelled && snapshot) {
         setGameState(snapshot.state)
         setVersion(snapshot.version)
       }
     })()
 
-    const unsubscribeGameState = subscribeToGameState(gameId, (snapshot) => {
-      setGameState(snapshot.state)
-      setVersion(snapshot.version)
-    })
+    const unsubscribeGameState = subscribeToGameState(
+      gameId,
+      (snapshot) => {
+        setGameState(snapshot.state)
+        setVersion(snapshot.version)
+      },
+      redacted,
+    )
     const unsubscribePlayers = subscribeToPlayers(gameId, () => {
       void listPlayers(gameId).then(setPlayers)
     })
@@ -1829,6 +1854,9 @@ export function GamePage() {
           <div className="font-medium text-neutral-200">Room configuration</div>
           <div className={game.settings.ruleEnforcementEnabled ? 'font-medium text-amber-400' : 'font-medium text-neutral-400'}>
             Backend rule enforcement: {game.settings.ruleEnforcementEnabled ? 'ON' : 'OFF'}
+          </div>
+          <div className={usesRedactedReads(game) ? 'font-medium text-amber-400' : 'font-medium text-neutral-400'}>
+            Hidden information: {usesRedactedReads(game) ? 'ON' : 'OFF'}
           </div>
           <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-neutral-300">
             <dt className="text-neutral-500">Play mode</dt>

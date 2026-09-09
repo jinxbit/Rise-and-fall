@@ -4,7 +4,7 @@ import { createEmptyBoard } from '../board'
 import { cardIdFor, moveCard, UNIT_KINDS } from '../cards'
 import { createNewGame } from '../createGame'
 import { buildGameLog, PLAYER_PLACEHOLDER } from '../gameLog'
-import { redactGameLog, redactStateForPlayer } from '../redaction'
+import { redactGameLog, redactStateForPlayer, revealedGameStateView, toClientGameState, unredactedPrefix } from '../redaction'
 import type { GameState, Unit } from '../types'
 
 /**
@@ -262,6 +262,87 @@ describe('redactStateForPlayer', () => {
         expect(redactedEntry).toEqual(originalEntry)
       }
     })
+  })
+})
+
+describe('revealedGameStateView', () => {
+  it('reports every chosenCardIdByPlayerId entry as its real value, RedactedChoice-shaped', () => {
+    const base = makeActiveGameWithFullHands()
+    const state = requireOk(applyAction(base, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }))
+    const revealed = revealedGameStateView(state)
+    expect(revealed.chosenCardIdByPlayerId.p1).toEqual({ chosen: true, cardId: cardIdFor('p1', 'city') })
+    expect(revealed.chosenCardIdByPlayerId.p2).toEqual({ chosen: false })
+  })
+})
+
+describe('unredactedPrefix', () => {
+  it('returns the whole history unchanged when nothing is masked', () => {
+    const base = makeActiveGameWithFullHands()
+    const state = requireOk(applyAction(base, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }))
+    // The real, unredacted history — nothing masked, so nothing truncated.
+    expect(unredactedPrefix(state.actionHistory)).toEqual(state.actionHistory)
+  })
+
+  it('truncates at the first masked CHOOSE_CARD/MOVE_TO_DECLINE entry, dropping everything after it too', () => {
+    const base = makeActiveGameWithFullHands()
+    const state = requireOk(applyAction(base, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }))
+    const asP2 = redactStateForPlayer(state, 'p2')
+    // p1's masked pick is the only entry, and it's now dropped entirely.
+    expect(unredactedPrefix(asP2.actionHistory)).toEqual([])
+  })
+
+  it('keeps a real RETRACT_CHOICE that happens to follow a masked pick out of the prefix too, since it truncates at the first mask', () => {
+    const base = makeActiveGameWithFullHands()
+    let state = requireOk(applyAction(base, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }))
+    state = requireOk(applyAction(state, { type: 'RETRACT_CHOICE', playerId: 'p1' }))
+    const asP2 = redactStateForPlayer(state, 'p2')
+    expect(unredactedPrefix(asP2.actionHistory)).toEqual([])
+  })
+})
+
+describe('toClientGameState', () => {
+  it('collapses RedactedChoice back to a plain string|null, and drops the still-secret actionHistory tail', () => {
+    const base = makeActiveGameWithFullHands()
+    const state = requireOk(applyAction(base, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }))
+    const asP2 = redactStateForPlayer(state, 'p2')
+
+    const client = toClientGameState(asP2)
+    expect(client.chosenCardIdByPlayerId.p1).toBeNull() // masked ("chosen but hidden") collapses the same as "not chosen"
+    expect(client.chosenCardIdByPlayerId.p2).toBeNull()
+    expect(client.actionHistory).toEqual([])
+  })
+
+  it("collapses a viewer's own unmasked choice through unchanged", () => {
+    const base = makeActiveGameWithFullHands()
+    const state = requireOk(applyAction(base, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }))
+    const asP1 = redactStateForPlayer(state, 'p1')
+
+    const client = toClientGameState(asP1)
+    expect(client.chosenCardIdByPlayerId.p1).toBe(cardIdFor('p1', 'city'))
+    expect(client.actionHistory).toHaveLength(1)
+  })
+
+  it("keeps a masked decline addition's null in place (not filtered out), preserving the pile's length", () => {
+    const base = makeActiveGameWithFullHands()
+    let state = { ...base, achievementsClaimedThisRound: 1 }
+    state = requireOk(applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }))
+    state = requireOk(applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') }))
+    state = requireOk(applyAction(state, { type: 'PASS_ACTIONS', playerId: 'p1' }))
+    state = requireOk(applyAction(state, { type: 'PASS_ACTIONS', playerId: 'p2' }))
+    expect(state.roundPhase).toBe('decline')
+    state = requireOk(applyAction(state, { type: 'MOVE_TO_DECLINE', playerId: 'p1', cardId: cardIdFor('p1', 'temple') }))
+
+    const asP2 = redactStateForPlayer(state, 'p2')
+    const client = toClientGameState(asP2)
+    expect(client.players.find((p) => p.id === 'p1')!.declineCardIds).toEqual([null])
+  })
+
+  it('round-trips a fully-revealed view (revealedGameStateView) back to the exact original chosenCardIdByPlayerId', () => {
+    const base = makeActiveGameWithFullHands()
+    const state = requireOk(applyAction(base, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }))
+    const client = toClientGameState(revealedGameStateView(state))
+    expect(client.chosenCardIdByPlayerId).toEqual(state.chosenCardIdByPlayerId)
+    expect(client.actionHistory).toEqual(state.actionHistory)
   })
 })
 

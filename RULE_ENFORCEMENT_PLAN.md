@@ -671,6 +671,21 @@ to rule enforcement (2, 5) are omitted here.
    not just a fetch swap, which needs actual browser verification before
    it can be called done — see `HIDDEN_INFORMATION_PLAN.md`'s §8 phase 8
    entry for the full breakdown.
+   **Read-side half done (2026-09-08), landed opt-in
+   (`GameSettings.hiddenInformationEnabled`) rather than for every
+   `ruleEnforcementEnabled` game — see `HIDDEN_INFORMATION_PLAN.md`'s §8
+   phase 8 for the full account.** The type mismatch this note worried
+   about turned out not to need new `RoundView.tsx` UI logic at all:
+   `redaction.ts`'s `toClientGameState` collapses `RedactedGameState` back
+   into a plain `GameState` at the network boundary (dropping the
+   still-secret `actionHistory` tail via the new `unredactedPrefix`, which
+   also resolves this section's own blocker below), so every existing
+   render path — and gameLog.ts/turnReview.ts/scoreHistory.ts/unitValue.ts —
+   consumes it completely unmodified. `GamePage.tsx`'s `usesRedactedReads(game)`
+   picks `getGameStateRedacted()` over `getGameState()` only when the new
+   flag is on, so this is zero-risk for every pre-existing game and every
+   enforced game that doesn't opt in — same "per-game opt-in, not a flag-day
+   cutover" shape as the write-side half above.
    **Write-side half done (2026-09-05):**
    - `GameSettings.ruleEnforcementEnabled` (`src/lib/dbTypes.ts`), a
      `createGame()` param, and a `CreateGamePage.tsx` checkbox ("Enable

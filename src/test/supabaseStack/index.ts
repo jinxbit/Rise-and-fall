@@ -40,8 +40,14 @@ export type { GameStateRow, ProfileRow }
 /** Mirrors gameApi.ts's GameEnforcementResult, plus the HTTP status so a test can assert 403 vs 409 vs 400. */
 export type EnforcedCallResult = ({ ok: true; state: GameState; version: number } | { ok: false; error: string }) & { status: number }
 
-/** get-game-state's response shape — `state` is redacted for anyone but a `profiles.is_admin` caller (see canReadGameState/index.ts). */
-export type GameStateReadResult = ({ ok: true; state: GameState | RedactedGameState; version: number } | { ok: false; error: string }) & { status: number }
+/**
+ * get-game-state's response shape — always RedactedGameState-shaped
+ * (revealedGameStateView wraps even the "nothing's actually masked" cases:
+ * admin, hotseat, or a game that hasn't opted into
+ * GameSettings.hiddenInformationEnabled — see get-game-state/index.ts), so
+ * callers never need to sniff which shape came back.
+ */
+export type GameStateReadResult = ({ ok: true; state: RedactedGameState; version: number } | { ok: false; error: string }) & { status: number }
 
 export interface ProductionStack {
   /**
@@ -71,9 +77,9 @@ export interface ProductionStack {
    * insert policy is exercised rather than bypassed.
    */
   seedStartedGame(options: { game: GameRow; players: PlayerRow[]; genesis: GameState; admins?: string[] }): Promise<void>
-  /** gameApi.ts's getGameState, as `userId` — decompressed, RLS-gated, null if the row isn't readable or doesn't exist. This is the current (unredacted) direct-table read; nothing calls get-game-state yet (HIDDEN_INFORMATION_PLAN.md §8 phase 8 still outstanding), which is exactly what getGameState below exists to exercise ahead of that rewire. */
+  /** gameApi.ts's getGameState, as `userId` — decompressed, RLS-gated, null if the row isn't readable or doesn't exist. This is the raw, unredacted direct-table read every game still uses unless it's both ruleEnforcementEnabled and hiddenInformationEnabled (see usesRedactedReads, GamePage.tsx), in which case gameApi.ts calls getGameStateRedacted (below) instead. */
   readGameState(userId: string, gameId: string): Promise<{ state: GameState; version: number } | null>
-  /** Calls the real get-game-state Edge Function as `userId` — the redacted read path HIDDEN_INFORMATION_PLAN.md phase 5 added, not yet wired into any client call site. */
+  /** Calls the real get-game-state Edge Function as `userId` — gameApi.ts's getGameStateRedacted, the read path HIDDEN_INFORMATION_PLAN.md §8 phase 8 wired in. */
   getGameState(userId: string, gameId: string): Promise<GameStateReadResult>
   /** Submits `action` to the real apply-action Edge Function as `userId`, the way gameApi.ts's applyActionEnforced does. */
   applyAction(userId: string, gameId: string, action: Action): Promise<EnforcedCallResult>
@@ -313,7 +319,7 @@ export async function createProductionStack(): Promise<ProductionStack> {
       return { state: await decompressGameStateFromStorage(data.state as StoredGameState), version: data.version as number }
     },
 
-    getGameState: (userId, gameId) => invoke<GameState | RedactedGameState>('get-game-state', userId, { gameId }),
+    getGameState: (userId, gameId) => invoke<RedactedGameState>('get-game-state', userId, { gameId }),
     applyAction: (userId, gameId, action) => invoke('apply-action', userId, { gameId, action }),
     undoAction: (userId, gameId) => invoke('undo-action', userId, { gameId }),
     redoAction: (userId, gameId) => invoke('redo-action', userId, { gameId }),
