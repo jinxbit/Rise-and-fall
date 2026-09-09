@@ -39,7 +39,11 @@ still at the commit CI passed on. A migration always gets a human read
 `claude-branch-pr.yml` when `claude.yml` pushes a `claude/issue-**` branch —
 the action only posts a "Create PR" link, so without this a finished branch
 sits unmerged — and that workflow applies the label, which is what makes the
-issue-to-pre-production loop run unattended. Both that workflow and `smoke.yml`'s
+issue-to-pre-production loop run unattended. Issues enter that loop through
+`claude-queue.yml`: label an issue `queued` and it is started — lowest number
+first, **one at a time** — when the previous one closes. An issue that needs a
+decision holds the queue on purpose, which is what the `in-progress` label on
+a stalled issue means. Both that workflow and `smoke.yml`'s
 failure reporting need the `AUTOMATION_TOKEN` secret, because GitHub does not
 start workflow runs from events its own `GITHUB_TOKEN` caused — without it a
 merge would reach `main` without triggering CI or the Supabase deploy, so

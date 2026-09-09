@@ -1,0 +1,133 @@
+name: Start the next queued issue
+
+# The last manual step in the loop. Everything after an issue is started
+# already runs by itself — claude.yml produces a branch, claude-branch-pr.yml
+# opens and labels the PR, automerge.yml merges it on green CI, and `main`
+# deploys to pre-production and is smoke-tested there. But *starting* an issue
+# still meant a human commenting "@claude". This does that.
+#
+# The queue is two labels, so it is legible and editable in the GitHub UI
+# rather than hidden in a config file:
+#
+#   queued       ready to be worked. Lowest issue number goes first.
+#   in-progress  started. Removed only by the issue closing.
+#
+# AT MOST ONE ISSUE IS IN FLIGHT. Two agents on two branches touching the same
+# files produce conflicting PRs, and untangling those is exactly the human
+# intervention this exists to remove. So: if any open issue carries
+# `in-progress`, this does nothing. Raise MAX_IN_FLIGHT below if that ever
+# feels too slow, but raise it knowing what it buys and costs.
+#
+# An issue that needs a decision therefore HOLDS the queue, deliberately.
+# claude.yml is asked to comment and stop rather than guess when it hits one;
+# the issue stays open and `in-progress`, nothing else starts, and the label
+# says so at a glance. That is the "unless required" in "without my
+# intervention" — the queue waiting for an answer is the system working, not
+# failing.
+#
+# Advancing depends on the issue actually closing, which is why
+# claude-branch-pr.yml writes "Closes #N" into the PR body: merging the PR
+# closes the issue, closing the issue fires this, this starts the next one.
+#
+# The schedule is a safety net, not the mechanism. A missed or dropped
+# `issues: closed` event would otherwise stall the queue silently until
+# somebody noticed.
+
+on:
+  issues:
+    types: [closed]
+  schedule:
+    - cron: '37 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  # Never two of these deciding what to start at once — both would read "none
+  # in flight" and both would start something.
+  group: claude-queue
+  cancel-in-progress: false
+
+jobs:
+  start-next:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Start the next queued issue
+        uses: actions/github-script@v7
+        env:
+          HAVE_TOKEN: ${{ secrets.AUTOMATION_TOKEN != '' }}
+        with:
+          github-token: ${{ secrets.AUTOMATION_TOKEN || secrets.GITHUB_TOKEN }}
+          script: |
+            const MAX_IN_FLIGHT = 1
+            const QUEUED = 'queued'
+            const IN_PROGRESS = 'in-progress'
+
+            if (process.env.HAVE_TOKEN !== 'true') {
+              core.warning('No AUTOMATION_TOKEN. A comment posted with GITHUB_TOKEN does not start claude.yml, so this would mark an issue in-progress and then leave it sitting. Doing nothing. See this workflow\'s header.')
+              return
+            }
+            const [owner, repo] = [context.repo.owner, context.repo.repo]
+
+            // Both labels, created on demand — a label that does not exist
+            // cannot be applied, and a queue nobody can label is not a queue.
+            for (const [name, color, description] of [
+              [QUEUED, '0e8a16', 'Ready for Claude to pick up, lowest number first (claude-queue.yml)'],
+              [IN_PROGRESS, 'fbca04', 'Started by claude-queue.yml; holds the queue until it closes'],
+            ]) {
+              try {
+                await github.rest.issues.createLabel({ owner, repo, name, color, description })
+                core.info(`Created the ${name} label.`)
+              } catch (e) {
+                if (e.status !== 422) throw e
+              }
+            }
+
+            const open = await github.paginate(github.rest.issues.listForRepo, { owner, repo, state: 'open', per_page: 100 })
+            const issues = open.filter(i => !i.pull_request)
+            const labelled = (issue, name) => issue.labels.some(l => (l.name ?? l) === name)
+
+            const inFlight = issues.filter(i => labelled(i, IN_PROGRESS))
+            if (inFlight.length >= MAX_IN_FLIGHT) {
+              core.info(`Holding: ${inFlight.map(i => `#${i.number}`).join(', ')} still in progress.`)
+              return
+            }
+
+            const queued = issues.filter(i => labelled(i, QUEUED)).sort((a, b) => a.number - b.number)
+            if (queued.length === 0) {
+              core.info('Nothing queued.')
+              return
+            }
+
+            for (const issue of queued.slice(0, MAX_IN_FLIGHT - inFlight.length)) {
+              // A branch already open against this issue means it was started
+              // by hand; adopt that rather than starting a second agent on it.
+              const prs = await github.rest.pulls.list({ owner, repo, state: 'open', per_page: 100 })
+              const existing = prs.data.find(pr => pr.head.ref.startsWith(`claude/issue-${issue.number}-`))
+              if (existing) {
+                core.info(`#${issue.number} already has PR #${existing.number} open; marking it in progress rather than starting it again.`)
+                await github.rest.issues.addLabels({ owner, repo, issue_number: issue.number, labels: [IN_PROGRESS] })
+                await github.rest.issues.removeLabel({ owner, repo, issue_number: issue.number, name: QUEUED }).catch(() => {})
+                return
+              }
+
+              const body = [
+                '@claude please pick this up.',
+                '',
+                'Started automatically from the queue (`claude-queue.yml`), so nobody is watching this land — which changes what "done" means here:',
+                '',
+                '- **Push your branch and stop.** The PR is opened, labelled and merged for you; do not post a "Create PR" link.',
+                '- **`main` is pre-production, not production.** Merging deploys to the Preview Supabase project and runs the smoke test there. Reaching real players needs a separate human approval, so a mistake here is recoverable — but it is still a deploy.',
+                '- **Read `CLAUDE.md` first**, and the plan document the issue names. This repository keeps its design record in doc comments and plan files; update them in the same commit when you change what they describe.',
+                '- **Run `npm run lint`, `npm run test` and `npm run build` before pushing.** Nobody will catch it for you if you do not.',
+                '- **If this needs a decision rather than an implementation, say so here and stop.** Do not guess. The queue holds while this issue is open, which is the intended way to ask for an answer — an unanswered question costs a pause, a wrong guess costs a deploy.',
+                '',
+                '---',
+                '_Generated by [Claude Code](https://claude.ai/code)_',
+              ].join('\n')
+
+              await github.rest.issues.addLabels({ owner, repo, issue_number: issue.number, labels: [IN_PROGRESS] })
+              await github.rest.issues.removeLabel({ owner, repo, issue_number: issue.number, name: QUEUED }).catch(() => {})
+              await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body })
+              core.notice(`Started #${issue.number}: ${issue.title}`)
+            }
