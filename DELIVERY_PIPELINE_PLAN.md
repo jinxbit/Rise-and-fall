@@ -137,11 +137,23 @@ a restructuring of work.
 
 **Frontend environment variables are baked in at build time.**
 `src/lib/supabase.ts` reads `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY`
-from the bundle, so a staging frontend is a *separate build*, not a runtime
-switch. Vercel's Preview-scoped environment variables give exactly that:
-Preview → staging project, Production → production project. Assign a branch
-domain to `main` so the staging URL is stable rather than a per-deployment
-hash.
+from the bundle, so a pre-production frontend is a *separate build*, not a
+runtime switch. Vercel's Preview-scoped environment variables give exactly
+that: Preview → the Preview Supabase project, Production → production.
+
+**Vercel picks Production vs Preview by branch, exactly as this plan does.**
+Its *Production Branch* setting is `main` today, so a build of `main` uses
+the Production-scoped variables and Preview-scoped ones apply only to other
+branches. That means there is no fixed pre-production URL until §3's
+topology change lands — phase 3 must flip Vercel's Production Branch to
+`production` at the same time it flips the workflows, or the frontend and
+the backend will disagree about which environment `main` is.
+
+No domain purchase is needed for a stable URL: Vercel's auto-generated
+per-branch domain (`<project>-git-<branch>-<scope>.vercel.app`) always points
+at that branch's latest deployment. Only the per-*deployment* hash URLs are
+unstable. A custom subdomain is optional and free if the domain is already
+owned; buying one is not required.
 
 **Auth on staging needs its own setup.** OAuth redirect URIs are registered
 per Supabase project, so Discord and Google sign-in will not work on staging
@@ -317,9 +329,12 @@ not the same as proving the app works.
    pointing at the new project, and a stable branch domain), and creating the
    `production` branch with its protection.
 
-3. **Retarget `main`, and the docs with it.** `main` deploys to staging;
-   `production` deploys to production. Update `CLAUDE.md` and `README.md` in
-   the same commit — they currently state that main is production.
+3. **Retarget `main`, and the docs with it.** `main` deploys to
+   pre-production; `production` deploys to production. Three things move
+   together or the environments disagree: the branch mapping in
+   `deploy-supabase.yml` and `smoke.yml`, **Vercel's Production Branch
+   setting** (`main` -> `production`, Settings -> Git), and the docs —
+   `CLAUDE.md` and `README.md` both currently state that main is production.
 4. **Auto-merge, and self-healing staging failures.** §7's rules, plus the
    issue-opening on a red staging smoke.
 5. **The promotion workflow.** Fast-forward `production`, gated by a required
