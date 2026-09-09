@@ -411,6 +411,20 @@ not the same as proving the app works.
    issue -> branch -> PR -> CI -> `main` -> pre-production -> smoke with no
    click in it. Ad-hoc `claude/…` branches are deliberately left alone.
 
+   Completed (2026-09-09) by `claude-queue.yml`, which removes the last
+   manual step: *starting* an issue. The queue is two labels (`queued`,
+   `in-progress`) so it is legible and editable in the GitHub UI, and at most
+   one issue is in flight at a time — two agents on two branches over the same
+   files produce conflicting PRs, and untangling those is precisely the
+   intervention this exists to remove. Advancing depends on the issue closing,
+   which is why `claude-branch-pr.yml` writes "Closes #N" into the PR body.
+
+   An issue that needs a decision **holds** the queue, deliberately: the agent
+   is asked to comment and stop rather than guess, the `in-progress` label
+   says so at a glance, and nothing else starts until it is answered. A queue
+   waiting on a question is the system working. An unanswered question costs a
+   pause; a wrong guess costs a deploy.
+
    Two things surfaced while building it, both recorded above: §7's
    "opened by Claude" rule is not expressible as an author check, and neither
    half works on `GITHUB_TOKEN` alone (§5, `AUTOMATION_TOKEN`). A third is a

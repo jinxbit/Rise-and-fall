@@ -68,7 +68,11 @@ jobs:
             const title = commits.length === 1 ? commits[0] : `${commits[commits.length - 1]} (+${commits.length - 1} more)`
             const issue = branch.match(/^claude\/issue-(\d+)-/)?.[1]
             const body = [
-              issue ? `Work on #${issue}, pushed by \`claude.yml\`.` : `Pushed by \`claude.yml\`.`,
+              // "Closes #N" is what makes the queue advance: GitHub closes the
+              // issue when this merges, and claude-queue.yml starts the next
+              // one off that close event. Without it the queue would stall on
+              // an issue whose work is finished and merged.
+              issue ? `Closes #${issue}, pushed by \`claude.yml\`.` : `Pushed by \`claude.yml\`.`,
               '',
               'Commits on this branch:',
               ...commits.map(c => `- ${c}`),
