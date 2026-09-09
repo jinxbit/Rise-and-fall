@@ -153,16 +153,31 @@ Existing (production): `SUPABASE_ACCESS_TOKEN`, `SUPABASE_DB_PASSWORD`,
 `SMOKE_SUPABASE_SERVICE_ROLE_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`.
 
 Rather than adding a parallel `STAGING_*` set of repository secrets, use
-**GitHub Environments** (`staging` and `production`) and scope the same
+**GitHub Environments** (`Preview` and `production`) and scope the same
 secret *names* to each. Two benefits: the workflows stop caring which
-environment they are in beyond `environment: staging|production`, and the
+environment they are in beyond `environment: Preview|production`, and the
 `production` environment can carry a **required reviewer**, which is the
 native way to make promotion wait for the maintainer rather than inventing a
 gate in YAML.
 
-Per environment: `SUPABASE_ACCESS_TOKEN`, `SUPABASE_DB_PASSWORD`,
-`SUPABASE_PROJECT_ID`, `SMOKE_SUPABASE_ANON_KEY`,
-`SMOKE_SUPABASE_SERVICE_ROLE_KEY`.
+The names in the workflows must match the environments **exactly**. Asking
+for one that does not exist is not an error GitHub reports — it auto-creates
+an empty environment, which then inherits production's secrets (§8).
+`Preview` deliberately matches Vercel's own name for the same tier, since
+the Vercel Preview build and this GitHub Environment point at the same
+Supabase project.
+
+Per environment: `SUPABASE_DB_PASSWORD`, `SUPABASE_PROJECT_ID`,
+`SMOKE_SUPABASE_ANON_KEY`, `SMOKE_SUPABASE_SERVICE_ROLE_KEY`.
+`SUPABASE_ACCESS_TOKEN` is account-scoped rather than project-scoped, so it
+can be left at repository level and inherited by both — it is the one secret
+here where inheritance is the right answer.
+
+Plus one repository **variable**, `PRODUCTION_SUPABASE_PROJECT_ID`, holding
+the production project ref. It is a variable rather than a secret on purpose:
+a ref is the subdomain of the public API URL, so it is not sensitive, and
+being readable in the UI is what lets the wiring be checked by eye. Both
+workflows refuse to run without it (§8).
 
 ---
 
@@ -241,6 +256,15 @@ not the same as proving the app works.
   touches for a week pauses, and the next deploy fails confusingly. The
   nightly smoke test doubles as a keep-alive, which is a reason to point the
   nightly at *both* environments rather than only production.
+- **An environment that does not exist looks exactly like one that does.**
+  GitHub auto-creates an environment the moment a workflow names one, and an
+  environment with no secrets of its own inherits the repository-level ones —
+  which are production's. So a typo in an environment name, or an environment
+  not yet filled in, silently targets production rather than failing. This
+  happened on 2026-09-09. Both workflows now assert the resolved project ref
+  against the repository variable `PRODUCTION_SUPABASE_PROJECT_ID` before
+  touching anything, which is the only reason it is a survivable mistake
+  rather than a destructive one.
 - **More moving parts to get wrong.** Every workflow gains an environment
   dimension. The mitigation is that they all share one runner
   (`src/test/productionSmoke/runSmoke.ts`) which is already covered in CI by
