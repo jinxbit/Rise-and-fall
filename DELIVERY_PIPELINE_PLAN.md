@@ -412,9 +412,9 @@ not the same as proving the app works.
    click in it. Ad-hoc `claude/…` branches are deliberately left alone.
 
    Completed (2026-09-09) by `claude-queue.yml`, which removes the last
-   manual step: *starting* an issue. The queue is two labels (`queued`,
-   `in-progress`) so it is legible and editable in the GitHub UI, and at most
-   one issue is in flight at a time — two agents on two branches over the same
+   manual step: *starting* an issue. The queue is three labels (`queued`,
+   `priority`, `in-progress`) so it is legible and editable in the GitHub UI,
+   and at most one issue is in flight at a time — two agents on two branches over the same
    files produce conflicting PRs, and untangling those is precisely the
    intervention this exists to remove. Advancing depends on the issue closing,
    which is why `claude-branch-pr.yml` writes "Closes #N" into the PR body.

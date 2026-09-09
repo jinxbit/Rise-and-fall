@@ -10,7 +10,14 @@ name: Start the next queued issue
 # rather than hidden in a config file:
 #
 #   queued       ready to be worked. Lowest issue number goes first.
+#   priority     jumps ahead of other `queued` issues. Ties break by number.
 #   in-progress  started. Removed only by the issue closing.
+#
+# `priority` only reorders what is already queued. It does not start anything
+# on its own (an issue still needs `queued`), and it does not interrupt an
+# issue already in flight — an urgent bug labelled mid-run goes next, not now.
+# Preempting would mean abandoning a half-finished branch, which costs more
+# than it saves.
 #
 # AT MOST ONE ISSUE IS IN FLIGHT. Two agents on two branches touching the same
 # files produce conflicting PRs, and untangling those is exactly the human
@@ -61,6 +68,7 @@ jobs:
           script: |
             const MAX_IN_FLIGHT = 1
             const QUEUED = 'queued'
+            const PRIORITY = 'priority'
             const IN_PROGRESS = 'in-progress'
 
             if (process.env.HAVE_TOKEN !== 'true') {
@@ -73,6 +81,7 @@ jobs:
             // cannot be applied, and a queue nobody can label is not a queue.
             for (const [name, color, description] of [
               [QUEUED, '0e8a16', 'Ready for Claude to pick up, lowest number first (claude-queue.yml)'],
+              [PRIORITY, 'b60205', 'Goes ahead of other queued issues; does not interrupt one already in flight'],
               [IN_PROGRESS, 'fbca04', 'Started by claude-queue.yml; holds the queue until it closes'],
             ]) {
               try {
@@ -93,7 +102,15 @@ jobs:
               return
             }
 
-            const queued = issues.filter(i => labelled(i, QUEUED)).sort((a, b) => a.number - b.number)
+            // Priority first, then oldest — issue numbers are monotonic, so
+            // the number is the filing order and the tiebreak is FIFO within
+            // each band. Two bands is deliberately all there is: a scale of
+            // five turns every triage into a comparison, and this queue is
+            // one issue deep at a time anyway.
+            const band = (issue) => (labelled(issue, PRIORITY) ? 0 : 1)
+            const queued = issues
+              .filter(i => labelled(i, QUEUED))
+              .sort((a, b) => band(a) - band(b) || a.number - b.number)
             if (queued.length === 0) {
               core.info('Nothing queued.')
               return

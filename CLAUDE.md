@@ -40,8 +40,9 @@ still at the commit CI passed on. A migration always gets a human read
 the action only posts a "Create PR" link, so without this a finished branch
 sits unmerged — and that workflow applies the label, which is what makes the
 issue-to-pre-production loop run unattended. Issues enter that loop through
-`claude-queue.yml`: label an issue `queued` and it is started — lowest number
-first, **one at a time** — when the previous one closes. An issue that needs a
+`claude-queue.yml`: label an issue `queued` and it is started — `priority`
+first, then lowest number, **one at a time** — when the previous one closes.
+`priority` reorders the queue; it never interrupts an issue already running. An issue that needs a
 decision holds the queue on purpose, which is what the `in-progress` label on
 a stalled issue means. Both that workflow and `smoke.yml`'s
 failure reporting need the `AUTOMATION_TOKEN` secret, because GitHub does not
