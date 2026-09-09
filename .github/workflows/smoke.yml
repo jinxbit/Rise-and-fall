@@ -156,6 +156,10 @@ jobs:
     concurrency:
       group: smoke-${{ matrix.environment }}
       cancel-in-progress: false
+    permissions:
+      contents: read
+      # Filing the failure report below.
+      issues: write
     env:
       # SMOKE_SUPABASE_URL is optional — it defaults to the project ref the
       # deploy workflow already uses, so a standard environment needs only the
@@ -215,4 +219,100 @@ jobs:
           echo "Environment '$ENVIRONMENT' -> $SMOKE_SUPABASE_URL"
 
       - name: Replay production games against ${{ matrix.environment }}
-        run: npm run test:smoke
+        run: |
+          set -o pipefail
+          npm run test:smoke 2>&1 | tee smoke.log
+
+      # A red smoke run means a deployed backend is wrong, and the person who
+      # can fix it should not have to be told by the maintainer first
+      # (DELIVERY_PIPELINE_PLAN.md §6 step 2). So the run files its own report,
+      # carrying the tail of its output — the failing action and the server's
+      # own message — rather than only a link to a log that expires.
+      #
+      # The repository is public and this text is not scanned for secrets the
+      # way Actions logs are, so it is redacted here rather than trusted to be
+      # clean: the two key secrets by value, plus anything JWT-shaped, since a
+      # JWT is the shape a leak would take.
+      #
+      # The @claude mention only STARTS anything if the issue is filed by a
+      # real token: GitHub deliberately does not trigger workflows from events
+      # its own GITHUB_TOKEN caused, so an issue opened with it is filed and
+      # then sits there. `AUTOMATION_TOKEN` (a fine-grained PAT with Issues
+      # write) is what makes the self-healing half real; without it the report
+      # still gets filed, and says so.
+      - name: Redact the run log
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          import os, re
+          try:
+              raw = open('smoke.log', encoding='utf-8', errors='replace').read()
+          except FileNotFoundError:
+              raw = '(the run failed before the replay step produced any output)'
+          raw = re.sub(r'\x1b\[[0-9;]*[A-Za-z]', '', raw)
+          for name in ('SMOKE_SUPABASE_ANON_KEY', 'SMOKE_SUPABASE_SERVICE_ROLE_KEY'):
+              value = os.environ.get(name) or ''
+              if len(value) > 8:
+                  raw = raw.replace(value, f'***{name}***')
+          raw = re.sub(r'eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+', '***redacted-jwt***', raw)
+          tail = raw.splitlines()[-120:]
+          open('smoke-tail.log', 'w', encoding='utf-8').write('\n'.join(tail))
+          PY
+
+      - name: File the failure report
+        if: failure()
+        uses: actions/github-script@v7
+        env:
+          ENVIRONMENT: ${{ matrix.environment }}
+          SELF_STARTING: ${{ secrets.AUTOMATION_TOKEN != '' }}
+        with:
+          github-token: ${{ secrets.AUTOMATION_TOKEN || secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs')
+            const environment = process.env.ENVIRONMENT
+            const [owner, repo] = [context.repo.owner, context.repo.repo]
+            const title = `Smoke failed on ${environment}`
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`
+            const tail = fs.readFileSync('smoke-tail.log', 'utf8')
+
+            const existing = await github.paginate(github.rest.issues.listForRepo, { owner, repo, state: 'open', per_page: 100 })
+            const open = existing.find(i => !i.pull_request && i.title === title)
+
+            // Mentioning @claude starts claude.yml, which is the point on
+            // pre-production: the fix begins on its own. Production is left
+            // unmentioned on purpose — sending an unattended agent at the live
+            // project is the maintainer's call to make, not a side effect of a
+            // nightly (§7 keeps production behind an explicit human step).
+            // And a mention filed by GITHUB_TOKEN starts nothing at all, so
+            // rather than imply otherwise the report says which it is.
+            const selfStarting = process.env.SELF_STARTING === 'true'
+            const mention = environment === 'production' || !selfStarting ? '' : '@claude '
+            const footer = environment === 'production'
+              ? 'Filed without an @claude mention: a production failure is the maintainer\'s to direct.'
+              : selfStarting
+                ? ''
+                : 'Filed without an @claude mention because no AUTOMATION_TOKEN is configured — GitHub does not start workflows from events its own GITHUB_TOKEN caused, so the mention would be inert. Comment @claude here to start the fix.'
+            const body = [
+              `${mention}The smoke test failed against **${environment}**.`,
+              '',
+              `Run: ${runUrl}`,
+              `Commit: ${context.sha}`,
+              '',
+              'This replays real recorded games through the deployed Edge Functions, so a failure means the deployed backend disagrees with the engine in this repository, or the deployment itself is broken. Tail of the run:',
+              '',
+              '````',
+              tail,
+              '````',
+              ...(footer ? ['', footer] : []),
+            ].join('\n')
+
+            if (open) {
+              // Repeats comment rather than opening another issue, and drop
+              // the mention so a nightly that stays red does not start a fresh
+              // agent run every night.
+              await github.rest.issues.createComment({ owner, repo, issue_number: open.number, body: body.replace('@claude ', '') })
+              core.notice(`Commented on existing issue #${open.number}.`)
+            } else {
+              const created = await github.rest.issues.create({ owner, repo, title, body })
+              core.notice(`Opened issue #${created.data.number}.`)
+            }

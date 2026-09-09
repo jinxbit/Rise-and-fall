@@ -209,6 +209,17 @@ Per environment: `SUPABASE_DB_PASSWORD`, `SUPABASE_PROJECT_ID`,
 can be left at repository level and inherited by both — it is the one secret
 here where inheritance is the right answer.
 
+Plus one repository **secret**, `AUTOMATION_TOKEN` — a fine-grained PAT on
+this repository with Contents, Pull requests and Issues write. It is not
+there for permissions; `GITHUB_TOKEN` already has them. It is there because
+**GitHub does not start workflow runs from events its own `GITHUB_TOKEN`
+caused.** A PR merged with `GITHUB_TOKEN` pushes to `main` and triggers
+neither CI nor Deploy Supabase, so the change would sit on `main` having
+never reached pre-production; an issue opened with it mentioning `@claude`
+starts nothing. Both halves of phase 4 are inert without it, so `automerge.yml`
+refuses to merge when it is absent and the smoke report says when a mention
+would have been inert.
+
 Plus one repository **variable**, `PRODUCTION_SUPABASE_PROJECT_ID`, holding
 the production project ref. It is a variable rather than a secret on purpose:
 a ref is the subdomain of the public API URL, so it is not sensitive, and
@@ -256,6 +267,13 @@ A PR auto-merges only when *all* of these hold:
 
 - CI (lint, test, build) is green.
 - It was opened by Claude, not by a human — a human PR is a human's to merge.
+  Amended (2026-09-09) when this was built: **the PR author cannot express
+  this.** `claude.yml` runs as the maintainer's own OAuth token, so a Claude
+  PR and a human PR are both authored by `jinxbit` and are indistinguishable
+  by login. The marker that does distinguish them in this repository is the
+  `claude/` branch prefix, which every Claude PR has carried, so that is what
+  `automerge.yml` checks, alongside a requirement that the head branch live in
+  this repository rather than a fork.
 - It does **not** touch `supabase/migrations/**`. A migration is the one
   change staging cannot fully de-risk: it runs against an empty staging
   database and then against production data of a completely different shape
@@ -369,8 +387,28 @@ not the same as proving the app works.
    (`main` -> `production`), and `CLAUDE.md`. Done at the one moment it was
    free: `main` and `production` were identical, so nothing was stranded in
    pre-production by the switch.
-4. **Auto-merge, and self-healing staging failures.** §7's rules, plus the
-   issue-opening on a red staging smoke.
+
+   First promotion ran the same day, once the Preview smoke was green:
+   `production` fast-forwarded `240ee99 -> f995d37`, Deploy Supabase reached
+   the production project (no migrations to apply; Edge Functions
+   re-deployed), and Smoke replayed the recorded games against production and
+   passed. Both directions of the "Refuse to touch the wrong project" guard
+   are now exercised — the negative case on Preview, the positive on
+   production.
+4. **Auto-merge, and self-healing pre-production failures.** ✅ (2026-09-09)
+   `automerge.yml` merges a green PR into `main` under §7's conditions, and
+   `smoke.yml` files its own failure report carrying a redacted tail of the
+   run — the repository is public and issue bodies are not secret-scanned the
+   way Actions logs are, so the two key secrets and anything JWT-shaped are
+   stripped before posting.
+
+   Two things surfaced while building it, both recorded above: §7's
+   "opened by Claude" rule is not expressible as an author check, and neither
+   half works on `GITHUB_TOKEN` alone (§5, `AUTOMATION_TOKEN`). A third is a
+   deliberate narrowing: only a **Preview** failure mentions `@claude`. A red
+   production smoke is filed as an issue without one, because pointing an
+   unattended agent at the live project is a decision for the maintainer, not
+   a side effect of a nightly.
 5. **The promotion workflow.** Fast-forward `production`, gated by a required
    reviewer on a dedicated `production-release` environment — never on
    `production` itself, which deploys and nightly smoke runs also use (§5).
