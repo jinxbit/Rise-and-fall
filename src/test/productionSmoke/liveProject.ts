@@ -63,6 +63,16 @@ export interface LiveRoom extends ReplayTarget {
   /** The fixture, expressed in this room's ids. */
   remapped: RemappedFixture
   readGameState(): Promise<{ state: GameState; version: number } | null>
+  /**
+   * The signed-in client for one of this room's seats — the same one
+   * `applyAction`/`undoAction`/`redoAction` invoke Edge Functions through.
+   * Exposed for HIDDEN_INFORMATION_PLAN.md §8 phase 9's wire-level check
+   * (../hiddenInformationWire.ts), which needs the raw, uncollapsed response
+   * body `invoke()` above would otherwise discard, and a real Realtime
+   * subscription — neither of which fits this file's existing `applyAction`-
+   * shaped surface.
+   */
+  clientFor(userId: string): SupabaseClient
   /** Deletes the room and then the throwaway users. Safe to call twice. */
   teardown(): Promise<void>
 }
@@ -241,6 +251,7 @@ export async function provisionLiveRoom(config: LiveProjectConfig, fixture: Prod
         if (!data) return null
         return { state: await decompressGameStateFromStorage(data.state as StoredGameState), version: data.version as number }
       },
+      clientFor,
       teardown,
     }
   } catch (error) {

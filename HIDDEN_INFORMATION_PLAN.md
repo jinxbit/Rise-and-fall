@@ -508,21 +508,75 @@ to hidden information (6) are omitted here.
    pick is masked in the *acting* player's own raw `apply-action` response,
    revealed once that seat submits too, and that a game without
    `hiddenInformationEnabled` sees no behavior change.
-9. **End-to-end verification against a real two-browser Supabase
-   session** — still outstanding. Phase 8's own automated coverage (the
-   in-process `supabaseStack`) proves the *server's* response body never
-   carries a still-secret `cardId` for a `hiddenInformationEnabled` game, and
-   that the client-side collapse of that response doesn't crash — but not
-   that the browser's own network stack (DevTools Network tab, a
-   Realtime/Websocket frame, a service-worker cache) never independently
-   surfaces it, nor that a reviewed-but-not-branched rewind never re-masks
-   an already-revealed pick (§5.3's flicker, expected but unverified in a
-   real UI). A game *without* the flag on is unaffected either way — it
-   never calls `get-game-state` at all (§8), same as before this phase
-   landed. This sandbox has no live Supabase project to test against, so
-   this phase requires the maintainer's own environment, same limitation
-   noted throughout `todo.md`. See `RULE_ENFORCEMENT_PLAN.md` §8 phase 9 for
-   the companion verification of action authorization in the same session.
+9. **End-to-end verification against a real Supabase project — closed
+   (2026-09-09, issue #480).** The "this sandbox has no live project"
+   limitation this section used to record is gone: a pre-production
+   `Preview` project now exists, so `src/test/productionSmoke/
+   hiddenInformationWire.ts`/`.smoke.ts` opens its own throwaway three-seat
+   room there (`provisionLiveRoom`, the same provisioning the fixture-replay
+   smoke test uses — see that directory's README) and, for both simultaneous
+   windows §5.1 defines (`selectCards` and `decline`):
+   - Plays board setup, then drives the room to a *freshly*-opened phase
+     (everyone pending) with one seat already committed — the target seat
+     scripted toward Temple mastery (content/achievements.json's cheapest
+     per-player-supply cap) via City-creates-Nomad/Nomad-walks-to-Mountain-
+     and-produces-stone/Nomad-transforms-in-place, repeated three times, so
+     a `decline` phase actually triggers (`isDeclineTriggered`,
+     `./src/engine/decline.ts` — never true if every actions-phase turn just
+     passes).
+   - Calls `get-game-state` as each still-pending seat and inspects the
+     **raw** response body (bypassing `gameApi.ts`'s `toClientGameState`
+     collapse entirely, which is the one step that could hide a bug in
+     itself) for the committed seat's real `cardId`, via every place
+     `redactStateForPlayer` masks it — `chosenCardIdByPlayerId`,
+     `players[].declineCardIds`, and turn-scoped `actionHistory` entries —
+     not a blind "does this string appear anywhere" scan, since a card id is
+     not itself secret (§2: hands/supply/discard are public) and cycles
+     through a player's own zones many times over a game.
+   - Repeats the same check against the **write** path: the *middle* (not
+     last) seat's own raw `apply-action` response, issue #478's exact
+     scenario — needs three seats, since in a two-seat game the acting
+     player is always last and the phase has already resolved by the time
+     their own response comes back.
+   - Subscribes the still-uncommitted third seat to Realtime exactly the way
+     `gameApi.ts`'s `subscribeToPlayers`/`subscribeToGame`/
+     `subscribeToGameState` do (`players`/`games`/`game_state_meta`, the
+     only tables the app ever subscribes to) and inspects every payload it
+     actually receives over the real socket — closing §5.2's one remaining
+     open question ("never verified against a real socket") for those
+     specific channels. Deliberately not a subscription to raw `game_state`
+     itself: nothing in the shipped app ever makes one (issue #448's
+     bandwidth-motivated `game_state_meta` swap predates this document's
+     redaction concern, and RLS already lets any seated player or, for a
+     non-lobby game, any signed-in user read `game_state` directly
+     regardless of `hiddenInformationEnabled` — `readGameState()`'s own doc
+     comment in `src/test/supabaseStack/index.ts` — a longstanding,
+     accepted read-path property this phase was never scoped to change).
+   - Finally has the third seat resolve the phase and asserts its response
+     (and, symmetrically, that no realtime payload ever did) *does* now
+     disclose both earlier picks — so a masking assertion earlier in the
+     same run can't pass merely because the value never appears anywhere at
+     all.
+
+   Split into a wire half (request/response bodies, provable without a
+   socket) and a Realtime half: the in-process `supabaseStack` patches only
+   `fetch`, not WebSocket, so `src/test/__tests__/
+   hiddenInformationWireRunner.test.ts` runs the wire half — the one that
+   actually matters most, since it's what a real client library call
+   produces — on every PR; the Realtime half only ever runs against Preview,
+   via the `.smoke.ts` entry point, in the same `npm run test:smoke` config
+   (`vitest.smoke.config.ts` already matches every `*.smoke.ts` file here, so
+   no separate workflow wiring was needed). Headless throughout — a real
+   `@supabase/supabase-js` client over real HTTPS/WSS is the wire this phase
+   exists to check; a Playwright browser layer would additionally cover the
+   DOM never rendering a secret, a separate concern this phase was never
+   scoped to (RoundView never receives one to render in the first place,
+   since `toClientGameState` collapses `{chosen: true, cardId: null}` before
+   the app ever sees it — see item 8's note above). §5.3's "reviewed-but-
+   not-branched rewind" display flicker likewise stays out of scope: it's a
+   value the viewer's own client already rendered before the rewind, not a
+   network-level leak. See `RULE_ENFORCEMENT_PLAN.md` §8 phase 9 for the
+   companion verification of action authorization in the same session.
 
 ## 9. Testing strategy
 
@@ -544,13 +598,16 @@ to hidden information (6) are omitted here.
   RedactedChoice-shaped response (`revealedGameStateView`), and — the
   regression test for the blocker phase 8 was originally stuck on — a real
   redacted response run through `toClientGameState` then `gameLog.ts`'s
-  `buildGameLogFrom` without throwing. What genuinely still needs a live
-  project shrinks to §5.2's original Realtime concern (confirming no raw-row
-  broadcast bypasses this function — already believed closed by issue #448's
-  unrelated `game_state_meta` subscription swap, per §5.2's "Resolved
-  (2026-09-08)" note, but never verified against a real socket) and phase 9's
-  browser-network-tab check below. Maintainer verification is still needed
-  post-merge for phase 9.
+  `buildGameLogFrom` without throwing.
+- **Live-project level: done (2026-09-09, phase 9, issue #480)**, via
+  `src/test/productionSmoke/hiddenInformationWire.ts`/`.smoke.ts` against a
+  real Preview project — closing §5.2's original Realtime concern
+  (confirming no payload the app's actual `game_state_meta`/`players`/
+  `games` subscriptions receive ever carries a still-secret pick, over a
+  real socket) alongside the read/write wire-body checks phase 9's own entry
+  above describes. The wire half of that same check also runs against the
+  in-process stack on every PR
+  (`src/test/__tests__/hiddenInformationWireRunner.test.ts`).
 - **Regression:** the existing suite (1137 tests across 62 files, up from
   the 220+ this section was written against) must continue passing
   unmodified — this work changes *what subset* of the engine's output a
