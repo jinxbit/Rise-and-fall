@@ -718,16 +718,18 @@ function applyMoveToDecline(
  * See RetractDeclineAction (./actions.ts) for the "why" — decline's
  * counterpart to applyRetractChoice above, complicated by a player being
  * able to owe (and so have already moved) more than one card this phase.
- * Legal exactly while `cardId` is one of the caller's own additions still
- * standing from the *currently open* decline phase: `declineCardIds`
- * confirms it's genuinely still there (not already bought back in some
- * earlier round, nor already retracted), and
- * `declineSourceZoneByCardId[cardId]` — populated by applyMoveToDecline,
+ * `cardId` omitted (issue #505) retracts every one of the caller's own
+ * additions still standing from the *currently open* decline phase, all in
+ * this one call; given, it retracts just that one. Either way, a
+ * candidate card must be one of the caller's own additions still standing
+ * from *this* phase: `declineCardIds` confirms it's genuinely still there
+ * (not already bought back in some earlier round, nor already retracted),
+ * and `declineSourceZoneByCardId[cardId]` — populated by applyMoveToDecline,
  * reset fresh every beginDeclinePhase (./round.ts) — confirms it was
  * *this* phase's addition rather than an already-public prior round's
  * (which has no entry and so isn't retractable).
  */
-function applyRetractDecline(state: GameState, playerId: string, cardId: string): ActionResult {
+function applyRetractDecline(state: GameState, playerId: string, cardId?: string): ActionResult {
   if (state.roundPhase !== 'decline') {
     return { ok: false, error: 'Decline can only be retracted during the decline phase' }
   }
@@ -740,25 +742,36 @@ function applyRetractDecline(state: GameState, playerId: string, cardId: string)
   if (player.eliminated) {
     return { ok: false, error: 'Eliminated players cannot retract decline' }
   }
-  if (!player.declineCardIds.includes(cardId)) {
-    return { ok: false, error: "This card is not currently in this player's decline" }
-  }
-  const fromZone = state.declineSourceZoneByCardId?.[cardId]
-  if (!fromZone) {
-    return { ok: false, error: 'This card was not added to decline during the current phase' }
-  }
-
-  const nextPlayer = moveCard(player, cardId, fromZone)
-  const players = [...state.players]
-  players[playerIndex] = nextPlayer
 
   const declineSourceZoneByCardId = { ...state.declineSourceZoneByCardId }
-  delete declineSourceZoneByCardId[cardId]
+  let cardIdsToRetract: string[]
+  if (cardId != null) {
+    if (!player.declineCardIds.includes(cardId)) {
+      return { ok: false, error: "This card is not currently in this player's decline" }
+    }
+    if (!declineSourceZoneByCardId[cardId]) {
+      return { ok: false, error: 'This card was not added to decline during the current phase' }
+    }
+    cardIdsToRetract = [cardId]
+  } else {
+    cardIdsToRetract = player.declineCardIds.filter((id) => declineSourceZoneByCardId[id] != null)
+    if (cardIdsToRetract.length === 0) {
+      return { ok: false, error: 'This player has no decline additions from the current phase to retract' }
+    }
+  }
+
+  let nextPlayer = player
+  for (const id of cardIdsToRetract) {
+    nextPlayer = moveCard(nextPlayer, id, declineSourceZoneByCardId[id]!)
+    delete declineSourceZoneByCardId[id]
+  }
+  const players = [...state.players]
+  players[playerIndex] = nextPlayer
 
   const nextState: GameState = {
     ...state,
     players,
-    pendingPlayerIds: [...state.pendingPlayerIds, playerId],
+    pendingPlayerIds: [...state.pendingPlayerIds, ...cardIdsToRetract.map(() => playerId)],
     declineSourceZoneByCardId,
   }
   return { ok: true, state: nextState }

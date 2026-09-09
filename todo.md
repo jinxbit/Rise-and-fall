@@ -3776,3 +3776,64 @@ attempted here.
 New coverage: `src/lib/__tests__/undoDecision.test.ts`.
 
 `npm run lint`, `npm run test` and `npm run build` all pass.
+
+## 75. Fixed: decline-phase Undo left on the old shared-pointer rewind; MOVE_TO_DECLINE/RETRACT_DECLINE Behavior (issue #505)
+
+Requested: allow undoing cards selected in decline even if another player
+has acted since, as long as the information is still hidden; if more than
+one card was selected, undo all of the player's card selections at once, as
+if they were one action.
+
+Entry #74 (issue #503) gave `selectCards` this exact fix — `RETRACT_CHOICE`,
+dispatched by `GamePage.tsx`'s Undo button ahead of the generic shared-pointer
+rewind whenever the caller still has their own pending pick — but explicitly
+left decline's `MOVE_TO_DECLINE`/`RETRACT_DECLINE` pair on the old behavior:
+"which of my own cards does a bare Undo click retract" had no obvious answer
+once a player can owe (and so have already moved) more than one decline card
+at once. This issue answers it: all of them, in one call.
+
+`RetractDeclineAction.cardId` (`src/engine/actions.ts`) is now optional.
+Given, it retracts just that one card (unchanged). Omitted, `applyRetractDecline`
+(`src/engine/applyAction.ts`) retracts every one of the caller's own additions
+still standing from the current decline phase in one call — each back to its
+own source zone (hand vs. discard, per `declineSourceZoneByCardId`), and the
+caller added back to `pendingPlayerIds` once per card retracted — all as a
+single `actionHistory` entry, matching `RETRACT_CHOICE`'s "one Undo click, one
+compensating action" shape regardless of how many cards are involved (CLAUDE.md
+invariant 4). Since `RETRACT_DECLINE` is an ordinary action rather than a
+`historyPointer` rewind, it's legal exactly as requested: retracting the
+caller's own additions never depends on whether another player has acted more
+recently, only on whether the decline phase (and so the information) is still
+open.
+
+`shouldRetractOwnDecline` (`src/lib/undoDecision.ts`) is `shouldRetractOwnChoice`'s
+decline-phase counterpart — true whenever the caller has at least one of their
+own still-open additions this phase, checked via `declineSourceZoneByCardId`
+the same way the engine itself does. `handleUndo` (`GamePage.tsx`) checks it
+right after the existing `RETRACT_CHOICE` check and, if true, submits
+`{ type: 'RETRACT_DECLINE', playerId: me.id }` with no `cardId` instead of
+falling through to the shared-pointer rewind.
+
+Wiring this up surfaced a latent hidden-information leak, closed in the same
+change: `redactStateForPlayer`'s `actionHistory` masking (`src/engine/redaction.ts`)
+only ever nulled `CHOOSE_CARD`/`MOVE_TO_DECLINE`'s own `cardId`, so a
+single-card `RETRACT_DECLINE` naming a card that a `MOVE_TO_DECLINE` had just
+masked would have handed the same secret straight back out via its own
+payload — harmless only because nothing dispatched `RETRACT_DECLINE` before
+now. `RETRACT_DECLINE` is masked the same way (keyed off the card ever having
+been added this phase, not off whether it's still currently declined, since
+the retraction naming it is the leak), and `unredactedPrefix` now also cuts
+before a masked-and-still-effective `RETRACT_DECLINE` (moot in practice: the
+earlier, also-masked `MOVE_TO_DECLINE` for the same card always triggers the
+cut first). The no-`cardId` "retract everything" form has no payload to leak
+in the first place, so it needed no masking at all. See
+`RULE_ENFORCEMENT_PLAN.md` §10 and `HIDDEN_INFORMATION_PLAN.md` §10 for the
+fuller account.
+
+New coverage: `applyAction.test.ts`'s "retracting all at once" suite
+(including retracting while another player has acted in between);
+`redaction.test.ts`'s `RETRACT_DECLINE` masking/reveal/`unredactedPrefix`
+cases; `undoDecision.test.ts`'s `shouldRetractOwnDecline` suite.
+
+`npm run lint`, `npm run test` (1194 tests, 68 files) and `npm run build` all
+pass.

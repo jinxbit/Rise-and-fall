@@ -1,4 +1,4 @@
-import type { Action, ChooseCardAction, LoggedAction, MoveToDeclineAction } from './actions.ts'
+import type { Action, ChooseCardAction, LoggedAction, MoveToDeclineAction, RetractDeclineAction } from './actions.ts'
 import { resolveHistory } from './historyFold.ts'
 import type { GameEvent, GameState, Player } from './types.ts'
 
@@ -21,18 +21,24 @@ export type RedactedPlayer = Omit<Player, 'declineCardIds'> & {
 
 /**
  * One GameState.actionHistory entry as seen by a particular viewer — the raw
- * log carries the same two secrets chosenCardIdByPlayerId/declineCardIds do
- * (a CHOOSE_CARD/MOVE_TO_DECLINE action's own `cardId` payload), so a reader
+ * log carries the same secrets chosenCardIdByPlayerId/declineCardIds do (a
+ * CHOOSE_CARD/MOVE_TO_DECLINE action's own `cardId` payload), so a reader
  * who only had those two fields nulled could still recover a still-secret
- * pick straight out of the log (see redactStateForPlayer's doc comment).
- * Every other action type passes through with its real payload unchanged —
- * this is not a general Action-redaction mechanism, just these two fields.
+ * pick straight out of the log (see redactStateForPlayer's doc comment). A
+ * single-card RETRACT_DECLINE carries that exact same secret right back out
+ * again — retracting a card that's still masked in an earlier MOVE_TO_DECLINE
+ * entry would otherwise let the *retraction's own* payload reveal what the
+ * addition didn't (issue #505) — so it's masked under the identical
+ * condition. Every other action type passes through with its real payload
+ * unchanged — this is not a general Action-redaction mechanism, just these
+ * three fields.
  */
 export type RedactedLoggedAction = Omit<LoggedAction, 'action'> & {
   action:
-    | Exclude<Action, ChooseCardAction | MoveToDeclineAction>
+    | Exclude<Action, ChooseCardAction | MoveToDeclineAction | RetractDeclineAction>
     | (Omit<ChooseCardAction, 'cardId'> & { cardId: string | null })
     | (Omit<MoveToDeclineAction, 'cardId'> & { cardId: string | null })
+    | (Omit<RetractDeclineAction, 'cardId'> & { cardId?: string | null })
 }
 
 export type RedactedGameState = Omit<GameState, 'chosenCardIdByPlayerId' | 'players' | 'actionHistory'> & {
@@ -76,13 +82,19 @@ export type RedactedGameState = Omit<GameState, 'chosenCardIdByPlayerId' | 'play
  * chosenCardIdByPlayerId/declineCardIds mask above, under the same two
  * conditions (still-pending selectCards, or this-phase-only decline
  * additions) — so scrubbing only the derived fields and shipping the raw
- * log alongside them would leak the very same value straight back out. This
- * still doesn't cover a raw-row Realtime broadcast bypassing this function
- * entirely (§5.2's original concern) — but `subscribeToGameState`
- * (`src/lib/gameApi.ts`) already subscribes to `game_state_meta`, not
- * `game_state` itself (issue #448, for bandwidth, before this document even
- * had a redaction concern), so nothing broadcasts the raw row over
- * Realtime today regardless.
+ * log alongside them would leak the very same value straight back out. A
+ * single-card RETRACT_DECLINE is masked the same way (issue #505): once
+ * `handleUndo` (GamePage.tsx) started actually dispatching this action, a
+ * still-masked MOVE_TO_DECLINE could be immediately followed by an
+ * unmasked RETRACT_DECLINE naming the very card the addition was hiding —
+ * masking both closes it. (The no-`cardId` "retract everything this phase"
+ * form this action gained for that same fix has no payload to leak in the
+ * first place.) This still doesn't cover a raw-row Realtime broadcast
+ * bypassing this function entirely (§5.2's original concern) — but
+ * `subscribeToGameState` (`src/lib/gameApi.ts`) already subscribes to
+ * `game_state_meta`, not `game_state` itself (issue #448, for bandwidth,
+ * before this document even had a redaction concern), so nothing broadcasts
+ * the raw row over Realtime today regardless.
  *
  * §5.3's "reveal high-water mark" (keeping an already-resolved phase from
  * flickering back to masked for a viewer who rewinds *review-only*, with no
@@ -126,6 +138,14 @@ export function redactStateForPlayer(state: GameState, viewerId: string | null):
       return { ...entry, action: { ...action, cardId: null } }
     }
     if (action.type === 'MOVE_TO_DECLINE' && action.playerId !== viewerId && declineAdditionsThisPhaseByPlayerId.get(action.playerId)?.has(action.cardId)) {
+      return { ...entry, action: { ...action, cardId: null } }
+    }
+    if (
+      action.type === 'RETRACT_DECLINE' &&
+      action.cardId != null &&
+      action.playerId !== viewerId &&
+      declineAdditionsThisPhaseByPlayerId.get(action.playerId)?.has(action.cardId)
+    ) {
       return { ...entry, action: { ...action, cardId: null } }
     }
     return entry
@@ -264,10 +284,14 @@ export function redactGameLog(events: GameEvent[], state: GameState, viewerId: s
 /**
  * The longest prefix of a (possibly redacted) actionHistory that's safe to
  * feed straight into applyAction()/replayActions() — i.e. everything before
- * the first still-masked CHOOSE_CARD/MOVE_TO_DECLINE entry that's actually
- * still *in effect* (see RedactedGameState's own doc comment: a masked
- * entry's `cardId: null` isn't a legal action payload, and replayActions
- * throws outright on one it tries to replay).
+ * the first still-masked CHOOSE_CARD/MOVE_TO_DECLINE/RETRACT_DECLINE entry
+ * that's actually still *in effect* (see RedactedGameState's own doc
+ * comment: a masked entry's `cardId: null` isn't a legal action payload, and
+ * replayActions throws outright on one it tries to replay). In practice a
+ * masked RETRACT_DECLINE always has an earlier, also-masked MOVE_TO_DECLINE
+ * for the same card (it can't retract a card that was never added), so that
+ * earlier entry is what actually triggers the cut — this is here for the
+ * type's own sake and as a defense in depth, not because it fires first.
  *
  * Deliberately keyed on `resolveHistory(...).effective`, not "the first
  * masked entry in raw order" (issue #498): a masked entry that's since been
@@ -305,7 +329,7 @@ export function unredactedPrefix(actionHistory: RedactedLoggedAction[]): LoggedA
   const effectiveEntries = new Set<RedactedLoggedAction>(effective as unknown as RedactedLoggedAction[])
   const firstUnsafeIndex = actionHistory.findIndex(
     (entry) =>
-      (entry.action.type === 'CHOOSE_CARD' || entry.action.type === 'MOVE_TO_DECLINE') &&
+      (entry.action.type === 'CHOOSE_CARD' || entry.action.type === 'MOVE_TO_DECLINE' || entry.action.type === 'RETRACT_DECLINE') &&
       entry.action.cardId === null &&
       effectiveEntries.has(entry),
   )
@@ -325,7 +349,10 @@ export function unredactedPrefix(actionHistory: RedactedLoggedAction[]): LoggedA
  * (`turn === state.turn`) `MOVE_TO_DECLINE` entries exactly recovers this
  * phase's still-secret additions — robust to ordering, and to CONCEDE/
  * eliminations interleaved mid-phase, since neither ever touches
- * `declineCardIds` itself.
+ * `declineCardIds` itself. Also used to mask a RETRACT_DECLINE entry naming
+ * one of these same cards (see redactStateForPlayer) — deliberately never
+ * recomputed to drop a card once it's retracted, since a retraction naming
+ * it is exactly the payload that would otherwise leak it.
  */
 function declineAdditionsThisPhase(state: GameState): Map<string, Set<string>> {
   const byPlayerId = new Map<string, Set<string>>()

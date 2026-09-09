@@ -111,7 +111,11 @@ function describePrimaryAction(action: Action, before: GameState, after: GameSta
     case 'MOVE_TO_DECLINE':
       return [{ playerId: action.playerId, message: `${PLAYER_PLACEHOLDER} moved a card into decline` }]
     case 'RETRACT_DECLINE':
-      return [{ playerId: action.playerId, message: `${PLAYER_PLACEHOLDER} retracted a card from decline` }]
+      // Never names the card(s), same "doesn't reveal what was chosen" reasoning
+      // as RETRACT_CHOICE above — true whether this retracted one card or, per
+      // issue #505's no-`cardId` form, every one of the player's own additions
+      // from this phase at once.
+      return [{ playerId: action.playerId, message: `${PLAYER_PLACEHOLDER} retracted their decline selection` }]
     case 'PURCHASE_CARD': {
       const goldBefore = before.players.find((p) => p.id === action.playerId)?.resources.gold ?? 0
       const goldAfter = after.players.find((p) => p.id === action.playerId)?.resources.gold ?? 0

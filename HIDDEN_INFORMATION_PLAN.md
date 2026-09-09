@@ -756,6 +756,28 @@ testing.)
   simply never needed (deduplicated by checking for an existing `secret`
   event first). RoundView's own indicator gap above is unchanged and still
   open — this only closes the log.
+- **Closed (2026-09-09, issue #505): a single-card `RETRACT_DECLINE` leaked
+  right back out the exact `cardId` a still-open `MOVE_TO_DECLINE` was
+  masking.** This was always latent in `redactStateForPlayer`'s
+  `actionHistory` masking (§5.1/§5.2 above only ever listed
+  `CHOOSE_CARD`/`MOVE_TO_DECLINE`), but harmless while nothing dispatched
+  `RETRACT_DECLINE` at all — see `RULE_ENFORCEMENT_PLAN.md` §10's matching
+  update for why issue #505 is what made it reachable (wiring the decline
+  phase's own Undo button up to this action for the first time). Fixed the
+  same way MOVE_TO_DECLINE already was: a `RETRACT_DECLINE` entry naming a
+  card that's one of `declineAdditionsThisPhaseByPlayerId`'s still-secret
+  entries for that player is masked to `cardId: null` for every viewer but
+  the acting player, deliberately keyed off the *original* addition ever
+  having happened this phase — not off whether the card is still currently
+  declined — since the retraction naming it is exactly the leak being
+  closed. `unredactedPrefix` cuts before a masked-and-still-effective
+  `RETRACT_DECLINE` the same way it already does for `CHOOSE_CARD`/
+  `MOVE_TO_DECLINE` (in practice this is moot: a masked `RETRACT_DECLINE`
+  always has an earlier, also-masked `MOVE_TO_DECLINE` for the same card,
+  which triggers the cut first). The no-`cardId` "retract everything this
+  phase" form this action gained for the same issue (see
+  `RULE_ENFORCEMENT_PLAN.md` §10) needed no masking change at all — it
+  carries no `cardId` payload, so there's nothing in it to leak.
 
 (See `RULE_ENFORCEMENT_PLAN.md` §10 for enforcement-specific open items:
 `RETRACT_CHOICE`/`RETRACT_DECLINE` design decisions, Edge Function

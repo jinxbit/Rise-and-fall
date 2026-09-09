@@ -863,6 +863,29 @@ to rule enforcement (2, 5) are omitted here.
     accordingly carries a `cardId` (unlike the payload-less
     `RetractChoiceAction`), since a player can have more than one of their
     own still-open additions at once and needs to say which one.
+  - **Update (issue #505): `cardId` is now optional, and this action is
+    finally wired up to something.** Both of the above stayed true but
+    unreachable — todo.md's issue #503 entry records that `GamePage.tsx`'s
+    Undo button never actually dispatched `RETRACT_DECLINE` at all, leaving
+    the decline phase on the old shared-pointer rewind, exactly the bug
+    class §4.4's `RETRACT_CHOICE` refinement exists to avoid for
+    `selectCards`. Issue #505 answers the "which of my own cards does a bare
+    Undo click retract" question this left open: all of them, in one call —
+    omitting `cardId` now retracts every one of the caller's own still-open
+    additions from the current phase as a single `actionHistory` entry
+    (`applyRetractDecline`, `applyAction.ts`), the same "one Undo click, one
+    compensating action" shape `RETRACT_CHOICE` already has, regardless of
+    how many cards are involved. `shouldRetractOwnDecline`
+    (`src/lib/undoDecision.ts`) is `shouldRetractOwnChoice`'s decline-phase
+    counterpart, and `handleUndo` (`GamePage.tsx`) now checks it first. The
+    single-`cardId` form is unchanged and still legal (nothing currently
+    dispatches it, but the engine and its tests keep it working). This also
+    closed a latent redaction gap: `RETRACT_DECLINE`'s own `cardId` payload
+    was never masked in `actionHistory`, so once this action became
+    reachable, a still-secret `MOVE_TO_DECLINE` followed by its own
+    single-card retraction would have leaked right back out the retraction's
+    payload — see `HIDDEN_INFORMATION_PLAN.md`'s equivalent update for the
+    fix (`redactStateForPlayer`/`unredactedPrefix`, `redaction.ts`).
 - Edge Function cold-start/latency impact on perceived responsiveness in
   live mode — expected to be negligible for a turn-based game, but worth
   confirming during phase 9 verification.
