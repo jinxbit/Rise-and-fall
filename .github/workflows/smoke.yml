@@ -31,10 +31,11 @@ on:
   workflow_run:
     workflows: ['Deploy Supabase']
     types: [completed]
-  # And nightly, for drift no deploy caused: a policy edited in the dashboard,
-  # a project setting, an expired key. Production only for now; add staging to
-  # the matrix once that environment exists (it also keeps a free-tier staging
-  # project from pausing — DELIVERY_PIPELINE_PLAN.md §8).
+  # And nightly against EVERY environment, for drift no deploy caused: a
+  # policy edited in the dashboard, a project setting, an expired key. Running
+  # Preview nightly too catches drift there before a promotion runs into it,
+  # and keeps a free-tier project from pausing while idle
+  # (DELIVERY_PIPELINE_PLAN.md §8).
   schedule:
     - cron: '17 4 * * *'
   workflow_dispatch:
@@ -52,12 +53,6 @@ on:
         # mis-click selects.
         default: Preview
 
-# Never two runs against the same environment at once: each creates and
-# deletes real rows, and serializing keeps a failure's leftovers unambiguous.
-concurrency:
-  group: smoke-${{ github.event.inputs.environment || github.event.workflow_run.head_branch || github.ref_name }}
-  cancel-in-progress: false
-
 jobs:
   resolve:
     runs-on: ubuntu-latest
@@ -66,38 +61,58 @@ jobs:
     # no workflow_run context and always proceed.
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     outputs:
-      environment: ${{ steps.pick.outputs.environment }}
+      # A JSON array: the nightly run targets every environment at once, while
+      # a deploy or a manual run targets exactly one.
+      environments: ${{ steps.pick.outputs.environments }}
     steps:
-      - name: Resolve the target environment
+      - name: Resolve the target environments
         id: pick
         env:
+          EVENT: ${{ github.event_name }}
           REQUESTED: ${{ github.event.inputs.environment }}
           # For a workflow_run the branch that was deployed, not this
           # workflow's own ref — they are the same today but need not be.
           BRANCH: ${{ github.event.workflow_run.head_branch || github.ref_name }}
         run: |
-          if [ -n "$REQUESTED" ]; then
-            resolved="$REQUESTED"
+          if [ "$EVENT" = "schedule" ]; then
+            # Every environment, so drift on Preview surfaces on its own
+            # schedule rather than when a promotion runs into it.
+            resolved='["Preview","production"]'
+          elif [ -n "$REQUESTED" ]; then
+            resolved="[\"$REQUESTED\"]"
           else
             # Mirrors deploy-supabase.yml's mapping — change both together.
             case "$BRANCH" in
               # Phase 3 (DELIVERY_PIPELINE_PLAN.md §3) changes this one line:
               # main starts resolving to Preview, and a new `production`
               # branch takes over releasing.
-              main) resolved=production ;;
+              main) resolved='["production"]' ;;
               *)
                 echo "::error::No environment is mapped for branch '$BRANCH'. Add it to the case in .github/workflows/smoke.yml (and deploy-supabase.yml)."
                 exit 1
                 ;;
             esac
           fi
-          echo "environment=$resolved" >> "$GITHUB_OUTPUT"
+          echo "environments=$resolved" >> "$GITHUB_OUTPUT"
           echo "Smoke-testing: $resolved"
 
   smoke:
     needs: resolve
     runs-on: ubuntu-latest
-    environment: ${{ needs.resolve.outputs.environment }}
+    strategy:
+      # One environment failing must not hide the state of the other — a
+      # nightly that stopped after Preview would say nothing about production.
+      fail-fast: false
+      matrix:
+        environment: ${{ fromJSON(needs.resolve.outputs.environments) }}
+    environment: ${{ matrix.environment }}
+    # Never two runs against the SAME project at once: each creates and
+    # deletes real rows, and serializing keeps a failure's leftovers
+    # unambiguous. Different environments are independent, so they run in
+    # parallel.
+    concurrency:
+      group: smoke-${{ matrix.environment }}
+      cancel-in-progress: false
     env:
       # SMOKE_SUPABASE_URL is optional — it defaults to the project ref the
       # deploy workflow already uses, so a standard environment needs only the
@@ -126,7 +141,7 @@ jobs:
           [ -n "$SMOKE_SUPABASE_ANON_KEY" ] || missing+=("SMOKE_SUPABASE_ANON_KEY")
           [ -n "$SMOKE_SUPABASE_SERVICE_ROLE_KEY" ] || missing+=("SMOKE_SUPABASE_SERVICE_ROLE_KEY")
           if [ ${#missing[@]} -gt 0 ]; then
-            echo "::error::Missing secrets for environment '${{ needs.resolve.outputs.environment }}': ${missing[*]}. See this workflow's header."
+            echo "::error::Missing secrets for environment '${{ matrix.environment }}': ${missing[*]}. See this workflow's header."
             exit 1
           fi
 
@@ -137,7 +152,7 @@ jobs:
       # database.
       - name: Refuse to smoke-test the wrong project
         env:
-          ENVIRONMENT: ${{ needs.resolve.outputs.environment }}
+          ENVIRONMENT: ${{ matrix.environment }}
           PRODUCTION_PROJECT_ID: ${{ vars.PRODUCTION_SUPABASE_PROJECT_ID }}
         run: |
           if [ -z "$PRODUCTION_PROJECT_ID" ]; then
@@ -156,5 +171,5 @@ jobs:
           fi
           echo "Environment '$ENVIRONMENT' -> $SMOKE_SUPABASE_URL"
 
-      - name: Replay production games against ${{ needs.resolve.outputs.environment }}
+      - name: Replay production games against ${{ matrix.environment }}
         run: npm run test:smoke

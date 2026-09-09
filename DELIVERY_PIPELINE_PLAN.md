@@ -160,11 +160,17 @@ Existing (production): `SUPABASE_ACCESS_TOKEN`, `SUPABASE_DB_PASSWORD`,
 
 Rather than adding a parallel `STAGING_*` set of repository secrets, use
 **GitHub Environments** (`Preview` and `production`) and scope the same
-secret *names* to each. Two benefits: the workflows stop caring which
-environment they are in beyond `environment: Preview|production`, and the
-`production` environment can carry a **required reviewer**, which is the
-native way to make promotion wait for the maintainer rather than inventing a
-gate in YAML.
+secret *names* to each, so the workflows stop caring which environment they
+are in beyond `environment: Preview|production`.
+
+**The promotion gate does not belong on the `production` environment.** A
+required reviewer there is the obvious-looking way to make promotion wait for
+the maintainer, and it is wrong: `deploy-supabase.yml` and `smoke.yml` both
+run under `environment: production` too, so a reviewer on it would suspend
+every production deploy and every nightly production smoke run waiting for a
+click. The gate belongs on a *separate* environment — `production-release` —
+referenced only by the promotion workflow (§9 phase 5), which does no
+deploying itself and exists precisely to be approved.
 
 The names in the workflows must match the environments **exactly**. Asking
 for one that does not exist is not an error GitHub reports — it auto-creates
@@ -316,8 +322,9 @@ not the same as proving the app works.
    the same commit — they currently state that main is production.
 4. **Auto-merge, and self-healing staging failures.** §7's rules, plus the
    issue-opening on a red staging smoke.
-5. **The promotion workflow.** Fast-forward `production` behind the
-   environment's required reviewer.
+5. **The promotion workflow.** Fast-forward `production`, gated by a required
+   reviewer on a dedicated `production-release` environment — never on
+   `production` itself, which deploys and nightly smoke runs also use (§5).
 6. **Browser tests.** The Playwright layer sketched earlier — it is what
    would eventually justify trusting an automatic promotion.
 
