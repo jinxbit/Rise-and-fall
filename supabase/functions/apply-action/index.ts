@@ -22,6 +22,12 @@
 // stepping forward. SET_ADMIN_MODE (issue #464) IS handled here — it's an
 // ordinary forward step from `state` like any other action, just with its
 // own owner-or-admin authorization instead of the usual per-seat one.
+//
+// The response's `state` is redacted the same way get-game-state's read is
+// (HIDDEN_INFORMATION_PLAN.md §8, issue #478) — the acting player's own
+// submission would otherwise be the easiest way to see every other player's
+// still-secret pick, since it hands back the very state the action just
+// produced. See redactedResponseState (../_shared/gameEnforcement.ts).
 import type { Action } from '../../../src/engine/actions.ts'
 import {
   applyActionFullyEnforced,
@@ -30,6 +36,7 @@ import {
   isAuthorizedToActAs,
   jsonResponse,
   loadGameContext,
+  redactedResponseState,
   requiresOwnerOverride,
   serviceRoleClient,
   writeGameStateCAS,
@@ -103,5 +110,8 @@ Deno.serve(async (req) => {
     return jsonResponse(409, { ok: false, error: 'Game state changed concurrently — refetch and retry.' })
   }
 
-  return jsonResponse(200, { ok: true, state: result.state, version: newVersion })
+  // issue #478: the response is redacted the same way get-game-state's read
+  // is (redactedResponseState, ../_shared/gameEnforcement.ts) — the CAS write
+  // above always persists the real, unredacted result.state regardless.
+  return jsonResponse(200, { ok: true, state: redactedResponseState(ctx, callerUserId, result.state), version: newVersion })
 })

@@ -25,7 +25,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import type { Action } from '../../engine/actions.ts'
 import { applyAction } from '../../engine/applyAction.ts'
 import { applyRedoAction, applyUndoAction } from '../../engine/undoRedo.ts'
-import type { RedactedGameState } from '../../engine/redaction.ts'
+import { toClientGameState, type RedactedGameState } from '../../engine/redaction.ts'
 import type { GameState } from '../../engine/types.ts'
 import type { GameRow, PlayerRow } from '../../lib/dbTypes.ts'
 import { decompressGameStateFromStorage, type StoredGameState } from '../../lib/gameStateCompression.ts'
@@ -250,6 +250,20 @@ export async function createProductionStack(): Promise<ProductionStack> {
   }
 
   /**
+   * apply-action/undo-action/redo-action's response is `RedactedGameState`-
+   * shaped, same as get-game-state's (issue #478) — this collapses it back
+   * to a plain `GameState` via `toClientGameState`, the same conversion
+   * `gameApi.ts`'s `invokeGameFunction` does, so `EnforcedCallResult.state`
+   * stays a real `GameState` for every existing caller (including
+   * replayFixture.ts's local re-application and final fixture comparison).
+   */
+  async function invokeEnforced(name: EdgeFunctionName, userId: string, body: Record<string, unknown>): Promise<EnforcedCallResult> {
+    const result = await invoke<RedactedGameState>(name, userId, body)
+    if (!result.ok) return result
+    return { ...result, state: toClientGameState(result.state) }
+  }
+
+  /**
    * GamePage.tsx's `writeWithRetry` for one attempt: read the row, apply the
    * transition client-side, write it back guarded by the version we read (the
    * same compare-and-swap `gameApi.ts`'s `writeGameState` uses, and the same
@@ -320,9 +334,9 @@ export async function createProductionStack(): Promise<ProductionStack> {
     },
 
     getGameState: (userId, gameId) => invoke<RedactedGameState>('get-game-state', userId, { gameId }),
-    applyAction: (userId, gameId, action) => invoke('apply-action', userId, { gameId, action }),
-    undoAction: (userId, gameId) => invoke('undo-action', userId, { gameId }),
-    redoAction: (userId, gameId) => invoke('redo-action', userId, { gameId }),
+    applyAction: (userId, gameId, action) => invokeEnforced('apply-action', userId, { gameId, action }),
+    undoAction: (userId, gameId) => invokeEnforced('undo-action', userId, { gameId }),
+    redoAction: (userId, gameId) => invokeEnforced('redo-action', userId, { gameId }),
 
     applyActionClientTrusted: (userId, gameId, action, content) =>
       writeClientTrusted(userId, gameId, (state) =>
