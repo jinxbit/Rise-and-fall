@@ -77,7 +77,7 @@ export interface ProductionStack {
    * insert policy is exercised rather than bypassed.
    */
   seedStartedGame(options: { game: GameRow; players: PlayerRow[]; genesis: GameState; admins?: string[] }): Promise<void>
-  /** gameApi.ts's getGameState, as `userId` — decompressed, RLS-gated, null if the row isn't readable or doesn't exist. This is the raw, unredacted direct-table read every game still uses unless it's both ruleEnforcementEnabled and hiddenInformationEnabled (see usesRedactedReads, GamePage.tsx), in which case gameApi.ts calls getGameStateRedacted (below) instead. */
+  /** gameApi.ts's getGameState, as `userId` — decompressed, RLS-gated, null if the row isn't readable or doesn't exist. This is the raw, unredacted direct-table read every game still uses unless it's both ruleEnforcementEnabled and hiddenInformationEnabled (see usesRedactedReads, GamePage.tsx), in which case gameApi.ts calls getGameStateRedacted (below) instead. Since 0028_hidden_information_rls_lockdown.sql (issue #488), a hiddenInformationEnabled game's row is RLS-invisible through this path entirely — seated player and stranger alike get `null`, same as a missing row — because that's exactly the game type get-game-state exists to replace this call for; an admin still sees it (0024_admin_read_all_game_state.sql). */
   readGameState(userId: string, gameId: string): Promise<{ state: GameState; version: number } | null>
   /** Calls the real get-game-state Edge Function as `userId` — gameApi.ts's getGameStateRedacted, the read path HIDDEN_INFORMATION_PLAN.md §8 phase 8 wired in. */
   getGameState(userId: string, gameId: string): Promise<GameStateReadResult>

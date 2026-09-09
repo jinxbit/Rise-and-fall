@@ -288,45 +288,39 @@ export async function listPlayers(gameId: string): Promise<PlayerRow[]> {
 }
 
 /**
- * Fetches the cheap `game_state_meta`/`game_state.active_player_id` columns
- * for a batch of games and assembles a `GameStateSummary` per game — the
- * shared plumbing behind `listMyGames` and `roomEntriesForGames` (issue
- * #441). Deliberately never touches `game_state.state`: that's the
- * compressed full GameState blob whose per-game download+decompression on
- * every listing-screen visit was issue #441's actual bandwidth cost.
- * `game_state_meta` (`0025_game_state_meta.sql`) is kept in sync with
- * `game_state` by a DB trigger on every insert/update, so it's always as
- * fresh as `state` would be. See GameStateSummary's doc comment
- * (gameCardView.ts) for what this can't tell you compared to the full state.
+ * Fetches the cheap `game_state_meta` columns for a batch of games and
+ * assembles a `GameStateSummary` per game — the shared plumbing behind
+ * `listMyGames` and `roomEntriesForGames` (issue #441). Deliberately never
+ * touches `game_state` itself: that table now denies direct SELECT outright
+ * for a `hiddenInformationEnabled` game (`0028_hidden_information_rls_lockdown.sql`,
+ * issue #488), including to a viewer with no seat — exactly the case
+ * `listPublicRooms`/`listAllRooms` hit — and even where it's still readable,
+ * `state` is the compressed full GameState blob whose per-game
+ * download+decompression on every listing-screen visit was issue #441's
+ * actual bandwidth cost. `game_state_meta` (`0025_game_state_meta.sql`,
+ * `active_player_id` added by `0028`) is kept in sync with `game_state` by a
+ * DB trigger on every insert/update, so it's always as fresh as `state`
+ * would be, and its own RLS was never tightened by `0028` since none of this
+ * is hidden information. See GameStateSummary's doc comment (gameCardView.ts)
+ * for what this can't tell you compared to the full state.
  */
 async function fetchGameStateSummaries(
   gameIds: string[],
 ): Promise<{ summaryByGame: Map<string, GameStateSummary>; updatedAtByGame: Map<string, string> }> {
-  const [
-    { data: metas, error: metasError },
-    { data: activeRows, error: activeRowsError },
-  ] = await Promise.all([
-    supabase
-      .from('game_state_meta')
-      .select('game_id, status, round_phase, turn, pending_player_ids, updated_at')
-      .in('game_id', gameIds),
-    supabase.from('game_state').select('game_id, active_player_id').in('game_id', gameIds),
-  ])
-  if (metasError) throw metasError
-  if (activeRowsError) throw activeRowsError
-
-  const activePlayerIdByGame = new Map(
-    (activeRows as { game_id: string; active_player_id: string | null }[]).map((row) => [row.game_id, row.active_player_id]),
-  )
+  const { data: metas, error } = await supabase
+    .from('game_state_meta')
+    .select('game_id, status, round_phase, turn, pending_player_ids, active_player_id, updated_at')
+    .in('game_id', gameIds)
+  if (error) throw error
 
   const summaryByGame = new Map<string, GameStateSummary>()
   const updatedAtByGame = new Map<string, string>()
-  for (const row of metas as Pick<GameStateMetaRow, 'game_id' | 'status' | 'round_phase' | 'turn' | 'pending_player_ids' | 'updated_at'>[]) {
+  for (const row of metas as Pick<GameStateMetaRow, 'game_id' | 'status' | 'round_phase' | 'turn' | 'pending_player_ids' | 'active_player_id' | 'updated_at'>[]) {
     summaryByGame.set(row.game_id, {
       status: row.status as GameStatus,
       roundPhase: row.round_phase as RoundPhase | null,
       turn: row.turn,
-      activePlayerId: activePlayerIdByGame.get(row.game_id) ?? null,
+      activePlayerId: row.active_player_id,
       pendingPlayerIds: row.pending_player_ids,
     })
     updatedAtByGame.set(row.game_id, row.updated_at)

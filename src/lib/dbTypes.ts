@@ -206,6 +206,8 @@ export interface GameStateMetaRow {
   version: number
   /** See `0027_game_state_meta_pending_players.sql`'s column comment for exactly what this holds per phase. */
   pending_player_ids: string[]
+  /** Mirrors `game_state.active_player_id` — see `0028_hidden_information_rls_lockdown.sql`'s column comment. Never hidden information. */
+  active_player_id: string | null
   updated_at: string
 }
 
