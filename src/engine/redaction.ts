@@ -216,14 +216,49 @@ export function toClientGameState(redacted: RedactedGameState): GameState {
  * `events` themselves are never mutated — everything else (the fully-
  * revealing log ./gameLog.ts builds) stays the shared, cacheable source of
  * truth; this returns a per-viewer copy for display only.
+ *
+ * Also synthesizes a "chose a card" line for a still-pending player whose
+ * real CHOOSE_CARD entry never reached `events` at all (issue #497): for a
+ * `hiddenInformationEnabled` game, `get-game-state` never sends that entry
+ * to another player's client in the first place (`unredactedPrefix` above
+ * cuts the raw actionHistory *before* it, not just its `cardId`), so there is
+ * nothing in `events` for the map above to redact — the map only handles the
+ * client-trusted path, where the real (fully-revealing) event always exists
+ * and just needs its message swapped. `pendingPlayerIds`/`turnOrder` are
+ * never themselves secret (redactStateForPlayer never touches them), so
+ * "who's no longer pending" is a reliable, redaction-independent source for
+ * this even though the log entry itself may be missing. A no-op on the
+ * client-trusted path, where `announced` already covers every such player.
  */
 export function redactGameLog(events: GameEvent[], state: GameState, viewerId: string | null): GameEvent[] {
   const hideChosenCards = state.roundPhase === 'selectCards' && state.pendingPlayerIds.length > 0
-  return events.map((event) => {
+  const redacted = events.map((event) => {
     if (!event.secret || event.playerId === viewerId) return event
     if (!hideChosenCards || event.secret.turn !== state.turn) return event
     return { ...event, message: event.secret.redactedMessage }
   })
+  if (!hideChosenCards) return redacted
+
+  const announced = new Set(redacted.filter((event) => event.secret && event.secret.turn === state.turn).map((event) => event.playerId))
+  const stillPending = new Set(state.pendingPlayerIds)
+  const unannouncedPickers = state.turnOrder.filter((playerId) => playerId !== viewerId && !stillPending.has(playerId) && !announced.has(playerId))
+  if (unannouncedPickers.length === 0) return redacted
+
+  return [
+    ...redacted,
+    ...unannouncedPickers.map((playerId) => ({
+      id: `hidden-pick-${state.turn}-${playerId}`,
+      turn: state.turn,
+      playerId,
+      // Same literal PLAYER_PLACEHOLDER (./gameLog.ts) resolves to in every
+      // other redactedMessage — not imported directly, since gameLog.ts (and
+      // its own extension-less imports) isn't part of the Edge Function
+      // graph redaction.ts otherwise stays safely inside (CLAUDE.md's "Edge
+      // Function gotchas").
+      message: '{player} chose a card',
+      timestamp: new Date().toISOString(),
+    })),
+  ]
 }
 
 /**
