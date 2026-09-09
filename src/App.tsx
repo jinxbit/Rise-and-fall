@@ -11,11 +11,16 @@ import { MyGamesPage } from './pages/MyGamesPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { PublicRoomsPage } from './pages/PublicRoomsPage'
 import { ResetPasswordPage } from './pages/ResetPasswordPage'
+import { EnvironmentBadge } from './components/EnvironmentBadge'
+import { resolveEnvironmentBadge } from './components/environmentBadge'
 import { UpdateBanner } from './components/UpdateBanner'
 import { useAppUpdateAvailable } from './hooks/useAppUpdateAvailable'
 
 function App() {
   const updateAvailable = useAppUpdateAvailable()
+  // Non-production builds say so on screen — see ./components/environmentBadge.ts
+  // for why, and why production is the case that needs no configuration.
+  const environmentBadge = resolveEnvironmentBadge(import.meta.env.VITE_ENVIRONMENT, import.meta.env.VITE_SUPABASE_URL)
 
   return (
     <BrowserRouter>
@@ -34,6 +39,7 @@ function App() {
           <Route path="/lobby/:roomCode" element={<LobbyPage />} />
           <Route path="/game/:roomCode" element={<GamePage />} />
         </Routes>
+        {environmentBadge && <EnvironmentBadge {...environmentBadge} />}
       </div>
       <Analytics />
     </BrowserRouter>

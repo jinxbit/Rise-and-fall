@@ -89,7 +89,7 @@ const PRIMARY_KEY: Record<TableName, string> = {
 export type SqlCommand = 'select' | 'insert' | 'update' | 'delete'
 
 export class Database {
-  private readonly rows: Record<TableName, Row[]> = {
+  private rows: Record<TableName, Row[]> = {
     profiles: [],
     games: [],
     players: [],
@@ -130,10 +130,11 @@ export class Database {
     const uid = actor.userId
 
     switch (table) {
-      // 0001_init_schema.sql: any signed-in user can read games/players;
-      // only the owner may change a game row (0008_room_lifecycle.sql).
+      // 0001_init_schema.sql: any signed-in user can read games/players and
+      // create a game of their own (`created_by = auth.uid()`); only the
+      // owner may change or delete it afterwards (0008_room_lifecycle.sql).
       case 'games':
-        return command === 'select' || (row.created_by === uid && command !== 'insert')
+        return command === 'select' || row.created_by === uid
       case 'players':
         return command === 'select' || row.user_id === uid
       case 'profiles':
@@ -240,8 +241,27 @@ export class Database {
       if (!match(row) || !this.visible(actor, table, 'delete', row)) continue
       this.rows[table].splice(i, 1)
       deleted.push(structuredClone(row))
+      if (table === 'games') this.cascadeFromGame(row.id as string)
     }
     return deleted
+  }
+
+  /**
+   * `on delete cascade` from `games` (0001_init_schema.sql for players and
+   * game_state, 0025_game_state_meta.sql for the meta projection). Deleting a
+   * room really does take its rows with it — without this, anything that
+   * cleans up after itself by deleting the room (the production smoke runner,
+   * ../productionSmoke/) would look like it worked while leaving orphans.
+   */
+  private cascadeFromGame(gameId: string): void {
+    for (const table of ['players', 'game_state', 'game_state_meta'] as const) {
+      this.rows[table] = this.rows[table].filter((row) => row.game_id !== gameId)
+    }
+  }
+
+  /** `on delete cascade` from `auth.users` to `profiles` (0005_discord_webhooks.sql). */
+  deleteProfileFor(userId: string): void {
+    this.rows.profiles = this.rows.profiles.filter((row) => row.user_id !== userId)
   }
 
   private defaults(table: TableName): Row {
@@ -251,8 +271,12 @@ export class Database {
         return { turn: 0, active_player_id: null, version: 0, updated_at: now }
       case 'game_state_meta':
         return { round_phase: null, turn: 0, version: 0, pending_player_ids: [], updated_at: now }
+      // `gen_random_uuid()` on the primary key (0001_init_schema.sql) — a row
+      // inserted through the API supplies no id, only a seeded fixture does.
       case 'games':
-        return { created_at: now, updated_at: now, config_version: 1, visibility: 'private' }
+        return { id: globalThis.crypto.randomUUID(), created_at: now, updated_at: now, config_version: 1, visibility: 'private' }
+      case 'players':
+        return { id: globalThis.crypto.randomUUID(), avatar_url: null, is_active: true, joined_at: now }
       case 'profiles':
         return { display_name: null, is_admin: false }
       default:

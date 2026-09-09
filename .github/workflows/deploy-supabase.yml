@@ -1,18 +1,99 @@
 name: Deploy Supabase
 
+# Pushes migrations and Edge Functions to ONE Supabase project, chosen by
+# environment (DELIVERY_PIPELINE_PLAN.md §4). `main` integrates and deploys to
+# pre-production; the `production` branch releases, and is only ever
+# fast-forwarded to a commit `main` already carries (§3). The mapping in the
+# `resolve` job below is the single place that decides which is which, and
+# smoke.yml holds a copy that must agree with it.
+#
+# Secrets resolve through the GitHub Environment named by that mapping.
+# Repository-level secrets are inherited by an environment that does not
+# define its own, which is convenient for the account-wide access token and
+# DANGEROUS for the project ref — a `staging` environment that is missing one
+# inherits production's and deploys there. That exact thing happened on
+# 2026-09-09, so the "Refuse to touch the wrong project" step below now makes
+# it impossible; see its comment.
+
 on:
   push:
-    branches: [main]
+    # main -> Preview, production -> production. See the resolve job.
+    branches: [main, production]
     paths:
       - 'supabase/migrations/**'
       - 'supabase/functions/**'
       - 'src/lib/**'
       - '.github/workflows/deploy-supabase.yml'
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Which environment to deploy to'
+        type: choice
+        # Names must match the GitHub Environments exactly — a name with no
+        # environment behind it gets auto-created empty, and an empty
+        # environment inherits the repository-level secrets, i.e. production.
+        # That is how a run requested for "staging" reached production on
+        # 2026-09-09, before the guard below existed.
+        options: [Preview, production]
+        # Pre-production first, so the riskier target is never the one a
+        # mis-click selects.
+        default: Preview
+
+# One deploy per environment at a time. Never cancel one in flight: a
+# half-applied `db push` is worse than a queued run.
+concurrency:
+  group: deploy-supabase-${{ github.event.inputs.environment || github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
-  deploy:
+  resolve:
     runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.pick.outputs.environment }}
+    steps:
+      - name: Resolve the target environment
+        id: pick
+        env:
+          REQUESTED: ${{ github.event.inputs.environment }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          if [ -n "$REQUESTED" ]; then
+            resolved="$REQUESTED"
+          else
+            # THE branch -> environment mapping. See this file's header, and
+            # DELIVERY_PIPELINE_PLAN.md §3 for where it is heading.
+            case "$BRANCH" in
+              main) resolved=Preview ;;
+              production) resolved=production ;;
+              *)
+                echo "::error::No environment is mapped for branch '$BRANCH'. Add it to the case in .github/workflows/deploy-supabase.yml."
+                exit 1
+                ;;
+            esac
+          fi
+          echo "environment=$resolved" >> "$GITHUB_OUTPUT"
+          echo "Deploying to: $resolved"
+          mkdir -p deploy-target
+          printf '%s' "$resolved" > deploy-target/environment
+
+      # smoke.yml follows a successful deploy and has to know WHICH project it
+      # just changed. A `workflow_run` payload carries the triggering run's
+      # branch but not its inputs, so inferring from the branch is wrong for
+      # exactly the case that matters: a manual run whose environment input
+      # disagrees with its branch would be followed by a smoke test of the
+      # other project, reporting green on something nobody touched. Hand the
+      # answer over instead of letting it be guessed.
+      - name: Publish the resolved target for smoke.yml
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-target
+          path: deploy-target/environment
+          retention-days: 7
+
+  deploy:
+    needs: resolve
+    runs-on: ubuntu-latest
+    environment: ${{ needs.resolve.outputs.environment }}
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
@@ -25,6 +106,43 @@ jobs:
         uses: supabase/setup-cli@v1
         with:
           version: latest
+
+      # The guard that would have caught the 2026-09-09 incident: running
+      # this with environment=staging deployed to PRODUCTION, because the
+      # `staging` GitHub Environment had no `SUPABASE_PROJECT_ID` of its own
+      # and GitHub silently falls back to the repository-level secret — which
+      # is production's. Inheritance is convenient for everything else and
+      # actively dangerous for this one value, because it fails towards
+      # production.
+      #
+      # So: the production project ref is declared once as a repository
+      # VARIABLE (a ref is not secret — it is the subdomain of the public API
+      # URL, and being visible is the point: you can read it in the GitHub UI
+      # and check it), and any environment that is not production refusing to
+      # match it is what proves the environment is really configured.
+      - name: Refuse to touch the wrong project
+        env:
+          ENVIRONMENT: ${{ needs.resolve.outputs.environment }}
+          PRODUCTION_PROJECT_ID: ${{ vars.PRODUCTION_SUPABASE_PROJECT_ID }}
+        run: |
+          if [ -z "$SUPABASE_PROJECT_ID" ]; then
+            echo "::error::No SUPABASE_PROJECT_ID for environment '$ENVIRONMENT'."
+            exit 1
+          fi
+          if [ -z "$PRODUCTION_PROJECT_ID" ]; then
+            echo "::error::Repository variable PRODUCTION_SUPABASE_PROJECT_ID is not set, so the guard that keeps a non-production run away from production cannot work. Set it (Settings -> Secrets and variables -> Actions -> Variables) to the production project ref."
+            exit 1
+          fi
+          if [ "$ENVIRONMENT" = "production" ]; then
+            if [ "$SUPABASE_PROJECT_ID" != "$PRODUCTION_PROJECT_ID" ]; then
+              echo "::error::Environment 'production' resolved to project '$SUPABASE_PROJECT_ID', but PRODUCTION_SUPABASE_PROJECT_ID says production is '$PRODUCTION_PROJECT_ID'. Refusing to continue."
+              exit 1
+            fi
+          elif [ "$SUPABASE_PROJECT_ID" = "$PRODUCTION_PROJECT_ID" ]; then
+            echo "::error::Environment '$ENVIRONMENT' resolved to the PRODUCTION project ('$PRODUCTION_PROJECT_ID'). That means the '$ENVIRONMENT' GitHub Environment has no SUPABASE_PROJECT_ID of its own and inherited the repository-level one. Add it under Settings -> Environments -> $ENVIRONMENT. Refusing to continue."
+            exit 1
+          fi
+          echo "Environment '$ENVIRONMENT' -> Supabase project '$SUPABASE_PROJECT_ID' (production is '$PRODUCTION_PROJECT_ID')."
 
       - name: Link Supabase project
         run: supabase link --project-ref "$SUPABASE_PROJECT_ID"

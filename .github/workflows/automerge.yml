@@ -1,0 +1,116 @@
+name: Auto-merge
+
+# Merges a green Claude PR into `main` without waiting for the maintainer
+# (DELIVERY_PIPELINE_PLAN.md §7). `main` is pre-production, so a merge here
+# deploys to the Preview project and gets smoke-tested there — it does not
+# reach anyone. Production is only ever reached by an explicit promotion,
+# which this workflow never performs.
+#
+# Every one of §7's conditions is re-checked here against the API rather than
+# assumed from the event, because a `workflow_run` fires with repository write
+# access on a run that a pull request started. Two of the checks exist purely
+# for that: the head must live in THIS repository (a fork cannot get its
+# branch merged by opening a PR named `claude/…`), and the commit that CI
+# passed on must still be the PR's head (a push landing between CI and here
+# must not be merged untested). Nothing in this workflow checks out or
+# executes the PR's code.
+#
+# Requires `AUTOMATION_TOKEN`, a fine-grained PAT with Contents and Pull
+# requests write, and refuses to merge without it. Not for permissions —
+# GITHUB_TOKEN could do the merge — but because GitHub does not start workflow
+# runs from events its own GITHUB_TOKEN caused. A merge made with it produces
+# a push to `main` that triggers neither CI nor Deploy Supabase, so the change
+# would sit on `main` having never reached pre-production, and the pipeline
+# would look like it was working. Skipping loudly is the safe failure.
+#
+# Deliberately NOT a check on the PR's author: `claude.yml` runs as the
+# maintainer's own OAuth token, so a Claude PR and a human PR are both
+# authored by `jinxbit` and the two cannot be told apart that way. The
+# `claude/` branch prefix is the marker that actually distinguishes them in
+# this repository, and the `automerge` label is the per-PR opt-in §7 asks for.
+
+on:
+  workflow_run:
+    workflows: ['CI']
+    types: [completed]
+
+jobs:
+  automerge:
+    # Only a green CI run, and only one a pull request started — a CI run on a
+    # push to `main` has nothing to merge.
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    # Every API call below is made with AUTOMATION_TOKEN, so GITHUB_TOKEN
+    # needs nothing: without the PAT this job returns without acting.
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Merge the pull request if it qualifies
+        uses: actions/github-script@v7
+        env:
+          HAVE_TOKEN: ${{ secrets.AUTOMATION_TOKEN != '' }}
+        with:
+          github-token: ${{ secrets.AUTOMATION_TOKEN || secrets.GITHUB_TOKEN }}
+          script: |
+            if (process.env.HAVE_TOKEN !== 'true') {
+              core.warning('No AUTOMATION_TOKEN, so a merge here would not trigger CI or Deploy Supabase on main and the change would never reach pre-production. Not merging; merge by hand, or add the secret. See this workflow\'s header.')
+              return
+            }
+            const run = context.payload.workflow_run
+            const [owner, repo] = [context.repo.owner, context.repo.repo]
+            const thisRepo = `${owner}/${repo}`
+
+            // workflow_run.pull_requests is populated for same-repository PRs
+            // and empty for forks, so fall back to asking which PRs the head
+            // commit belongs to and let the checks below reject the fork.
+            let numbers = (run.pull_requests || []).map(pr => pr.number)
+            if (numbers.length === 0) {
+              const associated = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                owner, repo, commit_sha: run.head_sha,
+              })
+              numbers = associated.data.map(pr => pr.number)
+            }
+            if (numbers.length === 0) {
+              core.info(`No pull request found for ${run.head_sha}; nothing to do.`)
+              return
+            }
+
+            for (const number of numbers) {
+              const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: number })
+              const skip = (why) => core.info(`PR #${number}: not auto-merging — ${why}.`)
+
+              if (pr.state !== 'open') { skip(`state is ${pr.state}`); continue }
+              if (pr.draft) { skip('it is a draft'); continue }
+              if (pr.base.ref !== 'main') { skip(`its base is ${pr.base.ref}, not main`); continue }
+              if (pr.head.repo?.full_name !== thisRepo) { skip(`its head is in ${pr.head.repo?.full_name ?? 'a deleted fork'}`); continue }
+              if (!pr.head.ref.startsWith('claude/')) { skip(`its branch ${pr.head.ref} is not a claude/ branch`); continue }
+              if (!pr.labels.some(l => l.name === 'automerge')) { skip('it has no automerge label'); continue }
+              if (pr.head.sha !== run.head_sha) { skip(`CI passed on ${run.head_sha.slice(0, 7)} but the head is now ${pr.head.sha.slice(0, 7)}`); continue }
+
+              // A migration is the one change pre-production cannot de-risk:
+              // it runs against an empty Preview database and then against
+              // production data of a different shape and size (§7).
+              const files = await github.paginate(github.rest.pulls.listFiles, { owner, repo, pull_number: number, per_page: 100 })
+              const migrations = files.filter(f => f.filename.startsWith('supabase/migrations/')).map(f => f.filename)
+              if (migrations.length > 0) { skip(`it touches ${migrations.join(', ')}, which always gets a human read`); continue }
+
+              // `mergeable` is computed asynchronously and is null until
+              // GitHub has finished; a few polls is enough in practice.
+              let mergeable = pr.mergeable
+              for (let attempt = 0; mergeable === null && attempt < 5; attempt++) {
+                await new Promise(r => setTimeout(r, 3000))
+                mergeable = (await github.rest.pulls.get({ owner, repo, pull_number: number })).data.mergeable
+              }
+              if (mergeable !== true) { skip(mergeable === null ? 'GitHub has not finished computing mergeability' : 'it has a conflict with main'); continue }
+
+              // A merge commit, matching how every PR in this repository has
+              // been merged so far.
+              await github.rest.pulls.merge({
+                owner, repo, pull_number: number,
+                merge_method: 'merge',
+                commit_title: `Merge pull request #${number} from ${owner}/${pr.head.ref}`,
+                commit_message: `${pr.title}\n\nAuto-merged on green CI (DELIVERY_PIPELINE_PLAN.md §7).`,
+              })
+              core.notice(`PR #${number} auto-merged into main.`)
+            }

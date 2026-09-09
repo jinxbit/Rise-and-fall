@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:smoke": "vitest run --config vitest.smoke.config.ts",
     "generate:pwa-icons": "node scripts/generate-pwa-icons.mjs"
   },
   "dependencies": {

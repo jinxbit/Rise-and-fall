@@ -19,8 +19,9 @@ card text, or artwork.
 ```bash
 npm install          # or npm ci
 npm run dev          # Vite dev server on :5173
-npm run test         # vitest run — 61 files / 1118 tests, ~30s
+npm run test         # vitest run — 62 files / ~1130 tests, ~35s
 npm run test:watch   # vitest watch
+npm run test:smoke   # smoke-test a LIVE Supabase project (needs SMOKE_* env vars)
 npm run lint         # oxlint (not eslint) — sub-second
 npm run build        # tsc -b (3 projects) + vite build — ~10s
 ```
@@ -28,6 +29,17 @@ npm run build        # tsc -b (3 projects) + vite build — ~10s
 CI (`.github/workflows/ci.yml`) runs `lint`, `test`, `build` in that order on
 every PR. Run all three before pushing; they are fast enough that there is no
 excuse to skip them.
+
+A green CI run on a PR can merge it: `automerge.yml` merges into `main`
+without waiting for the maintainer, but only for a PR that is not a draft, is
+based on `main`, has its head on a `claude/` branch **in this repository**,
+carries the `automerge` label, touches no `supabase/migrations/**`, and is
+still at the commit CI passed on. A migration always gets a human read
+(`DELIVERY_PIPELINE_PLAN.md` §7). Both that workflow and `smoke.yml`'s
+failure reporting need the `AUTOMATION_TOKEN` secret, because GitHub does not
+start workflow runs from events its own `GITHUB_TOKEN` caused — without it a
+merge would reach `main` without triggering CI or the Supabase deploy, so
+`automerge.yml` declines to merge at all.
 
 Copy `.env.example` to `.env.local` for local dev. Without
 `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` the app throws a
@@ -121,11 +133,18 @@ storage must work on **both** paths.
   `redaction.ts`, `unitValue.ts`, `index.ts`) don't. **If you add an import to
   a server-reachable file, use the `.ts` extension** — a missing one only
   fails at deploy time, not in CI.
-- **`.github/workflows/deploy-supabase.yml` auto-deploys on push to `main`**
-  when `supabase/migrations/**`, `supabase/functions/**`, or **`src/lib/**`**
-  changes — it runs `supabase db push` and `supabase functions deploy`. A
-  `src/lib` change is a backend change. A migration that would cut off the
-  live app must not land alone.
+- **`main` is pre-production, not production.** `.github/workflows/deploy-supabase.yml`
+  deploys to the **Preview** Supabase project on push to `main`, and to
+  production on push to the `production` branch — which is only ever
+  fast-forwarded to a commit `main` already carries, by the `Promote to
+  production` workflow (`promote.yml`), which checks the commit is on `main`,
+  that CI is green on it and that pre-production is not red, then waits for an
+  approval on the `production-release` environment before pushing. Vercel mirrors the same
+  split. It fires when `supabase/migrations/**`, `supabase/functions/**`, or
+  **`src/lib/**`** changes, running `supabase db push` and `supabase functions
+  deploy`. A `src/lib` change is a backend change. A migration that would cut
+  off the live app must not land alone. See `DELIVERY_PIPELINE_PLAN.md` §3 for
+  why the topology is this way round, and §4 for the environments.
 - Migrations are numbered `NNNN_name.sql` and applied in lexicographic order
   (note `00051_` sorts between `0005_` and `0006_`). Migration history on the
   live project has drifted before; `audit-and-fix-migrations.yml` verifies
@@ -161,6 +180,19 @@ storage must work on **both** paths.
   See that folder's README.
 - Prefer adding a fixture or an engine test over a component test when a bug
   is reproducible at the rules level.
+- `src/test/productionSmoke/` replays those same fixtures against the **live**
+  project through the deployed Edge Functions (`npm run test:smoke`,
+  `.github/workflows/smoke.yml`, after each Supabase deploy and
+  nightly; which project it tests comes from the deploy's own `deploy-target`
+  artifact, and a failure files an issue carrying a redacted tail of the run —
+  mentioning `@claude` for Preview, not for production). It is deliberately
+  unreachable from `npm run test`: vitest's
+  default `include` matches `*.test.*`, and those files are `*.smoke.ts` under
+  their own config. The runner itself is covered on every PR by
+  `src/test/__tests__/productionSmokeRunner.test.ts`, which points it at the
+  in-process stack. Read that folder's README before changing it — its
+  isolation rules (private room, `play_mode: 'live'` so no notification can
+  fire, delete the room *before* the throwaway users) are load-bearing.
 
 ## Code style
 
@@ -191,6 +223,7 @@ storage must work on **both** paths.
 | `VARIANTS_PLAN.md` | Guilds & Tales variants — 23 Tales designed, a handful implemented. |
 | `UnitActions.md` | Per-unit-action implementation checklist + resolved rules questions. |
 | `ELO_SYSTEM_PLAN.md` | Rating system design (not built). |
+| `DELIVERY_PIPELINE_PLAN.md` | How a change reaches production: the pre-production environment, branch topology, what auto-merges and what never does (design agreed, not built). |
 | `src/content/README.md` | **The most important single doc**: every content file's fields, the board-generation rules, achievements/VP, resources, and Tales, each cross-referenced to the engine module that implements it. |
 
 ## Working conventions

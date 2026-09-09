@@ -21,17 +21,30 @@ export const SERVICE_ROLE_KEY = 'test-service-role-key'
 
 const TABLES: TableName[] = ['profiles', 'games', 'players', 'game_state', 'game_state_meta']
 
-/** Access tokens minted by ./index.ts's `stack.actAs(userId)`, resolved here the way GoTrue resolves a real JWT. */
+/** Access tokens minted by ./index.ts, resolved here the way GoTrue resolves a real JWT. */
 export type TokenRegistry = Map<string, { userId: string; email: string }>
+
+/**
+ * Accounts the fake GoTrue knows how to sign in, keyed by email — the
+ * production smoke runner (../productionSmoke/) creates its throwaway users
+ * through the admin API and signs them in with a password, so the in-process
+ * stack has to answer both to cover that runner in CI.
+ */
+export type AccountRegistry = Map<string, { userId: string; password: string }>
 
 export type EdgeFunctionHandler = (req: Request) => Promise<Response> | Response
 
 export interface ServerOptions {
   db: Database
   tokens: TokenRegistry
+  accounts: AccountRegistry
   edgeFunctions: Map<string, EdgeFunctionHandler>
   /** Every request the stack served, in order — lets a test assert on call counts (e.g. "one CAS write per action"). */
   requestLog: string[]
+  /** Registers a user the way GoTrue's admin API does, returning their id and access token. */
+  createUser(email: string, password: string): { userId: string; accessToken: string }
+  /** Removes a user and invalidates their token, the way `auth.admin.deleteUser` does. */
+  deleteUser(userId: string): boolean
 }
 
 function json(status: number, body: unknown, headers: Record<string, string> = {}): Response {
@@ -161,29 +174,52 @@ async function handleRest(req: Request, url: URL, options: ServerOptions): Promi
   const select = params.get('select')
   const prefer = req.headers.get('Prefer') ?? ''
   const wantsRepresentation = prefer.includes('return=representation')
+  // postgrest-js's `.single()` asks for a bare object with this Accept header
+  // (`.maybeSingle()` does not — it post-processes an array instead). Real
+  // PostgREST answers it with the object, or 406 when the result isn't
+  // exactly one row; a fake that always returned an array would hand
+  // `.single()` callers an array where they expect a row.
+  const wantsObject = (req.headers.get('Accept') ?? '').includes('application/vnd.pgrst.object+json')
+  const asBody = (rows: Record<string, unknown>[]): [number, unknown] => {
+    if (!wantsObject) return [200, rows]
+    if (rows.length === 1) return [200, rows[0]]
+    return [
+      406,
+      {
+        code: 'PGRST116',
+        message: 'JSON object requested, multiple (or no) rows returned',
+        details: `Results contain ${rows.length} rows, application/vnd.pgrst.object+json requires 1 row`,
+        hint: null,
+      },
+    ]
+  }
 
   try {
     switch (req.method) {
       case 'GET': {
         const rows = applyOrder(options.db.select(actor, table, match), params.get('order'))
-        return json(200, project(rows, select))
+        const [status, body] = asBody(project(rows, select))
+        return json(status, body)
       }
       case 'POST': {
         const body = (await req.json()) as Record<string, unknown> | Record<string, unknown>[]
         const inserted = options.db.insert(actor, table, Array.isArray(body) ? body : [body])
         if (!wantsRepresentation) return new Response(null, { status: 201 })
-        return json(201, project(inserted, select))
+        const [status, responseBody] = asBody(project(inserted, select))
+        return json(status === 200 ? 201 : status, responseBody)
       }
       case 'PATCH': {
         const body = (await req.json()) as Record<string, unknown>
         const updated = options.db.update(actor, table, match, body)
         if (!wantsRepresentation) return new Response(null, { status: 204 })
-        return json(200, project(updated, select))
+        const [status, responseBody] = asBody(project(updated, select))
+        return json(status, responseBody)
       }
       case 'DELETE': {
         const deleted = options.db.delete(actor, table, match)
         if (!wantsRepresentation) return new Response(null, { status: 204 })
-        return json(200, project(deleted, select))
+        const [status, responseBody] = asBody(project(deleted, select))
+        return json(status, responseBody)
       }
       default:
         throw new UnsupportedQueryError(`Unsupported PostgREST method: ${req.method}`)
@@ -196,30 +232,86 @@ async function handleRest(req: Request, url: URL, options: ServerOptions): Promi
   }
 }
 
-/**
- * GoTrue's `GET /auth/v1/user`, the one auth call the Edge Functions make
- * (`getCallerUserId`, supabase/functions/_shared/gameEnforcement.ts). A token
- * this stack never minted is a 401 exactly as an expired/forged JWT would be,
- * which is what drives that function's `return null` -> 401 branch.
- */
-function handleAuth(req: Request, url: URL, options: ServerOptions): Response {
-  if (url.pathname !== '/auth/v1/user' || req.method !== 'GET') {
-    throw new UnsupportedQueryError(`Only GET /auth/v1/user is modeled by the test stack (got ${req.method} ${url.pathname}).`)
-  }
-  const token = bearer(req)
-  const session = token ? options.tokens.get(token) : undefined
-  if (!session) {
-    return json(401, { code: 401, error_code: 'bad_jwt', msg: 'invalid claim: missing sub claim' })
-  }
-  return json(200, {
-    id: session.userId,
+function userPayload(userId: string, email: string): Record<string, unknown> {
+  return {
+    id: userId,
     aud: 'authenticated',
     role: 'authenticated',
-    email: session.email,
-    app_metadata: { provider: 'discord' },
+    email,
+    app_metadata: { provider: 'email' },
     user_metadata: {},
     created_at: new Date(0).toISOString(),
-  })
+  }
+}
+
+/**
+ * The GoTrue endpoints this stack answers:
+ *
+ * - `GET /auth/v1/user` — the one auth call the Edge Functions make
+ *   (`getCallerUserId`, supabase/functions/_shared/gameEnforcement.ts). A
+ *   token this stack never minted is a 401 exactly as an expired or forged
+ *   JWT would be, which is what drives that function's `return null` -> 401.
+ * - `POST /auth/v1/admin/users` / `DELETE /auth/v1/admin/users/:id` —
+ *   service-role only, the way the real admin API is. The production smoke
+ *   runner creates and destroys throwaway users through these.
+ * - `POST /auth/v1/token?grant_type=password` — how that runner then signs
+ *   each of them in.
+ *
+ * The last two exist so the smoke runner is exercised in CI against this
+ * stack rather than only ever against production, where a mistake in it
+ * costs a failed nightly run and some cleanup.
+ */
+async function handleAuth(req: Request, url: URL, options: ServerOptions): Promise<Response> {
+  if (url.pathname === '/auth/v1/user' && req.method === 'GET') {
+    const token = bearer(req)
+    const session = token ? options.tokens.get(token) : undefined
+    if (!session) return json(401, { code: 401, error_code: 'bad_jwt', msg: 'invalid claim: missing sub claim' })
+    return json(200, userPayload(session.userId, session.email))
+  }
+
+  if (url.pathname.startsWith('/auth/v1/admin/users')) {
+    // The real admin API is service-role only; anything else is a 403 there
+    // too, which is worth preserving — a smoke runner accidentally holding
+    // only the anon key should fail loudly, not create nothing quietly.
+    if ((bearer(req) ?? req.headers.get('apikey')) !== SERVICE_ROLE_KEY) {
+      return json(403, { code: 403, error_code: 'not_admin', msg: 'User not allowed' })
+    }
+    if (req.method === 'POST') {
+      const body = (await req.json()) as { email?: string; password?: string }
+      if (!body.email || !body.password) return json(422, { code: 422, msg: 'email and password are required' })
+      if (options.accounts.has(body.email)) return json(422, { code: 422, error_code: 'email_exists', msg: 'A user with this email address has already been registered' })
+      const { userId } = options.createUser(body.email, body.password)
+      return json(200, userPayload(userId, body.email))
+    }
+    if (req.method === 'DELETE') {
+      const userId = url.pathname.slice('/auth/v1/admin/users/'.length)
+      if (!options.deleteUser(userId)) return json(404, { code: 404, error_code: 'user_not_found', msg: 'User not found' })
+      return json(200, {})
+    }
+  }
+
+  if (url.pathname === '/auth/v1/token' && req.method === 'POST') {
+    if (url.searchParams.get('grant_type') !== 'password') {
+      throw new UnsupportedQueryError(`Only grant_type=password is modeled by the test stack (got ${url.searchParams.get('grant_type')}).`)
+    }
+    const body = (await req.json()) as { email?: string; password?: string }
+    const account = body.email ? options.accounts.get(body.email) : undefined
+    if (!account || account.password !== body.password) {
+      return json(400, { code: 400, error_code: 'invalid_credentials', msg: 'Invalid login credentials' })
+    }
+    const accessToken = [...options.tokens.entries()].find(([, session]) => session.userId === account.userId)?.[0]
+    if (!accessToken) return json(500, { code: 500, msg: 'No access token registered for that account' })
+    return json(200, {
+      access_token: accessToken,
+      token_type: 'bearer',
+      expires_in: 3600,
+      expires_at: Math.floor(Date.now() / 1000) + 3600,
+      refresh_token: `refresh-${account.userId}`,
+      user: userPayload(account.userId, body.email!),
+    })
+  }
+
+  throw new UnsupportedQueryError(`${req.method} ${url.pathname} is not modeled by the test stack's auth endpoint.`)
 }
 
 async function handleFunctions(req: Request, url: URL, options: ServerOptions): Promise<Response> {
@@ -238,7 +330,7 @@ export async function serveStackRequest(req: Request, options: ServerOptions): P
 
   if (req.method === 'OPTIONS') return new Response('ok', { status: 200 })
   if (url.pathname.startsWith('/rest/v1/')) return await handleRest(req, url, options)
-  if (url.pathname.startsWith('/auth/v1/')) return handleAuth(req, url, options)
+  if (url.pathname.startsWith('/auth/v1/')) return await handleAuth(req, url, options)
   if (url.pathname.startsWith('/functions/v1/')) return await handleFunctions(req, url, options)
   throw new UnsupportedQueryError(`The test stack does not model ${url.pathname}.`)
 }
