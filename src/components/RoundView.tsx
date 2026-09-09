@@ -267,6 +267,59 @@ function KindIconRow({ kinds, emptyLabel = 'none' }: { kinds: string[]; emptyLab
   )
 }
 
+/**
+ * Face-down card-back marker (issue #479) for a card a player has already
+ * moved into a zone this viewer isn't entitled to see yet — a decline-phase
+ * addition made during the current, still-open decline phase (see
+ * declineAdditionsThisPhase/redactStateForPlayer, ../engine/redaction.ts) or
+ * a selectCards pick before the round resolves (PlayersStrip's "Chosen"
+ * status below). Same sizing/currentColor convention as UnitIcon so it drops
+ * into the same icon rows without extra styling, distinct from both an empty
+ * zone (nothing rendered) and a revealed kind icon.
+ */
+function HiddenCardIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} role="img" aria-label="Hidden — chosen, not yet revealed">
+      <rect x="3" y="2" width="18" height="20" rx="3" fill="none" stroke="currentColor" strokeWidth="2" strokeDasharray="3 2" />
+      <text x="12" y="16.5" textAnchor="middle" fontSize="11" fontWeight="bold" fill="currentColor">
+        ?
+      </text>
+    </svg>
+  )
+}
+
+/**
+ * Like kindsInZone, but for a zone that may include a still-secret
+ * in-progress decline addition — see toClientGameState's own doc comment
+ * (../engine/redaction.ts): a masked entry survives the client-side
+ * redaction collapse as a `null` placeholder in place, same array
+ * length/order, rather than being dropped. kindsInZone's `cards[id]?.kind`
+ * lookup already tolerates that (a `null` id just misses), but silently
+ * drops it — undercounting the pile by omission. This reports `null`
+ * instead, so a caller can render a HiddenCardIcon in its place (issue
+ * #479) rather than making an in-progress addition indistinguishable from
+ * nothing having happened at all.
+ */
+function kindsAndHiddenInZone(cardIds: string[], cards: Record<string, Card>): (string | null)[] {
+  return sortCardIdsForDisplay(cardIds, cards).map((id) => cards[id]?.kind ?? null)
+}
+
+/** Like KindIconRow, but for a zone that may include a still-secret entry (`null` — see kindsAndHiddenInZone) — rendered as a face-down HiddenCardIcon instead of the card's real kind icon. */
+function KindIconRowWithHidden({ kinds, emptyLabel = 'none' }: { kinds: (string | null)[]; emptyLabel?: string }) {
+  if (kinds.length === 0) return <span className="text-neutral-500">{emptyLabel}</span>
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1 align-middle">
+      {kinds.map((kind, i) =>
+        kind ? (
+          <UnitIcon key={i} kind={kind} title={capitalize(kind)} className="h-4 w-4 shrink-0 text-neutral-300" />
+        ) : (
+          <HiddenCardIcon key={i} className="h-4 w-4 shrink-0 text-neutral-500" />
+        ),
+      )}
+    </span>
+  )
+}
+
 /** A unit kind's icon paired with a count (or count-like text, e.g. "2/3" for the placed/remaining display mode), e.g. remaining supply or on-board totals — the icon stands in for the kind name entirely. */
 function UnitCountBadge({ kind, count }: { kind: string; count: number | string }) {
   return (
@@ -317,7 +370,7 @@ function PlayerDetailPanel({ state, player, breakdown }: { state: GameState; pla
           Discard: <KindIconRow kinds={kindsInZone(player.discardCardIds, state.cards)} />
         </p>
         <p className="flex items-center gap-1.5">
-          Decline: <KindIconRow kinds={kindsInZone(player.declineCardIds, state.cards)} />
+          Decline: <KindIconRowWithHidden kinds={kindsAndHiddenInZone(player.declineCardIds, state.cards)} />
         </p>
         <p className="flex items-center gap-1.5">
           Supply: <KindIconRow kinds={kindsInZone(player.supplyCardIds, state.cards)} />
@@ -406,7 +459,22 @@ function PlayersStrip({
             state.cards,
           )
           const discardKinds = kindsInZone(player.discardCardIds, state.cards)
-          const declineKinds = kindsInZone(player.declineCardIds, state.cards)
+          const declineKinds = kindsAndHiddenInZone(player.declineCardIds, state.cards)
+          // Whether this player has already made their pick this round but
+          // it hasn't resolved into "Playing" yet (see chosenKind's own
+          // comment above) — derived from pendingPlayerIds rather than
+          // chosenCardId's presence/nullness, since pendingPlayerIds is
+          // never redacted (redactStateForPlayer, ../engine/redaction.ts)
+          // while chosenCardId is nulled for another player's still-secret
+          // pick under hiddenInformationEnabled. applyChooseCard removes a
+          // player from pendingPlayerIds the instant they pick (and
+          // RETRACT_CHOICE puts them back), and an eliminated player is
+          // never left pending without having chosen — so this reads
+          // correctly for both a hidden-information game (where it fills
+          // the gap redaction otherwise leaves — issue #479) and an
+          // ordinary one (where it's gated off below, unchanged).
+          const hasChosenCardThisRound = state.roundPhase === 'selectCards' && !player.eliminated && !state.pendingPlayerIds.includes(player.id)
+          const isChoosingCard = state.roundPhase === 'selectCards' && !player.eliminated && state.pendingPlayerIds.includes(player.id)
           const reserveByKind = UNIT_KINDS.flatMap((kind) => {
             const cap = unitContent.unitSupplyCaps[kind]
             if (cap === undefined) return []
@@ -459,6 +527,24 @@ function PlayersStrip({
                     <UnitIcon kind={chosenKind} className="h-4 w-4 shrink-0" />
                   </span>
                 )}
+                {/* hiddenInformationEnabled-gated so an ordinary game's
+                    selectCards phase renders exactly as it did before this
+                    issue (#479) — those games already reveal chosenCardId
+                    the instant it's set (see chosenKind's own comment: the
+                    withholding above is a deliberate no-early-reveal choice,
+                    not something redaction enforces for them), so there is
+                    nothing this pair of states would add beyond noise. */}
+                {isChoosingCard && state.hiddenInformationEnabled && (
+                  <span className="flex items-center gap-1.5 text-neutral-500" title="Still choosing which card to play this round">
+                    Choosing…
+                  </span>
+                )}
+                {hasChosenCardThisRound && state.hiddenInformationEnabled && (
+                  <span className="flex items-center gap-1.5 text-indigo-400" title="Has chosen a card this round — hidden until every player has picked">
+                    <span>Chosen</span>
+                    <HiddenCardIcon className="h-4 w-4 shrink-0" />
+                  </span>
+                )}
                 <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
                   <span className="flex items-center gap-1.5">
                     <span>Hand</span>
@@ -470,7 +556,7 @@ function PlayersStrip({
                   </span>
                   <span className="flex items-center gap-1.5">
                     <span>Decline</span>
-                    <KindIconRow kinds={declineKinds} emptyLabel="empty" />
+                    <KindIconRowWithHidden kinds={declineKinds} emptyLabel="empty" />
                   </span>
                 </span>
                 {reserveByKind.length > 0 && (

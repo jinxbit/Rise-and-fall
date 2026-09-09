@@ -836,6 +836,129 @@ describe('RoundView — player status summary and achievements panel', () => {
   })
 })
 
+describe('RoundView — "has chosen, not what" treatment for hidden information (issue #479)', () => {
+  const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
+
+  function renderRoundView(state: GameState, myPlayerId: string) {
+    return render(
+      <RoundView
+        state={state}
+        players={players}
+        myPlayerId={myPlayerId}
+        unitContent={EMPTY_UNIT_CONTENT}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
+        turnReview={null}
+        showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
+        gameLog={[]}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+  }
+
+  it("shows a still-deciding opponent as 'Choosing…', not indistinguishable from a resolved pick", () => {
+    const state = { ...makeState(), hiddenInformationEnabled: true }
+    // Nobody has picked yet — makeState()'s own default (pendingPlayerIds:
+    // ['p1', 'p2'], chosenCardIdByPlayerId all null).
+    renderRoundView(state, 'p1')
+
+    expect(screen.getAllByText('Choosing…')).toHaveLength(2)
+    expect(screen.queryByText('Chosen')).not.toBeInTheDocument()
+  })
+
+  it("shows an opponent who has picked, but whose pick is still masked, as 'Chosen' with a face-down marker — not the real card", () => {
+    const base = makeState()
+    const state: GameState = {
+      ...base,
+      hiddenInformationEnabled: true,
+      // p1 has chosen — removed from pendingPlayerIds by applyChooseCard —
+      // but the viewer (p2) only ever sees the collapsed shape a real
+      // get-game-state/apply-action response carries for another player's
+      // still-secret pick: toClientGameState's chosenCardIdByPlayerId
+      // collapse turns `{chosen: true, cardId: null}` into a plain `null`,
+      // indistinguishable at that field alone from "hasn't chosen" (see
+      // toClientGameState's own doc comment in ../../engine/redaction.ts) —
+      // pendingPlayerIds is what this treatment actually keys off instead.
+      pendingPlayerIds: ['p2'],
+      chosenCardIdByPlayerId: { p1: null, p2: null },
+    }
+    renderRoundView(state, 'p2')
+
+    expect(screen.getByText('Chosen')).toBeInTheDocument()
+    expect(screen.getByText('Choosing…')).toBeInTheDocument()
+    expect(screen.getAllByRole('img', { name: 'Hidden — chosen, not yet revealed' })).toHaveLength(1)
+    // Alice's pick must not leak as "Playing" (the reveal only happens once
+    // the round resolves into the actions phase — see the next test).
+    expect(screen.queryByText('Playing')).not.toBeInTheDocument()
+  })
+
+  it("reveals the real card once the round resolves into the actions phase — the third state, not a fourth one", () => {
+    const base = makeState()
+    const state: GameState = {
+      ...base,
+      hiddenInformationEnabled: true,
+      roundPhase: 'actions',
+      chosenCardIdByPlayerId: { p1: cardIdFor('p1', 'nomad'), p2: cardIdFor('p2', 'city') },
+      pendingPlayerIds: ['p1', 'p2'],
+      activePlayerId: 'p1',
+    }
+    renderRoundView(state, 'p2')
+
+    expect(screen.getAllByText('Playing')).toHaveLength(2)
+    expect(screen.getByTitle('Playing Nomad this turn')).toBeInTheDocument()
+    expect(screen.queryByText('Chosen')).not.toBeInTheDocument()
+    expect(screen.queryByText('Choosing…')).not.toBeInTheDocument()
+    expect(screen.queryByRole('img', { name: 'Hidden — chosen, not yet revealed' })).not.toBeInTheDocument()
+  })
+
+  it('renders no chosen/choosing indicator at all for a game without hiddenInformationEnabled — unchanged from before this issue', () => {
+    const base = makeState() // hiddenInformationEnabled: false
+    const state: GameState = { ...base, pendingPlayerIds: ['p2'], chosenCardIdByPlayerId: { p1: cardIdFor('p1', 'nomad'), p2: null } }
+    renderRoundView(state, 'p2')
+
+    expect(screen.queryByText('Chosen')).not.toBeInTheDocument()
+    expect(screen.queryByText('Choosing…')).not.toBeInTheDocument()
+  })
+
+  it("marks a hidden in-progress decline addition with the same face-down marker, alongside a revealed kind icon for the viewer's own", () => {
+    const base = makeState()
+    const p1 = { ...base.players[0], declineCardIds: [cardIdFor('p1', 'mountaineer'), null] as unknown as string[] }
+    const state: GameState = {
+      ...base,
+      hiddenInformationEnabled: true,
+      roundPhase: 'decline',
+      players: [p1, base.players[1]],
+      pendingPlayerIds: [],
+    }
+    renderRoundView(state, 'p2')
+
+    // The real addition (Mountaineer) still shows as its own icon...
+    expect(screen.getByTitle('Mountaineer')).toBeInTheDocument()
+    // ...but the masked second addition renders as a hidden marker instead
+    // of silently vanishing (which is what kindsInZone did before #479).
+    expect(screen.getAllByRole('img', { name: 'Hidden — chosen, not yet revealed' })).toHaveLength(1)
+  })
+
+  it('shows no hidden marker for a fully public decline pile (nothing masked)', () => {
+    const base = makeState()
+    const p1 = { ...base.players[0], declineCardIds: [cardIdFor('p1', 'mountaineer')] }
+    const state: GameState = { ...base, hiddenInformationEnabled: true, roundPhase: 'decline', players: [p1, base.players[1]], pendingPlayerIds: [] }
+    renderRoundView(state, 'p2')
+
+    expect(screen.getByTitle('Mountaineer')).toBeInTheDocument()
+    expect(screen.queryByRole('img', { name: 'Hidden — chosen, not yet revealed' })).not.toBeInTheDocument()
+  })
+})
+
 describe('RoundView — select-cards phase (issue #25, revised per RULE_ENFORCEMENT_PLAN.md §4.2/§4.3)', () => {
   it("renders a one-card hand as an ordinary clickable choice, without submitting on its own — the state machine takes a forced single-option pick itself (applyAction's own forced-follow-up convergence), not the UI", () => {
     const state = makeState() // p2's hand is just ['city']
