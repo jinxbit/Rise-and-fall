@@ -739,6 +739,23 @@ testing.)
   someone's picked, without showing what" UI treatment during `selectCards`
   itself would need to consume `RedactedChoice` directly instead of calling
   `toClientGameState` — not needed today since nothing renders that signal.
+  **The narration log's own version of this gap is closed (2026-09-09, issue
+  #497):** unlike `chosenCardIdByPlayerId`, the log wasn't just losing a
+  distinction on collapse — it was losing the event outright. A redacted
+  client's `actionHistory` never contains another player's still-secret
+  CHOOSE_CARD entry at all (`unredactedPrefix` cuts the raw log *before* it,
+  not just its `cardId`), so `buildGameLogFrom` never derives a "chose a
+  card" line for it the way it already does, via `redactGameLog`, for the
+  client-trusted path (issue #399) — the opponent's pick was invisible until
+  reveal instead of reading as hidden-but-made. `redactGameLog`
+  (`src/engine/redaction.ts`) now also synthesizes that line directly from
+  `pendingPlayerIds`/`turnOrder` — neither ever redacted, so "who's no longer
+  pending" reliably means "has chosen this round" independent of whether the
+  log entry itself made it to this client. A no-op for the client-trusted
+  path, where the real event already exists and the synthesized line is
+  simply never needed (deduplicated by checking for an existing `secret`
+  event first). RoundView's own indicator gap above is unchanged and still
+  open — this only closes the log.
 
 (See `RULE_ENFORCEMENT_PLAN.md` §10 for enforcement-specific open items:
 `RETRACT_CHOICE`/`RETRACT_DECLINE` design decisions, Edge Function

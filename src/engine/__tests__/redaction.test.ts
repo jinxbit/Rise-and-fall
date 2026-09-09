@@ -467,4 +467,47 @@ describe('redactGameLog (issue #399)', () => {
       expect(redacted.find((e) => e.id === event.id)).toEqual(event)
     }
   })
+
+  it("synthesizes a \"chose a card\" line for a still-pending player whose CHOOSE_CARD entry never reached the log at all (issue #497)", () => {
+    // Simulates the hiddenInformationEnabled read path: get-game-state's
+    // unredactedPrefix cuts the raw actionHistory *before* p1's still-secret
+    // CHOOSE_CARD, so a redacted client's own actionHistory never contains
+    // it and buildGameLog never derives an event for it — unlike the
+    // client-trusted path (the test above), where the real event always
+    // exists and only needs its message swapped.
+    const genesis = makeActiveGameWithFullHands()
+    const state = requireOk(applyAction(genesis, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }))
+    expect(state.roundPhase).toBe('selectCards')
+    expect(state.pendingPlayerIds).toEqual(['p2'])
+    const log = buildGameLog(genesis, []) // p1's CHOOSE_CARD entry never reached this client
+
+    const asP2 = redactGameLog(log, state, 'p2')
+    const synthesized = asP2.find((e) => e.playerId === 'p1')!
+    expect(synthesized.message).toBe(`${PLAYER_PLACEHOLDER} chose a card`)
+
+    // The acting player still sees nothing synthesized about themself — this
+    // gap is specific to *other* players' picks, and p1's own client always
+    // gets its own real actionHistory entry back unmasked (redactStateForPlayer).
+    const asP1 = redactGameLog(log, state, 'p1')
+    expect(asP1.find((e) => e.playerId === 'p1')).toBeUndefined()
+  })
+
+  it('does not duplicate a synthesized line once the real (redacted-message) event is already present', () => {
+    const genesis = makeActiveGameWithFullHands()
+    const state = requireOk(applyAction(genesis, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }))
+    const log = buildGameLog(genesis, state.actionHistory)
+
+    const asP2 = redactGameLog(log, state, 'p2')
+    expect(asP2.filter((e) => e.playerId === 'p1' && e.message.includes('chose'))).toHaveLength(1)
+  })
+
+  it('never synthesizes a line for a player still pending, or for the viewer themself', () => {
+    const genesis = makeActiveGameWithFullHands()
+    const state = requireOk(applyAction(genesis, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }))
+    const log = buildGameLog(genesis, [])
+
+    const asP1 = redactGameLog(log, state, 'p1')
+    expect(asP1.some((e) => e.playerId === 'p2')).toBe(false) // p2 is still pending
+    expect(asP1.some((e) => e.playerId === 'p1')).toBe(false) // p1 is the viewer
+  })
 })

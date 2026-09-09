@@ -3692,3 +3692,47 @@ fails against the pre-fix `unredactedPrefix` and passes against the fix.
 
 `npm run lint`, `npm run test` (1169 tests, 67 files) and `npm run build`
 all pass.
+
+## 73. Fixed: a hidden-information game's log showed nothing at all for another player's in-progress pick (issue #497)
+
+Reported: the log should show that a player has chosen a card, even while
+it's still hidden.
+
+That's already true for a client-trusted game — `redactGameLog`
+(`src/engine/redaction.ts`, issue #399) has always swapped a still-secret
+CHOOSE_CARD line's message for `"{player} chose a card"` rather than hiding
+it outright. The gap was specific to a `hiddenInformationEnabled` game:
+`get-game-state`'s `unredactedPrefix` (issue #450 phase 8, hardened for
+issue #498) truncates a redacted client's `actionHistory` *before* another
+player's still-secret CHOOSE_CARD entry, not just its `cardId` — so that
+entry never reaches the client at all, and `buildGameLogFrom` never derives
+an event for `redactGameLog` to redact-and-show in the first place. The line
+was simply absent until the round resolved, rather than reading as
+hidden-but-made.
+
+Fixed without touching `unredactedPrefix` or the actionHistory/replay
+machinery it protects (both stay exactly as strict as issue #498 needs):
+`redactGameLog` now also synthesizes the same `"{player} chose a card"` line
+directly from `pendingPlayerIds`/`turnOrder` whenever a player who's no
+longer pending has no corresponding event in the log at all. Neither field
+is ever itself redacted (`redactStateForPlayer` passes both through
+unchanged), so "in `turnOrder` but not in `pendingPlayerIds`" reliably means
+"has chosen this round," independent of whether the log entry describing it
+made it to this client. A no-op for the client-trusted path, where the real
+event already exists and is skipped via a check for an already-announced
+`secret` event for that player this turn.
+
+See `HIDDEN_INFORMATION_PLAN.md` §10's "New from phase 8" item for how this
+relates to (but doesn't close) the sibling gap in `RoundView.tsx`'s own
+`chosenCardIdByPlayerId` reads, which still can't distinguish "chosen,
+hidden" from "hasn't chosen" — nothing renders that distinction today, so
+it's left as still-open.
+
+New coverage: `redaction.test.ts` (`redactGameLog`) — a case with the real
+event entirely absent from the log (simulating what a redacted client
+actually receives), asserting the synthesized line appears for the other
+viewer but not for the acting player or a still-pending player, and that it
+isn't duplicated once the real event is present.
+
+`npm run lint`, `npm run test` (1174 tests, 67 files) and `npm run build`
+all pass.
