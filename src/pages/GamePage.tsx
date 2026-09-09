@@ -67,6 +67,7 @@ import { encodeGameStateExport } from '../lib/gameStateExport'
 import { saveMapToPool } from '../lib/mapPoolApi'
 import { gamePath, isFinished as isMyGameFinished, isCanceled as isMyGameCanceled, isMyTurn as isMyGameTurn, latestUpdatedAt as latestMyGameUpdatedAt, type MyGameEntry } from '../lib/myGamesView'
 import { setPendingRedirect } from '../lib/pendingRedirect'
+import { shouldRetractOwnChoice } from '../lib/undoDecision'
 
 /**
  * Two players' writes racing the game_state row's optimistic-concurrency
@@ -1203,11 +1204,26 @@ export function GamePage() {
    * one Undo call here always reverts exactly the triggering action AND
    * everything it forced together — nothing extra to walk back past
    * (issue #131's original fix, since superseded by this design).
+   *
+   * Exception (issue #503, RULE_ENFORCEMENT_PLAN.md §4.4's refinement): the
+   * shared-pointer rewind below always reverts whichever entry sits at the
+   * tip of `actionHistory`, and `selectCards`/`decline` picks from different
+   * players interleave there in submission order, not turn order. If `me`
+   * still has their own unresolved pick standing in the still-open
+   * `selectCards` phase, clicking Undo must retract only that entry — not
+   * whichever other player happened to pick more recently. `RETRACT_CHOICE`
+   * is an ordinary action (not a pointer move), so it's dispatched through
+   * `submitAction` like any other and needs no special-casing there for
+   * either write path.
    */
   async function handleUndo() {
     if (!game) return
     setUndoing(true)
     try {
+      if (me && gameState && shouldRetractOwnChoice(gameState, me.id)) {
+        await submitAction({ type: 'RETRACT_CHOICE', playerId: me.id })
+        return
+      }
       // ruleEnforcementEnabled: delegate to undo-action instead of replaying
       // client-side — same applyUndoAction, same walk-back, server-side.
       if (game.settings.ruleEnforcementEnabled) {
@@ -1676,7 +1692,7 @@ export function GamePage() {
             type="button"
             disabled={undoing || isReviewingHistory || !gameState || historyPointer.effective.length === 0}
             onClick={() => void handleUndo()}
-            title="Undo the last action — any player can do this, at any time, even after the game has ended."
+            title="Undo the last action — any player can do this, at any time, even after the game has ended. If you still have your own unrevealed card pick standing, this changes only your pick."
             className="rounded-md border border-neutral-700 px-3 py-1 text-sm hover:border-neutral-500 disabled:opacity-50"
           >
             {undoing ? 'Undoing…' : 'Undo'}
