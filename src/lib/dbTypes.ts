@@ -122,8 +122,13 @@ export interface GameSettings {
    * the checkbox once rule enforcement is checked, and never for hotseat
    * (one shared `auth.uid()` across every local seat makes per-seat
    * masking actively wrong there — see get-game-state/index.ts). Defaults
-   * to `false`, same as ruleEnforcementEnabled, and every game that
-   * existed before this key was added reads as `false` too.
+   * to `false` here, same as ruleEnforcementEnabled, and every game that
+   * existed before this key was added reads as `false` too — createGame()'s
+   * own default is unchanged by issue #481. Only CreateGamePage.tsx's
+   * checkbox now defaults to checked (matching ruleEnforcementEnabled's
+   * issue #432 default), so new games created through the UI have this on
+   * unless the creator opts out, unticks rule enforcement, or is on
+   * hotseat; no existing game's behavior changes.
    */
   hiddenInformationEnabled: boolean
   /** Content ids of active Tales (src/content/tales.json). Empty = Tales variant off. */

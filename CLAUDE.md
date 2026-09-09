@@ -112,6 +112,18 @@ game uses. It reads as `false` for any game predating it (`createGame()`
 defaults it to `false` when omitted), but `CreateGamePage.tsx` ships the
 checkbox **checked**, so games created through the UI are enforced unless
 the creator opts out (issue #432; `RULE_ENFORCEMENT_PLAN.md` §10).
+
+`games.settings.hiddenInformationEnabled` (only meaningful alongside rule
+enforcement) follows the same split: `createGame()` still defaults it to
+`false` when omitted — that's the contract for every caller that doesn't
+pass it, tests and pre-existing games included — but `CreateGamePage.tsx`'s
+checkbox itself now defaults to **checked** too (issue #481), so a game
+created through the UI hides in-progress picks unless the creator opts out,
+unticks rule enforcement, or is on hotseat, where hiding is never offered or
+submitted (`src/lib/hiddenInformationEligibility.ts`;
+`HIDDEN_INFORMATION_PLAN.md`). This changes new games only — no existing
+game's stored settings change.
+
 `GamePage.tsx`'s `submitAction` branches on it:
 
 - **Client-trusted (every older game, and any game whose creator unticked

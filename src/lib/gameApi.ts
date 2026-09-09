@@ -198,7 +198,7 @@ export async function createGame(params: {
   skipHotseatPassGate?: boolean
   /** Opt in to RULE_ENFORCEMENT_PLAN.md's server-side rule enforcement for this game (see GameSettings.ruleEnforcementEnabled). Defaults to false when omitted, so a caller that doesn't care gets the client-trusted path; CreateGamePage.tsx's checkbox itself defaults to *checked* (issue #432), so games created through the UI are enforced unless the creator opts out. */
   ruleEnforcementEnabled?: boolean
-  /** Opt in to HIDDEN_INFORMATION_PLAN.md's redacted read path (see GameSettings.hiddenInformationEnabled) — only meaningful alongside ruleEnforcementEnabled. Defaults to false when omitted. */
+  /** Opt in to HIDDEN_INFORMATION_PLAN.md's redacted read path (see GameSettings.hiddenInformationEnabled) — only meaningful alongside ruleEnforcementEnabled. Defaults to false when omitted, same contract as ruleEnforcementEnabled above; CreateGamePage.tsx's checkbox itself defaults to *checked* (issue #481), so games created through the UI hide in-progress picks unless the creator opts out, unticks rule enforcement, or is on hotseat (src/lib/hiddenInformationEligibility.ts). */
   hiddenInformationEnabled?: boolean
   /** Content ids of active Tales (src/content/tales.json) for the Tales variant, or omitted/empty for none. */
   activeTaleIds?: string[]

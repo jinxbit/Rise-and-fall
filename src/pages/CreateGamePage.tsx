@@ -8,6 +8,7 @@ import { TaleSelector } from '../components/TaleSelector'
 import { useAuth } from '../hooks/useAuth'
 import { useDisplayName } from '../hooks/useDisplayName'
 import { createGame, MAX_PLAYERS } from '../lib/gameApi'
+import { hiddenInformationAvailable as computeHiddenInformationAvailable } from '../lib/hiddenInformationEligibility'
 import { randomRoomName } from '../lib/randomRoomName'
 import { toAppError, type AppError } from '../lib/errors'
 import type { PlayMode } from '../engine/types'
@@ -25,7 +26,7 @@ export function CreateGamePage() {
   const [soloBuilderUnitOrder, setSoloBuilderUnitOrder] = useState<SoloBuilderUnitOrder>('last')
   const [skipHotseatPassGate, setSkipHotseatPassGate] = useState(true)
   const [ruleEnforcementEnabled, setRuleEnforcementEnabled] = useState(true)
-  const [hiddenInformationEnabled, setHiddenInformationEnabled] = useState(false)
+  const [hiddenInformationEnabled, setHiddenInformationEnabled] = useState(true)
   const [activeTaleIds, setActiveTaleIds] = useState<string[]>([])
   const [gameLength, setGameLength] = useState(4)
   const [minPlayersInput, setMinPlayersInput] = useState('2')
@@ -50,15 +51,13 @@ export function CreateGamePage() {
         ? `Max players can't be lower than min players.`
         : null
 
-  // HIDDEN_INFORMATION_PLAN.md's redacted read path needs server authority
-  // to redact from, so it only makes sense alongside rule enforcement — and
-  // never for hotseat, where every local seat shares one auth.uid() and
-  // per-seat masking would just hide a player's own pick from the device
-  // they're using to make it (see get-game-state/index.ts). The checkbox
-  // stays visually checked/unchecked as the player left it (so re-enabling
-  // rule enforcement restores their choice) but is disabled, and never
-  // actually submitted, outside those conditions.
-  const hiddenInformationAvailable = ruleEnforcementEnabled && playMode !== 'hotseat'
+  // See hiddenInformationEligibility.ts for why this is gated on rule
+  // enforcement and unavailable for hotseat. The checkbox stays visually
+  // checked/unchecked as the player left it (so re-enabling rule enforcement
+  // restores their choice) but is disabled, and never actually submitted,
+  // outside those conditions — including its own default of checked
+  // (issue #481, matching ruleEnforcementEnabled's issue #432 default).
+  const hiddenInformationAvailable = computeHiddenInformationAvailable(playMode, ruleEnforcementEnabled)
 
   if (loading) {
     return <div className="p-8 text-neutral-400">Loading…</div>
