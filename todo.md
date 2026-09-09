@@ -3736,3 +3736,43 @@ isn't duplicated once the real event is present.
 
 `npm run lint`, `npm run test` (1174 tests, 67 files) and `npm run build`
 all pass.
+
+## 74. Fixed: undoing your own card pick could overwrite another player's still-pending one (issue #503)
+
+Reported: player A chooses a card, player B chooses, player C hasn't yet. A
+wants to change their mind, presses Undo, then picks again — and that
+overwrites B's pick instead of just changing A's own.
+
+`RULE_ENFORCEMENT_PLAN.md` §4.4's refinement (issue #407) already specced
+the fix for exactly this — `RETRACT_CHOICE`, an action that retracts only
+the caller's own still-open `selectCards` pick, leaving every other
+player's pending entry untouched — and it was fully implemented and tested
+at the engine level (`applyRetractChoice`, `src/engine/applyAction.ts`;
+`applyAction.test.ts`'s `RETRACT_CHOICE` suite). The gap was that nothing
+ever dispatched it: `GamePage.tsx`'s Undo button always fell through to the
+generic shared-pointer rewind (`applyUndoAction`/`undo-action`), which
+always reverts whichever entry sits at `actionHistory`'s tip — B's pick, if
+B chose more recently than A did — regardless of whose it actually is.
+Re-choosing afterward is an ordinary submit-while-behind-the-tip branch,
+which prunes that abandoned tail and silently takes B's real entry with it.
+
+Fixed by giving `handleUndo()` a first check, ahead of both existing write
+paths: if the clicking player (`me`) still has their own pick standing in a
+still-open `selectCards` phase, submit `RETRACT_CHOICE` for them instead of
+the shared rewind — an ordinary action, so it goes through the same
+`submitAction` dispatcher (and so the same `ruleEnforcementEnabled`
+branching) as every other action, no Edge Function changes needed. The
+decision itself (`shouldRetractOwnChoice`) is split into
+`src/lib/undoDecision.ts`, same "split out of the page so it's unit
+testable without rendering it" reasoning as `hiddenInformationEligibility.ts`.
+
+Decline's `MOVE_TO_DECLINE`/`RETRACT_DECLINE` pair has the same
+interleaving shape and is left on the old shared-pointer Undo behavior for
+now — unlike a `selectCards` pick, a player can owe more than one decline
+card at once, so "which of my own cards does a bare Undo click retract"
+isn't a single obvious answer the way it is for `RETRACT_CHOICE`; not
+attempted here.
+
+New coverage: `src/lib/__tests__/undoDecision.test.ts`.
+
+`npm run lint`, `npm run test` and `npm run build` all pass.
