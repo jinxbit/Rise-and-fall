@@ -30,6 +30,17 @@ CI (`.github/workflows/ci.yml`) runs `lint`, `test`, `build` in that order on
 every PR. Run all three before pushing; they are fast enough that there is no
 excuse to skip them.
 
+A green CI run on a PR can merge it: `automerge.yml` merges into `main`
+without waiting for the maintainer, but only for a PR that is not a draft, is
+based on `main`, has its head on a `claude/` branch **in this repository**,
+carries the `automerge` label, touches no `supabase/migrations/**`, and is
+still at the commit CI passed on. A migration always gets a human read
+(`DELIVERY_PIPELINE_PLAN.md` §7). Both that workflow and `smoke.yml`'s
+failure reporting need the `AUTOMATION_TOKEN` secret, because GitHub does not
+start workflow runs from events its own `GITHUB_TOKEN` caused — without it a
+merge would reach `main` without triggering CI or the Supabase deploy, so
+`automerge.yml` declines to merge at all.
+
 Copy `.env.example` to `.env.local` for local dev. Without
 `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` the app throws a
 "Configuration error" at startup by design (`src/lib/supabase.ts`). Tests and
@@ -169,7 +180,10 @@ storage must work on **both** paths.
 - `src/test/productionSmoke/` replays those same fixtures against the **live**
   project through the deployed Edge Functions (`npm run test:smoke`,
   `.github/workflows/smoke.yml`, after each Supabase deploy and
-  nightly). It is deliberately unreachable from `npm run test`: vitest's
+  nightly; which project it tests comes from the deploy's own `deploy-target`
+  artifact, and a failure files an issue carrying a redacted tail of the run —
+  mentioning `@claude` for Preview, not for production). It is deliberately
+  unreachable from `npm run test`: vitest's
   default `include` matches `*.test.*`, and those files are `*.smoke.ts` under
   their own config. The runner itself is covered on every PR by
   `src/test/__tests__/productionSmokeRunner.test.ts`, which points it at the
