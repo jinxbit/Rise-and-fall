@@ -122,11 +122,15 @@ storage must work on **both** paths.
   `redaction.ts`, `unitValue.ts`, `index.ts`) don't. **If you add an import to
   a server-reachable file, use the `.ts` extension** — a missing one only
   fails at deploy time, not in CI.
-- **`.github/workflows/deploy-supabase.yml` auto-deploys on push to `main`**
-  when `supabase/migrations/**`, `supabase/functions/**`, or **`src/lib/**`**
-  changes — it runs `supabase db push` and `supabase functions deploy`. A
-  `src/lib` change is a backend change. A migration that would cut off the
-  live app must not land alone.
+- **`main` is pre-production, not production.** `.github/workflows/deploy-supabase.yml`
+  deploys to the **Preview** Supabase project on push to `main`, and to
+  production on push to the `production` branch — which is only ever
+  fast-forwarded to a commit `main` already carries. Vercel mirrors the same
+  split. It fires when `supabase/migrations/**`, `supabase/functions/**`, or
+  **`src/lib/**`** changes, running `supabase db push` and `supabase functions
+  deploy`. A `src/lib` change is a backend change. A migration that would cut
+  off the live app must not land alone. See `DELIVERY_PIPELINE_PLAN.md` §3 for
+  why the topology is this way round, and §4 for the environments.
 - Migrations are numbered `NNNN_name.sql` and applied in lexicographic order
   (note `00051_` sorts between `0005_` and `0006_`). Migration history on the
   live project has drifted before; `audit-and-fix-migrations.yml` verifies

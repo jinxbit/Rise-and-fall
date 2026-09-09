@@ -1,11 +1,11 @@
 name: Deploy Supabase
 
 # Pushes migrations and Edge Functions to ONE Supabase project, chosen by
-# environment (DELIVERY_PIPELINE_PLAN.md §4). Today `main` maps to
-# production, which is exactly what this workflow did before it learned about
-# environments — the mapping in the `resolve` job below is the single place
-# that changes when phase 3 makes `main` deploy to staging and a `production`
-# branch release instead.
+# environment (DELIVERY_PIPELINE_PLAN.md §4). `main` integrates and deploys to
+# pre-production; the `production` branch releases, and is only ever
+# fast-forwarded to a commit `main` already carries (§3). The mapping in the
+# `resolve` job below is the single place that decides which is which, and
+# smoke.yml holds a copy that must agree with it.
 #
 # Secrets resolve through the GitHub Environment named by that mapping.
 # Repository-level secrets are inherited by an environment that does not
@@ -17,7 +17,8 @@ name: Deploy Supabase
 
 on:
   push:
-    branches: [main]
+    # main -> Preview, production -> production. See the resolve job.
+    branches: [main, production]
     paths:
       - 'supabase/migrations/**'
       - 'supabase/functions/**'
@@ -62,10 +63,8 @@ jobs:
             # THE branch -> environment mapping. See this file's header, and
             # DELIVERY_PIPELINE_PLAN.md §3 for where it is heading.
             case "$BRANCH" in
-              # Phase 3 (DELIVERY_PIPELINE_PLAN.md §3) changes this one line:
-              # main starts resolving to Preview, and a new `production`
-              # branch takes over releasing.
-              main) resolved=production ;;
+              main) resolved=Preview ;;
+              production) resolved=production ;;
               *)
                 echo "::error::No environment is mapped for branch '$BRANCH'. Add it to the case in .github/workflows/deploy-supabase.yml."
                 exit 1

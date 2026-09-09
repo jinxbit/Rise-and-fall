@@ -11,9 +11,8 @@ name: Smoke
 # written, keys still valid.
 #
 # Which project is decided by environment (DELIVERY_PIPELINE_PLAN.md §4), the
-# same branch mapping deploy-supabase.yml uses — keep the two in step. Today
-# that means production only; once a staging environment exists this workflow
-# needs no change beyond that mapping.
+# same branch mapping deploy-supabase.yml uses — keep the two in step. `main`
+# deploys and smoke-tests Preview; the `production` branch does production.
 #
 # It writes to a real project, so isolation is the safety story (see
 # src/test/productionSmoke/liveProject.ts): throwaway users created and
@@ -83,10 +82,8 @@ jobs:
           else
             # Mirrors deploy-supabase.yml's mapping — change both together.
             case "$BRANCH" in
-              # Phase 3 (DELIVERY_PIPELINE_PLAN.md §3) changes this one line:
-              # main starts resolving to Preview, and a new `production`
-              # branch takes over releasing.
-              main) resolved='["production"]' ;;
+              main) resolved='["Preview"]' ;;
+              production) resolved='["production"]' ;;
               *)
                 echo "::error::No environment is mapped for branch '$BRANCH'. Add it to the case in .github/workflows/smoke.yml (and deploy-supabase.yml)."
                 exit 1

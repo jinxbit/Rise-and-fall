@@ -34,8 +34,8 @@ deferred), §3 (branch topology, recommended, not yet acted on) and §7
 | Lint / test / build | `.github/workflows/ci.yml` | every PR, and push to `main` |
 | Claude implements a change | `.github/workflows/claude.yml` | `@claude` on an issue or comment |
 | Claude reviews a PR | `.github/workflows/claude-code-review.yml` | every PR |
-| Supabase migrations + functions deploy | `.github/workflows/deploy-supabase.yml` | push to `main` touching `supabase/migrations/**`, `supabase/functions/**`, `src/lib/**` |
-| Frontend deploy | Vercel | push to `main` (production), other branches (preview) |
+| Supabase migrations + functions deploy | `.github/workflows/deploy-supabase.yml` | push to `main` (Preview) or `production` (production), touching `supabase/migrations/**`, `supabase/functions/**`, `src/lib/**` |
+| Frontend deploy | Vercel | push to `production` (production), `main` and other branches (preview) |
 | Real games replayed against the deployed backend | `.github/workflows/smoke.yml` | after a successful Supabase deploy, and nightly |
 
 Test layers, innermost first: engine tests (`src/engine/__tests__/`), the
@@ -44,8 +44,9 @@ replayed through it (`src/test/__tests__/productionGames.test.ts`), and the
 same games replayed against the live project
 (`src/test/productionSmoke/`).
 
-**The gap.** Every one of those runs either before anything is deployed, or
-after it is already in production. There is no environment where a change is
+**The gap this document set out to close** (historical — closed by phases
+1-3). Every one of those ran either before anything was deployed, or after it
+was already in production. There is no environment where a change is
 both *deployed* and *not yet live for players*. Migrations are the sharpest
 edge: `supabase db push` runs for the first time against the production
 database, and this project has already had migration history drift badly
@@ -350,12 +351,15 @@ not the same as proving the app works.
    protection on `production` (no force-pushes, no deletions). The branch
    exists, at the same commit as `main`.
 
-3. **Retarget `main`, and the docs with it.** `main` deploys to
-   pre-production; `production` deploys to production. Three things move
-   together or the environments disagree: the branch mapping in
-   `deploy-supabase.yml` and `smoke.yml`, **Vercel's Production Branch
-   setting** (`main` -> `production`, Settings -> Git), and the docs —
-   `CLAUDE.md` and `README.md` both currently state that main is production.
+3. **Retarget `main`, and the docs with it.** ✅ (2026-09-09) `main` deploys
+   to pre-production; `production` deploys to production. Three things moved
+   together, since any one alone leaves the environments disagreeing: the
+   branch mapping in `deploy-supabase.yml` and `smoke.yml` (both now map
+   `main -> Preview`, `production -> production`, and `deploy-supabase.yml`
+   triggers on both branches), **Vercel's Production Branch setting**
+   (`main` -> `production`), and `CLAUDE.md`. Done at the one moment it was
+   free: `main` and `production` were identical, so nothing was stranded in
+   pre-production by the switch.
 4. **Auto-merge, and self-healing staging failures.** §7's rules, plus the
    issue-opening on a red staging smoke.
 5. **The promotion workflow.** Fast-forward `production`, gated by a required
