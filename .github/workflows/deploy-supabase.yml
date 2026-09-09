@@ -73,6 +73,22 @@ jobs:
           fi
           echo "environment=$resolved" >> "$GITHUB_OUTPUT"
           echo "Deploying to: $resolved"
+          mkdir -p deploy-target
+          printf '%s' "$resolved" > deploy-target/environment
+
+      # smoke.yml follows a successful deploy and has to know WHICH project it
+      # just changed. A `workflow_run` payload carries the triggering run's
+      # branch but not its inputs, so inferring from the branch is wrong for
+      # exactly the case that matters: a manual run whose environment input
+      # disagrees with its branch would be followed by a smoke test of the
+      # other project, reporting green on something nobody touched. Hand the
+      # answer over instead of letting it be guessed.
+      - name: Publish the resolved target for smoke.yml
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-target
+          path: deploy-target/environment
+          retention-days: 7
 
   deploy:
     needs: resolve

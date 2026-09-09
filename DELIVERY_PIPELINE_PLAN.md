@@ -301,6 +301,15 @@ not the same as proving the app works.
   against the repository variable `PRODUCTION_SUPABASE_PROJECT_ID` before
   touching anything, which is the only reason it is a survivable mistake
   rather than a destructive one.
+- **A smoke test can report green on a project nobody deployed.** `smoke.yml`
+  follows a successful `Deploy Supabase`, and a `workflow_run` payload carries
+  the triggering run's *branch* but not its *inputs*. Inferring the target
+  from the branch is therefore right for a push and wrong for a manual deploy
+  whose environment input disagrees with its branch — the follow-up would test
+  the other project and pass. The deploy now publishes its resolved target as
+  a `deploy-target` artifact and smoke reads that; the branch mapping is only
+  the fallback for a push, and a manually started deploy with no artifact
+  fails rather than guessing.
 - **More moving parts to get wrong.** Every workflow gains an environment
   dimension. The mitigation is that they all share one runner
   (`src/test/productionSmoke/runSmoke.ts`) which is already covered in CI by

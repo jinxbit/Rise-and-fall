@@ -10,9 +10,13 @@ name: Smoke
 # actually applied, functions actually deployed and booting, RLS actually as
 # written, keys still valid.
 #
-# Which project is decided by environment (DELIVERY_PIPELINE_PLAN.md §4), the
-# same branch mapping deploy-supabase.yml uses — keep the two in step. `main`
-# deploys and smoke-tests Preview; the `production` branch does production.
+# Which project is decided by environment (DELIVERY_PIPELINE_PLAN.md §4).
+# Following a deploy, that is whatever the deploy itself resolved, handed over
+# in its `deploy-target` artifact — not re-derived here, because a manual
+# deploy's environment input can disagree with its branch and a `workflow_run`
+# payload does not carry inputs. Otherwise the branch mapping applies, the
+# same one deploy-supabase.yml uses — keep the two in step. `main` deploys and
+# smoke-tests Preview; the `production` branch does production.
 #
 # It writes to a real project, so isolation is the safety story (see
 # src/test/productionSmoke/liveProject.ts): throwaway users created and
@@ -55,6 +59,9 @@ on:
 jobs:
   resolve:
     runs-on: ubuntu-latest
+    permissions:
+      # Reading the triggering deploy run's artifact, below.
+      actions: read
     # A deploy that failed tells us nothing about the deployment we would be
     # testing, so only follow a successful one. Scheduled and manual runs have
     # no workflow_run context and always proceed.
@@ -64,6 +71,19 @@ jobs:
       # a deploy or a manual run targets exactly one.
       environments: ${{ steps.pick.outputs.environments }}
     steps:
+      # What the deploy resolved, straight from the deploy. Allowed to fail:
+      # a run of deploy-supabase.yml from before this artifact existed has
+      # none, which the step below handles.
+      - name: Fetch the deploy's resolved target
+        if: github.event_name == 'workflow_run'
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: deploy-target
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: deploy-target
+
       - name: Resolve the target environments
         id: pick
         env:
@@ -72,6 +92,11 @@ jobs:
           # For a workflow_run the branch that was deployed, not this
           # workflow's own ref — they are the same today but need not be.
           BRANCH: ${{ github.event.workflow_run.head_branch || github.ref_name }}
+          # How the deploy we are following was itself started. A push's
+          # branch always agrees with its target; a workflow_dispatch's need
+          # not, so that one is never inferred.
+          DEPLOY_EVENT: ${{ github.event.workflow_run.event }}
+          DEPLOY_RUN_ID: ${{ github.event.workflow_run.id }}
         run: |
           if [ "$EVENT" = "schedule" ]; then
             # Every environment, so drift on Preview surfaces on its own
@@ -79,8 +104,29 @@ jobs:
             resolved='["Preview","production"]'
           elif [ -n "$REQUESTED" ]; then
             resolved="[\"$REQUESTED\"]"
+          elif [ -f deploy-target/environment ]; then
+            # The deploy's own answer. Still validated against the known names
+            # — an artifact is not a place to take a project target on trust,
+            # and it is interpolated into JSON below.
+            deployed="$(cat deploy-target/environment)"
+            case "$deployed" in
+              Preview|production) resolved="[\"$deployed\"]" ;;
+              *)
+                echo "::error::Deploy run $DEPLOY_RUN_ID published an unknown target '$deployed'."
+                exit 1
+                ;;
+            esac
+            echo "Following deploy run $DEPLOY_RUN_ID, which targeted '$deployed'."
+          elif [ "$EVENT" = "workflow_run" ] && [ "$DEPLOY_EVENT" = "workflow_dispatch" ]; then
+            # No artifact and a manually started deploy: its branch says
+            # nothing about which project it touched, and smoke-testing the
+            # wrong one would report green on a project nobody deployed.
+            echo "::error::Deploy run $DEPLOY_RUN_ID was started manually and published no deploy-target artifact, so its target cannot be known. Re-run this workflow with the environment input set."
+            exit 1
           else
-            # Mirrors deploy-supabase.yml's mapping — change both together.
+            # A push, or this workflow started on its own: the branch is the
+            # target. Mirrors deploy-supabase.yml's mapping — change both
+            # together.
             case "$BRANCH" in
               main) resolved='["Preview"]' ;;
               production) resolved='["production"]' ;;
