@@ -44,7 +44,9 @@ issue-to-pre-production loop run unattended. Issues enter that loop through
 first, then lowest number, **one at a time** — when the previous one closes.
 `priority` reorders the queue; it never interrupts an issue already running. An issue that needs a
 decision holds the queue on purpose, which is what the `in-progress` label on
-a stalled issue means. Both that workflow and `smoke.yml`'s
+a stalled issue means. The issue is closed by `automerge.yml` when its PR
+merges — not by the PR body's `Closes #N`, which comes from a `push`-triggered
+workflow and so can be written by a stale copy of itself on an older branch. Both that workflow and `smoke.yml`'s
 failure reporting need the `AUTOMATION_TOKEN` secret, because GitHub does not
 start workflow runs from events its own `GITHUB_TOKEN` caused — without it a
 merge would reach `main` without triggering CI or the Supabase deploy, so
