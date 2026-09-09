@@ -37,13 +37,19 @@ name: Start the next queued issue
 # claude-branch-pr.yml writes "Closes #N" into the PR body: merging the PR
 # closes the issue, closing the issue fires this, this starts the next one.
 #
-# The schedule is a safety net, not the mechanism. A missed or dropped
-# `issues: closed` event would otherwise stall the queue silently until
-# somebody noticed.
+# The schedule is a safety net, not the mechanism. A missed or dropped event
+# would otherwise stall the queue silently until somebody noticed, and it is
+# what recovers a start that failed (see the staleness check below).
 
 on:
   issues:
-    types: [closed]
+    # `labeled` as well as `closed`, because the label IS the interface: an
+    # issue marked `queued` while nothing is in flight should start now, not
+    # at the next scheduled tick up to an hour later. The job's `if` narrows
+    # this to the one label that means anything here — every other label,
+    # including the `in-progress` this workflow applies itself, is ignored, so
+    # it cannot retrigger itself in a loop.
+    types: [closed, labeled]
   schedule:
     - cron: '37 * * * *'
   workflow_dispatch:
@@ -56,6 +62,8 @@ concurrency:
 
 jobs:
   start-next:
+    # See the `labeled` note above: only the `queued` label starts anything.
+    if: github.event.action != 'labeled' || github.event.label.name == 'queued'
     runs-on: ubuntu-latest
     permissions:
       contents: read
