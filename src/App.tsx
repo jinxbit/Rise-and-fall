@@ -20,7 +20,7 @@ function App() {
   const updateAvailable = useAppUpdateAvailable()
   // Non-production builds say so on screen — see ./components/environmentBadge.ts
   // for why, and why production is the case that needs no configuration.
-  const environmentBadge = resolveEnvironmentBadge(import.meta.env.VITE_ENVIRONMENT, import.meta.env.VITE_SUPABASE_URL)
+  const environmentBadge = resolveEnvironmentBadge(import.meta.env.VITE_ENVIRONMENT, import.meta.env.VITE_SUPABASE_URL, __GIT_COMMIT_REF__, __GIT_COMMIT_SHA__)
 
   return (
     <BrowserRouter>

@@ -9,6 +9,14 @@ import { VitePWA } from 'vite-plugin-pwa'
 // Unique per build so the client can detect a newer deploy is live (issue #247).
 const buildId = Date.now().toString(36)
 
+// Vercel populates these in `process.env` for every Build Step automatically —
+// no "Automatically expose System Environment Variables" toggle needed, since
+// that setting only governs Serverless/Edge Function *runtime* env, not the
+// build. Empty outside Vercel (local dev, CI, tests), which the environment
+// badge already treats as "nothing to show" (issue #496).
+const gitCommitRef = process.env.VERCEL_GIT_COMMIT_REF ?? ''
+const gitCommitSha = process.env.VERCEL_GIT_COMMIT_SHA ?? ''
+
 /** Emits version.json into the build output so running tabs can poll for a newer buildId. */
 function writeVersionFile(): Plugin {
   let outDir = 'dist'
@@ -62,6 +70,8 @@ export default defineConfig({
   ],
   define: {
     __BUILD_ID__: JSON.stringify(buildId),
+    __GIT_COMMIT_REF__: JSON.stringify(gitCommitRef),
+    __GIT_COMMIT_SHA__: JSON.stringify(gitCommitSha),
   },
   test: {
     environment: 'jsdom',

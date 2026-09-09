@@ -165,7 +165,14 @@ and shows nothing, so the safe state is the one requiring no configuration.
 This exists because a build is configured entirely at build time: without it,
 the only ways to tell pre-production from production are reading the deployed
 JavaScript or noticing that your account does not exist there. Both have been
-needed already.
+needed already. The project ref alone wasn't enough to tell one preview build
+from another, though: every Preview deployment — `main`'s and every
+`claude/*` branch's — points at the same Preview project. So the badge also
+names the git branch and short commit it was built from, read via
+`vite.config.ts`'s `define` from Vercel's build-time
+`VERCEL_GIT_COMMIT_REF`/`VERCEL_GIT_COMMIT_SHA` (issue #496) — no dashboard
+configuration needed, since Vercel populates those for every Build Step
+automatically.
 
 **Auth on staging needs its own setup.** OAuth redirect URIs are registered
 per Supabase project, so Discord and Google sign-in will not work on staging

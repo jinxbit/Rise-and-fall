@@ -17,3 +17,7 @@ interface ImportMeta {
 
 /** Injected by vite.config.ts at build time; unique per deploy. */
 declare const __BUILD_ID__: string
+/** Injected by vite.config.ts from Vercel's `VERCEL_GIT_COMMIT_REF`; empty outside Vercel. */
+declare const __GIT_COMMIT_REF__: string
+/** Injected by vite.config.ts from Vercel's `VERCEL_GIT_COMMIT_SHA`; empty outside Vercel. */
+declare const __GIT_COMMIT_SHA__: string
