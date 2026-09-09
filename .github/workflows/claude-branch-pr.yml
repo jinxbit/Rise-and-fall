@@ -68,10 +68,13 @@ jobs:
             const title = commits.length === 1 ? commits[0] : `${commits[commits.length - 1]} (+${commits.length - 1} more)`
             const issue = branch.match(/^claude\/issue-(\d+)-/)?.[1]
             const body = [
-              // "Closes #N" is what makes the queue advance: GitHub closes the
-              // issue when this merges, and claude-queue.yml starts the next
-              // one off that close event. Without it the queue would stall on
-              // an issue whose work is finished and merged.
+              // "Closes #N" makes GitHub close the issue on merge, which is
+              // what claude-queue.yml advances on. It is belt to
+              // automerge.yml's braces, not the mechanism: this workflow runs
+              // on `push`, so a branch cut before this wording landed carries
+              // the old copy of this file and writes the old text (#480
+              // stalled that way). automerge.yml closes the issue itself, from
+              // the default branch's copy, which cannot go stale.
               issue ? `Closes #${issue}, pushed by \`claude.yml\`.` : `Pushed by \`claude.yml\`.`,
               '',
               'Commits on this branch:',
