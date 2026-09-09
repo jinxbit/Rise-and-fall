@@ -246,7 +246,15 @@ export async function provisionLiveRoom(config: LiveProjectConfig, fixture: Prod
       undoAction: (userId) => invoke(clientFor(userId), 'undo-action', { gameId }),
       redoAction: (userId) => invoke(clientFor(userId), 'redo-action', { gameId }),
       async readGameState() {
-        const { data, error } = await ownerClient.from('game_state').select('state, version').eq('game_id', gameId).maybeSingle()
+        // Ground truth for test assertions, not a simulation of any app read
+        // path (contrast supabaseStack's `readGameState(userId, ...)`, which
+        // deliberately reads as a specific actor to exercise RLS) — so this
+        // reads as the service role, bypassing RLS entirely. It has to:
+        // since 0028_hidden_information_rls_lockdown.sql (issue #488), even
+        // the seated `ownerClient` this used to read as gets nothing back
+        // for a hiddenInformationEnabled room, which every room this file
+        // provisions for the wire check is.
+        const { data, error } = await admin.from('game_state').select('state, version').eq('game_id', gameId).maybeSingle()
         if (error) throw new Error(`Could not read the smoke room's state: ${error.message}`)
         if (!data) return null
         return { state: await decompressGameStateFromStorage(data.state as StoredGameState), version: data.version as number }

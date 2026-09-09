@@ -502,6 +502,21 @@ redaction work — see that document's §6 for it.
   (`HIDDEN_INFORMATION_PLAN.md`) stays the separate, independently-timed
   concern issue #423 split it out to be. See §8 phase 8 for how this
   changes the rewire itself.
+- **Update (2026-09-09, issue #488): the read-side RLS lockdown this section
+  deferred (the first bullet above) has since landed, gated on
+  `hiddenInformationEnabled` rather than `ruleEnforcementEnabled` — the flag
+  that actually governs whether the row is safe to hand out unredacted.**
+  `0021_remove_observers.sql`'s "any signed-in user can read non-lobby game
+  state" SELECT clause never checked `auth.uid()` at all, so it granted the
+  full unredacted row (real `selectCards`/`decline` picks included) to any
+  signed-in stranger, and to a seated player too — precisely what
+  `get-game-state` (§8 phase 5/8) exists to mask on the paths the app
+  actually uses. `0028_hidden_information_rls_lockdown.sql` denies direct
+  `SELECT` outright for a `hiddenInformationEnabled` game, seated player
+  included (RLS can't redact within a row, so there's no narrower policy
+  that helps), leaving `get-game-state` — service role, unaffected — as the
+  only read path for that game. Every other game's read policy is
+  unchanged. See `HIDDEN_INFORMATION_PLAN.md` §5.2 for the fuller writeup.
 
 ## 7. Deploy automation
 

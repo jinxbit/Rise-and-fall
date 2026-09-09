@@ -263,6 +263,36 @@ describe('production Supabase stack', () => {
       expect(await stack.readGameState('auth-user-carol', GAME_ID)).toBeNull()
       expect(await stack.readGameState(ALICE, GAME_ID)).not.toBeNull()
     })
+
+    it('blocks direct game_state reads entirely for a hiddenInformationEnabled game — seated player included (0028, issue #488)', async () => {
+      await seed(stack, settingsFor({ hiddenInformationEnabled: true }))
+      stack.addUser('auth-user-carol')
+      stack.addUser('auth-user-admin', { isAdmin: true })
+
+      // A seated player gets nothing beyond what get-game-state would give
+      // them: RLS can't redact within a row, so the raw row is off-limits to
+      // everyone but the service role, not just to a non-seated stranger.
+      expect(await stack.readGameState(ALICE, GAME_ID)).toBeNull()
+      expect(await stack.readGameState(BOB, GAME_ID)).toBeNull()
+      expect(await stack.readGameState('auth-user-carol', GAME_ID)).toBeNull()
+
+      // The redacted read path is untouched — it's the service role client
+      // underneath, which bypasses RLS regardless of this policy.
+      const viaRedactedPath = await stack.getGameState(ALICE, GAME_ID)
+      expect(viaRedactedPath.ok).toBe(true)
+
+      // 0024_admin_read_all_game_state.sql's admin policy is a separate,
+      // additive permissive policy — untouched by this lockdown.
+      expect(await stack.readGameState('auth-user-admin', GAME_ID)).not.toBeNull()
+    })
+
+    it('leaves direct game_state reads unchanged for a game that has not opted into hidden information', async () => {
+      await seed(stack, settingsFor({ hiddenInformationEnabled: false }))
+      stack.addUser('auth-user-carol')
+
+      expect(await stack.readGameState(ALICE, GAME_ID)).not.toBeNull()
+      expect(await stack.readGameState('auth-user-carol', GAME_ID)).not.toBeNull()
+    })
   })
 
   /**

@@ -56,6 +56,7 @@ export interface GameStateMetaRow {
   turn: number
   version: number
   pending_player_ids: string[]
+  active_player_id: string | null
   updated_at: string
 }
 
@@ -144,9 +145,17 @@ export class Database {
         const gameId = row.game_id as string
         const seated = this.isSeated(uid, gameId)
         if (command === 'select') {
-          // 0021_remove_observers.sql + 0024_admin_read_all_game_state.sql.
+          // 0021_remove_observers.sql + 0024_admin_read_all_game_state.sql,
+          // narrowed by 0028_hidden_information_rls_lockdown.sql: a
+          // hiddenInformationEnabled game denies direct SELECT outright, to
+          // a seated player and a stranger alike — RLS can't redact within a
+          // row, so get-game-state (service role, unaffected here) is the
+          // only read path once this is on. An admin is untouched either
+          // way, same as production's separate, additive admin policy.
+          if (this.isAdmin(uid)) return true
+          if (this.hiddenInformationEnabled(gameId)) return false
           const game = this.game(gameId)
-          return seated || (game !== undefined && game.status !== 'lobby') || this.isAdmin(uid)
+          return seated || (game !== undefined && game.status !== 'lobby')
         }
         // 0001_init_schema.sql: the one genesis insert is any seated player's
         // to make, deliberately left untouched by 0026.
@@ -185,6 +194,10 @@ export class Database {
 
   private ruleEnforcementEnabled(gameId: string): boolean {
     return Boolean(this.game(gameId)?.settings?.ruleEnforcementEnabled)
+  }
+
+  private hiddenInformationEnabled(gameId: string): boolean {
+    return Boolean(this.game(gameId)?.settings?.hiddenInformationEnabled)
   }
 
   // ---------------------------------------------------------------------------
@@ -270,7 +283,7 @@ export class Database {
       case 'game_state':
         return { turn: 0, active_player_id: null, version: 0, updated_at: now }
       case 'game_state_meta':
-        return { round_phase: null, turn: 0, version: 0, pending_player_ids: [], updated_at: now }
+        return { round_phase: null, turn: 0, version: 0, pending_player_ids: [], active_player_id: null, updated_at: now }
       // `gen_random_uuid()` on the primary key (0001_init_schema.sql) — a row
       // inserted through the API supplies no id, only a seeded fixture does.
       case 'games':
@@ -290,7 +303,8 @@ export class Database {
 
   /**
    * `game_state_sync_meta`, the after-insert-or-update trigger from
-   * 0027_game_state_meta_pending_players.sql (which replaced
+   * 0028_hidden_information_rls_lockdown.sql (which replaced
+   * 0027_game_state_meta_pending_players.sql, which replaced
    * 0025_game_state_meta.sql's simpler version).
    *
    * Transcribed field for field, including the detail that makes it worth
@@ -329,6 +343,7 @@ export class Database {
       turn: Number(state.turn ?? 0),
       version: row.version,
       pending_player_ids: pending,
+      active_player_id: row.active_player_id,
       updated_at: new Date().toISOString(),
     }
     const existing = this.rows.game_state_meta.find((m) => m.game_id === row.game_id)

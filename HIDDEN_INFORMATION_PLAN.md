@@ -164,6 +164,22 @@ the one path this section's masking still needed to cover, and it now does:
 `chosenCardIdByPlayerId`/`declineCardIds` above (see `redaction.ts`'s doc
 comment, and phase 5's entry in §8 for when this landed).
 
+**Resolved (2026-09-09, issue #488): (a)'s "service-role-only" half, the one
+piece the 2026-09-08 update above left open.** `game_state` itself was never
+actually locked down — `0021_remove_observers.sql`'s SELECT policy grants
+"any signed-in user" a non-lobby game's row regardless of `auth.uid()`, so a
+plain `GET /rest/v1/game_state?game_id=eq.<id>` with the anon key returned
+the real, unredacted row (real picks included) the whole time `get-game-state`
+was masking the paths the app actually uses. `0028_hidden_information_rls_lockdown.sql`
+closes it: a `hiddenInformationEnabled` game's `game_state` row now denies
+direct `SELECT` outright, to a seated player and a stranger alike (RLS can't
+redact within a row, so there's no policy that hands a seated player their
+own pick without also handing them everyone else's), forcing every reader
+through `get-game-state`, which is unaffected since it runs as the service
+role. Every other game reads exactly as before. See
+`RULE_ENFORCEMENT_PLAN.md` §6 for the same landing recorded from the
+enforcement side.
+
 ### 5.3 Sticky reveal across undo — the reveal high-water mark
 
 **Dropped (2026-09-06), per jinxbit's offer to simplify if it complicated
@@ -312,7 +328,9 @@ call, which gets ordinary HTTP gzip compression the websocket never did.
 This is only the read-side piece §5.2/(a) already described for phase 8 —
 it doesn't touch `game_state`'s RLS, writes, or redaction, so `get_game_state`
 (§5) and the write-side lockdown (`RULE_ENFORCEMENT_PLAN.md` §6/§8 phase 8)
-are unaffected and still outstanding.
+were unaffected at the time. **Update (2026-09-09, issue #488): the read-side
+RLS lockdown this paragraph left outstanding has since landed** —
+`0028_hidden_information_rls_lockdown.sql`, see §5.2's resolution above.
 
 - ~~**New: reveal high-water mark (§5.3)**~~ — **dropped outright
   (2026-09-06)**, not just simplified. It was already "deliberately a pure
@@ -323,10 +341,14 @@ are unaffected and still outstanding.
   field-nulling" framing enough that it was simplest to drop it rather than
   resolve that tension. See §5.3 and §10 for the full story; no data-model
   change resulted either way.
-- `game_state`'s RLS lockdown to service-role-only, and the removal of the
+- `game_state`'s write-side RLS lockdown (service-role-only for a
+  `ruleEnforcementEnabled` game), and the removal of the
   `historyPointer`/archived-tail columns this document's prior draft also
   scoped here, live in `RULE_ENFORCEMENT_PLAN.md` §6 — they're enforcement
-  concerns, not redaction ones.
+  concerns, not redaction ones. The read-side counterpart — `game_state`'s
+  SELECT policy, gated on `hiddenInformationEnabled` rather than
+  `ruleEnforcementEnabled` since redaction, not enforcement, is what it
+  protects — is §5.2's concern instead, and landed there (issue #488).
 
 ## 7. Deploy automation
 
