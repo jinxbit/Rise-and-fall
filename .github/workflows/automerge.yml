@@ -109,7 +109,7 @@ jobs:
               await github.rest.pulls.merge({
                 owner, repo, pull_number: number,
                 merge_method: 'merge',
-                commit_title: `Merge pull request #${number} from ${thisRepo}/${pr.head.ref}`,
+                commit_title: `Merge pull request #${number} from ${owner}/${pr.head.ref}`,
                 commit_message: `${pr.title}\n\nAuto-merged on green CI (DELIVERY_PIPELINE_PLAN.md §7).`,
               })
               core.notice(`PR #${number} auto-merged into main.`)
