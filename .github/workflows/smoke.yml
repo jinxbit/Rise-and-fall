@@ -120,5 +120,31 @@ jobs:
             exit 1
           fi
 
+      # Same guard, and the same reason, as deploy-supabase.yml's "Refuse to
+      # touch the wrong project" — read its comment. It matters at least as
+      # much here: a smoke run believing it is on staging while pointed at
+      # production would create and delete rooms and accounts in the live
+      # database.
+      - name: Refuse to smoke-test the wrong project
+        env:
+          ENVIRONMENT: ${{ needs.resolve.outputs.environment }}
+          PRODUCTION_PROJECT_ID: ${{ vars.PRODUCTION_SUPABASE_PROJECT_ID }}
+        run: |
+          if [ -z "$PRODUCTION_PROJECT_ID" ]; then
+            echo "::error::Repository variable PRODUCTION_SUPABASE_PROJECT_ID is not set, so the guard that keeps a non-production run away from production cannot work. Set it (Settings -> Secrets and variables -> Actions -> Variables) to the production project ref."
+            exit 1
+          fi
+          production_url="https://${PRODUCTION_PROJECT_ID}.supabase.co"
+          if [ "$ENVIRONMENT" = "production" ]; then
+            if [ "$SMOKE_SUPABASE_URL" != "$production_url" ]; then
+              echo "::error::Environment 'production' resolved to '$SMOKE_SUPABASE_URL', but PRODUCTION_SUPABASE_PROJECT_ID says production is '$production_url'. Refusing to continue."
+              exit 1
+            fi
+          elif [ "$SMOKE_SUPABASE_URL" = "$production_url" ]; then
+            echo "::error::Environment '$ENVIRONMENT' resolved to the PRODUCTION project ('$production_url'). That means the '$ENVIRONMENT' GitHub Environment has no SUPABASE_PROJECT_ID (or SMOKE_SUPABASE_URL) of its own and inherited the repository-level one. Add it under Settings -> Environments -> $ENVIRONMENT. Refusing to continue."
+            exit 1
+          fi
+          echo "Environment '$ENVIRONMENT' -> $SMOKE_SUPABASE_URL"
+
       - name: Replay production games against ${{ needs.resolve.outputs.environment }}
         run: npm run test:smoke

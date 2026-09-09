@@ -7,10 +7,13 @@ name: Deploy Supabase
 # that changes when phase 3 makes `main` deploy to staging and a `production`
 # branch release instead.
 #
-# Secrets resolve through the GitHub Environment named by that mapping. Until
-# environment-scoped secrets exist, the repository-level ones are inherited
-# unchanged, so adding the environments later is additive rather than a
-# cutover.
+# Secrets resolve through the GitHub Environment named by that mapping.
+# Repository-level secrets are inherited by an environment that does not
+# define its own, which is convenient for the account-wide access token and
+# DANGEROUS for the project ref — a `staging` environment that is missing one
+# inherits production's and deploys there. That exact thing happened on
+# 2026-09-09, so the "Refuse to touch the wrong project" step below now makes
+# it impossible; see its comment.
 
 on:
   push:
@@ -79,10 +82,42 @@ jobs:
         with:
           version: latest
 
-      # Deploying the wrong project is the one mistake this workflow could
-      # make that is genuinely hard to undo, so say out loud which one it is.
-      - name: Report the target
-        run: echo "Environment ${{ needs.resolve.outputs.environment }} -> Supabase project ${SUPABASE_PROJECT_ID}"
+      # The guard that would have caught the 2026-09-09 incident: running
+      # this with environment=staging deployed to PRODUCTION, because the
+      # `staging` GitHub Environment had no `SUPABASE_PROJECT_ID` of its own
+      # and GitHub silently falls back to the repository-level secret — which
+      # is production's. Inheritance is convenient for everything else and
+      # actively dangerous for this one value, because it fails towards
+      # production.
+      #
+      # So: the production project ref is declared once as a repository
+      # VARIABLE (a ref is not secret — it is the subdomain of the public API
+      # URL, and being visible is the point: you can read it in the GitHub UI
+      # and check it), and any environment that is not production refusing to
+      # match it is what proves the environment is really configured.
+      - name: Refuse to touch the wrong project
+        env:
+          ENVIRONMENT: ${{ needs.resolve.outputs.environment }}
+          PRODUCTION_PROJECT_ID: ${{ vars.PRODUCTION_SUPABASE_PROJECT_ID }}
+        run: |
+          if [ -z "$SUPABASE_PROJECT_ID" ]; then
+            echo "::error::No SUPABASE_PROJECT_ID for environment '$ENVIRONMENT'."
+            exit 1
+          fi
+          if [ -z "$PRODUCTION_PROJECT_ID" ]; then
+            echo "::error::Repository variable PRODUCTION_SUPABASE_PROJECT_ID is not set, so the guard that keeps a non-production run away from production cannot work. Set it (Settings -> Secrets and variables -> Actions -> Variables) to the production project ref."
+            exit 1
+          fi
+          if [ "$ENVIRONMENT" = "production" ]; then
+            if [ "$SUPABASE_PROJECT_ID" != "$PRODUCTION_PROJECT_ID" ]; then
+              echo "::error::Environment 'production' resolved to project '$SUPABASE_PROJECT_ID', but PRODUCTION_SUPABASE_PROJECT_ID says production is '$PRODUCTION_PROJECT_ID'. Refusing to continue."
+              exit 1
+            fi
+          elif [ "$SUPABASE_PROJECT_ID" = "$PRODUCTION_PROJECT_ID" ]; then
+            echo "::error::Environment '$ENVIRONMENT' resolved to the PRODUCTION project ('$PRODUCTION_PROJECT_ID'). That means the '$ENVIRONMENT' GitHub Environment has no SUPABASE_PROJECT_ID of its own and inherited the repository-level one. Add it under Settings -> Environments -> $ENVIRONMENT. Refusing to continue."
+            exit 1
+          fi
+          echo "Environment '$ENVIRONMENT' -> Supabase project '$SUPABASE_PROJECT_ID' (production is '$PRODUCTION_PROJECT_ID')."
 
       - name: Link Supabase project
         run: supabase link --project-ref "$SUPABASE_PROJECT_ID"

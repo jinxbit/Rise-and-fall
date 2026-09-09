@@ -261,7 +261,14 @@ not the same as proving the app works.
    environment-scoped ones are added, so phase 2 is additive rather than a
    cutover. `npm run test:production` became `npm run test:smoke` for the
    same reason.
-2. **Stand up staging.** Maintainer: create the Supabase project, set the
+2. **Stand up staging.** Note before starting: a GitHub Environment that does
+   not define a secret inherits the repository-level one, so a `staging`
+   environment missing `SUPABASE_PROJECT_ID` silently targets **production**.
+   That happened on 2026-09-09 — a `Deploy Supabase` run requested for
+   staging deployed to production instead. Both workflows now refuse to
+   continue unless the resolved project ref matches the environment, checked
+   against a repository variable `PRODUCTION_SUPABASE_PROJECT_ID`; set that
+   variable first. Maintainer: create the Supabase project, set the
    Vercel Preview variables and branch domain, add the GitHub Environments
    and their secrets, create the `production` branch at the current `main`,
    set branch protection. Then the first staging deploy and smoke run.
