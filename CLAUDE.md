@@ -41,7 +41,8 @@ the action only posts a "Create PR" link, so without this a finished branch
 sits unmerged — and that workflow applies the label, which is what makes the
 issue-to-pre-production loop run unattended. Issues enter that loop through
 `claude-queue.yml`: label an issue `queued` and it is started — `priority`
-first, then lowest number, **one at a time** — when the previous one closes.
+first, then lowest number, **one at a time** — as soon as the label lands if
+nothing is in flight, otherwise when the previous one closes.
 `priority` reorders the queue; it never interrupts an issue already running. An issue that needs a
 decision holds the queue on purpose, which is what the `in-progress` label on
 a stalled issue means — but an `in-progress` issue with no branch and no open
