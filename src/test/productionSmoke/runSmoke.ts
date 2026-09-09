@@ -34,8 +34,14 @@ export interface SmokeReport {
 
 export type SmokeLogger = (message: string) => void
 
-/** Rebuilds `fixture` as one describing the live room, so the shared replay routine can drive it unchanged. */
-function fixtureForRoom(fixture: ProductionGameFixture, room: LiveRoom): ProductionGameFixture {
+/**
+ * Rebuilds `fixture` as one describing the live room, so the shared replay
+ * routine can drive it unchanged. Exported for
+ * ./hiddenInformationWire.ts (HIDDEN_INFORMATION_PLAN.md §8 phase 9), which
+ * reuses this same provisioning rather than a second path to a live project,
+ * then keeps driving the same room past where a fixture replay would stop.
+ */
+export function fixtureForRoom(fixture: ProductionGameFixture, room: LiveRoom): ProductionGameFixture {
   const { remapped } = room
   // The smoke room is deliberately 'live' even when the recorded game was
   // 'async' (see provisionLiveRoom's doc comment: only 'async' games page

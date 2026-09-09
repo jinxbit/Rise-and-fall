@@ -76,6 +76,23 @@ function invocations and up to ~1,500 webhook invocations per run — comfortabl
 inside Supabase's free-tier limits at one run a night plus one per deploy, but
 worth knowing before adding many more fixtures.
 
+## The hidden-information wire check
+
+`hiddenInformationWire.ts`/`.smoke.ts` is a second, independent check in this
+same directory (HIDDEN_INFORMATION_PLAN.md §8 phase 9): rather than replaying
+a recorded game, it opens its own throwaway three-seat room (same isolation
+rules as above), scripts it to a freshly-opened `selectCards`/`decline` phase,
+and inspects the *raw* `get-game-state`/`apply-action` response bodies and a
+real Realtime subscription — bypassing `gameApi.ts`'s usual collapse — to
+prove a still-pending player's secret pick never crosses the wire in any of
+them, then that it's revealed once the phase resolves. It runs automatically
+alongside the fixture-replay check above: `vitest.smoke.config.ts`'s
+`include` matches every `*.smoke.ts` file here, so no separate workflow entry
+was needed. The wire half (no socket required) is also exercised on every PR
+against the in-process stack via
+`../__tests__/hiddenInformationWireRunner.test.ts`; the Realtime half only
+ever runs here, against a live project.
+
 ## The runner is itself tested
 
 `../__tests__/productionSmokeRunner.test.ts` runs this exact runner against the
