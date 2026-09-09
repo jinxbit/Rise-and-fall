@@ -388,16 +388,37 @@ function assertThat(condition: boolean, message: string): asserts condition {
  * every raw payload instead of a typed refetch callback, so this file can
  * inspect literal wire bytes rather than trust the client library's own
  * shape for them.
+ *
+ * Returns `ready`, which resolves only once the channel actually reaches
+ * `SUBSCRIBED` (or rejects with whatever status it ended up in instead).
+ * The caller must await it before making the writes this check watches for:
+ * `.subscribe()` returns before the server has registered this socket's
+ * replication filter, so a write made right after calling it can complete —
+ * and be missed — before the subscription is actually live. Without this,
+ * that race surfaces as "no payload arrived at all", indistinguishable from
+ * a real deployment problem (see this check's own error message below).
  */
-function subscribeForLeakCheck(client: SupabaseClient, gameId: string, onPayload: (payload: unknown) => void): () => void {
+function subscribeForLeakCheck(client: SupabaseClient, gameId: string, onPayload: (payload: unknown) => void): { ready: Promise<void>; stop: () => void } {
+  let settle: (error: Error | null) => void
+  const ready = new Promise<void>((resolve, reject) => {
+    settle = (error) => (error ? reject(error) : resolve())
+  })
   const channel = client
     .channel(`hidden-info-wire-check:${gameId}`)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'players', filter: `game_id=eq.${gameId}` }, onPayload)
     .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'games', filter: `id=eq.${gameId}` }, onPayload)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'game_state_meta', filter: `game_id=eq.${gameId}` }, onPayload)
-    .subscribe()
-  return () => {
-    client.removeChannel(channel)
+    .subscribe((status, err) => {
+      if (status === 'SUBSCRIBED') settle(null)
+      else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+        settle(new Error(`Realtime channel for the leak-check watcher ended up ${status} instead of SUBSCRIBED${err ? `: ${err.message}` : ''}.`))
+      }
+    })
+  return {
+    ready,
+    stop: () => {
+      client.removeChannel(channel)
+    },
   }
 }
 
@@ -473,7 +494,9 @@ export async function checkHiddenInformationWire(
     const watcherSeatId = state.pendingPlayerIds[1]
     const watcherUserId = room.remapped.userIdForPlayer(watcherSeatId)
     if (options.includeRealtime) {
-      stopRealtime = subscribeForLeakCheck(room.clientFor(watcherUserId), room.game.id, (payload) => capturedRealtime.push(payload))
+      const subscription = subscribeForLeakCheck(room.clientFor(watcherUserId), room.game.id, (payload) => capturedRealtime.push(payload))
+      stopRealtime = subscription.stop
+      await subscription.ready
     }
 
     // 2. The middle seat's own apply-action response — issue #478's exact
