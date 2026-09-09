@@ -11,7 +11,8 @@ name: Start the next queued issue
 #
 #   queued       ready to be worked. Lowest issue number goes first.
 #   priority     jumps ahead of other `queued` issues. Ties break by number.
-#   in-progress  started. Removed only by the issue closing.
+#   in-progress  started. Removed by the issue closing, or by the stale-start
+#                recovery below when a start visibly never happened.
 #
 # `priority` only reorders what is already queued. It does not start anything
 # on its own (an issue still needs `queued`), and it does not interrupt an
@@ -58,6 +59,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      pull-requests: read
     steps:
       - name: Start the next queued issue
         uses: actions/github-script@v7
@@ -96,7 +98,35 @@ jobs:
             const issues = open.filter(i => !i.pull_request)
             const labelled = (issue, name) => issue.labels.some(l => (l.name ?? l) === name)
 
-            const inFlight = issues.filter(i => labelled(i, IN_PROGRESS))
+            // An issue is only really in flight if the run it started
+            // produced something. claude.yml can die before Claude begins —
+            // on 2026-09-09 an unauthenticated Supabase-CLI version lookup hit
+            // the API rate limit and killed a run eight seconds in — and an
+            // issue left `in-progress` by a start that never happened holds
+            // the queue forever, silently. So a started issue with no branch,
+            // no open PR and no activity for STALE_AFTER_MINUTES is treated as
+            // never started and gets restarted on the next tick. The window is
+            // generous because a real run is slow (the longest so far was 44
+            // minutes) and restarting a live one would produce exactly the
+            // duplicate branches MAX_IN_FLIGHT exists to prevent.
+            const STALE_AFTER_MINUTES = 90
+            const branches = await github.paginate(github.rest.repos.listBranches, { owner, repo, per_page: 100 })
+            const openPrs = await github.paginate(github.rest.pulls.list, { owner, repo, state: 'open', per_page: 100 })
+            const startedWork = (number) => (
+              branches.some(b => b.name.startsWith(`claude/issue-${number}-`)) ||
+              openPrs.some(pr => pr.head.ref.startsWith(`claude/issue-${number}-`))
+            )
+            const staleSince = Date.now() - STALE_AFTER_MINUTES * 60_000
+
+            const inFlight = []
+            for (const issue of issues.filter(i => labelled(i, IN_PROGRESS))) {
+              if (startedWork(issue.number)) { inFlight.push(issue); continue }
+              if (new Date(issue.updated_at).getTime() > staleSince) { inFlight.push(issue); continue }
+              core.warning(`#${issue.number} has been in progress since ${issue.updated_at} with no branch and no open PR — treating its start as failed and restarting it.`)
+              await github.rest.issues.removeLabel({ owner, repo, issue_number: issue.number, name: IN_PROGRESS }).catch(() => {})
+              await github.rest.issues.addLabels({ owner, repo, issue_number: issue.number, labels: [QUEUED] })
+              issue.labels = [{ name: QUEUED }, ...issue.labels.filter(l => (l.name ?? l) !== IN_PROGRESS)]
+            }
             if (inFlight.length >= MAX_IN_FLIGHT) {
               core.info(`Holding: ${inFlight.map(i => `#${i.number}`).join(', ')} still in progress.`)
               return

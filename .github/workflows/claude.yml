@@ -37,12 +37,22 @@ jobs:
       # allowed Bash tools below, rather than always paying the Docker-image
       # pull cost on every @claude mention regardless of whether it touches
       # supabase/.
+      # Both are conveniences, not requirements: Claude only needs them if the
+      # task touches supabase/. `version: latest` resolves through an
+      # unauthenticated GitHub API call, which hit the rate limit on
+      # 2026-09-09 and killed the whole run eight seconds in, before Claude
+      # started — and since claude-queue.yml holds the queue on an in-progress
+      # issue, one rate-limited lookup stalled everything with no signal. So
+      # they no longer fail the job; a task that genuinely needs the CLI will
+      # say the command is missing, which is a far better failure.
       - name: Install Supabase CLI
+        continue-on-error: true
         uses: supabase/setup-cli@v1
         with:
           version: latest
 
       - name: Install Deno
+        continue-on-error: true
         uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
