@@ -123,7 +123,7 @@ a restructuring of work.
 | | Pre-production | Production |
 | --- | --- | --- |
 | Branch | `main` | `production` |
-| GitHub Environment | `PreProduction` | `production` |
+| GitHub Environment | `Preview` | `production` |
 | Supabase project | new, e.g. `rise-and-fall-staging` | the existing one |
 | Frontend | Vercel Preview env, with a stable branch domain | Vercel Production |
 | Data | disposable; seeded on demand | real games |
@@ -269,7 +269,7 @@ not the same as proving the app works.
    **production**.
    That happened on 2026-09-09 — a `Deploy Supabase` run requested for
    "staging" deployed to production instead, because no environment of that
-   name existed (the real one is called `PreProduction`) and GitHub
+   name existed (the real one is called `Preview`) and GitHub
    auto-created an empty one. Both workflows now refuse to
    continue unless the resolved project ref matches the environment, checked
    against a repository variable `PRODUCTION_SUPABASE_PROJECT_ID`; set that

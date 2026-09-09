@@ -47,10 +47,10 @@ on:
         # environment inherits the repository-level secrets, i.e. production.
         # That is how a run requested for "staging" reached production on
         # 2026-09-09, before the guard below existed.
-        options: [PreProduction, production]
+        options: [Preview, production]
         # Pre-production first, so the riskier target is never the one a
         # mis-click selects.
-        default: PreProduction
+        default: Preview
 
 # Never two runs against the same environment at once: each creates and
 # deletes real rows, and serializing keeps a failure's leftovers unambiguous.
@@ -82,7 +82,7 @@ jobs:
             # Mirrors deploy-supabase.yml's mapping — change both together.
             case "$BRANCH" in
               # Phase 3 (DELIVERY_PIPELINE_PLAN.md §3) changes this one line:
-              # main starts resolving to PreProduction, and a new `production`
+              # main starts resolving to Preview, and a new `production`
               # branch takes over releasing.
               main) resolved=production ;;
               *)
