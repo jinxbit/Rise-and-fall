@@ -297,24 +297,27 @@ describe('production Supabase stack', () => {
 
   /**
    * Found by replaying blue-beats-red (a real hotseat game) under server-side
-   * enforcement: it is refused at its second-to-last action.
+   * enforcement: it used to be refused at its second-to-last action.
    *
    * §4.1 deliberately scopes hotseat out of the enforcement model — one shared
    * `auth.uid()` covers every local seat, so `isAuthorizedToActAs`
    * (supabase/functions/_shared/gameEnforcement.ts) lets any seated player act
-   * for any seat in a hotseat game. §4.4/§4.5's owner-override check has no
-   * such carve-out, and it is about protecting one *human* from another human
-   * discarding their undone move. In hotseat there is only one human, so the
-   * check has nothing to protect and instead blocks ordinary play: undo a
-   * seat's pick during a simultaneous phase, then act for the other seat, and
-   * the submission is refused unless room admin mode happens to be on.
+   * for any seat in a hotseat game. §4.4/§4.5's owner-override check used to
+   * have no such carve-out, even though it exists only to protect one *human*
+   * from another human discarding their undone move — in hotseat there is
+   * only one human, so it had nothing to protect and instead blocked ordinary
+   * play: undo a seat's pick during a simultaneous phase, then act for the
+   * other seat, and the submission was refused unless room admin mode
+   * happened to be on.
    *
-   * This test documents the behaviour as it stands rather than endorsing it.
-   * If `requiresOwnerOverride`'s caller grows the same hotseat carve-out
-   * `isAuthorizedToActAs` already has, this test will fail — that is the
-   * point; delete it then.
+   * Fixed by issue #486: apply-action/index.ts now skips the owner-override
+   * check entirely for a hotseat game (`ctx.game.play_mode === 'hotseat'`),
+   * the same condition `isAuthorizedToActAs` and `redactedResponseState`
+   * already key their own hotseat carve-outs on. This test now pins the fix
+   * — invert it again if this game (or hotseat in general) should ever need
+   * the override back.
    */
-  it('refuses a hotseat player acting for their other seat after undoing the first one’s pick', async () => {
+  it('lets a hotseat player act for their other seat after undoing the first one’s pick', async () => {
     const genesis = await seed(stack, settingsFor({ mapTemplateId: 'classic' }))
     // Both seats belong to one signed-in human, which is what hotseat means.
     const hotseat = { ...gameRow(settingsFor()), play_mode: 'hotseat' as const }
@@ -339,12 +342,11 @@ describe('production Supabase stack', () => {
     // The same human, now playing their other seat. Nobody else's move is
     // being discarded — there is nobody else.
     const bob = undone.state.players.find((player) => player.id === 'seat-bob')!
-    const blocked = await stack.applyAction(ALICE, GAME_ID, { type: 'CHOOSE_CARD', playerId: 'seat-bob', cardId: bob.handCardIds[0] })
-    expect(blocked).toMatchObject({
-      ok: false,
-      status: 403,
-      error: "Submitting this action would discard another player's undone move — only the room owner or an admin, with room admin mode on, may do that.",
-    })
+    const bobCardId = bob.handCardIds[0]
+    const accepted = await stack.applyAction(ALICE, GAME_ID, { type: 'CHOOSE_CARD', playerId: 'seat-bob', cardId: bobCardId })
+    if (!accepted.ok) throw new Error(accepted.error)
+    expect(accepted.state.chosenCardIdByPlayerId['seat-bob']).toBe(bobCardId)
+    expect(accepted.state.pendingPlayerIds).not.toContain('seat-bob')
   })
 
   describe('fixture reconstruction', () => {

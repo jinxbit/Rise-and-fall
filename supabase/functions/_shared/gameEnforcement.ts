@@ -143,7 +143,10 @@ export async function loadGameContext(supabase: SupabaseClient, gameId: string, 
  * see RULE_ENFORCEMENT_PLAN.md's Scope section), so any player enrolled in a
  * hotseat game may act for any seat in it, same as today's client-trusted
  * behavior. Live/async requires an exact (game, seat, caller) match. §4.5's
- * owner/admin override applies uniformly on top, regardless of play mode.
+ * owner/admin override applies on top for live/async — issue #486 gives
+ * hotseat its own carve-out from that check instead (apply-action/index.ts),
+ * since it exists to stop one human discarding another human's undone move,
+ * and hotseat has only one human to begin with.
  */
 export function isAuthorizedToActAs(ctx: GameContext, callerUserId: string, playerId: string): boolean {
   if (ctx.isOwnerOrAdmin) return true
@@ -215,7 +218,12 @@ export function redactedResponseState(ctx: GameContext, callerUserId: string, st
  * caller (apply-action/index.ts) must also check `GameState.adminModeActive`
  * (toggled by SET_ADMIN_MODE, src/engine/actions.ts) — being the room owner
  * or a site admin is no longer sufficient by itself, it's a privilege that
- * has to be deliberately switched on first.
+ * has to be deliberately switched on first. Also unconditional here on play
+ * mode — issue #486: this function has no `GameContext` to read `play_mode`
+ * from, so its caller skips calling it at all for a hotseat game instead
+ * (same reasoning as isAuthorizedToActAs's hotseat branch above: one shared
+ * `auth.uid()` covers every seat, so there is no second human whose undone
+ * move could be discarded).
  */
 export function requiresOwnerOverride(rawHistory: LoggedAction[], submittedByPlayerId: string): boolean {
   return redoableTail(rawHistory).some((entry) => entry.action.playerId !== submittedByPlayerId)
