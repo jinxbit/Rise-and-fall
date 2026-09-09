@@ -145,6 +145,38 @@ export function GamePage() {
   const [players, setPlayers] = useState<PlayerRow[]>([])
   const [gameState, setGameState] = useState<EngineGameState | null>(null)
   const [version, setVersion] = useState<number | null>(null)
+  /**
+   * Tracks the newest `version` actually applied to `gameState`, independent
+   * of React state (which only updates after a render) — guards
+   * applyGameStateSnapshot below against two in-flight fetches resolving out
+   * of order. Reset to `null` whenever the game-id effect below
+   * (re-)subscribes, since a version number is only ever comparable within
+   * the same game's `game_state` row.
+   */
+  const latestVersionRef = useRef<number | null>(null)
+
+  /**
+   * Applies a freshly fetched state/version pair, discarding it if it's no
+   * newer than what's already showing. The realtime subscription below
+   * kicks off a brand new `fetchState()` HTTP round trip on every
+   * `game_state_meta` change, and `useRefetchOnVisible` does the same on tab
+   * focus — two such requests (or one of them racing this client's own
+   * optimistic write in submitAction/writeWithRetry) can resolve in a
+   * different order than they were sent, which without this guard would
+   * briefly roll `gameState` back to an earlier round phase/card choice
+   * before the newer response's turn came — e.g. flashing ActionsPanel's
+   * "No chosen card found for this player." for the split second the UI
+   * shows `roundPhase: 'actions'` from a fresher response paired with an
+   * older response's `chosenCardIdByPlayerId` (issue #507). Every call site
+   * that sets `gameState`/`version` together should go through this instead
+   * of calling both setters directly.
+   */
+  function applyGameStateSnapshot(snapshot: GameStateSnapshot) {
+    if (latestVersionRef.current !== null && snapshot.version <= latestVersionRef.current) return
+    latestVersionRef.current = snapshot.version
+    setGameState(snapshot.state)
+    setVersion(snapshot.version)
+  }
   const [actionError, setActionError] = useState<AppError | null>(null)
   /** True while a move submitted via submitAction() is in flight — surfaced as a small "Sending…" badge in the board's top-right corner (issue #434). */
   const [submitting, setSubmitting] = useState(false)
@@ -360,10 +392,7 @@ export function GamePage() {
       if (fresh) setGame(fresh)
     })
     void fetchGameState(game).then((snapshot) => {
-      if (snapshot) {
-        setGameState(snapshot.state)
-        setVersion(snapshot.version)
-      }
+      if (snapshot) applyGameStateSnapshot(snapshot)
     })
     void listPlayers(game.id).then(setPlayers)
   })
@@ -373,23 +402,18 @@ export function GamePage() {
     const gameId = game.id
     const redacted = usesRedactedReads(game)
     let cancelled = false
+    // A version number is only comparable within the same game's game_state
+    // row — starting fresh here (rather than carrying over whatever the
+    // previous game left behind) is what lets applyGameStateSnapshot's guard
+    // accept this game's very first, low-numbered snapshot.
+    latestVersionRef.current = null
 
     void (async () => {
       const snapshot = await fetchGameState(game)
-      if (!cancelled && snapshot) {
-        setGameState(snapshot.state)
-        setVersion(snapshot.version)
-      }
+      if (!cancelled && snapshot) applyGameStateSnapshot(snapshot)
     })()
 
-    const unsubscribeGameState = subscribeToGameState(
-      gameId,
-      (snapshot) => {
-        setGameState(snapshot.state)
-        setVersion(snapshot.version)
-      },
-      redacted,
-    )
+    const unsubscribeGameState = subscribeToGameState(gameId, applyGameStateSnapshot, redacted)
     const unsubscribePlayers = subscribeToPlayers(gameId, () => {
       void listPlayers(gameId).then(setPlayers)
     })
@@ -1063,8 +1087,7 @@ export function GamePage() {
     if (guardError) return { ok: false, error: guardError }
     const result = await call()
     if (!result.ok) return result
-    setGameState(result.state)
-    setVersion(result.version)
+    applyGameStateSnapshot({ state: result.state, version: result.version })
     return { ok: true, state: result.state }
   }
 
@@ -1089,8 +1112,7 @@ export function GamePage() {
 
       const wrote = await writeGameState(game.id, result.state, ver)
       if (wrote) {
-        setGameState(result.state)
-        setVersion(ver + 1)
+        applyGameStateSnapshot({ state: result.state, version: ver + 1 })
         return result
       }
 
@@ -1098,8 +1120,7 @@ export function GamePage() {
       if (!fresh) return { ok: false, error: 'Game state disappeared unexpectedly.' }
       state = fresh.state
       ver = fresh.version
-      setGameState(fresh.state)
-      setVersion(fresh.version)
+      applyGameStateSnapshot(fresh)
     }
     return { ok: false, error: "Couldn't sync with the other player's moves — please try again." }
   }

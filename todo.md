@@ -3837,3 +3837,41 @@ cases; `undoDecision.test.ts`'s `shouldRetractOwnDecline` suite.
 
 `npm run lint`, `npm run test` (1194 tests, 68 files) and `npm run build` all
 pass.
+
+## 76. Fixed: "No chosen card" flashed in red right after choosing one (issue #507)
+
+Reported: `ActionsPanel`'s red "No chosen card found for this player." (`src/components/RoundView.tsx`)
+flashed on screen briefly right after the reporter chose their card, then
+corrected itself. The engine side has no path to this: `applyChooseCard`
+(`src/engine/applyAction.ts`) always sets `chosenCardIdByPlayerId[playerId]`
+before `beginActionsPhase` (`src/engine/round.ts`) can flip `roundPhase` to
+`'actions'`, so a persisted `GameState` can never have one without the other.
+
+The actual cause was on the read side, in `GamePage.tsx`. `subscribeToGameState`
+(`src/lib/gameApi.ts`) fires a brand new `fetchState()` HTTP round trip on
+every `game_state_meta` change instead of pushing the row itself (issue #448,
+for bandwidth); `useRefetchOnVisible` and every write path (`submitAction`'s
+`runEnforced`/`writeWithRetry`) also call `setGameState`/`setVersion` off
+their own independent fetches. None of these compared the fetched `version`
+against what was already showing, so two in-flight requests — one of them
+routinely this client's own realtime echo of the very write it just made —
+could resolve out of order over the network. Landing right as `roundPhase`
+flipped from `selectCards` to `actions`, the stale, lower-`version` response
+briefly overwrote the fresh one, pairing an already-advanced `roundPhase`
+with a `chosenCardIdByPlayerId` that hadn't caught up yet — exactly what
+`ActionsPanel` reads as "no card chosen."
+
+Fix: `GamePage.tsx` now funnels every `gameState`/`version` update through a
+single `applyGameStateSnapshot` helper, guarded by a `latestVersionRef` that
+only accepts a snapshot whose `version` is strictly newer than the last one
+actually applied. The ref resets to `null` inside the `[game?.id]` effect
+each time it (re)subscribes, since a version number is only comparable
+within one game's own `game_state` row — a stale ref from a previously
+viewed room would otherwise reject a freshly loaded game's legitimately low
+version numbers.
+
+No new tests: this is a client-side network-ordering race with no engine
+state to reproduce it against (`src/test/supabaseStack`'s in-process fetch
+mock resolves synchronously, so it can't model the out-of-order timing
+either) — `npm run lint`, `npm run test` (1194 tests, 68 files) and
+`npm run build` all pass unchanged.
