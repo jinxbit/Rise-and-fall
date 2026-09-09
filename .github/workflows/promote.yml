@@ -1,0 +1,186 @@
+name: Promote to production
+
+# The one way a change reaches production (DELIVERY_PIPELINE_PLAN.md §6 step 4,
+# §9 phase 5). It fast-forwards `production` to a commit `main` already
+# carries — which is what keeps `production` an ancestor of `main` by
+# construction, so the two can never diverge and there is no back-merge to
+# forget (§3).
+#
+# It deploys nothing itself. The push does that: Deploy Supabase sees
+# `production` move and takes the production project, then Smoke follows it.
+# That indirection is the point — the same path a push to `main` takes to
+# pre-production, aimed at the other project.
+#
+# THE GATE LIVES ON `production-release`, NOT `production`. A required
+# reviewer on the `production` environment would suspend every production
+# deploy and every nightly production smoke run waiting for a click, because
+# those run under it too (§5). `production-release` exists solely to be
+# approved and is referenced by nothing else.
+#
+# Uses AUTOMATION_TOKEN for the same reason automerge.yml does: GitHub does
+# not start workflow runs from events its own GITHUB_TOKEN caused, so a push
+# made with it would move `production` without triggering the deploy — the
+# most dangerous possible failure here, since production would then be running
+# code nobody deployed while the branch claimed otherwise.
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: 'Commit on main to promote (full SHA; blank = current main head)'
+        type: string
+        required: false
+
+concurrency:
+  group: promote-production
+  cancel-in-progress: false
+
+jobs:
+  # Everything checkable, checked BEFORE the approval prompt, so the approver
+  # is deciding about a specific commit with its state in front of them rather
+  # than clicking on trust.
+  prepare:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      sha: ${{ steps.checks.outputs.sha }}
+    steps:
+      - name: Resolve the commit and check it is promotable
+        id: checks
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const [owner, repo] = [context.repo.owner, context.repo.repo]
+            const requested = (context.payload.inputs?.commit || '').trim()
+
+            const mainRef = await github.rest.repos.getBranch({ owner, repo, branch: 'main' })
+            const sha = requested || mainRef.data.commit.sha
+            const short = sha.slice(0, 7)
+            const problems = []
+            const notes = []
+
+            // `main` must contain it: promoting something that only exists on
+            // a side branch would put code in production that pre-production
+            // never integrated.
+            let onMain = false
+            try {
+              const cmp = await github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${sha}...main` })
+              onMain = ['ahead', 'identical'].includes(cmp.data.status)
+              if (!onMain) problems.push(`main does not contain ${short} (compare says "${cmp.data.status}")`)
+            } catch (e) {
+              problems.push(`could not compare ${short} against main: ${e.message}`)
+            }
+
+            // Fast-forward only. `production` must be strictly behind it, or
+            // already there.
+            try {
+              const cmp = await github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `production...${sha}` })
+              if (cmp.data.status === 'identical') {
+                notes.push(`production is already at ${short}; the promotion would be a no-op.`)
+              } else if (cmp.data.status !== 'ahead') {
+                problems.push(`promoting ${short} would not be a fast-forward (compare says "${cmp.data.status}")`)
+              } else {
+                notes.push(`${cmp.data.ahead_by} commit(s) ahead of production.`)
+              }
+            } catch (e) {
+              problems.push(`could not compare production against ${short}: ${e.message}`)
+            }
+
+            // CI green on this exact commit.
+            const ci = await github.rest.actions.listWorkflowRuns({ owner, repo, workflow_id: 'ci.yml', head_sha: sha, per_page: 20 })
+            const ciRuns = ci.data.workflow_runs.filter(r => r.status === 'completed')
+            if (ciRuns.length === 0) {
+              problems.push(`no completed CI run for ${short}`)
+            } else if (!ciRuns.some(r => r.conclusion === 'success')) {
+              problems.push(`CI on ${short} concluded "${ciRuns[0].conclusion}"`)
+            } else {
+              notes.push(`CI green on ${short}.`)
+            }
+
+            // Never promote while pre-production is red (§7). The most recent
+            // Preview smoke run is what that means in practice; whether it was
+            // this exact commit is reported rather than required, because a
+            // commit touching none of the deploy paths is never deployed and
+            // so never smoke-tested.
+            const smoke = await github.rest.actions.listWorkflowRuns({ owner, repo, workflow_id: 'smoke.yml', status: 'completed', per_page: 30 })
+            let latestPreview = null
+            for (const run of smoke.data.workflow_runs) {
+              const jobs = await github.rest.actions.listJobsForWorkflowRun({ owner, repo, run_id: run.id, per_page: 100 })
+              const job = jobs.data.jobs.find(j => j.name === 'smoke (Preview)')
+              if (job) { latestPreview = { run, job }; break }
+            }
+            if (!latestPreview) {
+              problems.push('no Preview smoke run found to check')
+            } else if (latestPreview.job.conclusion !== 'success') {
+              problems.push(`the most recent Preview smoke run concluded "${latestPreview.job.conclusion}" (run ${latestPreview.run.id}) — §7: never promote while pre-production is red`)
+            } else {
+              const same = latestPreview.run.head_sha === sha
+              notes.push(`Preview smoke green on ${latestPreview.run.head_sha.slice(0, 7)}${same ? ' (this commit)' : ' — NOT this commit; this one was never deployed to pre-production, which is normal for a change touching no deploy path'}.`)
+            }
+
+            // The gate itself. An environment GitHub auto-created because a
+            // workflow named it has no reviewer, and this is the one place
+            // where that failure mode means "promoted without approval".
+            try {
+              const env = await github.rest.repos.getEnvironment({ owner, repo, environment_name: 'production-release' })
+              const reviewers = (env.data.protection_rules || []).find(r => r.type === 'required_reviewers')
+              if (!reviewers) problems.push('the `production-release` environment has no required reviewer, so this would promote without an approval — add one under Settings -> Environments')
+              else notes.push('production-release requires an approval.')
+            } catch (e) {
+              // Not fatal: the token may simply not be allowed to read
+              // environments. Say so rather than imply the gate was checked.
+              notes.push(`Could not verify the production-release approval gate (${e.message}). Check it by eye under Settings -> Environments.`)
+            }
+
+            const commitInfo = await github.rest.repos.getCommit({ owner, repo, ref: sha })
+            const title = commitInfo.data.commit.message.split('\n')[0]
+
+            await core.summary
+              .addHeading(`Promote ${short} to production`)
+              .addRaw(`**${title}**\n\n`)
+              .addList(notes)
+              .addRaw(problems.length ? `\n**Blocked:**\n` : '\nNothing blocking.\n')
+              .addList(problems)
+              .write()
+
+            if (problems.length) {
+              core.setFailed(`Refusing to promote ${short}:\n- ${problems.join('\n- ')}`)
+              return
+            }
+            core.setOutput('sha', sha)
+
+  promote:
+    needs: prepare
+    runs-on: ubuntu-latest
+    # The approval prompt. Nothing above this line changes anything.
+    environment: production-release
+    permissions:
+      contents: read
+    steps:
+      - name: Check the automation token is present
+        env:
+          HAVE_TOKEN: ${{ secrets.AUTOMATION_TOKEN != '' }}
+        run: |
+          if [ "$HAVE_TOKEN" != "true" ]; then
+            echo "::error::No AUTOMATION_TOKEN. A push made with GITHUB_TOKEN would move production without triggering Deploy Supabase, leaving production running code that was never deployed. Refusing. See this workflow's header."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.AUTOMATION_TOKEN }}
+
+      # No --force, no lease: a plain push to a branch ref is refused by git
+      # unless it fast-forwards, which is exactly the guarantee §3 relies on.
+      # If this ever fails, `production` has commits `main` does not, and that
+      # is a thing to understand rather than override.
+      - name: Fast-forward production
+        env:
+          SHA: ${{ needs.prepare.outputs.sha }}
+        run: |
+          git push origin "$SHA:refs/heads/production"
+          echo "production -> $SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "Deploy Supabase and Smoke will follow this push." >> "$GITHUB_STEP_SUMMARY"

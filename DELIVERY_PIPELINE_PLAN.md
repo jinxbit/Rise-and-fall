@@ -409,9 +409,27 @@ not the same as proving the app works.
    production smoke is filed as an issue without one, because pointing an
    unattended agent at the live project is a decision for the maintainer, not
    a side effect of a nightly.
-5. **The promotion workflow.** Fast-forward `production`, gated by a required
-   reviewer on a dedicated `production-release` environment — never on
-   `production` itself, which deploys and nightly smoke runs also use (§5).
+5. **The promotion workflow.** ✅ (2026-09-09) `promote.yml`, a
+   `workflow_dispatch` taking the commit to promote (blank = `main`'s head).
+   Everything checkable happens in an ungated `prepare` job *before* the
+   approval prompt, and is written to the run summary, so the approver reads
+   the commit's title, whether `main` contains it, whether the move is a
+   fast-forward, CI's verdict on that exact commit, and the state of the most
+   recent Preview smoke run — rather than clicking on trust. §7's "never
+   promote while pre-production is red" is enforced there; whether the smoke
+   run covered this exact commit is reported rather than required, since a
+   commit touching no deploy path is never deployed and so never smoke-tested.
+
+   It deploys nothing. The push does that, which is also why it needs
+   `AUTOMATION_TOKEN` (§5): a push made with `GITHUB_TOKEN` would move
+   `production` without triggering the deploy, leaving production running code
+   that was never deployed while the branch claimed otherwise — the worst
+   failure available here. The push is a plain one, so git itself refuses
+   anything that is not a fast-forward.
+
+   `prepare` also asserts that `production-release` actually has a required
+   reviewer, because this is the one place where §8's auto-created-empty-
+   environment trap would mean "promoted with no approval at all".
 6. **Browser tests.** The Playwright layer sketched earlier — it is what
    would eventually justify trusting an automatic promotion.
 

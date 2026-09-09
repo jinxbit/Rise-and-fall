@@ -136,7 +136,10 @@ storage must work on **both** paths.
 - **`main` is pre-production, not production.** `.github/workflows/deploy-supabase.yml`
   deploys to the **Preview** Supabase project on push to `main`, and to
   production on push to the `production` branch — which is only ever
-  fast-forwarded to a commit `main` already carries. Vercel mirrors the same
+  fast-forwarded to a commit `main` already carries, by the `Promote to
+  production` workflow (`promote.yml`), which checks the commit is on `main`,
+  that CI is green on it and that pre-production is not red, then waits for an
+  approval on the `production-release` environment before pushing. Vercel mirrors the same
   split. It fires when `supabase/migrations/**`, `supabase/functions/**`, or
   **`src/lib/**`** changes, running `supabase db push` and `supabase functions
   deploy`. A `src/lib` change is a backend change. A migration that would cut
