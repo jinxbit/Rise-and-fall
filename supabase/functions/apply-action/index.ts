@@ -94,7 +94,14 @@ Deno.serve(async (req) => {
     // longer sufficient by itself, so this privilege is something they have
     // to deliberately opt into rather than silently always have.
     const ownerOverrideAvailable = ctx.isOwnerOrAdmin && Boolean(ctx.gameState.state.adminModeActive)
-    if (requiresOwnerOverride(ctx.gameState.state.actionHistory, action.playerId) && !ownerOverrideAvailable) {
+    // issue #486: this check exists to stop one human discarding another
+    // human's undone move. In hotseat, one shared auth.uid() covers every
+    // seat (same reasoning as isAuthorizedToActAs's hotseat branch above and
+    // redactedResponseState's, both keyed the same way), so there is no
+    // second human to protect from — undoing one seat's pick and then acting
+    // for another seat is ordinary hotseat play, not a takeover.
+    const isHotseat = ctx.game.play_mode === 'hotseat'
+    if (!isHotseat && requiresOwnerOverride(ctx.gameState.state.actionHistory, action.playerId) && !ownerOverrideAvailable) {
       return jsonResponse(403, {
         ok: false,
         error: "Submitting this action would discard another player's undone move — only the room owner or an admin, with room admin mode on, may do that.",

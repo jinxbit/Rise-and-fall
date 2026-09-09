@@ -338,7 +338,19 @@ persisted, replay-derived flag, toggled only by a new logged action,
 same checks this section already used. The owner-override check in
 `apply-action` (`requiresOwnerOverride`,
 `supabase/functions/_shared/gameEnforcement.ts`) now additionally requires
-`ctx.gameState.state.adminModeActive`, not just `ctx.isOwnerOrAdmin`. Every
+`ctx.gameState.state.adminModeActive`, not just `ctx.isOwnerOrAdmin`.
+
+**Update (2026-09-09, issue #486): the owner-override check does not apply
+to hotseat games at all.** It exists to stop one *human* discarding another
+human's undone move; in hotseat, one shared `auth.uid()` covers every local
+seat (§4.1's carve-out for `isAuthorizedToActAs`), so there is no second
+human for it to protect against, and it was instead blocking ordinary
+hotseat play — undo one seat's pick during a simultaneous phase, act for the
+other seat, and the submission was refused unless room admin mode happened
+to be on. `apply-action/index.ts` now skips calling `requiresOwnerOverride`
+entirely when `ctx.game.play_mode === 'hotseat'`, the same condition
+`isAuthorizedToActAs` and `redactedResponseState` already key their own
+hotseat carve-outs on. Non-hotseat games are unaffected. Every
 other action submitted while it's on is stamped
 `LoggedAction.viaAdminMode: true` (`src/engine/applyAction.ts`) and
 surfaced in the narration log (`GameEvent.adminMode`, `src/engine/gameLog.ts`
