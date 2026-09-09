@@ -402,6 +402,15 @@ not the same as proving the app works.
    way Actions logs are, so the two key secrets and anything JWT-shaped are
    stripped before posting.
 
+   Extended (2026-09-09) with `claude-branch-pr.yml` once the loop was tried
+   on real work and stalled at the first hop: `claude.yml` answers an
+   @claude mention by pushing a branch and posting a *link* to open a PR, so
+   nothing merged until a human clicked it — the hidden-information phase 8
+   branch sat finished and unmerged for a day that way. That workflow opens
+   and labels the PR for a `claude/issue-**` branch, which is what closes
+   issue -> branch -> PR -> CI -> `main` -> pre-production -> smoke with no
+   click in it. Ad-hoc `claude/…` branches are deliberately left alone.
+
    Two things surfaced while building it, both recorded above: §7's
    "opened by Claude" rule is not expressible as an author check, and neither
    half works on `GITHUB_TOKEN` alone (§5, `AUTOMATION_TOKEN`). A third is a

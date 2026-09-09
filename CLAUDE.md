@@ -35,7 +35,11 @@ without waiting for the maintainer, but only for a PR that is not a draft, is
 based on `main`, has its head on a `claude/` branch **in this repository**,
 carries the `automerge` label, touches no `supabase/migrations/**`, and is
 still at the commit CI passed on. A migration always gets a human read
-(`DELIVERY_PIPELINE_PLAN.md` §7). Both that workflow and `smoke.yml`'s
+(`DELIVERY_PIPELINE_PLAN.md` §7). The PR itself is opened by
+`claude-branch-pr.yml` when `claude.yml` pushes a `claude/issue-**` branch —
+the action only posts a "Create PR" link, so without this a finished branch
+sits unmerged — and that workflow applies the label, which is what makes the
+issue-to-pre-production loop run unattended. Both that workflow and `smoke.yml`'s
 failure reporting need the `AUTOMATION_TOKEN` secret, because GitHub does not
 start workflow runs from events its own `GITHUB_TOKEN` caused — without it a
 merge would reach `main` without triggering CI or the Supabase deploy, so
