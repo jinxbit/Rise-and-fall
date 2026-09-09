@@ -3642,3 +3642,53 @@ No behavior change: `npm run lint`, `npm run test` (1118 tests, 61 files)
 and `npm run build` all pass. Nothing was removed from `todo.md`'s existing
 entries — superseded claims elsewhere were rewritten in place, but this
 file stays append-only.
+
+## 72. Fixed: undoing another player's still-secret pick permanently disabled the Redo button (issue #498)
+
+Reported: player A makes a card choice, player B undoes it, and the game
+looks stuck — A and B both get "Submitting this action would discard
+another player's undone move" on their next submission, and Redo is greyed
+out for both.
+
+Reproduced against the in-process Supabase stack (`src/test/supabaseStack/`)
+with `hiddenInformationEnabled` on: the 403 on a fresh submission is working
+as designed (`RULE_ENFORCEMENT_PLAN.md` §4.4/§4.5 — a bystander can't
+unilaterally discard another player's still-redoable move), but Redo being
+disabled for *both* players is a real bug, and it's what actually made the
+game feel stuck — the way out (the undone player pressing Redo, which has no
+owner-override check of its own) was greyed out too.
+
+Root cause was `unredactedPrefix` (`src/engine/redaction.ts`, added for
+issue #450's phase 8): it truncated a viewer's redacted `actionHistory` at
+the *first* masked `CHOOSE_CARD`/`MOVE_TO_DECLINE` entry it found, on the
+assumption such an entry was always the raw log's tip. Undo breaks that
+assumption — the masked entry ends up in the *middle* of the log, followed
+by a real `UNDO_ACTION` marker, and the old logic dropped that marker (and
+everything else after it) right along with the secret it was actually
+protecting. That corrupted `resolveHistory(...).canRedo`
+(`src/engine/historyFold.ts`) on the client, which is exactly what
+`GamePage.tsx`'s `historyPointer.canRedo` — the Redo button — reads.
+
+Fixed by keying the truncation on `resolveHistory(actionHistory).effective`
+instead of raw order: `resolveHistory`/`walkHistory` only ever look at each
+entry's `type`, never its payload, so it's safe to run on a still-masked
+array before deciding what to cut. A masked entry that's since been undone
+(or branched away) is never in `.effective`, and `replayActions` only ever
+replays `.effective` — so it's safe to leave it, `cardId: null` and all, in
+the returned array; only a masked entry that's still genuinely in effect
+(the ordinary still-pending-selectCards case this was originally written
+for) still needs to cut the prefix short there. See
+`HIDDEN_INFORMATION_PLAN.md` §8 phase 8's new issue #498 update for the
+full before/after reasoning.
+
+New coverage: `redaction.test.ts` (`unredactedPrefix`/`toClientGameState`,
+built by undoing a real masked pick via `applyUndoAction` rather than
+`RETRACT_CHOICE`, which doesn't exhibit the bug — see the new tests'
+comments for why) and `writePathRedaction.test.ts` (the same scenario
+end-to-end through the real `undo-action`/`get-game-state` Edge Functions,
+asserting both the undoer's and the bystander's collapsed `actionHistory`
+agree with the server that a redo is available). Confirmed each new test
+fails against the pre-fix `unredactedPrefix` and passes against the fix.
+
+`npm run lint`, `npm run test` (1169 tests, 67 files) and `npm run build`
+all pass.

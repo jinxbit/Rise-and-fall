@@ -4,8 +4,10 @@ import { createEmptyBoard } from '../board'
 import { cardIdFor, moveCard, UNIT_KINDS } from '../cards'
 import { createNewGame } from '../createGame'
 import { buildGameLog, PLAYER_PLACEHOLDER } from '../gameLog'
+import { resolveHistory } from '../historyFold'
 import { redactGameLog, redactStateForPlayer, revealedGameStateView, toClientGameState, unredactedPrefix } from '../redaction'
 import type { GameState, Unit } from '../types'
+import { applyUndoAction } from '../undoRedo'
 
 /**
  * Same shape as round.test.ts's own fixture of the same name — an active
@@ -298,6 +300,52 @@ describe('unredactedPrefix', () => {
     const asP2 = redactStateForPlayer(state, 'p2')
     expect(unredactedPrefix(asP2.actionHistory)).toEqual([])
   })
+
+  it("keeps a real UNDO_ACTION (and the resolveHistory().canRedo it powers) in the prefix even though it comes right after a masked pick, since undoing that pick means it's no longer in effect (issue #498)", () => {
+    const genesis = makeActiveGameWithFullHands()
+    const afterChoice = requireOk(applyAction(genesis, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }))
+    expect(afterChoice.pendingPlayerIds).toEqual(['p2'])
+
+    // p2 undoes p1's still-secret pick — reverting the round back to both
+    // players pending, same as GamePage.tsx's handleUndo/undo-action.
+    const undone = requireOk(applyUndoAction(genesis, afterChoice, 'p2'))
+    expect(undone.roundPhase).toBe('selectCards')
+    expect(undone.pendingPlayerIds).toEqual(['p1', 'p2'])
+
+    const asP2 = redactStateForPlayer(undone, 'p2')
+    // p1's pick is masked from p2 exactly as before (it's still secret —
+    // undoing it doesn't retroactively reveal what it was)...
+    const choiceEntry = asP2.actionHistory.find((e) => e.action.type === 'CHOOSE_CARD')!
+    expect(choiceEntry.action).toMatchObject({ cardId: null })
+    // ...but since it's no longer in effect, the real UNDO_ACTION entry that
+    // follows it must survive unredactedPrefix's truncation — previously
+    // this dropped the UNDO_ACTION too, permanently hiding from p2's own
+    // client that anything was ever undone at all.
+    const prefix = unredactedPrefix(asP2.actionHistory)
+    expect(prefix.map((e) => e.action.type)).toEqual(['CHOOSE_CARD', 'UNDO_ACTION'])
+
+    // This is what actually powers GamePage.tsx's Redo button
+    // (historyPointer.canRedo) — p2's own client must agree with the server
+    // that p1's pick is redoable, not just p1's.
+    expect(resolveHistory(prefix).canRedo).toBe(true)
+
+    // p1's own view was never masked (it's their own pick), so it was never
+    // affected by the bug — asserted here so the fix's effect on p2's view
+    // is the only thing under test above.
+    const asP1 = redactStateForPlayer(undone, 'p1')
+    expect(resolveHistory(unredactedPrefix(asP1.actionHistory)).canRedo).toBe(true)
+  })
+
+  it('still truncates away a real entry that follows a masked pick which remains in effect (not undone) — the ordinary still-pending case is unaffected by the issue #498 fix', () => {
+    const base = makeActiveGameWithFullHands()
+    let state = requireOk(applyAction(base, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }))
+    state = requireOk(applyAction(state, { type: 'RETRACT_CHOICE', playerId: 'p1' }))
+    state = requireOk(applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'temple') }))
+    const asP2 = redactStateForPlayer(state, 'p2')
+    // p1's second (still-in-effect, still-secret) pick masks the same way,
+    // and there's nothing safe to replay past it.
+    expect(unredactedPrefix(asP2.actionHistory)).toEqual([])
+  })
 })
 
 describe('toClientGameState', () => {
@@ -320,6 +368,16 @@ describe('toClientGameState', () => {
     const client = toClientGameState(asP1)
     expect(client.chosenCardIdByPlayerId.p1).toBe(cardIdFor('p1', 'city'))
     expect(client.actionHistory).toHaveLength(1)
+  })
+
+  it("preserves resolveHistory().canRedo (GamePage.tsx's Redo button) across an undo of another player's still-secret pick (issue #498)", () => {
+    const genesis = makeActiveGameWithFullHands()
+    const afterChoice = requireOk(applyAction(genesis, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }))
+    const undone = requireOk(applyUndoAction(genesis, afterChoice, 'p2'))
+
+    const asP2 = redactStateForPlayer(undone, 'p2')
+    const client = toClientGameState(asP2)
+    expect(resolveHistory(client.actionHistory).canRedo).toBe(true)
   })
 
   it("keeps a masked decline addition's null in place (not filtered out), preserving the pile's length", () => {
