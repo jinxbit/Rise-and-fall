@@ -912,7 +912,18 @@ function ActionsPanel(props: {
 
   const cardId = myPlayerId ? state.chosenCardIdByPlayerId[myPlayerId] : null
   const card = cardId ? state.cards[cardId] : null
-  if (!card || !myPlayerId) return <p className="text-red-400">No chosen card found for this player.</p>
+  // Per applyChooseCard/beginActionsPhase (../engine/applyAction.ts,
+  // ../engine/round.ts), a persisted GameState can never have `isMyTurn`
+  // true here with no chosen card for that player — every pendingPlayerId
+  // resolves its pick before the phase can flip to 'actions'. So reaching
+  // this branch is always a transient client-side render, never a real
+  // problem (issue #507): a moment where `state` has already advanced to
+  // 'actions' but something this render also depends on hasn't caught up
+  // yet. It resolves itself on the very next render, so it should read as
+  // "still loading," not as an error — a persistent red "not chosen" message
+  // (the original wording here) told the player something was actually
+  // wrong when, by construction, it never is.
+  if (!card || !myPlayerId) return <p className="text-sm text-neutral-300">Catching up…</p>
 
   const actingUnits = eligibleActingUnits(state, unitContent, myPlayerId, card)
   const remaining = actingUnits.filter((u) => hasRemainingActivation(state, unitContent, u))

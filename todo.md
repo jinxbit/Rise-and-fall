@@ -3875,3 +3875,38 @@ state to reproduce it against (`src/test/supabaseStack`'s in-process fetch
 mock resolves synchronously, so it can't model the out-of-order timing
 either) — `npm run lint`, `npm run test` (1194 tests, 68 files) and
 `npm run build` all pass unchanged.
+
+## 77. Follow-up: the same flash was reported again after 76's fix (issue #507)
+
+Re-audited #76's fix (`applyGameStateSnapshot`'s version guard) end to end —
+`writeWithRetry`, `runEnforced`, `subscribeToGameState`'s realtime-triggered
+refetch, and `useRefetchOnVisible`, all now funnel through it, and every
+`GameStateSnapshot` it's ever handed comes from a single row read (or a
+single Edge Function response derived from one), so its `state` and
+`version` are always mutually consistent. Re-verified the engine side again
+too: `applyChooseCard`/`beginActionsPhase` (`src/engine/applyAction.ts`,
+`src/engine/round.ts`) still can't produce a persisted `GameState` with
+`roundPhase: 'actions'` and a pending player's `chosenCardIdByPlayerId`
+entry unset — every `pendingPlayerId` resolves its pick before the phase can
+flip, forced fast-forwards included (`runActionAndForcedFollowUps`), and
+`state.cards` entries are never deleted once created (`src/engine/cards.ts`
+only ever moves a card between zone arrays). No gap found in either half —
+which, read the other way, is exactly the guarantee #76's fix already relies
+on: this render is *always* a transient client artifact, by construction,
+regardless of which exact network interleaving still produces one.
+
+Given that, `ActionsPanel`'s response to hitting this branch was the actual
+remaining problem, not the guard: it rendered a permanent-looking red "No
+chosen card found for this player." (`src/components/RoundView.tsx`) for
+what is, provably, never a real problem — a scary error for a state that
+resolves itself on the very next render. Changed it to a neutral "Catching
+up…" line, same style as the "waiting for the other player" message right
+above it. This closes the report regardless of which exact interleaving
+(still unconfirmed) produces the momentary render, since the fix no longer
+depends on identifying it — anything that can transiently reach this branch
+now reads as loading, not as broken.
+
+No new tests, same reasoning as #76: this is a render triggered by a
+client-side timing artifact with no reliable way to force it from a test
+(the in-process stack's fetch mock still resolves synchronously). `npm run
+lint`, `npm run test`, and `npm run build` all pass unchanged.
