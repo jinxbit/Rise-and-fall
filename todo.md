@@ -3910,3 +3910,29 @@ No new tests, same reasoning as #76: this is a render triggered by a
 client-side timing artifact with no reliable way to force it from a test
 (the in-process stack's fetch mock still resolves synchronously). `npm run
 lint`, `npm run test`, and `npm run build` all pass unchanged.
+
+## 78. Dates back in the log, but as their own line (issue #510)
+
+Issue #358 (see this file's own entry, and the doc comment it left on
+`formatLogTimestamp`) deliberately dropped the calendar date from the game
+log, reasoning that a real-time game log is always viewed close to when
+entries happened, so a per-line date would be redundant with the
+minute-resolution time already shown. That held while games ran over hours;
+it stopped holding once a live/async game can span days between entries and
+a player wants to know *which* day a burst of log lines happened on.
+
+Rather than reinstate a per-line date (the exact repetition #358 was trying
+to avoid), added a `formatLogDate` next to `formatLogTimestamp`
+(`src/components/RoundView.tsx`) and had `LogPanel` render it as its own line
+immediately before the first entry of each calendar day, walking its
+already-newest-first `recent` list and tracking the last date shown so it
+only re-renders the header when the date actually changes — entries with no
+parseable timestamp (e.g. the synthetic "Board setup begins" entry) neither
+show a header nor reset that tracking. The per-line time stays exactly as
+#358 left it.
+
+New test in `src/components/__tests__/RoundView.test.tsx` (added to the
+existing `LogPanel (issue #358)` describe block) feeds three entries across
+two different calendar days and asserts each day's date header renders
+exactly once, not once per entry. `npm run lint`, `npm run test`, and `npm
+run build` all pass.
