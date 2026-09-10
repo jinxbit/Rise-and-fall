@@ -720,11 +720,26 @@ function AchievementsPanel({
   )
 }
 
-/** Minute-resolution local time (issue #358) — a real-time game log has no use for seconds, and an absolute date would be redundant since entries are always viewed close to when they happened. Empty/unparseable timestamps (e.g. buildGameLogFrom's synthetic "Board setup begins" entry, which has no LoggedAction to draw one from) render nothing rather than "Invalid Date". */
+/** Minute-resolution local time (issue #358) — a real-time game log has no use for seconds. Empty/unparseable timestamps (e.g. buildGameLogFrom's synthetic "Board setup begins" entry, which has no LoggedAction to draw one from) render nothing rather than "Invalid Date". The calendar date itself is shown separately, see formatLogDate/LogPanel below (issue #510). */
 function formatLogTimestamp(timestamp: string): string {
   const date = new Date(timestamp)
   if (Number.isNaN(date.getTime())) return ''
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
+/**
+ * Calendar date for LogPanel's date separators (issue #510) — a live game
+ * can span several real-world days, so the date needs to appear somewhere,
+ * but repeating it on every line (alongside the per-line time above) would
+ * just be noise for the common case of a burst of entries from the same
+ * sitting. LogPanel instead renders this once, on its own line, each time it
+ * differs from the entry before. Same "nothing rather than Invalid Date"
+ * handling as formatLogTimestamp.
+ */
+function formatLogDate(timestamp: string): string {
+  const date = new Date(timestamp)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleDateString([], { dateStyle: 'medium' })
 }
 
 /** A single player-coloured name span, same lookup PlayerColorName uses, minus its trailing colon. */
@@ -777,16 +792,27 @@ function renderLogMessage(message: string, playerId: string | null, players: Pla
 function LogPanel({ gameLog, players }: { gameLog: GameEvent[]; players: PlayerRow[] }) {
   const recent = [...gameLog].reverse()
   if (recent.length === 0) return null
+  // Tracks the date last rendered as we walk newest-first, so a date header
+  // (issue #510) only appears once per calendar day rather than per line —
+  // entries with no parseable timestamp (e.g. the synthetic "Board setup
+  // begins" entry) neither show a header nor reset this.
+  let lastDate = ''
   return (
     <div className="flex max-h-64 flex-col gap-1 overflow-y-auto rounded-md border border-neutral-800 p-3 text-xs text-neutral-500">
       {recent.map((entry) => {
         const time = formatLogTimestamp(entry.timestamp)
+        const date = formatLogDate(entry.timestamp)
+        const showDate = date !== '' && date !== lastDate
+        if (date) lastDate = date
         return (
-          <p key={entry.id}>
-            {time && <span className="text-neutral-600">[{time}] </span>}
-            {renderLogMessage(entry.message, entry.playerId, players)}
-            {entry.adminMode && <span className="text-amber-500"> (admin mode)</span>}
-          </p>
+          <Fragment key={entry.id}>
+            {showDate && <p className="font-medium text-neutral-400">{date}</p>}
+            <p>
+              {time && <span className="text-neutral-600">[{time}] </span>}
+              {renderLogMessage(entry.message, entry.playerId, players)}
+              {entry.adminMode && <span className="text-amber-500"> (admin mode)</span>}
+            </p>
+          </Fragment>
         )
       })}
     </div>

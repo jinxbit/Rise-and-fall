@@ -2735,6 +2735,49 @@ describe('RoundView — LogPanel (issue #358)', () => {
     expect(within(logEntry).getByText(/^\[\d{1,2}:\d{2}(\s?[AP]M)?\]\s*$/)).toBeTruthy()
   })
 
+  it('shows the date as its own line whenever it changes, not repeated on every entry (issue #510)', () => {
+    const state = makeState()
+    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
+    const day1a = '2026-08-27T09:00:00.000Z'
+    const day1b = '2026-08-27T14:32:00.000Z'
+    const day2 = '2026-08-28T10:15:00.000Z'
+    const dateOf = (timestamp: string) => new Date(timestamp).toLocaleDateString([], { dateStyle: 'medium' })
+
+    render(
+      <RoundView
+        state={state}
+        players={players}
+        myPlayerId="p1"
+        unitContent={EMPTY_UNIT_CONTENT}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
+        turnReview={null}
+        showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
+        gameLog={[
+          { id: 'evt_1', turn: 1, playerId: 'p1', message: '{player} chose to play Nomad', timestamp: day1a },
+          { id: 'evt_2', turn: 1, playerId: 'p2', message: '{player} chose to play Nomad', timestamp: day1b },
+          { id: 'evt_3', turn: 2, playerId: 'p1', message: '{player} chose to play Nomad', timestamp: day2 },
+        ]}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+
+    // Two calendar days appear in the log, so exactly two date headers show —
+    // one per day, not one per entry — even though day1 has two entries.
+    if (dateOf(day1a) === dateOf(day2)) throw new Error('test fixture timestamps must fall on different local calendar days')
+    expect(screen.getAllByText(dateOf(day1a))).toHaveLength(1)
+    expect(screen.getAllByText(dateOf(day2))).toHaveLength(1)
+  })
+
   it('shows the log panel to every player, not just admins (issue #399)', () => {
     const state = makeState()
     const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
