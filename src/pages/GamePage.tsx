@@ -238,11 +238,14 @@ export function GamePage() {
    * UndoAction's doc comment, engine/actions.ts) instead of a client-local,
    * unpersisted `redoStack` — so unlike that stack, both buttons' enabled
    * state below is just a pure read of the shared, persisted game state
-   * (`effective`: is there anything left to undo; `canRedo`: is there
-   * anything to redo), identical for every client and unaffected by
-   * reloading mid-review.
+   * (`canUndo`: is there anything left to undo; `canRedo`: is there anything
+   * to redo), identical for every client and unaffected by reloading
+   * mid-review. `canUndo` (issue #545), unlike a plain `effective.length`
+   * check, stays false when the only thing logged so far is a `SET_ADMIN_MODE`
+   * toggle — it's always present in `.effective` (../engine/historyFold.ts)
+   * but is never itself what a bare Undo would revert.
    */
-  const historyPointer = useMemo(() => (gameState ? resolveHistory(gameState.actionHistory) : { effective: [], canRedo: false }), [gameState])
+  const historyPointer = useMemo(() => (gameState ? resolveHistory(gameState.actionHistory) : { effective: [], canUndo: false, canRedo: false }), [gameState])
   /**
    * History review (issue #63): lets anyone step through past points in the
    * game — genesis plus every action since — without touching the live,
@@ -1780,7 +1783,7 @@ export function GamePage() {
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            disabled={undoing || isReviewingHistory || !gameState || historyPointer.effective.length === 0 || undoBlockedByRevealLock}
+            disabled={undoing || isReviewingHistory || !gameState || !historyPointer.canUndo || undoBlockedByRevealLock}
             onClick={() => void handleUndo()}
             title={
               undoBlockedByRevealLock

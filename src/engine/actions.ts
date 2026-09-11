@@ -224,6 +224,13 @@ export interface RedoAction {
  * owner-or-admin check `canAdminOverride`/`ctx.isOwnerOrAdmin` already use
  * elsewhere. See LoggedAction.viaAdminMode below for how every OTHER action
  * taken while this is on gets marked.
+ *
+ * Unlike every other action here, this one is deliberately kept out of
+ * resolveHistory's undo/redo pointer walk (issue #545, ./historyFold.ts) —
+ * it never sits in the substantive list Undo steps back through, so a bare
+ * Undo can never revert it, even when it's the most recently logged entry
+ * (the common case: switch it on, then immediately Undo to reach for the
+ * override it was meant to unlock).
  */
 export interface SetAdminModeAction {
   type: 'SET_ADMIN_MODE'

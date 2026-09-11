@@ -13,11 +13,14 @@ function undo(playerId: string | null = null): LoggedAction {
 function redo(playerId: string | null = null): LoggedAction {
   return { action: { type: 'REDO_ACTION', playerId }, turn: 0, timestamp: '' }
 }
+function setAdminMode(enabled: boolean, playerId: string | null = null): LoggedAction {
+  return { action: { type: 'SET_ADMIN_MODE', playerId, enabled }, turn: 0, timestamp: '' }
+}
 
 describe('resolveHistory', () => {
   it('with no undo/redo entries, effective is the whole history and redo is unavailable', () => {
     const history = [entry('a'), entry('b')]
-    expect(resolveHistory(history)).toEqual({ effective: history, canRedo: false })
+    expect(resolveHistory(history)).toEqual({ effective: history, canUndo: true, canRedo: false })
   })
 
   it('one UNDO_ACTION drops the last substantive entry from effective, and makes it redoable', () => {
@@ -75,6 +78,43 @@ describe('resolveHistory', () => {
     const resolved = resolveHistory([a, entry('b'), undo(), d])
     expect(resolved.effective).toEqual([a, d])
     expect(resolved.canRedo).toBe(false)
+  })
+})
+
+describe('SET_ADMIN_MODE is excluded from the undo/redo pointer walk (issue #545)', () => {
+  it('stays in effective even though a following Undo has nothing else left to revert', () => {
+    const toggle = setAdminMode(true)
+    const resolved = resolveHistory([toggle, undo()])
+    // The toggle is still applied — it's just that this Undo had no real
+    // gameplay entry to revert, not that it reverted the toggle instead.
+    expect(resolved.effective).toEqual([toggle])
+    expect(resolved.canUndo).toBe(false)
+  })
+
+  it("an Undo right after the toggle reverts the entry beneath it, not the toggle", () => {
+    const a = entry('a')
+    const toggle = setAdminMode(true)
+    const resolved = resolveHistory([a, toggle, undo()])
+    expect(resolved.effective).toEqual([toggle])
+    expect(resolved.canRedo).toBe(true)
+  })
+
+  it('stays applied regardless of how many surrounding actions have been undone', () => {
+    const toggle = setAdminMode(true)
+    const resolved = resolveHistory([entry('a'), toggle, entry('b'), undo(), undo()])
+    expect(resolved.effective).toEqual([toggle])
+  })
+
+  it("both toggles stay in effective, in order, even once the gameplay entry between them is undone", () => {
+    const on = setAdminMode(true)
+    const off = setAdminMode(false)
+    const resolved = resolveHistory([on, entry('a'), off, undo()])
+    expect(resolved.effective).toEqual([on, off])
+  })
+
+  it('never shows up in redoableTail, so branching past it is never treated as discarding "someone else\'s action"', () => {
+    const a = entry('a')
+    expect(redoableTail([a, setAdminMode(true), undo()])).toEqual([a])
   })
 })
 

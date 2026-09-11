@@ -509,6 +509,11 @@ export interface GameState {
    * free to turn it back off the same way; every other action submitted
    * while it's on gets stamped `LoggedAction.viaAdminMode` (see
    * applyActionWithSteps, ./applyAction.ts) so the log can call it out.
+   * "Toggled only by SET_ADMIN_MODE" is enforced, not just documented
+   * (issue #545): `resolveHistory`/`replayActions` (./historyFold.ts,
+   * ./replay.ts) deliberately keep `SET_ADMIN_MODE` out of the undo/redo
+   * pointer walk, so no amount of Undo/Redo — even landing exactly on the
+   * toggle entry itself — ever flips this back as a side effect.
    */
   adminModeActive?: boolean
   /**

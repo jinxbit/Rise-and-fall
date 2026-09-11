@@ -39,7 +39,13 @@ import type { UnitContent } from './unitContent.ts'
  * with substantive ones: resolveHistory (./historyFold.ts) folds those into
  * the substantive prefix currently "in effect", which is what actually gets
  * replayed below — undo/redo entries themselves are never fed to
- * applyAction(), since rewinding isn't a forward step. The returned state's
+ * applyAction(), since rewinding isn't a forward step. `SET_ADMIN_MODE`
+ * entries ride along unconditionally instead (issue #545): they're excluded
+ * from the undo/redo pointer itself (see walkHistory's doc comment,
+ * ./historyFold.ts) but still always appear in `.effective`, in their
+ * original relative order, so both the toggle's own effect and any forced
+ * follow-up cascade folded into it (RULE_ENFORCEMENT_PLAN.md §4.2/§4.3)
+ * replay exactly like any other action's would. The returned state's
  * `actionHistory` is always exactly the raw `history` passed in (not just
  * whatever the effective replay happened to accumulate), so a caller
  * appending a further action, or another undo/redo, keeps extending the
