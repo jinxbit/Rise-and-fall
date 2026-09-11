@@ -391,17 +391,42 @@ describe('production Supabase stack', () => {
    * always undo straight back to before their own now-revealed pick and
    * resubmit a different one, since only their own entry sits in the
    * discarded tail. Bob picks first (doesn't resolve, Alice still pending),
-   * Alice picks second (resolves it — both picks are now visible), then
-   * Alice undoes once to land back on her own still-pending pick and tries
-   * to choose differently.
+   * Alice picks second (resolves it — both picks are now visible).
+   *
+   * Issue #534 extended the same override requirement to the *undo* itself
+   * (undoWouldReopenRevealedPick, ../../engine/historyFold.ts) — left
+   * ungated, the undo alone already succeeded and reopened the phase, and it
+   * was only the *next* action attempt that failed, leaving the game stuck
+   * mid-reveal with no visible way forward. `reachAliceResolvingPick` below
+   * stops right after the phase resolves; each test drives the undo (and,
+   * where relevant, the resubmission after it) itself, since whether either
+   * step is allowed is exactly what's under test.
    */
-  describe('locking a revealed pick against undo (issue #529)', () => {
-    async function reachAliceResolvingPick(settings: GameSettings) {
+  describe('locking a revealed pick against undo (issues #529, #534)', () => {
+    /**
+     * `adminModeOnFromStart` switches admin mode on right *before* either
+     * player picks a card, not right before the undo attempt: SET_ADMIN_MODE
+     * is itself an ordinary logged action, so toggling it after Alice's pick
+     * has already resolved the phase would make it the new tip — a bare
+     * Undo at that point would revert the toggle, not Alice's pick, before
+     * ever reaching the entry this test actually wants to exercise. Toggling
+     * it beforehand instead means Bob's and Alice's own picks land on top of
+     * it as two more ordinary forward entries, so it's Alice's pick, not the
+     * toggle, that's still the tip when the undo under test happens.
+     */
+    async function reachAliceResolvingPick(settings: GameSettings, { adminModeOnFromStart = false } = {}) {
       const genesis = await seed(stack, settings)
       const { state: afterSetup } = await playThroughStack(stack, genesis, PLAYERS.length * 3)
       expect(afterSetup.roundPhase).toBe('selectCards')
 
-      const bob = afterSetup.players.find((player) => player.id === 'seat-bob')!
+      let stateBeforeBob = afterSetup
+      if (adminModeOnFromStart) {
+        const adminOn = await stack.applyAction(ALICE, GAME_ID, { type: 'SET_ADMIN_MODE', playerId: null, enabled: true })
+        if (!adminOn.ok) throw new Error(adminOn.error)
+        stateBeforeBob = adminOn.state
+      }
+
+      const bob = stateBeforeBob.players.find((player) => player.id === 'seat-bob')!
       const bobChose = await stack.applyAction(BOB, GAME_ID, { type: 'CHOOSE_CARD', playerId: 'seat-bob', cardId: bob.handCardIds[0] })
       if (!bobChose.ok) throw new Error(bobChose.error)
       expect(bobChose.state.roundPhase).toBe('selectCards')
@@ -415,36 +440,41 @@ describe('production Supabase stack', () => {
       expect(aliceChose.state.roundPhase).not.toBe('selectCards')
       expect(aliceChose.state.chosenCardIdByPlayerId['seat-bob']).toBe(bob.handCardIds[0])
 
+      return { aliceOtherCardId, bobCardId: bob.handCardIds[0] }
+    }
+
+    it('refuses an ordinary player from even undoing their own already-revealed pick when the setting is on', async () => {
+      await reachAliceResolvingPick(settingsFor({ lockRevealedInformationEnabled: true }))
+
+      const result = await stack.undoAction(ALICE, GAME_ID)
+      expect(result).toMatchObject({ ok: false, status: 403 })
+    })
+
+    it('still allows the undo, and the resubmission after it, with room admin mode already on', async () => {
+      const { aliceOtherCardId, bobCardId } = await reachAliceResolvingPick(settingsFor({ lockRevealedInformationEnabled: true }), {
+        adminModeOnFromStart: true,
+      })
+
       const undone = await stack.undoAction(ALICE, GAME_ID)
       if (!undone.ok) throw new Error(undone.error)
       // Only Alice's own pick was undone — Bob's stays intact and in effect.
       expect(undone.state.roundPhase).toBe('selectCards')
       expect(undone.state.pendingPlayerIds).toEqual(['seat-alice'])
-      expect(undone.state.chosenCardIdByPlayerId['seat-bob']).toBe(bob.handCardIds[0])
-
-      return { aliceOtherCardId }
-    }
-
-    it('refuses an ordinary player changing their own already-revealed pick when the setting is on', async () => {
-      const { aliceOtherCardId } = await reachAliceResolvingPick(settingsFor({ lockRevealedInformationEnabled: true }))
-
-      const result = await stack.applyAction(ALICE, GAME_ID, { type: 'CHOOSE_CARD', playerId: 'seat-alice', cardId: aliceOtherCardId })
-      expect(result).toMatchObject({ ok: false, status: 403 })
-    })
-
-    it('still allows it once the room owner switches admin mode on', async () => {
-      const { aliceOtherCardId } = await reachAliceResolvingPick(settingsFor({ lockRevealedInformationEnabled: true }))
-
-      const adminOn = await stack.applyAction(ALICE, GAME_ID, { type: 'SET_ADMIN_MODE', playerId: null, enabled: true })
-      if (!adminOn.ok) throw new Error(adminOn.error)
+      expect(undone.state.chosenCardIdByPlayerId['seat-bob']).toBe(bobCardId)
 
       const result = await stack.applyAction(ALICE, GAME_ID, { type: 'CHOOSE_CARD', playerId: 'seat-alice', cardId: aliceOtherCardId })
       if (!result.ok) throw new Error(result.error)
       expect(result.state.chosenCardIdByPlayerId['seat-alice']).toBe(aliceOtherCardId)
     })
 
-    it('allows an ordinary player to change their own already-revealed pick when the setting is off (unchanged pre-#529 behavior)', async () => {
-      const { aliceOtherCardId } = await reachAliceResolvingPick(settingsFor({ lockRevealedInformationEnabled: false }))
+    it('allows both the undo and the resubmission when the setting is off (unchanged pre-#529/#534 behavior)', async () => {
+      const { aliceOtherCardId, bobCardId } = await reachAliceResolvingPick(settingsFor({ lockRevealedInformationEnabled: false }))
+
+      const undone = await stack.undoAction(ALICE, GAME_ID)
+      if (!undone.ok) throw new Error(undone.error)
+      expect(undone.state.roundPhase).toBe('selectCards')
+      expect(undone.state.pendingPlayerIds).toEqual(['seat-alice'])
+      expect(undone.state.chosenCardIdByPlayerId['seat-bob']).toBe(bobCardId)
 
       const result = await stack.applyAction(ALICE, GAME_ID, { type: 'CHOOSE_CARD', playerId: 'seat-alice', cardId: aliceOtherCardId })
       if (!result.ok) throw new Error(result.error)

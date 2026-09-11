@@ -11,7 +11,7 @@ import { EMPTY_UNIT_CONTENT } from './unitContent.ts'
 import type { UnitContent } from './unitContent.ts'
 
 export type { ResolvedHistory } from './historyFold.ts'
-export { resolveHistory } from './historyFold.ts'
+export { resolveHistory, undoWouldReopenRevealedPick } from './historyFold.ts'
 
 /**
  * Submits one UNDO_ACTION entry against `state`, live-style (see

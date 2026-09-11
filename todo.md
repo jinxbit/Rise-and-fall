@@ -4388,3 +4388,50 @@ then undoes their own pick" scenario): refused for an ordinary player with
 the setting on, allowed once the room owner switches admin mode on, and
 unchanged (still allowed) with the setting off. `npm run lint`,
 `npm run test` (1217 tests), and `npm run build` all pass.
+
+## 88. Undo itself, not just resubmission, needs the reveal-lock override (issue #534)
+
+Issue #529 (above) only closed the *resubmission* half of its gap:
+`requiresOwnerOverride` runs when a new action is submitted while behind the
+tip (`apply-action`), but plain undo (`undo-action`) just moves the pointer
+and was never gated at all — "moving the pointer is non-destructive" was
+true in general, but missed that undoing the tip's own `CHOOSE_CARD`/
+`MOVE_TO_DECLINE`, when it's what resolved a simultaneous
+`selectCards`/`decline` phase, puts an already-revealed pick back under
+wraps by itself. With `lockRevealedInformationEnabled` on, the undo always
+succeeded and it was the *next* action attempt that then got refused
+instead — leaving the game reverted to card selection with no legal way
+either to finish the phase or get back to where it was. Two further
+symptoms fell out of that reopened phase, both downstream of
+`HIDDEN_INFORMATION_PLAN.md` §5.1 deriving masking purely from
+`roundPhase`/`pendingPlayerIds`: `redactStateForPlayer` re-masked *every*
+player's already-revealed pick for that phase, not just the undoer's own,
+and `unredactedPrefix` (issue #498) could then cut a bystander's
+`actionHistory` *before* the just-appended `UNDO_ACTION` marker itself,
+making that client's own `canRedo` read false — matching the bug report's
+"Redo is disabled."
+
+Added `undoWouldReopenRevealedPick` (`src/engine/historyFold.ts`): whether
+`resolveHistory(state.actionHistory).effective.at(-1)` — the entry a bare
+Undo reverts next — is a `CHOOSE_CARD`/`MOVE_TO_DECLINE` whose phase
+(`selectCards`/`decline`) `state.roundPhase` has already moved past. No
+replay needed: CLAUDE.md invariant 4 guarantees a resolving transition is
+folded into that same entry rather than a later one, so this is a plain read
+of the current state. `undo-action/index.ts` now requires the same
+owner-override (room owner or admin, with room admin mode on) the
+resubmission check already requires, with the same hotseat exemption (issue
+#486); `GamePage.tsx`'s Undo button is disabled under the identical
+condition rather than letting the click round-trip to a 403.
+
+The override composes correctly only when admin mode is already on *before*
+the pick resolves, not toggled on reactively right before the undo click:
+`SET_ADMIN_MODE` is itself an ordinary logged action, so switching it on
+right before undoing would make the toggle the new tip, and a bare Undo
+would revert that instead of ever reaching the pick underneath it. Documented
+inline in the new `supabaseStack.test.ts` cases covering all three
+scenarios (refused for an ordinary player, allowed with admin mode already
+on, unchanged with the setting off), which also had to stop performing the
+undo inside their shared setup helper — issue #529's original tests undid
+Alice's pick as part of *reaching* the test scenario, which no longer
+succeeds unconditionally now that undo itself is gated. `npm run lint`,
+`npm run test` (1224 tests), and `npm run build` all pass.
