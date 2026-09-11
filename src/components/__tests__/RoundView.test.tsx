@@ -2918,11 +2918,52 @@ describe('RoundView — LogPanel (issue #358)', () => {
       />,
     )
 
-    // Two calendar days appear in the log, so exactly two date headers show —
-    // one per day, not one per entry — even though day1 has two entries.
+    // Two calendar days appear in the log, so a date header shows once per
+    // day, not once per entry — except day1's date shows twice here: once
+    // naturally (day1b, the newest day1 entry) and once more forced onto the
+    // log's bottom-most row (day1a, the game's oldest/starting entry,
+    // issue #537) even though it repeats the header immediately above it.
     if (dateOf(day1a) === dateOf(day2)) throw new Error('test fixture timestamps must fall on different local calendar days')
-    expect(screen.getAllByText(dateOf(day1a))).toHaveLength(1)
+    expect(screen.getAllByText(dateOf(day1a))).toHaveLength(2)
     expect(screen.getAllByText(dateOf(day2))).toHaveLength(1)
+  })
+
+  it("always shows a date on the log's bottom-most row — the game's start — even the synthetic 'Board setup begins' entry that otherwise has no LoggedAction to draw a timestamp from (issue #537)", () => {
+    const state = makeState()
+    const players = [makePlayerRow('p1', 'Alice', '#ff0000')]
+    const startedAt = '2026-08-27T09:00:00.000Z'
+    const dateOf = (timestamp: string) => new Date(timestamp).toLocaleDateString([], { dateStyle: 'medium' })
+
+    render(
+      <RoundView
+        state={state}
+        players={players}
+        myPlayerId="p1"
+        unitContent={EMPTY_UNIT_CONTENT}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
+        turnReview={null}
+        showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
+        gameLog={[
+          { id: 'evt_1', turn: 0, playerId: null, message: 'Board setup begins', timestamp: startedAt },
+          { id: 'evt_2', turn: 1, playerId: 'p1', message: '{player} chose to play Nomad', timestamp: '2026-08-28T14:32:00.000Z' },
+        ]}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+
+    const startEntry = screen.getByText('Board setup begins').closest('p')!
+    expect(within(startEntry).getByText(/^\[\d{1,2}:\d{2}(\s?[AP]M)?\]\s*$/)).toBeTruthy()
+    expect(screen.getByText(dateOf(startedAt))).toBeTruthy()
   })
 
   it('shows the log panel to every player, not just admins (issue #399)', () => {

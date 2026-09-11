@@ -4502,3 +4502,23 @@ entry replaced the placeholder. Tagged the synthesized line with the
 game's current `adminModeActive` instead — the best available signal,
 since the real historical flag was never sent to this client to read.
 `npm run lint`, `npm run test` (1225 tests), and `npm run build` all pass.
+
+## 92. Game log's bottom-most row (the game's start) showed no date (issue #537)
+
+`RoundView.tsx`'s `LogPanel` renders the log newest-first, with a per-day
+date header (issue #510) shown once per calendar day — specifically on the
+first entry reached while scanning newest-to-oldest for that day, i.e.
+above the block, not on the block's oldest entry. So the log's true
+bottom-most row — the game's very first logged moment — never carried its
+own date, and for most games that row is `gameLog.ts`'s synthetic "Board
+setup begins" entry, which had no `LoggedAction` to draw a timestamp from
+at all (`timestamp: ''`) and so never showed a time either.
+
+Gave `buildGameLogFrom`/`buildGameLog` a new optional `gameCreatedAt`
+parameter (default `''`, preserving existing callers/tests) that stamps
+that synthetic entry; `GamePage.tsx` passes the room's `games.created_at`.
+`LogPanel` now always shows the date on the log's last-rendered (oldest)
+row, even when that repeats the header already shown for the same day
+higher up — the per-day header marks a day's *newest* entry, which isn't
+the same thing as marking where the game started. `npm run lint`,
+`npm run test` (1226 tests), and `npm run build` all pass.

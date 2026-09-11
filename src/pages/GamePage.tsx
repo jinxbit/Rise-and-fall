@@ -718,7 +718,7 @@ export function GamePage() {
         return events
       }
 
-      const built = buildGameLogFrom(genesis, actionHistory, unitContent, achievementContent, boardGenerationContent, taleContent)
+      const built = buildGameLogFrom(genesis, actionHistory, unitContent, achievementContent, boardGenerationContent, taleContent, game.created_at)
       gameLogCacheRef.current = {
         gameId: game.id,
         playersSignature,
