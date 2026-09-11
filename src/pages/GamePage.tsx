@@ -1113,6 +1113,20 @@ export function GamePage() {
    * error the player has to notice and act on themselves. Always leaves
    * `gameState`/`version` reflecting the latest known state, win or lose,
    * so the UI never sits on stale data after a failed attempt.
+   *
+   * `computeNext` calls applyAction() directly for a client-trusted game
+   * (see submitAction below), and a freshly *submitted* PLACE_TILE always
+   * re-runs the same possibly-slow legality/room-search that
+   * BoardSetupView's own preview does (applyAction never trusts the
+   * client's own check — see applyAction's `trustedReplay` doc comment).
+   * Without a yield first, that synchronous search runs in the same tick as
+   * `setSubmitting(true)` above, before React ever gets to paint the
+   * "Sending…" badge — the tab just freezes with no feedback until it's
+   * done, then the board jumps straight to the placed tile (issue #520).
+   * Deferring one macrotask first is the same fix as issue #205's for the
+   * preview check (see TilePlacementPanel in BoardSetupView.tsx): it lets
+   * the browser paint whatever this attempt's `setSubmitting`/state already
+   * queued *before* the expensive part of computeNext blocks the thread.
    */
   async function writeWithRetry(computeNext: (state: EngineGameState) => ActionResult): Promise<ActionResult> {
     const guardError = writeGuardError()
@@ -1121,6 +1135,7 @@ export function GamePage() {
     let state = gameState
     let ver = version
     for (let attempt = 0; attempt < MAX_WRITE_RETRIES; attempt++) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 0))
       const result = computeNext(state)
       if (!result.ok) return result
 
