@@ -2,8 +2,23 @@ import { describe, expect, it } from 'vitest'
 import type { GameState } from '../../engine/types'
 import { shouldRetractOwnChoice, shouldRetractOwnDecline } from '../undoDecision'
 
-function stateWith(roundPhase: GameState['roundPhase'], chosenCardIdByPlayerId: GameState['chosenCardIdByPlayerId']) {
-  return { roundPhase, chosenCardIdByPlayerId }
+function stateWith(
+  roundPhase: GameState['roundPhase'],
+  chosenCardIdByPlayerId: GameState['chosenCardIdByPlayerId'],
+  overrides: Partial<
+    Pick<GameState, 'lockRevealedInformationEnabled' | 'pendingPlayerIds' | 'turnOrder' | 'resolvedUnitIdsThisTurn' | 'unitsCreatedThisTurn'>
+  > = {},
+) {
+  return {
+    roundPhase,
+    chosenCardIdByPlayerId,
+    lockRevealedInformationEnabled: false,
+    pendingPlayerIds: [],
+    turnOrder: [],
+    resolvedUnitIdsThisTurn: [],
+    unitsCreatedThisTurn: [],
+    ...overrides,
+  }
 }
 
 function declineStateWith(
@@ -26,11 +41,6 @@ describe('shouldRetractOwnChoice', () => {
     expect(shouldRetractOwnChoice(state, 'p2')).toBe(false)
   })
 
-  it('is false once the phase has resolved, even if the map entry lingers', () => {
-    const state = stateWith('actions', { p1: 'card-1', p2: 'card-2' })
-    expect(shouldRetractOwnChoice(state, 'p1')).toBe(false)
-  })
-
   it('is false outside selectCards (e.g. decline/purchase)', () => {
     expect(shouldRetractOwnChoice(stateWith('decline', { p1: 'card-1' }), 'p1')).toBe(false)
     expect(shouldRetractOwnChoice(stateWith('purchase', { p1: 'card-1' }), 'p1')).toBe(false)
@@ -40,6 +50,39 @@ describe('shouldRetractOwnChoice', () => {
     const state = stateWith('selectCards', { p1: 'card-1' })
     expect(shouldRetractOwnChoice(state, null)).toBe(false)
     expect(shouldRetractOwnChoice(state, undefined)).toBe(false)
+  })
+
+  describe('after the round resolves into actions via someone else\'s pick (issue #547)', () => {
+    // p2's pick was the one that emptied pendingPlayerIds and moved the
+    // phase on — a bare Undo would revert p2's entry (the tip of
+    // actionHistory), not p1's own. shouldRetractOwnChoice must still say
+    // RETRACT_CHOICE, not a generic pointer rewind, so p1's own pick is what
+    // changes.
+    function justResolvedState(overrides: Parameters<typeof stateWith>[2] = {}) {
+      return stateWith('actions', { p1: 'card-1', p2: 'card-2' }, { pendingPlayerIds: ['p1', 'p2'], turnOrder: ['p1', 'p2'], ...overrides })
+    }
+
+    it("is true right after the round resolves, even though it wasn't the caller's own pick that resolved it", () => {
+      expect(shouldRetractOwnChoice(justResolvedState(), 'p1')).toBe(true)
+    })
+
+    it('is false once lockRevealedInformationEnabled is on', () => {
+      expect(shouldRetractOwnChoice(justResolvedState({ lockRevealedInformationEnabled: true }), 'p1')).toBe(false)
+    })
+
+    it('is false once a turn has already finished this actions phase', () => {
+      expect(shouldRetractOwnChoice(justResolvedState({ pendingPlayerIds: ['p2'] }), 'p2')).toBe(false)
+    })
+
+    it('is false once the active player has resolved or created a unit this turn', () => {
+      expect(shouldRetractOwnChoice(justResolvedState({ resolvedUnitIdsThisTurn: ['unit-1'] }), 'p1')).toBe(false)
+      expect(shouldRetractOwnChoice(justResolvedState({ unitsCreatedThisTurn: ['unit-2'] }), 'p1')).toBe(false)
+    })
+
+    it('is false for a player with no chosen card this round', () => {
+      const state = stateWith('actions', { p1: 'card-1', p2: null }, { pendingPlayerIds: ['p1', 'p2'], turnOrder: ['p1', 'p2'] })
+      expect(shouldRetractOwnChoice(state, 'p2')).toBe(false)
+    })
   })
 })
 

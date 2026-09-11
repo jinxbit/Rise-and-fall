@@ -370,6 +370,27 @@ entry happens to sit at the tip. Concretely:
   resubmission, with the same hotseat exemption (issue #486). `GamePage.tsx`
   disables the Undo button itself under the same condition, rather than
   letting the click round-trip to a 403.
+- **Update (2026-09-11, issue #547): `RETRACT_CHOICE` itself was still too
+  narrow once the phase resolved via someone *else's* pick.** The bullet
+  above ("Once the caller has nothing left of their own to retract in the
+  open phase, the next undo falls back to ordinary shared-pointer
+  semantics") meant that once p2's pick resolved `selectCards`, p1 had no way
+  to retract *their own* earlier pick without an ordinary pointer-rewind
+  undo — which reverts the tip (p2's entry), not p1's, forcing p2 to
+  reselect too. `canRetractChoiceAfterReveal`
+  (`src/engine/applyAction.ts`) gives `RETRACT_CHOICE` a second legal
+  condition alongside "phase still open": `roundPhase === 'actions'`, the
+  caller's own `chosenCardIdByPlayerId` entry is still set, nothing has
+  happened in `actions` yet (`pendingPlayerIds` still the full `turnOrder`,
+  no unit resolved or created this turn — `beginActionsPhase` never
+  cascades further on its own, so this is a plain state read), and
+  `lockRevealedInformationEnabled` is off — that setting exists specifically
+  to require the owner-override this still-forward, still
+  no-special-permission action doesn't otherwise have. Reopens `selectCards`
+  for just the caller, leaving every other player's already-revealed pick
+  untouched — no change to `RETRACT_DECLINE`, since `beginPurchasePhase`'s
+  own resolution can cascade straight through an empty purchase phase into
+  `finishRound`, making "reopen the phase" a whole-round undo, not a flip.
 
 ### 4.5 Admin / room-owner privileges (issue #391)
 
