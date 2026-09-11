@@ -85,8 +85,15 @@ export function LobbyPage() {
   useEffect(() => {
     if (!gameId) return
     const unsubPlayers = subscribeToPlayers(gameId, () => void load())
+    // Merge onto the last known row rather than replacing it outright: an
+    // UPDATE that never touches `settings` (e.g. this Start Game transition
+    // itself) can omit it from Realtime's payload entirely once it's stored
+    // out-of-line (TOASTed) — a map-pool game's embedded board makes that
+    // likely — leaving `game.settings` `undefined` for this render (issue
+    // #533). `status`/`room_code` themselves are never TOASTed, so reading
+    // them straight off `updated` below stays correct either way.
     const unsubGame = subscribeToGame(gameId, (updated) => {
-      setGame(updated)
+      setGame((prev) => (prev ? { ...prev, ...updated } : updated))
       if (updated.status === 'active') navigate(`/game/${updated.room_code}`)
     })
     // Re-fetch once the subscriptions are live in case the game already

@@ -731,6 +731,17 @@ export function subscribeToPlayers(gameId: string, onChange: () => void): () => 
   }
 }
 
+/**
+ * Fires with `payload.new` on every `games` row UPDATE (issue #533's fix).
+ * That's Postgres's logical-replication view of the new row, not a fresh
+ * `select()` — a column that's unchanged by this particular UPDATE *and*
+ * stored out-of-line (TOASTed; `settings` qualifies once it embeds a
+ * map-pool board, tens of KB) is omitted from it entirely rather than sent
+ * as its last value. Callers must merge this onto their last known full row
+ * (`{ ...prev, ...updated }`), never replace it outright, or an unrelated
+ * status/visibility update can silently null out `settings` for the rest of
+ * the session.
+ */
 export function subscribeToGame(gameId: string, onChange: (game: GameRow) => void): () => void {
   const channel = supabase
     .channel(`games:${gameId}`)
