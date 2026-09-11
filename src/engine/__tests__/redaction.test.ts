@@ -489,6 +489,46 @@ describe('toClientGameState', () => {
   })
 })
 
+describe("narrating a client's redacted actionHistory (issue #514)", () => {
+  it("shows an UNDO_ACTION that follows a still-masked pick — the pick stays masked, but its own undo is never itself secret", () => {
+    const genesis = makeActiveGameWithFullHands()
+    const afterChoice = requireOk(applyAction(genesis, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }))
+    // p2 undoes p1's still-secret pick, same GamePage.tsx handleUndo flow as
+    // the issue #498 test above — this is what leaves the masked CHOOSE_CARD
+    // sitting mid-array in p2's own client.actionHistory, immediately
+    // followed by a real, unmasked UNDO_ACTION.
+    const undone = requireOk(applyUndoAction(genesis, afterChoice, 'p2'))
+
+    const asP2 = redactStateForPlayer(undone, 'p2')
+    const client = toClientGameState(asP2)
+    expect(client.actionHistory.map((e) => e.action.type)).toEqual(['CHOOSE_CARD', 'UNDO_ACTION'])
+
+    // Before the fix, buildGameLog tried to applyActionWithSteps() the
+    // masked CHOOSE_CARD's `cardId: null` payload directly, that failed,
+    // and the narration loop's defensive bail silently dropped every event
+    // from there on — including the UNDO_ACTION's own line — leaving p2
+    // with an empty log for a round that visibly had activity in it.
+    const log = buildGameLog(genesis, client.actionHistory)
+    expect(log.map((e) => e.message)).toContain(`${PLAYER_PLACEHOLDER} undid the last action`)
+  })
+
+  it('keeps narrating real entries that follow a masked-and-undone pick, not just the UNDO_ACTION itself', () => {
+    const genesis = makeActiveGameWithFullHands()
+    const afterChoice = requireOk(applyAction(genesis, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }))
+    const undone = requireOk(applyUndoAction(genesis, afterChoice, 'p2'))
+    // p2 now picks for real — an ordinary action dispatched after the
+    // masked-and-folded-away entry, which must narrate normally too.
+    const rechosen = requireOk(applyAction(undone, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') }))
+
+    const asP2 = redactStateForPlayer(rechosen, 'p2')
+    const client = toClientGameState(asP2)
+
+    const log = buildGameLog(genesis, client.actionHistory)
+    expect(log.map((e) => e.message)).toContain(`${PLAYER_PLACEHOLDER} undid the last action`)
+    expect(log.some((e) => e.message.includes('chose to play'))).toBe(true)
+  })
+})
+
 describe('redactGameLog (issue #399)', () => {
   it("hides another player's chosen card name while they're still pending, but shows the viewer their own choice", () => {
     const genesis = makeActiveGameWithFullHands()

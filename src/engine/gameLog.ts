@@ -228,6 +228,26 @@ function describeCascade(before: GameState, after: GameState, achievementContent
 }
 
 /**
+ * True for a CHOOSE_CARD/MOVE_TO_DECLINE/RETRACT_DECLINE entry whose real
+ * `cardId` payload has been replaced with `null` by redactStateForPlayer's
+ * actionHistory redaction (./redaction.ts) — still secret from this viewer.
+ * unredactedPrefix (./redaction.ts) only ever lets such an entry through
+ * when it's already been undone (no longer "effective" per resolveHistory,
+ * ./historyFold.ts — see that function's own doc comment), so by
+ * construction it's guaranteed to contribute nothing to the replayed state.
+ * extendGameLog below relies on that guarantee to skip straight over one
+ * instead of calling applyActionWithSteps() on a payload that was never a
+ * real action to begin with — which used to fail outright (`cardId` isn't
+ * in the player's hand) and, since that failure aborts the whole narration
+ * loop, silently swallowed every event from that point on, including the
+ * very UNDO_ACTION/REDO_ACTION entries that followed it (issue #514).
+ */
+function isMaskedRedactionEntry(action: Action): boolean {
+  if (action.type !== 'CHOOSE_CARD' && action.type !== 'MOVE_TO_DECLINE' && action.type !== 'RETRACT_DECLINE') return false
+  return (action.cardId as unknown) === null
+}
+
+/**
  * Continues narrating on top of a `state` already derived from some prefix
  * of a game's actionHistory (e.g. a previous buildGameLog/buildGameLogFrom/
  * extendGameLog call's own result) — the same per-action replay+diff
@@ -247,7 +267,9 @@ function describeCascade(before: GameState, after: GameState, achievementContent
  * (./historyFold.ts) — so narrating one means re-deriving `state` via a full
  * replayActions() over `historySoFar` plus everything walked so far in this
  * call, the same way applyUndoAction/applyRedoAction (./undoRedo.ts) do for
- * a live submission.
+ * a live submission. A masked CHOOSE_CARD/MOVE_TO_DECLINE/RETRACT_DECLINE
+ * entry (see isMaskedRedactionEntry above) is likewise not a forward step —
+ * it's a no-op placeholder guaranteed to be undone later in `actions`.
  *
  * `ok` is false when an entry failed to reapply (see the defensive bail
  * below) — the loop stops at that point, same as ever, but callers that
@@ -281,6 +303,12 @@ export function extendGameLog(
     if (logged.action.type === 'UNDO_ACTION' || logged.action.type === 'REDO_ACTION') {
       after = replayActions(genesis, history, unitContent, achievementContent, boardGenerationContent, taleContent)
       primaryDrafts = describePrimaryAction(logged.action, before, after, unitContent)
+    } else if (isMaskedRedactionEntry(logged.action)) {
+      // Nothing to narrate — see isMaskedRedactionEntry's doc comment — and
+      // nothing to replay forward either, since this entry is guaranteed to
+      // be folded away by an UNDO_ACTION later in `actions`.
+      after = before
+      primaryDrafts = []
     } else {
       // trustedReplay: `logged` was already validated once, when originally
       // submitted (see applyAction's own doc comment) — narrating it again
