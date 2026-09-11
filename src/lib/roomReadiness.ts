@@ -3,7 +3,7 @@
 // be unit tested without a real Supabase project, same reason as
 // myGamesView.ts/seatIndex.ts.
 
-import type { GameRow, PlayerRow } from './dbTypes'
+import type { GameRow, PlayerRow } from './dbTypes.ts'
 
 /**
  * The Owner is exempt from readiness (issue section 9): they always see

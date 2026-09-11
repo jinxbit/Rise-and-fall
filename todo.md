@@ -4142,3 +4142,65 @@ Recovering it needs a human step outside code — canceling/recreating the
 room, or hand-repairing that one `game_state` row — not something this
 change attempts. `npm run lint`, `npm run test` (1200, was 1198), and `npm
 run build` all pass.
+
+## 83. Start Game is now an Edge Function too, for a rule-enforced game (issue #519 follow-up)
+
+#82's fix closed the *browser-tab-staleness* race (a stale client-held
+`players` snapshot) by re-fetching the roster inside `startGameFromLobby()`
+before building genesis, but its own doc comment already flagged the
+residual gap: "there's no DB-level CAS tying genesis's player count to the
+`players` table" — a window between that fetch and `insertGameState`,
+shorter than a browser tab sitting open, but still a client-side race. A
+follow-up question ("perhaps start game should be an edge function?") asked
+whether moving it server-side would close that window, and the answer
+turned out to be two different questions wearing one: closing the *timing*
+race just needs a DB-level compare-and-swap (a `select ... for update`
+inside a SQL function), while making the server *authoritative* — the same
+guarantee every action after genesis already has — needs an actual Edge
+Function, since `0026_rule_enforcement_flag.sql`'s INSERT policy had always
+left a `ruleEnforcementEnabled` game's genesis write direct and client-
+trusted (`RULE_ENFORCEMENT_PLAN.md` §8 phase 8's original scoping decision,
+§10's open item). jinxbit chose the latter: "yes, I want the authoritative
+question fixed. So edge function it is."
+
+Added `supabase/functions/start-game/index.ts`, mirroring `apply-action`'s
+shape: resolves the caller's JWT, checks they're the room's owner (same
+gate `0008_room_lifecycle.sql`'s "room owner can update their game" RLS and
+`LobbyPage.tsx`'s `isCreator` already use), re-fetches the roster itself
+(never a client-supplied one), resolves the same `mapPoolRandomAtStart`/
+`soloBuildMap` picks and persists them, calls the shared `buildGenesisState`,
+and does the authoritative `game_state` insert (gzip-compressed, same
+encoding every other enforced write uses — the client-trusted path's insert
+had stayed plain JSON even for enforced games until now, relying on
+`decompressGameStateFromStorage`'s per-row `__gz` sniffing) plus the
+`games.status` flip to `'active'`, all under a service-role client.
+
+`0029_start_game_edge_function.sql` closes the matching direct-write paths
+for an enforced game: `game_state`'s INSERT policy now requires enforcement
+to be off, the same shape `0026` already gave UPDATE. The `games.status`
+`'lobby' -> 'active'` transition couldn't be closed the same way — a plain
+RLS `WITH CHECK` only ever sees the row's *new* values, and the owner still
+needs to make plenty of other updates (e.g. toggling room visibility) whose
+new row also has `status = 'active'`, just unchanged from before. That
+distinction needs both the old and new value in one check, so the
+restriction lives in `enforce_game_status_transition` (the trigger that
+already validates transition legality) instead, gated on
+`current_setting('role') <> 'service_role'` so it only ever fires for a
+direct client write, never for this function's own service-role one.
+
+`gameApi.ts`'s `startGameFromLobby()` now branches on
+`ruleEnforcementEnabled` up front: enforced games call the new function via
+a small `invokeStartGame()` wrapper (the same `error.context` unwrapping
+`invokeGameFunction` already does for apply/undo/redo-action, just for a
+response with no `state`/`version` to redact); every other game keeps the
+exact client-trusted sequence unchanged. `src/test/supabaseStack/` gained a
+`start-game` handler alongside the other three, and `database.ts`'s fake RLS
+gained both restrictions (the INSERT narrowing, and a `blocksDirectGameStart`
+check standing in for the trigger, keyed on `patch.status` rather than the
+row's own visibility check for the same old-vs-new reason as the real
+migration). `startGameFromLobby.test.ts` gained a matching describe block:
+the same roster-race regression replayed with `ruleEnforcementEnabled: true`
+(now closed server-side instead of by a client re-fetch), a non-owner's
+start attempt rejected with 403, and a direct client write to either
+`game_state` or `games.status` rejected by the new RLS/trigger. `npm run
+lint`, `npm run test`, and `npm run build` all pass.

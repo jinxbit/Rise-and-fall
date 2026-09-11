@@ -146,6 +146,21 @@ Read paths handle both encodings per-row via `decompressGameStateFromStorage`,
 so no coordinated rollout is needed. Any change touching submission, undo, or
 storage must work on **both** paths.
 
+The same split now starts at genesis, not just at the first action.
+`LobbyPage.tsx`'s Start Game (`gameApi.ts`'s `startGameFromLobby()`) branches
+on `ruleEnforcementEnabled` too: client-trusted still builds
+`buildGenesisState()` locally and inserts `game_state` directly, unchanged;
+rule-enforced instead posts `{ gameId }` to the `start-game` Edge Function,
+which re-fetches the roster itself, builds the same genesis server-side, and
+does the authoritative insert plus the `games.status` flip to `'active'`
+under a service-role client. `0029_start_game_edge_function.sql` blocks a
+direct client from doing either write (the `game_state` INSERT, and the
+`games` `'lobby' -> 'active'` transition) once a game is enforced — the
+latter lives in the `enforce_game_status_transition` trigger rather than a
+plain RLS policy, since the rule needs both the row's old and new status in
+one check. See `RULE_ENFORCEMENT_PLAN.md` §10 (2026-09-11 update, issue
+#519) for why this closed a real bug, not just a theoretical gap.
+
 ## Supabase / Edge Function gotchas
 
 - **Edge Functions import `src/engine/`, `src/content/`, and `src/lib/`
