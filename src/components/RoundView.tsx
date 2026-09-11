@@ -799,10 +799,17 @@ function LogPanel({ gameLog, players }: { gameLog: GameEvent[]; players: PlayerR
   let lastDate = ''
   return (
     <div className="flex max-h-64 flex-col gap-1 overflow-y-auto rounded-md border border-neutral-800 p-3 text-xs text-neutral-500">
-      {recent.map((entry) => {
+      {recent.map((entry, index) => {
         const time = formatLogTimestamp(entry.timestamp)
         const date = formatLogDate(entry.timestamp)
-        const showDate = date !== '' && date !== lastDate
+        // The oldest entry — the game's start, rendered last/bottom-most
+        // here — always shows its date even if it matches the day-block
+        // header already shown higher up (issue #537): that per-day header
+        // marks the *newest* entry of a day, not the start of the game, so
+        // without this the log's very first row could carry no visible date
+        // at all.
+        const isOldest = index === recent.length - 1
+        const showDate = date !== '' && (isOldest || date !== lastDate)
         if (date) lastDate = date
         return (
           <Fragment key={entry.id}>

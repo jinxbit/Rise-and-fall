@@ -386,6 +386,15 @@ export function extendGameLog(
  * itself, the real moment that action was dispatched. Also returns the
  * final replayed `state`, for a caller that wants to keep extending this
  * same log later (see extendGameLog) without redoing this full replay.
+ *
+ * `gameCreatedAt` stamps the synthetic "Board setup begins" opening entry
+ * (issue #537: the log's bottom-most/oldest row — the game's start — needs a
+ * real date to show, and this entry has no LoggedAction to draw one from
+ * otherwise). Optional and defaulting to '' — same "render nothing" handling
+ * as any other unparseable timestamp (see RoundView's formatLogTimestamp/
+ * formatLogDate) — since GameState itself deliberately carries no creation
+ * timestamp (see buildGenesisState) and most callers here are engine tests
+ * with no `games` row to draw one from; GamePage.tsx passes `game.created_at`.
  */
 export function buildGameLogFrom(
   genesis: GameState,
@@ -394,10 +403,11 @@ export function buildGameLogFrom(
   achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT,
   boardGenerationContent: BoardGenerationContent = EMPTY_BOARD_GENERATION_CONTENT,
   taleContent: TaleContent = EMPTY_TALE_CONTENT,
+  gameCreatedAt: string = '',
 ): { state: GameState; events: GameEvent[] } {
   const initial: GameEvent[] = []
   if (genesis.status === 'boardSetup') {
-    initial.push({ id: 'evt_1', turn: genesis.turn, playerId: null, message: 'Board setup begins', timestamp: '' })
+    initial.push({ id: 'evt_1', turn: genesis.turn, playerId: null, message: 'Board setup begins', timestamp: gameCreatedAt })
   }
 
   const { state, events } = extendGameLog(
@@ -422,6 +432,7 @@ export function buildGameLog(
   achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT,
   boardGenerationContent: BoardGenerationContent = EMPTY_BOARD_GENERATION_CONTENT,
   taleContent: TaleContent = EMPTY_TALE_CONTENT,
+  gameCreatedAt: string = '',
 ): GameEvent[] {
-  return buildGameLogFrom(genesis, actionHistory, unitContent, achievementContent, boardGenerationContent, taleContent).events
+  return buildGameLogFrom(genesis, actionHistory, unitContent, achievementContent, boardGenerationContent, taleContent, gameCreatedAt).events
 }
