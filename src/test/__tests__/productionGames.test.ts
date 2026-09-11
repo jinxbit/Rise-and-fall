@@ -20,8 +20,12 @@
 // "some test failed".
 
 import { afterEach, describe, expect, it } from 'vitest'
+import { resolveHistory } from '../../engine/historyFold.ts'
+import { replayActions } from '../../engine/replay.ts'
+import type { GameState } from '../../engine/types.ts'
 import type { CompressedGameState, StoredGameState } from '../../lib/gameStateCompression.ts'
 import { loadProductionGameFixtures } from '../fixtures/productionGames/loadFixtures.ts'
+import { normalizeStateForComparison } from '../fixtures/productionGames/loadFixtures.ts'
 import { createProductionStack, type ProductionStack } from '../supabaseStack/index.ts'
 import { expectedFinalState, normalizeForComparison, replayFixtureThroughStack } from '../supabaseStack/replayFixture.ts'
 
@@ -132,6 +136,39 @@ describe('production game replays', () => {
         )
       }
     }, REPLAY_TIMEOUT_MS)
+
+    // The tests above ask whether a real game still replays — whether its past
+    // survives a rules change. A game that is still being played needs the
+    // other half answered too: can the people in it carry on? That is the
+    // question a pre-production deploy actually cares about (issue: exports
+    // taken from live games before promoting `main`), and it exercises undo
+    // through exactly the path the undo button takes — append a marker to the
+    // stored log, re-derive from genesis — rather than through the replay
+    // harness, which is where the folded-entry pointer skew lived.
+    it('can still be carried on from where it stands: undo and redo round-trip', () => {
+      const { unitContent, achievementContent, boardGenerationContent, taleContent } = fixture.content
+      const derive = (history: GameState['actionHistory']): GameState =>
+        replayActions(fixture.genesis, history, unitContent, achievementContent, boardGenerationContent, taleContent)
+      // The log as stored, plus `depth` undo markers, then the same number of
+      // redos: a player second-guessing themselves and changing their mind back.
+      const marker = (type: 'UNDO_ACTION' | 'REDO_ACTION', turn: number) => ({ turn, action: { type, playerId: null }, timestamp: '' }) as GameState['actionHistory'][number]
+      const depth = Math.min(5, resolveHistory(fixture.finalState.actionHistory).effective.length)
+
+      let history = fixture.finalState.actionHistory
+      for (let step = 0; step < depth; step += 1) history = [...history, marker('UNDO_ACTION', derive(history).turn)]
+      const rewound = derive(history)
+      for (let step = 0; step < depth; step += 1) history = [...history, marker('REDO_ACTION', derive(history).turn)]
+
+      // Undo actually moved, and redo put the game back exactly as production
+      // left it — everything but the log, which legitimately grew by the
+      // markers themselves (they are entries, not a client-local stack).
+      const game = (state: GameState) => {
+        const { actionHistory: _log, ...rest } = normalizeStateForComparison(state)
+        return rest
+      }
+      expect(game(rewound)).not.toEqual(game(fixture.finalState))
+      expect(game(derive(history))).toEqual(game(fixture.finalState))
+    })
 
     it('refuses the game’s first action from a signed-in user who is not seated in it', async () => {
       await seedGame()

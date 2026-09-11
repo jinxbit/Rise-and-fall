@@ -1,5 +1,8 @@
 {
   "name": "l1z1x_faire vs humanpriest vs kingmonkey6870 — async, still in progress at turn 25",
+  "settings": {
+    "ruleEnforcementEnabled": false
+  },
   "expected": {
     "winners": []
   }
