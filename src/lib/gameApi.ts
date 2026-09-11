@@ -10,6 +10,7 @@ import type { GameRow, GameSettings, GameStateMetaRow, PlayerRow, ProfilePrefere
 import type { MyGameEntry } from './myGamesView'
 import type { PublicRoomEntry } from './publicRoomsView'
 import type { UnitPlateColorOverrides } from './unitColors'
+import { resolveConfirmBeforeRevealingCards } from './cardRevealConfirmation'
 import { resolveUnitReserveDisplayMode, type UnitReserveDisplayMode } from './unitReserveDisplay'
 import type { Board, GameState as EngineGameState, GameStatus, PlayMode, RoundPhase } from '../engine/types'
 import type { Action } from '../engine/actions'
@@ -146,6 +147,21 @@ export async function getProfileUnitReserveDisplay(userId: string): Promise<Unit
 
 export async function saveProfileUnitReserveDisplay(userId: string, mode: UnitReserveDisplayMode): Promise<void> {
   await saveProfilePreferences(userId, { unitReserveDisplay: mode })
+}
+
+/**
+ * Reads a user's "confirm before revealing cards" preference (issue #528,
+ * stored under `preferences.confirmBeforeRevealingCards`) — absent
+ * (including "no profile row yet") resolves to the default (on), same
+ * null-collapsing pattern as getProfileUnitReserveDisplay.
+ */
+export async function getProfileConfirmBeforeRevealingCards(userId: string): Promise<boolean> {
+  const preferences = await getProfilePreferences(userId)
+  return resolveConfirmBeforeRevealingCards(preferences.confirmBeforeRevealingCards)
+}
+
+export async function saveProfileConfirmBeforeRevealingCards(userId: string, value: boolean): Promise<void> {
+  await saveProfilePreferences(userId, { confirmBeforeRevealingCards: value })
 }
 
 /**

@@ -247,6 +247,15 @@ export interface PushSubscriptionRow {
 export interface ProfilePreferences {
   /** How PlayersStrip's per-kind unit badge (RoundView.tsx) reports a player's unit supply (issue #346) — see src/lib/unitReserveDisplay.ts. Absent means "use the default" (remaining). */
   unitReserveDisplay?: string
+  /**
+   * Whether, when this player's pick would be the one that resolves the
+   * select-cards or decline phase (the last entry leaving `pendingPlayerIds`)
+   * and so reveal every player's simultaneous choice, RoundView.tsx should
+   * stage that pick locally behind a "Reveal all cards" button instead of
+   * submitting it the instant they click a card (issue #528) — see
+   * src/lib/cardRevealConfirmation.ts. Absent means "use the default" (on).
+   */
+  confirmBeforeRevealingCards?: boolean
 }
 
 /** Per-account settings — see supabase/migrations/0005_discord_webhooks.sql. */

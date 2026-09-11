@@ -1,10 +1,12 @@
 import { Link } from 'react-router-dom'
+import { ConfirmBeforeRevealingCardsSettings } from '../components/ConfirmBeforeRevealingCardsSettings'
 import { DiscordWebhookSettings } from '../components/DiscordWebhookSettings'
 import { DisplayNameSettings } from '../components/DisplayNameSettings'
 import { PushNotificationSettings } from '../components/PushNotificationSettings'
 import { UnitColorSettings } from '../components/UnitColorSettings'
 import { UnitReserveDisplaySettings } from '../components/UnitReserveDisplaySettings'
 import { useAuth } from '../hooks/useAuth'
+import { useConfirmBeforeRevealingCards } from '../hooks/useConfirmBeforeRevealingCards'
 import { useDisplayName } from '../hooks/useDisplayName'
 import { useUnitPlateColors } from '../hooks/useUnitPlateColors'
 import { useUnitReserveDisplayMode } from '../hooks/useUnitReserveDisplayMode'
@@ -28,6 +30,11 @@ export function ProfilePage() {
     loading: unitReserveDisplayLoading,
     setMode: setUnitReserveDisplayMode,
   } = useUnitReserveDisplayMode(session?.user ?? null)
+  const {
+    value: confirmBeforeRevealingCards,
+    loading: confirmBeforeRevealingCardsLoading,
+    setValue: setConfirmBeforeRevealingCards,
+  } = useConfirmBeforeRevealingCards(session?.user ?? null)
 
   if (loading) return <div className="p-8 text-neutral-400">Loading…</div>
 
@@ -82,6 +89,13 @@ export function ProfilePage() {
         value={unitReserveDisplayMode}
         loading={unitReserveDisplayLoading}
         onSaved={setUnitReserveDisplayMode}
+      />
+
+      <ConfirmBeforeRevealingCardsSettings
+        userId={user.id}
+        value={confirmBeforeRevealingCards}
+        loading={confirmBeforeRevealingCardsLoading}
+        onSaved={setConfirmBeforeRevealingCards}
       />
 
       <DiscordWebhookSettings user={user} />

@@ -551,7 +551,8 @@ screen.
   (above) and admin mode for taking a turn on someone's behalf.
 - **Accounts and identity**: Discord and Google OAuth, email/password with
   reset, opt-in guest sign-in for testing, custom display names, per-user
-  colour and display preferences.
+  colour and display preferences, and a confirm-before-revealing-cards
+  option for the select-cards/decline phases (default on).
 - **Turn notifications**: Discord webhooks and Web Push, both sent
   server-side by Edge Functions so they fire with every tab closed.
 - **PWA**: installable, with a custom service worker and an update banner

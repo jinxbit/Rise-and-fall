@@ -820,6 +820,53 @@ function LogPanel({ gameLog, players }: { gameLog: GameEvent[]; players: PlayerR
 }
 
 /**
+ * Backs issue #528's "Reveal all cards" confirmation: while `shouldStage` is
+ * true, `choose` holds its argument locally (`stagedCardId`) instead of
+ * calling `submit`, so a player who's about to be the one whose pick
+ * resolves the select-cards/decline phase gets a chance to review — and
+ * change — their pick behind `confirm` before anything is actually sent.
+ *
+ * Race condition (per the issue): `shouldStage` is recomputed by the caller
+ * every render straight from the live, server-synced `pendingPlayerIds` —
+ * it is not a snapshot taken when staging began. If another player
+ * retracts their own pick while this one sits staged, this player is no
+ * longer the one who'd trigger a reveal, so `shouldStage` flips to false;
+ * the effect below then submits the staged pick immediately, exactly as if
+ * staging had never applied — the same outcome an ordinary (non-last)
+ * click already has. This can't be resolved the other way around (staging
+ * a pick that was submitted immediately because `shouldStage` was
+ * momentarily stale) without a network round-trip before every click, so
+ * that direction is left as a rare, harmless early reveal rather than
+ * "fixed" — see RoundView's `confirmBeforeRevealingCards` prop doc comment.
+ */
+function useStagedCardChoice(shouldStage: boolean, submit: (cardId: string) => void) {
+  const [stagedCardId, setStagedCardId] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (stagedCardId && !shouldStage) {
+      submit(stagedCardId)
+      setStagedCardId(null)
+    }
+  }, [shouldStage, stagedCardId, submit])
+
+  function choose(cardId: string) {
+    if (shouldStage) {
+      setStagedCardId(cardId)
+    } else {
+      submit(cardId)
+    }
+  }
+
+  function confirm() {
+    if (!stagedCardId) return
+    submit(stagedCardId)
+    setStagedCardId(null)
+  }
+
+  return { stagedCardId, choose, confirm }
+}
+
+/**
  * A hand with only one card isn't a real choice — RULE_ENFORCEMENT_PLAN.md
  * §4.2/§4.3's design (per jinxbit, 2026-09-05): the state machine itself
  * takes a forced single-option action (applyAction's own forced-follow-up
@@ -831,10 +878,19 @@ function LogPanel({ gameLog, players }: { gameLog: GameEvent[]; players: PlayerR
  * ordinary clickable choice as a defensive fallback (e.g. a game whose state
  * predates this change), rather than special-casing it.
  */
-function SelectCardsPanel(props: { state: GameState; players: PlayerRow[]; myPlayerId: string | null; onChooseCard: (cardId: string) => void }) {
-  const { state, players, myPlayerId, onChooseCard } = props
+function SelectCardsPanel(props: {
+  state: GameState
+  players: PlayerRow[]
+  myPlayerId: string | null
+  onChooseCard: (cardId: string) => void
+  confirmBeforeRevealingCards: boolean
+}) {
+  const { state, players, myPlayerId, onChooseCard, confirmBeforeRevealingCards } = props
   const me = myPlayerId ? state.players.find((p) => p.id === myPlayerId) : undefined
   const isPending = !!myPlayerId && state.pendingPlayerIds.includes(myPlayerId)
+  // My pick would be the one that empties pendingPlayerIds and resolves the phase.
+  const wouldReveal = confirmBeforeRevealingCards && state.pendingPlayerIds.length === 1 && state.pendingPlayerIds[0] === myPlayerId
+  const { stagedCardId, choose, confirm } = useStagedCardChoice(wouldReveal, onChooseCard)
   const handCardIds = me ? sortCardIdsForDisplay(me.handCardIds, state.cards) : []
 
   if (!myPlayerId) return null
@@ -851,11 +907,12 @@ function SelectCardsPanel(props: { state: GameState; players: PlayerRow[]; myPla
       <div className="flex flex-wrap gap-2">
         {handCardIds.map((cardId) => {
           const card = state.cards[cardId]
+          const staged = stagedCardId === cardId
           return (
             <button
               key={cardId}
-              onClick={() => onChooseCard(cardId)}
-              className="rounded-md border border-neutral-700 px-3 py-1 hover:border-neutral-500"
+              onClick={() => choose(cardId)}
+              className={`rounded-md border px-3 py-1 hover:border-neutral-500 ${staged ? 'border-indigo-500 bg-indigo-950/40' : 'border-neutral-700'}`}
             >
               {card ? capitalize(card.kind) : cardId}
             </button>
@@ -863,6 +920,11 @@ function SelectCardsPanel(props: { state: GameState; players: PlayerRow[]; myPla
         })}
         {handCardIds.length === 0 && <p className="text-neutral-500">No cards in hand.</p>}
       </div>
+      {stagedCardId && (
+        <button onClick={confirm} className="self-start rounded-md bg-indigo-600 px-3 py-1 font-medium text-white hover:bg-indigo-500">
+          Reveal all cards
+        </button>
+      )}
     </div>
   )
 }
@@ -1013,8 +1075,20 @@ function SupportHint({ actingUnitKind, actionLabel, neededCandidateCount }: { ac
   )
 }
 
-function DeclinePanel(props: { state: GameState; players: PlayerRow[]; myPlayerId: string | null; onMoveToDecline: (cardId: string) => void }) {
-  const { state, players, myPlayerId, onMoveToDecline } = props
+function DeclinePanel(props: {
+  state: GameState
+  players: PlayerRow[]
+  myPlayerId: string | null
+  onMoveToDecline: (cardId: string) => void
+  confirmBeforeRevealingCards: boolean
+}) {
+  const { state, players, myPlayerId, onMoveToDecline, confirmBeforeRevealingCards } = props
+  // My pick would be the one that empties pendingPlayerIds and resolves the
+  // phase — regardless of how many cards I still owe overall, only the
+  // single submission that empties the queue actually reveals anything.
+  const wouldReveal = confirmBeforeRevealingCards && state.pendingPlayerIds.length === 1 && state.pendingPlayerIds[0] === myPlayerId
+  const { stagedCardId, choose, confirm } = useStagedCardChoice(wouldReveal, onMoveToDecline)
+
   if (!myPlayerId) return null
 
   const owed = state.pendingPlayerIds.filter((id) => id === myPlayerId).length
@@ -1035,11 +1109,12 @@ function DeclinePanel(props: { state: GameState; players: PlayerRow[]; myPlayerI
       <div className="flex flex-wrap gap-2">
         {candidates.map((cardId) => {
           const card = state.cards[cardId]
+          const staged = stagedCardId === cardId
           return (
             <button
               key={cardId}
-              onClick={() => onMoveToDecline(cardId)}
-              className="rounded-md border border-red-700 px-3 py-1 hover:border-red-500"
+              onClick={() => choose(cardId)}
+              className={`rounded-md border px-3 py-1 hover:border-red-500 ${staged ? 'border-indigo-500 bg-indigo-950/40' : 'border-red-700'}`}
             >
               {card ? capitalize(card.kind) : cardId}
             </button>
@@ -1047,6 +1122,11 @@ function DeclinePanel(props: { state: GameState; players: PlayerRow[]; myPlayerI
         })}
         {candidates.length === 0 && <p className="text-neutral-500">Nothing left to decline.</p>}
       </div>
+      {stagedCardId && (
+        <button onClick={confirm} className="self-start rounded-md bg-indigo-600 px-3 py-1 font-medium text-white hover:bg-indigo-500">
+          Reveal all cards
+        </button>
+      )}
     </div>
   )
 }
@@ -1208,6 +1288,20 @@ export function RoundView(props: {
    * as `unitPlateColors` above.
    */
   unitReserveDisplayMode?: UnitReserveDisplayMode
+  /**
+   * Whether, when the viewer's own pick would be the one that resolves the
+   * select-cards or decline phase (the last entry leaving
+   * `pendingPlayerIds`) and so reveal every player's simultaneous choice,
+   * SelectCardsPanel/DeclinePanel should hold it locally behind a "Reveal
+   * all cards" button instead of submitting it the instant a card is
+   * clicked (issue #528) — GamePage's `useConfirmBeforeRevealingCards`
+   * resolves the viewer's own profile setting. Undefined (e.g. no signed-in
+   * viewer, or most tests) falls back to false — the original
+   * submit-immediately behaviour — rather than the profile default of "on",
+   * since a caller that never passes this prop has nothing loaded to
+   * disagree with in the first place.
+   */
+  confirmBeforeRevealingCards?: boolean
   /** True while a move submitted via GamePage's submitAction() is in flight (issue #434) — shown as a small "Sending…" badge in the board's top-right corner, beside the expand/collapse chevron. */
   submitting?: boolean
   /**
@@ -1637,7 +1731,13 @@ export function RoundView(props: {
           height changes shift everything below them. Hidden while reviewing history so that view
           stays still instead of jumping around underneath the player. */}
       {!showHistory && state.roundPhase === 'selectCards' && (
-        <SelectCardsPanel state={state} players={players} myPlayerId={myPlayerId} onChooseCard={props.onChooseCard} />
+        <SelectCardsPanel
+          state={state}
+          players={players}
+          myPlayerId={myPlayerId}
+          onChooseCard={props.onChooseCard}
+          confirmBeforeRevealingCards={props.confirmBeforeRevealingCards ?? false}
+        />
       )}
       {!showHistory && state.roundPhase === 'actions' && mode.kind === 'supporting' && supportingUnit && supportingAction && (
         <SupportHint actingUnitKind={supportingUnit.kind} actionLabel={supportingAction.name} neededCandidateCount={supportingNeededCandidates.length} />
@@ -1653,7 +1753,13 @@ export function RoundView(props: {
         />
       )}
       {!showHistory && state.roundPhase === 'decline' && (
-        <DeclinePanel state={state} players={players} myPlayerId={myPlayerId} onMoveToDecline={props.onMoveToDecline} />
+        <DeclinePanel
+          state={state}
+          players={players}
+          myPlayerId={myPlayerId}
+          onMoveToDecline={props.onMoveToDecline}
+          confirmBeforeRevealingCards={props.confirmBeforeRevealingCards ?? false}
+        />
       )}
       {!showHistory && state.roundPhase === 'purchase' && (
         <PurchasePanel
