@@ -4033,3 +4033,47 @@ once this ships, since `skipExhaustedTiers` re-derives the next tier's pool
 from the now-fixed content the moment the current tier's count reaches zero,
 whatever it started from. `npm run lint`, `npm run test` (1198, was 1197),
 and `npm run build` all pass.
+
+## 81. Map building UX: clicking Confirm on a tile placement froze the tab with no feedback (issue #520)
+
+Reported as "the game first checks if the placement is legal and then draws
+the new placement" leading to "laggy ux". BoardSetupView's own hex-by-hex
+preview (TilePlacementPanel) already defers `checkTilePlacementLegalityDetailed`
+— the same bounded combinatorial room-search `canPlaceRemainingTilesDetailed`
+runs, see `boardGeneration.ts` — into a macrotask (`setTimeout(…, 0)`) so
+React can paint an "Analyzing legal placement…" overlay *before* that
+possibly-slow, synchronous search blocks the thread (issue #205). Confirming
+the placement never got the same treatment: `GamePage.tsx`'s `submitAction`
+sets `setSubmitting(true)` (which renders the board's "Sending…" badge) and
+then, for every client-trusted (non-`ruleEnforcementEnabled`) game, calls
+`writeWithRetry`, whose very first line ran `computeNext(state)` —
+`applyAction()` — synchronously, in the same tick, with no `await` in
+between. `applyAction` always re-runs PLACE_TILE's legality/room-search
+itself rather than trusting the client's own check (`trustedReplay`'s doc
+comment: "safe only for an action already known-legal … never from a live
+submission"), so a freshly submitted tile placement paid for that same
+expensive search a second time — but this time with zero paint boundary
+before it, so the tab visibly froze with no "Sending…" badge, no overlay,
+nothing, until the search (plus the write itself) finished and the board
+jumped straight to the placed tile. Every other client-trusted action
+(`CHOOSE_CARD`, `RESOLVE_UNIT_ACTION`, undo/redo's full-history replay, …)
+went through the exact same unyielded `writeWithRetry` call, just usually
+cheap enough not to be noticeable.
+
+Fix: `writeWithRetry` now awaits one macrotask (`await new Promise(resolve
+=> setTimeout(resolve, 0))`) at the top of each retry attempt, before
+calling `computeNext` — the same deferral TilePlacementPanel already uses,
+just applied to the actual submission instead of only the preview. This
+lets React flush and the browser paint whatever state this attempt's
+caller already queued (`setSubmitting(true)`'s "Sending…" badge, in every
+case) before any expensive synchronous rules computation inside
+`computeNext` can block the thread. Applies to every `writeWithRetry`
+caller uniformly, not just PLACE_TILE — undo/redo's replay-from-genesis is
+the other case with genuine cost on a long game. `runEnforced`
+(`ruleEnforcementEnabled` games) already awaits a real network call to the
+Edge Function first and needed no change. This is a scheduling-only change
+— `computeNext`'s result, and so the actual rules outcome, is identical
+either way; not meaningfully testable without a full GamePage render
+harness (which doesn't exist yet), so verified by reasoning through the
+call order instead of a new automated test. `npm run lint`, `npm run test`
+(1198), and `npm run build` all pass.
