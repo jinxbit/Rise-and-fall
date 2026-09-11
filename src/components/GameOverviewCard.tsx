@@ -1,3 +1,4 @@
+import { Fragment } from 'react'
 import type { ReactNode } from 'react'
 import type { PlayerRow } from '../lib/dbTypes'
 import type { GameCardSummary } from '../lib/gameCardView'
@@ -66,10 +67,12 @@ export function GameOverviewCard({
           {players.length === 0
             ? 'no players yet'
             : players.map((p, i) => (
-                <span key={p.id} className={pendingPlayerIds.includes(p.id) ? 'font-semibold text-neutral-100' : undefined}>
+                <Fragment key={p.id}>
                   {i > 0 && ', '}
-                  {p.display_name}
-                </span>
+                  <span className={pendingPlayerIds.includes(p.id) ? 'font-semibold text-neutral-100' : undefined}>
+                    {p.display_name}
+                  </span>
+                </Fragment>
               ))}
         </span>
         {summary && <GameCardSummaryLines summary={summary} isFinished={isFinished} />}
