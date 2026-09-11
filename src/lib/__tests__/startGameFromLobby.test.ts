@@ -203,6 +203,34 @@ describe('startGameFromLobby (ruleEnforcementEnabled)', () => {
     expect(await getGameState(game.id)).toBeNull()
   })
 
+  // issue #519's follow-up report: a caller who hit an unexpected server-side
+  // exception here (not one of start-game/index.ts's own deliberate
+  // `jsonResponse` calls) got back Deno's own unhandled-rejection response
+  // instead — no `{ok:false, error}` body for gameApi.ts's `invokeStartGame`
+  // to parse, so the client fell back to supabase-js's generic "Edge
+  // Function returned a non-2xx status code" with the real reason lost.
+  // Forces a genuine exception (buildGenesisState's `throw` for an unknown
+  // map template id) to check the function's top-level try/catch turns it
+  // into a parseable error instead.
+  it('turns an unexpected server-side exception into a parseable error instead of an opaque one', async () => {
+    currentClient = stack.clientFor(ALICE)
+    const { game } = await createGame({
+      name: 'Bad template room',
+      playMode: 'live',
+      userId: ALICE,
+      displayName: 'Alice',
+      avatarUrl: null,
+      minPlayers: 1,
+      maxPlayers: 2,
+      ruleEnforcementEnabled: true,
+      mapTemplateId: 'no-such-template',
+    })
+
+    const result = await stack.startGame(ALICE, game.id)
+    expect(result).toMatchObject({ ok: false, status: 500, error: 'Unknown map template: no-such-template' })
+    expect(await getGameState(game.id)).toBeNull()
+  })
+
   it('rejects a direct client write attempting to start the game, now that genesis is server-authoritative', async () => {
     currentClient = stack.clientFor(ALICE)
     const { game } = await createGame({

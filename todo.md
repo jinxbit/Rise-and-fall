@@ -4204,3 +4204,42 @@ the same roster-race regression replayed with `ruleEnforcementEnabled: true`
 start attempt rejected with 403, and a direct client write to either
 `game_state` or `games.status` rejected by the new RLS/trigger. `npm run
 lint`, `npm run test`, and `npm run build` all pass.
+
+## 84. `start-game` swallowed unexpected exceptions into an opaque client error (issue #519 follow-up)
+
+The very first real attempt to start a rule-enforced 3-player game (1
+signed-in host, 2 guest accounts) on Preview failed with the browser
+console showing supabase-js's generic `FunctionsHttpError` text — "Edge
+Function returned a non-2xx status code" — instead of a player-facing
+reason. That generic message only ever surfaces when `gameApi.ts`'s
+`invokeStartGame()` can't find a `{ok:false, error}` body to parse out of
+the response (see its own doc comment); every deliberate rejection
+`start-game/index.ts` already returns (401/403/404/400/409) round-trips
+through that parsing fine, as `startGameFromLobby.test.ts`'s existing cases
+already prove. That leaves one gap: `start-game/index.ts`, like
+`apply-action`/`undo-action`/`redo-action` before it, has several bare
+`throw gameError`/`throw insertError` calls for a genuine DB failure —
+those never went through `jsonResponse`, so they fell into the Edge
+Runtime's own unhandled-exception response, which carries no `error` field
+for the client to recover.
+
+Investigated whether the 3-player/guest shape itself was the trigger:
+`deno check`ed `start-game/index.ts`'s full import graph (ruling out a
+deploy-only missing-`.ts`-extension failure, CLAUDE.md's usual suspect for
+"works in CI, fails on deploy") and replayed the exact reported scenario —
+live, `ruleEnforcementEnabled` + `hiddenInformationEnabled` both on, 3
+seated players — through the real `start-game` handler via
+`src/test/supabaseStack/`. Both came back clean, so whatever DB-level
+failure actually happened isn't reproducible from the exported shape alone
+without the project's own Edge Function logs.
+
+Rather than guess at that root cause, wrapped `start-game/index.ts`'s
+handler body in a top-level `try`/`catch` that turns any exception into
+`jsonResponse(500, {ok: false, error: err.message})` — the same shape
+`invokeStartGame()` already expects — so the *next* occurrence (this one or
+otherwise) surfaces its real reason to the player instead of a dead-end
+generic string. Added a regression test forcing a genuine exception
+(`buildGenesisState`'s `throw` for an unknown `mapTemplateId`) and asserting
+`stack.startGame()` gets back a parseable 500 with the real message rather
+than an opaque failure. `npm run lint`, `npm run test` (1205 tests), and
+`npm run build` all pass.

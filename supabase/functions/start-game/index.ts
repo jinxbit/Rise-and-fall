@@ -58,6 +58,24 @@ async function persistSettings(supabase: SupabaseClient, game: GameRow, settings
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
 
+  // issue #519's follow-up report: a caller who hits an unexpected server
+  // error here (a DB error, a malformed settings row, ...) got back
+  // Deno's own unhandled-rejection response instead of one of this file's
+  // `jsonResponse` calls — no `{ok:false, error}` body for gameApi.ts's
+  // `invokeStartGame` to parse, so the client fell back to supabase-js's
+  // generic "Edge Function returned a non-2xx status code" with the real
+  // reason lost. This mirrors that parsing contract for the one failure
+  // mode that wasn't going through it yet, so any future exception here is
+  // at least visible to the player (and to `context.json()`'s parser)
+  // instead of being swallowed into a message with no diagnostic value.
+  try {
+    return await handleStartGame(req)
+  } catch (err) {
+    return jsonResponse(500, { ok: false, error: err instanceof Error ? err.message : 'Unexpected server error.' })
+  }
+})
+
+async function handleStartGame(req: Request): Promise<Response> {
   const callerUserId = await getCallerUserId(req)
   if (!callerUserId) return jsonResponse(401, { ok: false, error: 'Not authenticated.' })
 
@@ -137,4 +155,4 @@ Deno.serve(async (req) => {
   if (statusError) throw statusError
 
   return jsonResponse(200, { ok: true })
-})
+}
