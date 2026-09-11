@@ -279,27 +279,7 @@ export function LobbyPage() {
   async function handleCopyRoomLink() {
     if (!game) return
     const link = `${window.location.origin}/lobby/${game.room_code}`
-    const text = `Play Rise&Fall with me: ${link}`
-    const html = `Play Rise&amp;Fall with me: <a href="${link}">join</a>`
-    // Rich targets (Slack, Discord, email, Google Docs, …) get "join" as a
-    // clickable link instead of a raw URL; text/plain stays as a fallback
-    // for targets that don't understand text/html (chat inputs, terminals).
-    if (typeof ClipboardItem !== 'undefined') {
-      try {
-        await navigator.clipboard.write([
-          new ClipboardItem({
-            'text/plain': new Blob([text], { type: 'text/plain' }),
-            'text/html': new Blob([html], { type: 'text/html' }),
-          }),
-        ])
-        setLinkCopied(true)
-        setTimeout(() => setLinkCopied(false), 1500)
-        return
-      } catch {
-        // Fall through to the plain-text copy below.
-      }
-    }
-    await navigator.clipboard.writeText(text)
+    await navigator.clipboard.writeText(link)
     setLinkCopied(true)
     setTimeout(() => setLinkCopied(false), 1500)
   }

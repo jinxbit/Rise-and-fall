@@ -4472,3 +4472,16 @@ call site reads directly off the fresh payload rather than through
 `game`/`setGame` — are small, non-TOASTable columns, so reading them
 straight off `updated` stays correct either way. `npm run lint`,
 `npm run test` (1224 tests), and `npm run build` all pass.
+
+## 90. Copy room link copied more than the link (issue #535)
+
+`LobbyPage.tsx`'s "Copy room link" button (`handleCopyRoomLink`) wrote
+`Play Rise&Fall with me: <link>` to the clipboard as plain text, plus a
+`text/html` variant with the link wrapped in a "join" anchor for rich
+targets, via a `ClipboardItem`/`navigator.clipboard.write` call with a
+`navigator.clipboard.writeText` fallback. Requested change: copy only the
+room's URL. Replaced the whole function body with a single
+`navigator.clipboard.writeText(link)` — no wrapping text, no dual
+MIME-type write, since there's nothing left to distinguish plain-text from
+rich-text once the clipboard content is just a bare URL. `npm run lint`,
+`npm run test` (1224 tests), and `npm run build` all pass.
