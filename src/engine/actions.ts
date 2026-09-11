@@ -56,11 +56,18 @@ export interface ChooseCardAction {
  * refinement) — the "undo" a player reaches for mid-phase instead of the
  * shared `historyPointer` rewind, since a plain pointer move would also
  * undo whichever other players' entries happen to sit after theirs in
- * `actionHistory`. Legal only while `roundPhase === 'selectCards'` and the
- * caller has a non-null `chosenCardIdByPlayerId` entry (once the phase
- * resolves, `roundPhase` moves on and this is no longer submittable). Puts
- * the caller back in `pendingPlayerIds`; redo is just choosing again, no
- * separate endpoint. No `cardId` payload — there's only ever one thing to
+ * `actionHistory`. Legal while `roundPhase === 'selectCards'` and the caller
+ * has a non-null `chosenCardIdByPlayerId` entry.
+ *
+ * Issue #547 extends this past the phase resolving: if some *other* player's
+ * pick was the one that emptied `pendingPlayerIds` and moved `roundPhase` to
+ * `'actions'`, the caller can still retract their own already-revealed pick
+ * — reopening `selectCards` for just them — as long as nothing has happened
+ * in `actions` yet and the game doesn't lock revealed information
+ * (`GameState.lockRevealedInformationEnabled`, issue #529). See
+ * `canRetractChoiceAfterReveal` (./applyAction.ts) for the exact condition.
+ * Puts the caller back in `pendingPlayerIds`; redo is just choosing again,
+ * no separate endpoint. No `cardId` payload — there's only ever one thing to
  * retract, the caller's own current pick.
  */
 export interface RetractChoiceAction {

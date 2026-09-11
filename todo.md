@@ -4586,3 +4586,65 @@ auto-submit behavior to assert the new keep-staged-and-relabel behavior
 instead, and added the same coverage for the decline phase (the original
 case only covered select-cards). `npm run lint`, `npm run test` (1237
 tests), and `npm run build` all pass.
+
+## 95. Undo after another player's pick resolved the round wiped their pick too (issue #547)
+
+Reported flow: p1 picks a card; p2 picks last, resolving the `selectCards`
+phase (with or without issue #528's "Reveal all cards" confirmation in the
+way) and revealing both. p1 then clicks Undo to reconsider their own pick —
+but a bare Undo always reverts whichever entry sits at the tip of
+`actionHistory`, and that's p2's `CHOOSE_CARD`, not p1's. p1's click reopened
+`selectCards` for *both* players, forcing p2 to pick again, instead of just
+letting p1 change their own mind. `RETRACT_CHOICE` (RULE_ENFORCEMENT_PLAN.md
+§4.4) already exists to retract only the caller's own pick without
+disturbing anyone else's, but was legal only while `roundPhase ===
+'selectCards'` — the instant the last pending player chooses,
+`applyChooseCard` flips the phase to `'actions'`, and from that point on
+`RETRACT_CHOICE` was refused for everyone, not just the player who happened
+to resolve it.
+
+Added `canRetractChoiceAfterReveal` (`src/engine/applyAction.ts`), a second,
+narrower condition `applyRetractChoice` now also accepts: `roundPhase ===
+'actions'`, the caller still has a non-null `chosenCardIdByPlayerId` entry,
+`GameSettings.lockRevealedInformationEnabled` (issue #529) is off, and
+nothing has happened in `actions` yet (`pendingPlayerIds` still the full
+`turnOrder`, `resolvedUnitIdsThisTurn`/`unitsCreatedThisTurn` both empty).
+Deliberately a plain state read rather than a history walk: unlike
+`selectCards`/`decline`/`purchase`, `beginActionsPhase` (`src/engine/round.ts`)
+never auto-cascades into the next phase on its own, so "nothing has happened
+yet" is exactly the shape it produced going in. When it applies, it reopens
+`selectCards` for just the caller — clearing only their own
+`chosenCardIdByPlayerId` entry and putting only them back in
+`pendingPlayerIds` — leaving every other player's already-revealed pick
+untouched. Gated off by `lockRevealedInformationEnabled` on purpose: that
+setting exists precisely so a revealed pick can't go back under wraps
+without the owner/admin override `undo`+resubmit already requires
+(`requiresOwnerOverride`, `supabase/functions/_shared/gameEnforcement.ts`),
+and `RETRACT_CHOICE` has no owner-override check of its own to piggyback on
+— so the engine itself now reads this setting directly (previously only
+`apply-action` did; see the field's own doc comment in `src/engine/types.ts`).
+Structurally a no-op change for a client-trusted game, where the flag can
+never be `true` in the first place.
+
+`src/lib/undoDecision.ts`'s `shouldRetractOwnChoice` — the client-side check
+`GamePage.tsx`'s Undo button already used to decide "does Undo mean
+`RETRACT_CHOICE` right now?" (issue #503) — now delegates to
+`canRetractChoiceAfterReveal` for the same post-reveal case instead of
+re-deriving it, so the two can't drift apart. No `GamePage.tsx` change
+needed: `handleUndo` already tries `shouldRetractOwnChoice` before falling
+back to a plain pointer-rewind undo.
+
+Decline's equivalent (`MOVE_TO_DECLINE`/`RETRACT_DECLINE`) is deliberately
+left alone: unlike `beginActionsPhase`, `beginDeclinePhase`'s resolution
+(`beginPurchasePhase`) can itself cascade straight through an empty purchase
+phase into `finishRound` — reversing that would mean undoing a whole round's
+close-out, not just a phase flip, so it's out of scope here.
+
+Added a `RETRACT_CHOICE after the round resolves via someone else's pick`
+describe block to `applyAction.test.ts` reproducing the reported scenario
+directly (p1's own pick left untouched by p2's reveal-triggering pick, then
+by p1's own retraction), plus the `lockRevealedInformationEnabled`/
+progressed-actions-phase/eliminated-player rejections, and updated
+`undoDecision.test.ts` to cover the same cases through
+`shouldRetractOwnChoice`. `npm run lint`, `npm run test` (1246 tests), and
+`npm run build` all pass.

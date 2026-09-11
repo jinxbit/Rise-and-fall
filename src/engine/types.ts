@@ -372,10 +372,18 @@ export interface GameState {
    * already-revealed pick and resubmit a different one, since no *other*
    * player's action sits in the discarded tail to trigger the existing
    * check. A creation-time choice, immutable for the whole game, carried
-   * here for the same reason as hiddenInformationEnabled above. The engine
-   * itself never reads this field directly — `apply-action`
-   * (supabase/functions/) is the only consumer, via `requiresOwnerOverride`
-   * (supabase/functions/_shared/gameEnforcement.ts).
+   * here for the same reason as hiddenInformationEnabled above. Read by
+   * `apply-action` (supabase/functions/), via `requiresOwnerOverride`
+   * (supabase/functions/_shared/gameEnforcement.ts), for the undo+resubmit
+   * route — and, since issue #547, by the engine itself:
+   * `canRetractChoiceAfterReveal`/`applyRetractChoice` (./applyAction.ts)
+   * gate RETRACT_CHOICE's own post-reveal case on it directly, since that
+   * action has no owner-override check of its own to piggyback on (it's an
+   * ordinary forward action, not an undo+resubmit branch — see
+   * requiresOwnerOverride's doc comment). Structurally always `false` for a
+   * client-trusted game (only reachable once `hiddenInformationEnabled` is
+   * on, which itself requires `ruleEnforcementEnabled`), so this new read
+   * never changes behavior on that write path.
    */
   lockRevealedInformationEnabled: boolean
   /** Round number — increments each time a round finishes (see ./round.ts). */

@@ -244,6 +244,18 @@ export function redactedResponseState(ctx: GameContext, callerUserId: string, st
  * own still-pending pick, with no owner-override check at all — so any
  * `CHOOSE_CARD`/`MOVE_TO_DECLINE` a client instead reaches via undo+resubmit
  * is, by construction, one that already resolved.
+ *
+ * Issue #547 gives `RETRACT_CHOICE` one further, still-forward-only reach:
+ * the caller's own pick, even after some *other* player's resolved the
+ * `selectCards` phase, as long as nothing has happened in `actions` since —
+ * see `canRetractChoiceAfterReveal` (src/engine/applyAction.ts). That path
+ * is self-gated on `lockRevealedInformationEnabled` inside the engine
+ * itself rather than through this function, since it's still a forward
+ * submission with nothing in `redoableTail` to check — `RETRACT_DECLINE` has
+ * no equivalent yet (its own post-resolve case would mean reversing
+ * `beginPurchasePhase`'s possible cascade into a finished round, not just a
+ * phase flip — see the issue's own applyRetractChoice doc comment for why
+ * that's out of scope for now).
  */
 export function requiresOwnerOverride(rawHistory: LoggedAction[], submittedByPlayerId: string, lockRevealedInformationEnabled: boolean): boolean {
   const tail = redoableTail(rawHistory)

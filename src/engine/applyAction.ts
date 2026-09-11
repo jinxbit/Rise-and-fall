@@ -435,32 +435,85 @@ function applyChooseCard(state: GameState, playerId: string, cardId: string): Ac
 }
 
 /**
+ * Issue #547: whether `playerId` can still retract their own `selectCards`
+ * pick even though the phase has already resolved into `actions` — i.e. some
+ * *other* player's pick was the one that emptied `pendingPlayerIds` and
+ * revealed everyone's choice. Deliberately narrow: true only while `actions`
+ * is still in the exact shape `beginActionsPhase` (./round.ts) produced —
+ * `pendingPlayerIds` still the full `turnOrder` and nobody's resolved or
+ * created a unit yet — since `actions`, unlike `selectCards`/`decline`/
+ * `purchase`, never auto-cascades into the next phase on its own, this is a
+ * plain state read, not a history replay: any `RESOLVE_UNIT_ACTION`/
+ * `PASS_ACTIONS` since the reveal would already have moved one of those
+ * fields. Also off entirely when `lockRevealedInformationEnabled` is on —
+ * that setting (issue #529) exists specifically so a revealed pick can't be
+ * put back under wraps without the owner/admin override that `undo`+
+ * resubmit already requires; this would otherwise be a second, ungated route
+ * to the same thing.
+ */
+export function canRetractChoiceAfterReveal(
+  state: Pick<
+    GameState,
+    'roundPhase' | 'lockRevealedInformationEnabled' | 'chosenCardIdByPlayerId' | 'pendingPlayerIds' | 'turnOrder' | 'resolvedUnitIdsThisTurn' | 'unitsCreatedThisTurn'
+  >,
+  playerId: string,
+): boolean {
+  return (
+    state.roundPhase === 'actions' &&
+    !state.lockRevealedInformationEnabled &&
+    state.chosenCardIdByPlayerId[playerId] != null &&
+    state.pendingPlayerIds.length === state.turnOrder.length &&
+    state.resolvedUnitIdsThisTurn.length === 0 &&
+    state.unitsCreatedThisTurn.length === 0
+  )
+}
+
+/**
  * See RetractChoiceAction (./actions.ts) for the "why" — this is the
  * compensating action §4.4 calls for instead of a shared pointer rewind.
- * Legal exactly while the caller has a pick standing from this same
- * `selectCards` phase: `roundPhase === 'selectCards'` already implies the
- * phase hasn't resolved (the moment the last pending player chooses,
- * applyChooseCard above flips it to `'actions'`), so the only other check
- * needed is that this player actually has something to retract.
+ * Legal while the caller has a pick standing from this same `selectCards`
+ * phase (`roundPhase === 'selectCards'` already implies the phase hasn't
+ * resolved — the moment the last pending player chooses, applyChooseCard
+ * above flips it to `'actions'` — so the only other check needed there is
+ * that this player actually has something to retract), or — issue #547 —
+ * while `canRetractChoiceAfterReveal` holds: someone *else's* pick resolved
+ * the phase, nothing has happened in `actions` since, and the game doesn't
+ * lock revealed information. That second case reopens `selectCards` for
+ * just this player, leaving every other player's already-revealed pick
+ * exactly as it was — unlike a plain Undo, which would revert whichever
+ * entry sits at the tip of `actionHistory` (the pick that resolved the
+ * phase), regardless of whose it was.
  */
 function applyRetractChoice(state: GameState, playerId: string): ActionResult {
-  if (state.roundPhase !== 'selectCards') {
-    return { ok: false, error: 'Cards can only be retracted during the select-cards phase' }
-  }
   const player = state.players.find((p) => p.id === playerId)
   if (player?.eliminated) {
     return { ok: false, error: 'Eliminated players cannot retract a choice' }
   }
-  if (state.chosenCardIdByPlayerId[playerId] == null) {
-    return { ok: false, error: 'This player has not chosen a card yet this round' }
+
+  if (state.roundPhase === 'selectCards') {
+    if (state.chosenCardIdByPlayerId[playerId] == null) {
+      return { ok: false, error: 'This player has not chosen a card yet this round' }
+    }
+    const nextState: GameState = {
+      ...state,
+      chosenCardIdByPlayerId: { ...state.chosenCardIdByPlayerId, [playerId]: null },
+      pendingPlayerIds: [...state.pendingPlayerIds, playerId],
+    }
+    return { ok: true, state: nextState }
   }
 
-  const nextState: GameState = {
-    ...state,
-    chosenCardIdByPlayerId: { ...state.chosenCardIdByPlayerId, [playerId]: null },
-    pendingPlayerIds: [...state.pendingPlayerIds, playerId],
+  if (canRetractChoiceAfterReveal(state, playerId)) {
+    const nextState: GameState = {
+      ...state,
+      roundPhase: 'selectCards',
+      chosenCardIdByPlayerId: { ...state.chosenCardIdByPlayerId, [playerId]: null },
+      pendingPlayerIds: [playerId],
+      activePlayerId: null,
+    }
+    return { ok: true, state: nextState }
   }
-  return { ok: true, state: nextState }
+
+  return { ok: false, error: 'Cards can only be retracted during the select-cards phase' }
 }
 
 /**

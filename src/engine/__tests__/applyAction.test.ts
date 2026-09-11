@@ -301,7 +301,7 @@ describe('RETRACT_CHOICE (RULE_ENFORCEMENT_PLAN.md §4.4)', () => {
     expect(rechosen.state.roundPhase).toBe('actions')
   })
 
-  it('rejects retracting outside the select-cards phase', () => {
+  it('rejects retracting outside the select-cards/actions phases (decline/purchase)', () => {
     // p2's hand is a single card — p1's own CHOOSE_CARD already folds p2's
     // forced pick into the same applyAction() call (RULE_ENFORCEMENT_PLAN.md
     // §4.2/§4.3), reaching the actions phase in one call.
@@ -309,8 +309,10 @@ describe('RETRACT_CHOICE (RULE_ENFORCEMENT_PLAN.md §4.4)', () => {
     if (!p1Chosen.ok) throw new Error('setup failed')
     expect(p1Chosen.state.roundPhase).toBe('actions')
 
-    const result = applyAction(p1Chosen.state, { type: 'RETRACT_CHOICE', playerId: 'p1' })
-    expect(result.ok).toBe(false)
+    const declineState: GameState = { ...p1Chosen.state, roundPhase: 'decline' }
+    expect(applyAction(declineState, { type: 'RETRACT_CHOICE', playerId: 'p1' }).ok).toBe(false)
+    const purchaseState: GameState = { ...p1Chosen.state, roundPhase: 'purchase' }
+    expect(applyAction(purchaseState, { type: 'RETRACT_CHOICE', playerId: 'p1' }).ok).toBe(false)
   })
 
   it('rejects retracting for a player eliminated after choosing (e.g. by conceding) — otherwise they get stuck back in pendingPlayerIds with no one left to act for them', () => {
@@ -318,6 +320,90 @@ describe('RETRACT_CHOICE (RULE_ENFORCEMENT_PLAN.md §4.4)', () => {
     if (!chosen.ok) throw new Error('setup failed')
     const players = chosen.state.players.map((p) => (p.id === 'p1' ? { ...p, eliminated: true } : p))
     const eliminatedState: GameState = { ...chosen.state, players }
+
+    const result = applyAction(eliminatedState, { type: 'RETRACT_CHOICE', playerId: 'p1' })
+    expect(result.ok).toBe(false)
+  })
+})
+
+describe('RETRACT_CHOICE after the round resolves via someone else\'s pick (issue #547)', () => {
+  let state: GameState
+
+  beforeEach(() => {
+    state = makeActiveGame()
+  })
+
+  /**
+   * Mirrors the issue's reported order: p1 picks first (a real decision,
+   * same reason `makeStateWithP1RealChoice` above needs p1's extra card —
+   * otherwise retracting would just get immediately re-forced right back),
+   * then p2 — still on their default single-card hand — picks last and, by
+   * being the one who empties `pendingPlayerIds`, resolves the phase and
+   * reveals both picks. A real `applyAction` CHOOSE_CARD call for p2 (not a
+   * hand-built state) so `roundPhase`/`pendingPlayerIds`/
+   * `resolvedUnitIdsThisTurn`/`unitsCreatedThisTurn` all land exactly where
+   * `beginActionsPhase` (../round.ts) actually puts them.
+   */
+  function makeResolvedStateWithP1Pending(): GameState {
+    const p1 = state.players.find((p) => p.id === 'p1')!
+    const p1PickedState: GameState = {
+      ...state,
+      players: state.players.map((p) => (p.id === 'p1' ? { ...p1, handCardIds: [...p1.handCardIds, cardIdFor('p1', 'city')] } : p)),
+      chosenCardIdByPlayerId: { ...state.chosenCardIdByPlayerId, p1: cardIdFor('p1', 'ship') },
+      pendingPlayerIds: ['p2'],
+    }
+    const p2Choice = applyAction(p1PickedState, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'ship') })
+    if (!p2Choice.ok) throw new Error('setup failed')
+    return p2Choice.state
+  }
+
+  it("reopens select-cards for just the caller, leaving the other player's already-revealed pick untouched", () => {
+    const resolved = makeResolvedStateWithP1Pending()
+    expect(resolved.roundPhase).toBe('actions')
+    expect(resolved.chosenCardIdByPlayerId.p2).toBe(cardIdFor('p2', 'ship'))
+
+    const retracted = applyAction(resolved, { type: 'RETRACT_CHOICE', playerId: 'p1' })
+    expect(retracted.ok).toBe(true)
+    if (!retracted.ok) return
+    expect(retracted.state.roundPhase).toBe('selectCards')
+    expect(retracted.state.chosenCardIdByPlayerId.p1).toBeNull()
+    // p2's already-revealed pick is untouched — the whole point of issue #547.
+    expect(retracted.state.chosenCardIdByPlayerId.p2).toBe(cardIdFor('p2', 'ship'))
+    expect(retracted.state.pendingPlayerIds).toEqual(['p1'])
+  })
+
+  it('allows choosing a different card afterwards, resolving the round again without a second reveal from p2', () => {
+    const resolved = makeResolvedStateWithP1Pending()
+    const retracted = applyAction(resolved, { type: 'RETRACT_CHOICE', playerId: 'p1' })
+    if (!retracted.ok) throw new Error('setup failed')
+
+    const rechosen = applyAction(retracted.state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') })
+    expect(rechosen.ok).toBe(true)
+    if (!rechosen.ok) return
+    expect(rechosen.state.roundPhase).toBe('actions')
+    expect(rechosen.state.chosenCardIdByPlayerId.p1).toBe(cardIdFor('p1', 'city'))
+    expect(rechosen.state.chosenCardIdByPlayerId.p2).toBe(cardIdFor('p2', 'ship'))
+  })
+
+  it('rejects once GameSettings.lockRevealedInformationEnabled is on', () => {
+    const resolved: GameState = { ...makeResolvedStateWithP1Pending(), lockRevealedInformationEnabled: true }
+    const result = applyAction(resolved, { type: 'RETRACT_CHOICE', playerId: 'p1' })
+    expect(result.ok).toBe(false)
+  })
+
+  it('rejects once anything has happened in the actions phase — e.g. p1 already passed', () => {
+    const resolved = makeResolvedStateWithP1Pending()
+    const passed = applyAction(resolved, { type: 'PASS_ACTIONS', playerId: 'p1' })
+    if (!passed.ok) throw new Error('setup failed')
+
+    const result = applyAction(passed.state, { type: 'RETRACT_CHOICE', playerId: 'p2' })
+    expect(result.ok).toBe(false)
+  })
+
+  it('rejects for a player eliminated after the round resolved', () => {
+    const resolved = makeResolvedStateWithP1Pending()
+    const players = resolved.players.map((p) => (p.id === 'p1' ? { ...p, eliminated: true } : p))
+    const eliminatedState: GameState = { ...resolved, players }
 
     const result = applyAction(eliminatedState, { type: 'RETRACT_CHOICE', playerId: 'p1' })
     expect(result.ok).toBe(false)

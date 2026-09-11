@@ -17,11 +17,29 @@
 // RetractDeclineAction's own doc comment for why a single compensating
 // action, not one per card, is what keeps this consistent with the rest of
 // the codebase's one-submitted-action-per-actionHistory-entry rule.
+//
+// Issue #547 extends shouldRetractOwnChoice past the phase resolving: if
+// some *other* player's pick was the one that emptied pendingPlayerIds and
+// moved roundPhase to 'actions', a bare Undo would revert that other
+// player's entry (the tip of actionHistory), not the caller's own — exactly
+// the "affects the card selection of player b" bug the issue reports.
+// canRetractChoiceAfterReveal (../engine/applyAction.ts) is the engine's own
+// authoritative legality check for RETRACT_CHOICE in that state; reused here
+// rather than re-derived so this and applyRetractChoice can't drift apart.
 
+import { canRetractChoiceAfterReveal } from '../engine/applyAction'
 import type { GameState } from '../engine/types'
 
-export function shouldRetractOwnChoice(state: Pick<GameState, 'roundPhase' | 'chosenCardIdByPlayerId'>, myPlayerId: string | null | undefined): boolean {
-  return !!myPlayerId && state.roundPhase === 'selectCards' && state.chosenCardIdByPlayerId[myPlayerId] != null
+export function shouldRetractOwnChoice(
+  state: Pick<
+    GameState,
+    'roundPhase' | 'chosenCardIdByPlayerId' | 'lockRevealedInformationEnabled' | 'pendingPlayerIds' | 'turnOrder' | 'resolvedUnitIdsThisTurn' | 'unitsCreatedThisTurn'
+  >,
+  myPlayerId: string | null | undefined,
+): boolean {
+  if (!myPlayerId) return false
+  if (state.roundPhase === 'selectCards') return state.chosenCardIdByPlayerId[myPlayerId] != null
+  return canRetractChoiceAfterReveal(state, myPlayerId)
 }
 
 export function shouldRetractOwnDecline(
