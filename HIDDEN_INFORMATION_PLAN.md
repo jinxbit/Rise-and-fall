@@ -667,6 +667,17 @@ to hidden information (6) are omitted here.
    Edge-Function level, before any UI default changed. Even so: `main` is
    pre-production, so this reaches the Preview Supabase project and not
    players; production needs a separate `promote.yml` approval regardless.
+
+   **Update (2026-09-11, issue #552): the checkbox is gone.** After running
+   checked-by-default with no surprises, `CreateGamePage.tsx` no longer
+   offers a hidden-information checkbox at all — it always passes
+   `hiddenInformationAvailable` (still gated on rule enforcement, which is
+   itself now unconditional per `RULE_ENFORCEMENT_PLAN.md`'s matching
+   update, and on not being hotseat). A room creator can no longer opt out
+   except by choosing hotseat. `createGame()`'s own
+   `hiddenInformationEnabled ?? false` default is unchanged; only the UI's
+   default moved from a checkbox to a hardcoded value. New games only, same
+   as the original decision above.
 9. **End-to-end verification against a real Supabase project — closed
    (2026-09-09, issue #480).** The "this sandbox has no live project"
    limitation this section used to record is gone: a pre-production
