@@ -7,6 +7,7 @@ import type { BoardGenerationContent } from '../boardGenerationContent'
 import { cardIdFor, createPlayerCards, syncCardZonesWithBoard } from '../cards'
 import { createNewGame, startGame } from '../createGame'
 import { buildGameLog, buildGameLogFrom, extendGameLog, PLAYER_PLACEHOLDER } from '../gameLog'
+import { redactStateForPlayer, toClientGameState } from '../redaction'
 import { beginSelectCardsPhase } from '../round'
 import type { Card, GameState, Player, Terrain, Unit } from '../types'
 import { applyRedoAction, applyUndoAction } from '../undoRedo'
@@ -193,6 +194,43 @@ describe('buildGameLog', () => {
 
     const log = buildGameLog(genesis, state.actionHistory, content, achievementContent)
     expect(messages(log)).toContainEqual(expect.stringContaining('retracted their card choice'))
+  })
+
+  it('keeps narrating past a retracted choice for a viewer whose masked CHOOSE_CARD entry it retracts (issue #527)', () => {
+    // Same shape as the test above, but this time built the way GamePage.tsx
+    // actually builds a bystander's log for a hiddenInformationEnabled game:
+    // through redactStateForPlayer/toClientGameState, so p1's CHOOSE_CARD
+    // entry really does carry a masked `cardId: null` when p2 (a different
+    // player, still pending themselves — see redactStateForPlayer's
+    // hideChosenCards) looks at it, exactly like get-game-state would send.
+    // p1 also needs a second unit kind (so a two-card hand) — otherwise
+    // p1's single remaining card gets auto-folded into p2's own CHOOSE_CARD
+    // dispatch (RULE_ENFORCEMENT_PLAN.md §4.2/§4.3) the moment p2 picks,
+    // resolving the phase before this scenario (both still mid-phase after
+    // p1's retraction) is reached.
+    const board = boardOf([
+      [0, 0, 'plain'],
+      [1, 0, 'plain'],
+    ])
+    const city: Unit = { id: 'city_a', ownerId: 'p1', kind: 'city', coord: { q: 0, r: 0 }, movement: content.movementByKind.city, traits: [] }
+    const nomad: Unit = { id: 'nomad_a', ownerId: 'p1', kind: 'nomad', coord: { q: 0, r: 0 }, movement: content.movementByKind.nomad, traits: [] }
+    const otherNomad: Unit = { id: 'nomad_p2', ownerId: 'p2', kind: 'nomad', coord: { q: 1, r: 0 }, movement: content.movementByKind.nomad, traits: [] }
+    const otherCity: Unit = { id: 'city_p2', ownerId: 'p2', kind: 'city', coord: { q: 1, r: 0 }, movement: content.movementByKind.city, traits: [] }
+    const genesis = makeGenesis([city, nomad, otherNomad, otherCity], board)
+    const state = drive(genesis, [
+      { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') },
+      { type: 'RETRACT_CHOICE', playerId: 'p1' },
+      { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'nomad') },
+    ])
+    expect(state.roundPhase).toBe('selectCards') // p1 hasn't re-picked yet — still in progress
+
+    const redacted = redactStateForPlayer(state, 'p2')
+    const client = toClientGameState(redacted)
+    expect(client.actionHistory).toHaveLength(state.actionHistory.length)
+
+    const log = buildGameLog(genesis, client.actionHistory, content, achievementContent)
+    expect(messages(log)).toContainEqual(expect.stringContaining('retracted their card choice'))
+    expect(messages(log)).toContainEqual(expect.stringContaining('chose to play nomad'))
   })
 
   it('logs an explicit pass', () => {

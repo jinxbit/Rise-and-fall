@@ -248,6 +248,23 @@ function isMaskedRedactionEntry(action: Action): boolean {
 }
 
 /**
+ * True for a RETRACT_CHOICE entry whose matching CHOOSE_CARD was masked (see
+ * isMaskedRedactionEntry above) and so was skipped rather than replayed —
+ * `before.chosenCardIdByPlayerId[playerId]` is then still `null` locally,
+ * exactly as if that player had never picked at all. Replaying such a
+ * RETRACT_CHOICE via applyActionWithSteps would fail applyRetractChoice's
+ * "hasn't chosen a card yet" guard even though the real game legitimately
+ * had a pick to retract — this narration-only state just never recorded it.
+ * A validly-logged RETRACT_CHOICE always follows a real CHOOSE_CARD from the
+ * same player earlier the same round, so `before.chosenCardIdByPlayerId`
+ * being null here can only mean this, never a genuinely invalid history
+ * (issue #527, the RETRACT_CHOICE counterpart of isMaskedRedactionEntry).
+ */
+function isRetractionOfMaskedChoice(action: Action, before: GameState): boolean {
+  return action.type === 'RETRACT_CHOICE' && before.chosenCardIdByPlayerId[action.playerId] == null
+}
+
+/**
  * Continues narrating on top of a `state` already derived from some prefix
  * of a game's actionHistory (e.g. a previous buildGameLog/buildGameLogFrom/
  * extendGameLog call's own result) — the same per-action replay+diff
@@ -309,6 +326,17 @@ export function extendGameLog(
       // be folded away by an UNDO_ACTION later in `actions`.
       after = before
       primaryDrafts = []
+    } else if (isRetractionOfMaskedChoice(logged.action, before)) {
+      // Nothing to replay — see isRetractionOfMaskedChoice's doc comment:
+      // the masked CHOOSE_CARD this retracts was already skipped as a no-op
+      // above, so retracting it is one too, and by coincidence exactly the
+      // right one (both leave chosenCardIdByPlayerId/pendingPlayerIds
+      // exactly where they already were). Unlike a masked entry, though,
+      // RETRACT_CHOICE's own line is never secret (describePrimaryAction's
+      // RETRACT_CHOICE case never names the card), so it still needs a
+      // draft here.
+      after = before
+      primaryDrafts = describePrimaryAction(logged.action, before, after, unitContent)
     } else {
       // trustedReplay: `logged` was already validated once, when originally
       // submitted (see applyAction's own doc comment) — narrating it again

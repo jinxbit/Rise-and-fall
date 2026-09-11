@@ -4243,3 +4243,48 @@ generic string. Added a regression test forcing a genuine exception
 `stack.startGame()` gets back a parseable 500 with the real message rather
 than an opaque failure. `npm run lint`, `npm run test` (1205 tests), and
 `npm run build` all pass.
+
+## 85. Game log went silent after a retracted card pick, for a bystander in a hidden-information game (issue #527)
+
+Reported: in the card-selection phase, one player retracted their pick
+(`RETRACT_CHOICE`) while another was still deciding, and the game log
+stopped showing anything from that point on.
+
+`redactStateForPlayer` (`src/engine/redaction.ts`) keeps a player's
+`CHOOSE_CARD` log entry masked (`cardId: null`) for as long as anyone's
+still picking this round — by design, retracting a pick doesn't retroactively
+unmask what it was (see `RETRACT_CHOICE`'s own case in `gameLog.ts`'s
+`describePrimaryAction`). But `unredactedPrefix`, which decides how much of
+a bystander's `actionHistory` is safe to hand to the client for narration,
+treated *any* still-masked entry as an unconditional cutoff — including one
+a later `RETRACT_CHOICE` from the same player had already closed out. That
+truncated the bystander's local `actionHistory` right at the masked pick,
+silently dropping the retraction's own log line and every action after it —
+no error, no console warning, just a log that stops.
+
+Fixed `unredactedPrefix` to track, per player, whether their most recent
+masked `CHOOSE_CARD` has since been closed by their own `RETRACT_CHOICE`
+(scanning `resolveHistory(...).effective` in order, same as before), and
+only treat it as a cutoff if it's still open by the end of the scan. A
+masked `MOVE_TO_DECLINE`/`RETRACT_DECLINE` is untouched by this — a masked
+`RETRACT_DECLINE` is itself always masked too (see the function's own doc
+comment), so it can never close anything the way an always-visible
+`RETRACT_CHOICE` can.
+
+Also hardened `gameLog.ts`'s `extendGameLog`: narrating a `RETRACT_CHOICE`
+whose matching `CHOOSE_CARD` was masked-and-skipped locally used to fail
+`applyRetractChoice`'s "hasn't chosen a card yet" guard (the local replay
+never recorded the masked pick), aborting the rest of the log the same
+silent way — added `isRetractionOfMaskedChoice` alongside the existing
+`isMaskedRedactionEntry` to treat that pairing as the narration-only no-op
+it actually is, belt-and-braces alongside the `redaction.ts` fix.
+
+Two `redaction.test.ts` cases previously pinned the buggy behavior as
+intended (`'keeps a real RETRACT_CHOICE ... out of the prefix too'`, `'still
+truncates away a real entry that follows a masked pick'`) — updated both to
+assert the fixed output. Added a new `gameLog.test.ts` case building a
+bystander's log the way `GamePage.tsx` actually does, through
+`redactStateForPlayer`/`toClientGameState`, so it exercises the real
+production path rather than the always-unmasked `state.actionHistory` the
+rest of that file's `RETRACT_CHOICE` test already covered. `npm run lint`,
+`npm run test` (1206 tests), and `npm run build` all pass.
