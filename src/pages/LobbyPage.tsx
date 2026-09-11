@@ -278,6 +278,16 @@ export function LobbyPage() {
         await insertGameState(game.id, buildGenesisState(startingGame, players))
       }
       await setGameStatus(game.id, 'active')
+      // Don't make this client depend on its own subscribeToGame Realtime
+      // callback (above) to notice the status flip it just caused — this
+      // client already knows the write landed, so navigate immediately
+      // instead of waiting on an echo of its own change that could be
+      // missed or delayed. Most consequential for "build alone" mode, where
+      // the room creator (who alone can click Start) defaults to also being
+      // the sole builder (GameSettings.soloBuilderSelection) — if their own
+      // client never left the lobby, nobody else could make progress either
+      // (issue #516).
+      navigate(`/game/${game.room_code}`)
     } catch (err) {
       setError(toAppError(err, 'Failed to start game'))
     } finally {
