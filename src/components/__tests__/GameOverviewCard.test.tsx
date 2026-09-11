@@ -99,7 +99,9 @@ describe('GameOverviewCard', () => {
     )
 
     expect(screen.getByText('Alice')).not.toHaveClass('font-semibold')
-    expect(screen.getByText((_, el) => el?.textContent === ', Bob')).toHaveClass('font-semibold')
+    const bob = screen.getByText('Bob')
+    expect(bob).toHaveClass('font-semibold')
+    expect(bob.textContent).toBe('Bob')
   })
 
   it('highlights the whole card when it is the viewer\'s turn', () => {
