@@ -341,12 +341,16 @@ describe('unredactedPrefix', () => {
     expect(unredactedPrefix(asP2.actionHistory)).toEqual([])
   })
 
-  it('keeps a real RETRACT_CHOICE that happens to follow a masked pick out of the prefix too, since it truncates at the first mask', () => {
+  it("keeps a real RETRACT_CHOICE that closes a masked pick in the prefix, along with the masked pick itself (issue #527)", () => {
     const base = makeActiveGameWithFullHands()
     let state = requireOk(applyAction(base, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }))
     state = requireOk(applyAction(state, { type: 'RETRACT_CHOICE', playerId: 'p1' }))
     const asP2 = redactStateForPlayer(state, 'p2')
-    expect(unredactedPrefix(asP2.actionHistory)).toEqual([])
+    // p1's pick is retracted, not undone, so resolveHistory().effective still
+    // includes both entries — but the RETRACT_CHOICE closes the mask it
+    // follows (gameLog.ts's extendGameLog treats both as narration-only
+    // no-ops), so there's nothing left to truncate.
+    expect(unredactedPrefix(asP2.actionHistory).map((e) => e.action.type)).toEqual(['CHOOSE_CARD', 'RETRACT_CHOICE'])
   })
 
   it("keeps a real UNDO_ACTION (and the resolveHistory().canRedo it powers) in the prefix even though it comes right after a masked pick, since undoing that pick means it's no longer in effect (issue #498)", () => {
@@ -384,15 +388,18 @@ describe('unredactedPrefix', () => {
     expect(resolveHistory(unredactedPrefix(asP1.actionHistory)).canRedo).toBe(true)
   })
 
-  it('still truncates away a real entry that follows a masked pick which remains in effect (not undone) — the ordinary still-pending case is unaffected by the issue #498 fix', () => {
+  it('still truncates away a real entry that follows a masked pick which remains in effect (not undone or retracted) — the ordinary still-pending case is unaffected by the issue #527 fix', () => {
     const base = makeActiveGameWithFullHands()
     let state = requireOk(applyAction(base, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }))
     state = requireOk(applyAction(state, { type: 'RETRACT_CHOICE', playerId: 'p1' }))
     state = requireOk(applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'temple') }))
     const asP2 = redactStateForPlayer(state, 'p2')
-    // p1's second (still-in-effect, still-secret) pick masks the same way,
-    // and there's nothing safe to replay past it.
-    expect(unredactedPrefix(asP2.actionHistory)).toEqual([])
+    // The first pick's mask is closed by the RETRACT_CHOICE between them
+    // (issue #527) and so no longer gates anything — but p1's second,
+    // still-in-effect, still-secret pick masks the same way the first one
+    // did, and nothing retracts *that* one, so there's nothing safe to
+    // replay past it.
+    expect(unredactedPrefix(asP2.actionHistory).map((e) => e.action.type)).toEqual(['CHOOSE_CARD', 'RETRACT_CHOICE'])
   })
 
   it("truncates before a still-masked decline addition even once it's been retracted — the retraction doesn't unmask it (issue #505)", () => {

@@ -583,6 +583,33 @@ to hidden information (6) are omitted here.
    guaranteed to contribute nothing to the replayed state regardless.
    Covered by `gameLog.test.ts`.
 
+   **Update (2026-09-11, issue #527): retracting a still-masked pick reopened
+   the same silent-truncation bug — closed.** `RETRACT_CHOICE` is never
+   masked itself (it carries no `cardId` to leak — see `describePrimaryAction`'s
+   own case in `gameLog.ts`), but the `CHOOSE_CARD` it retracts stays masked
+   regardless of the retraction (retracting doesn't retroactively reveal what
+   was picked). `unredactedPrefix` didn't know the difference: it truncated
+   at *any* still-`.effective` masked entry, including one a later
+   `RETRACT_CHOICE` from the same player had already closed out — unlike the
+   #498 UNDO_ACTION case above, a retraction isn't an undo/redo fold, so it
+   never left `.effective` at all. That dropped the retraction's own log line
+   and everything after it from a bystander's `actionHistory`, matching the
+   bug report exactly ("the game log stops showing logs" after a retracted
+   pick). Fixed by having `unredactedPrefix` track, per player, whether their
+   most recent masked `CHOOSE_CARD` has since been closed by their own
+   `RETRACT_CHOICE`, only cutting on one still open at the end of the scan —
+   and, belt-and-braces, teaching `extendGameLog` a matching
+   `isRetractionOfMaskedChoice` case alongside `isMaskedRedactionEntry`, so
+   narrating a `RETRACT_CHOICE` whose masked `CHOOSE_CARD` was skipped
+   locally is treated as the no-op pair it actually is instead of failing
+   `applyRetractChoice`'s "hasn't chosen a card yet" guard. `MOVE_TO_DECLINE`/
+   `RETRACT_DECLINE` are unaffected — a masked `RETRACT_DECLINE` is itself
+   always masked too (see `unredactedPrefix`'s own doc comment), so it can
+   never close anything the way an always-visible `RETRACT_CHOICE` can.
+   Covered by `redaction.test.ts` and a new `gameLog.test.ts` case built
+   through `redactStateForPlayer`/`toClientGameState`, the same path
+   `GamePage.tsx` actually takes.
+
    **Decided (2026-09-09, issue #481): `CreateGamePage.tsx`'s checkbox now
    defaults to checked**, matching `ruleEnforcementEnabled`'s own
    issue-#432 default next to it — hiding in-progress picks was off unless

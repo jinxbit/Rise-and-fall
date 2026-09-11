@@ -318,6 +318,21 @@ export function redactGameLog(events: GameEvent[], state: GameState, viewerId: s
  * rest of the app (gameLog.ts, turnReview.ts, scoreHistory.ts, unitValue.ts,
  * historyFold.ts — none of which know anything about redaction) can keep
  * consuming completely unmodified.
+ *
+ * One more exception on top of the UNDO/REDO one above (issue #527): a
+ * masked CHOOSE_CARD closed by that same player's own later RETRACT_CHOICE
+ * doesn't gate the cut either, even though RETRACT_CHOICE isn't UNDO/REDO
+ * and so doesn't touch `.effective` at all. Unlike the entries this function
+ * otherwise treats as unsafe, a *retracted* pick is never going to become
+ * legal to replay later — gameLog.ts's extendGameLog already knows to treat
+ * both halves of a masked-choose/retract pair as narration-only no-ops (see
+ * isMaskedRedactionEntry/isRetractionOfMaskedChoice there) precisely so this
+ * function can keep going past them instead of truncating the entire rest
+ * of the game's log the moment any player so much as reconsiders a pick.
+ * MOVE_TO_DECLINE/RETRACT_DECLINE don't get the same treatment: a masked
+ * RETRACT_DECLINE is itself always masked too (see this comment's opening
+ * paragraph), so it can't close anything the way an always-visible
+ * RETRACT_CHOICE can.
  */
 export function unredactedPrefix(actionHistory: RedactedLoggedAction[]): LoggedAction[] {
   // resolveHistory/walkHistory (historyFold.ts) only ever inspect
@@ -327,14 +342,31 @@ export function unredactedPrefix(actionHistory: RedactedLoggedAction[]): LoggedA
   // object references as `actionHistory`'s, which the Set below relies on.
   const effective = resolveHistory(actionHistory as unknown as LoggedAction[]).effective
   const effectiveEntries = new Set<RedactedLoggedAction>(effective as unknown as RedactedLoggedAction[])
-  const firstUnsafeIndex = actionHistory.findIndex(
-    (entry) =>
-      (entry.action.type === 'CHOOSE_CARD' || entry.action.type === 'MOVE_TO_DECLINE' || entry.action.type === 'RETRACT_DECLINE') &&
-      entry.action.cardId === null &&
-      effectiveEntries.has(entry),
-  )
+
+  // Tracks, per player, the index of their most recent still-open masked
+  // CHOOSE_CARD (cleared by a later RETRACT_CHOICE from the same player) —
+  // see this function's doc comment. Whatever's left open once the scan
+  // ends is unsafe exactly like a masked MOVE_TO_DECLINE/RETRACT_DECLINE.
+  const openMaskedChoiceIndexByPlayerId = new Map<string, number>()
+  let firstUnsafeIndex = -1
+  const markUnsafe = (index: number) => {
+    if (firstUnsafeIndex === -1 || index < firstUnsafeIndex) firstUnsafeIndex = index
+  }
+  actionHistory.forEach((entry, index) => {
+    if (!effectiveEntries.has(entry)) return
+    const { action } = entry
+    if (action.type === 'CHOOSE_CARD' && action.cardId === null) {
+      openMaskedChoiceIndexByPlayerId.set(action.playerId, index)
+    } else if (action.type === 'RETRACT_CHOICE') {
+      openMaskedChoiceIndexByPlayerId.delete(action.playerId)
+    } else if ((action.type === 'MOVE_TO_DECLINE' || action.type === 'RETRACT_DECLINE') && action.cardId === null) {
+      markUnsafe(index)
+    }
+  })
+  for (const index of openMaskedChoiceIndexByPlayerId.values()) markUnsafe(index)
+
   const prefix = firstUnsafeIndex === -1 ? actionHistory : actionHistory.slice(0, firstUnsafeIndex)
-  // Safe: nothing in `prefix` has a null cardId that's still in effect, by construction above.
+  // Safe: nothing in `prefix` has a null cardId that's still in effect and unclosed, by construction above.
   return prefix as LoggedAction[]
 }
 
