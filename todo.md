@@ -3974,3 +3974,62 @@ issue), and the underlying builder-selection/board-setup logic in
 the in-process production-like Supabase stack — the bug was purely this
 client-side navigation gap. `npm run lint`, `npm run test`, and `npm run
 build` all pass.
+
+## 80. Fixed: board-generation (and unit/Tale) content resolution could use the wrong player count mid-game (issue #519)
+
+Reported as "no legal placement for tile" on a 2-player game's very first
+Plain tile: the attached game-state export showed `boardSetup.
+tilesRemainingInTier` for the Plain tier already set to `14` before a single
+Plain tile had been placed — which isn't a value this repo's `terrain.json`
+has *ever* assigned a 2-player game (it's exactly the *3*-player pool size).
+Replaying the exported board through the current
+`checkTilePlacementLegalityDetailed` with that exact (inflated) count still
+found plenty of legal placements, so the inflated count on its own doesn't
+fully explain a first-tile dead end — but it's unambiguously wrong regardless
+(this game would place 4 Plain tiles more than its own 2-player design
+calls for), and is the one concrete, reproducible defect the export proves.
+
+Root cause: `resolveGameContent()`/`applyActionFullyEnforced()`
+(`supabase/functions/_shared/gameEnforcement.ts`) and GamePage.tsx's
+`boardGenerationContent`/`taleContent`/`unitContent` `useMemo`s all took
+player count as a parameter sourced from a *live* `players` read — `ctx.
+players.length` (a fresh `players` table query, re-run on every single
+apply-action/undo-action/redo-action call) on the server, and the client's
+own `players` React state (re-fetched on every Realtime players-table
+event) in the browser — rather than from `GameState.players.length`, which
+is fixed at genesis and never shrinks afterward (elimination flags a player,
+it doesn't remove them, `engine/elimination.ts`). `state.players.length` and
+the live count are *supposed* to always agree, but nothing enforces that,
+and this game's own water tile count (exactly the 2-player pool, 12 tiles)
+proves genesis itself used the right count — so whatever produced the wrong
+Plain-tier number did so from a live read that, for that one request only,
+disagreed with genesis's own roster size. This is exactly the
+self-containment CLAUDE.md already calls out for `activeTaleIds`/`gameLength`
+("read them from GameState, not the games row") — content resolution just
+hadn't followed it for player count.
+
+Fix: `resolveGameContent(state)` now derives player count from `state.
+players.length` itself (dropped the parameter entirely, so no caller can
+reintroduce a mismatched one); `applyActionFullyEnforced` follows suit.
+`ctx.players` (the live DB read) is untouched and still used exactly where
+it should be — `isAuthorizedToActAs`/`canReadGameState`/
+`redactedResponseState`, which genuinely need the *current* roster for
+authorization, not genesis's. GamePage.tsx's three content `useMemo`s now
+key off `gameState?.players.length ?? players.length` (the live `players`
+state is only a bootstrap fallback for the brief window before `gameState`
+has loaded).
+
+Added a regression test (`supabaseStack.test.ts`, "a stray extra
+players-table row doesn't corrupt board-generation content") that seeds a
+2-player genesis alongside a `players` table with an extra third row and
+plays a real 2-player game through the water tier via the actual
+`apply-action` Edge Function — confirmed it fails against the pre-fix code
+(`14` instead of `10` for the next tier, the exact corruption the reported
+export showed) and passes with the fix. The already-corrupted `tilesRemainingInTier`
+in the one reported game isn't retroactively repaired by this change (event
+sourcing means no hand-editing a stored `GameState` — CLAUDE.md invariant
+3) — its next tier transition (Plain exhausting into Forest) will self-heal
+once this ships, since `skipExhaustedTiers` re-derives the next tier's pool
+from the now-fixed content the moment the current tier's count reaches zero,
+whatever it started from. `npm run lint`, `npm run test` (1198, was 1197),
+and `npm run build` all pass.

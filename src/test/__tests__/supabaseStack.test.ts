@@ -17,6 +17,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Action } from '../../engine/actions.ts'
 import type { GameState } from '../../engine/types.ts'
+import { resolveBoardGenerationContent } from '../../content/resolveContent.ts'
 import { buildGenesisState } from '../../lib/gameGenesis.ts'
 import type { GameRow, GameSettings, PlayerRow } from '../../lib/dbTypes.ts'
 import { encodeGameStateExport, decodeGameStateExport } from '../../lib/gameStateExport.ts'
@@ -89,7 +90,7 @@ async function seed(stack: ProductionStack, settings = settingsFor()): Promise<G
  * fixture is assembled.
  */
 async function playThroughStack(stack: ProductionStack, from: GameState, maxActions: number): Promise<{ state: GameState; version: number; actions: Action[] }> {
-  const content = resolveGameContent(from, PLAYERS.length)
+  const content = resolveGameContent(from)
   let state = from
   let version = 0
   const actions: Action[] = []
@@ -158,7 +159,7 @@ describe('production Supabase stack', () => {
 
   it("refuses one player's attempt to act on another's behalf", async () => {
     const genesis = await seed(stack)
-    const action = nextLegalAction(genesis, resolveGameContent(genesis, PLAYERS.length))!
+    const action = nextLegalAction(genesis, resolveGameContent(genesis))!
     expect(action.playerId).toBe('seat-alice')
 
     const result = await stack.applyAction(BOB, GAME_ID, action)
@@ -168,7 +169,7 @@ describe('production Supabase stack', () => {
 
   it('refuses an unauthenticated caller', async () => {
     const genesis = await seed(stack)
-    const action = nextLegalAction(genesis, resolveGameContent(genesis, PLAYERS.length))!
+    const action = nextLegalAction(genesis, resolveGameContent(genesis))!
 
     const { error } = await stack.anonClient().functions.invoke('apply-action', { body: { gameId: GAME_ID, action } })
     expect((error as { context?: Response }).context?.status).toBe(401)
@@ -185,7 +186,7 @@ describe('production Supabase stack', () => {
 
   it('serializes concurrent submissions of the same action with a 409, not a lost update', async () => {
     const genesis = await seed(stack)
-    const action = nextLegalAction(genesis, resolveGameContent(genesis, PLAYERS.length))!
+    const action = nextLegalAction(genesis, resolveGameContent(genesis))!
 
     const [first, second] = await Promise.all([
       stack.applyAction(ALICE, GAME_ID, action),
@@ -195,6 +196,37 @@ describe('production Supabase stack', () => {
     expect(statuses).toEqual([200, 409])
     // Exactly one of them landed.
     expect((await stack.readGameState(ALICE, GAME_ID))?.version).toBe(1)
+  })
+
+  // issue #519: a reported 2-player game's boardSetup.tilesRemainingInTier
+  // for its second tile tier ended up permanently set to the *3*-player
+  // pool size, even though the game only ever had 2 seated players — the
+  // `players` table had picked up a stray extra row somehow, and apply-action
+  // used its live row count (ctx.players.length) instead of the genesis
+  // roster already fixed on GameState.players. Reproduces exactly that: a
+  // 2-player genesis, but a `players` table with 3 rows.
+  it("a stray extra players-table row doesn't corrupt board-generation content (issue #519)", async () => {
+    const game = gameRow(settingsFor({ mapTemplateId: null }))
+    const genesis = buildGenesisState(game, PLAYERS)
+    const strayPlayer: PlayerRow = {
+      id: 'seat-stray',
+      game_id: GAME_ID,
+      user_id: 'auth-user-stray',
+      display_name: 'Stray',
+      avatar_url: null,
+      seat_index: 2,
+      color: '#1e1',
+      is_active: true,
+    } as PlayerRow
+    await stack.seedStartedGame({ game, players: [...PLAYERS, strayPlayer], genesis })
+
+    const waterPoolSize = resolveBoardGenerationContent(PLAYERS.length).tiers.find((t) => t.terrain === 'water')!.poolSize
+    const { state } = await playThroughStack(stack, genesis, waterPoolSize)
+
+    // The water tier (genesis's own doing, unaffected by this bug) should
+    // have exhausted its 2-player pool and moved on to plain.
+    expect(state.boardSetup?.tileTierQueue[0]).toBe('plain')
+    expect(state.boardSetup?.tilesRemainingInTier).toBe(resolveBoardGenerationContent(PLAYERS.length).tiers.find((t) => t.terrain === 'plain')!.poolSize)
   })
 
   it('undoes and redoes through the real undo-action/redo-action functions', async () => {

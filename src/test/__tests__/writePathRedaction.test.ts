@@ -92,7 +92,7 @@ describe('apply-action/undo-action/redo-action write-path redaction (issue #478)
     const genesis = buildGenesisState(game, PLAYERS)
     await stack.seedStartedGame({ game, players: PLAYERS, genesis })
 
-    const content = resolveGameContent(genesis, PLAYERS.length)
+    const content = resolveGameContent(genesis)
     let state = genesis
     // roundPhase already defaults to 'selectCards' at genesis (see
     // createGame.ts) even while status is still 'boardSetup', so the loop
@@ -180,7 +180,7 @@ describe('undo-action leaves the Redo button usable for a viewer whose actionHis
     const genesis = buildGenesisState(game, PLAYERS)
     await stack.seedStartedGame({ game, players: PLAYERS, genesis })
 
-    const content = resolveGameContent(genesis, PLAYERS.length)
+    const content = resolveGameContent(genesis)
     let state = genesis
     for (let guard = 0; state.status !== 'active' || state.roundPhase !== 'selectCards'; guard++) {
       if (guard > 500) throw new Error('setup ran on far longer than a board-setup-to-selectCards transition should take')

@@ -109,7 +109,7 @@ Deno.serve(async (req) => {
     }
   }
 
-  const result = applyActionFullyEnforced(ctx.gameState.state, action, ctx.players.length)
+  const result = applyActionFullyEnforced(ctx.gameState.state, action)
   if (!result.ok) return jsonResponse(400, { ok: false, error: result.error })
 
   const newVersion = await writeGameStateCAS(supabase, gameId, result.state, ctx.gameState.version)

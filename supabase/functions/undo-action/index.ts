@@ -73,7 +73,7 @@ Deno.serve(async (req) => {
   // being seated themselves), same as GamePage.tsx's `me?.id ?? null`.
   const callerPlayerId = ctx.players.find((p) => p.user_id === callerUserId)?.id ?? null
 
-  const content = resolveGameContent(ctx.gameState.state, ctx.players.length)
+  const content = resolveGameContent(ctx.gameState.state)
   const result = applyUndoAction(
     genesis,
     ctx.gameState.state,
