@@ -746,12 +746,22 @@ export async function insertGameState(gameId: string, state: EngineGameState): P
 }
 
 /**
- * LobbyPage's Start Game button. Deliberately re-fetches the seated roster
- * here rather than trusting whatever `players` list the caller already had
- * in React state: that state is only as fresh as the last `listPlayers()`
- * call or Realtime event the host's browser happened to receive, and issue
- * #519 was exactly this going stale — a 2-player GameState got built for a
- * room with 3 people seated because the host clicked Start in the gap before
+ * LobbyPage's Start Game button.
+ *
+ * A `ruleEnforcementEnabled` game routes through the start-game Edge
+ * Function instead (see its own doc comment) — issue #519's follow-up
+ * ("perhaps start game should be an edge function?") settled on making the
+ * server authoritative for genesis too, not just every action after it;
+ * `0029_start_game_edge_function.sql` blocks this function's own direct
+ * `game_state` INSERT / `games` UPDATE for such a game, so calling it here
+ * would just fail RLS instead of silently doing the wrong thing.
+ *
+ * For every other game, deliberately re-fetches the seated roster here
+ * rather than trusting whatever `players` list the caller already had in
+ * React state: that state is only as fresh as the last `listPlayers()` call
+ * or Realtime event the host's browser happened to receive, and issue #519
+ * was exactly this going stale — a 2-player GameState got built for a room
+ * with 3 people seated because the host clicked Start in the gap before
  * their client's copy of `players` had picked up the third join. Re-running
  * `canStartGame` against the freshly-fetched roster closes that gap: if the
  * room's shape changed since the caller last saw it (someone joined, left,
@@ -767,6 +777,12 @@ export async function insertGameState(gameId: string, state: EngineGameState): P
  * layer up.
  */
 export async function startGameFromLobby(game: GameRow): Promise<void> {
+  if (game.settings.ruleEnforcementEnabled) {
+    const result = await invokeStartGame(game.id)
+    if (!result.ok) throw new Error(result.error)
+    return
+  }
+
   const existingState = await getGameState(game.id)
   if (!existingState) {
     const players = await listPlayers(game.id)
@@ -902,6 +918,27 @@ async function invokeGameFunction(name: 'apply-action' | 'undo-action' | 'redo-a
   const result = data as { ok: true; state: RedactedGameState; version: number } | { ok: false; error: string }
   if (!result.ok) return result
   return { ok: true, state: toClientGameState(result.state), version: result.version }
+}
+
+/**
+ * Same response-unwrapping as invokeGameFunction above, but for start-game
+ * (supabase/functions/start-game/index.ts), whose success response carries
+ * no state/version to redact or collapse — just `{ok:true}` — so it isn't
+ * one more case of invokeGameFunction's own union.
+ */
+async function invokeStartGame(gameId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { error } = await supabase.functions.invoke('start-game', { body: { gameId } })
+  if (!error) return { ok: true }
+  const context = (error as { context?: Response }).context
+  if (context) {
+    try {
+      const parsed = (await context.json()) as { error?: string }
+      if (parsed.error) return { ok: false, error: parsed.error }
+    } catch {
+      // Response body wasn't JSON (or already consumed) — fall through to error.message below.
+    }
+  }
+  return { ok: false, error: error.message }
 }
 
 /** §4.1-enforced action submission for a ruleEnforcementEnabled game — see supabase/functions/apply-action/index.ts. */

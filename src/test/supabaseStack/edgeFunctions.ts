@@ -17,7 +17,7 @@
 
 import { ANON_KEY, SERVICE_ROLE_KEY, STACK_URL, type EdgeFunctionHandler } from './httpServer.ts'
 
-export const EDGE_FUNCTION_NAMES = ['apply-action', 'undo-action', 'redo-action', 'get-game-state'] as const
+export const EDGE_FUNCTION_NAMES = ['apply-action', 'undo-action', 'redo-action', 'get-game-state', 'start-game'] as const
 export type EdgeFunctionName = (typeof EDGE_FUNCTION_NAMES)[number]
 
 const EDGE_FUNCTION_ENV: Record<string, string> = {
@@ -62,6 +62,8 @@ async function captureHandlers(): Promise<Map<string, EdgeFunctionHandler>> {
   await import('../../../supabase/functions/redo-action/index.ts')
   loading = 'get-game-state'
   await import('../../../supabase/functions/get-game-state/index.ts')
+  loading = 'start-game'
+  await import('../../../supabase/functions/start-game/index.ts')
   loading = null
 
   for (const name of EDGE_FUNCTION_NAMES) {

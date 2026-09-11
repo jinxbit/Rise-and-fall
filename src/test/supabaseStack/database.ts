@@ -157,9 +157,12 @@ export class Database {
           const game = this.game(gameId)
           return seated || (game !== undefined && game.status !== 'lobby')
         }
-        // 0001_init_schema.sql: the one genesis insert is any seated player's
-        // to make, deliberately left untouched by 0026.
-        if (command === 'insert') return seated
+        // 0001_init_schema.sql's genesis insert, narrowed by
+        // 0029_start_game_edge_function.sql the same way 0026 already
+        // narrowed the UPDATE below: a rule-enforced game's genesis is
+        // service-role-write-only too now (start-game/index.ts), so a direct
+        // client insert only succeeds for a non-enforced game.
+        if (command === 'insert') return seated && !this.ruleEnforcementEnabled(gameId)
         if (command === 'update') {
           // 0026_rule_enforcement_flag.sql: a rule-enforced game's state is
           // service-role-write-only, i.e. only the Edge Functions may write it.
@@ -194,6 +197,24 @@ export class Database {
 
   private ruleEnforcementEnabled(gameId: string): boolean {
     return Boolean(this.game(gameId)?.settings?.ruleEnforcementEnabled)
+  }
+
+  /**
+   * 0029_start_game_edge_function.sql's addition to
+   * `enforce_game_status_transition`, transcribed: an *authenticated* write
+   * that would flip an enforced game's status from 'lobby' to 'active'
+   * directly is rejected — only the start-game Edge Function (service role)
+   * may do that now. Deliberately keyed on `patch.status` (the transition
+   * actually being attempted) rather than `visible()`'s row-level check,
+   * since the real restriction lives in a trigger that sees both the old and
+   * new row, not in a WITH CHECK clause that only ever sees the new one (see
+   * that migration's comment) — a settings/visibility update the owner makes
+   * while an enforced game is already 'active' must keep working.
+   */
+  private blocksDirectGameStart(actor: Actor, row: GameRow, patch: Row): boolean {
+    if (actor.role === 'service_role') return false
+    if (row.status !== 'lobby' || patch.status !== 'active') return false
+    return Boolean(row.settings?.ruleEnforcementEnabled)
   }
 
   private hiddenInformationEnabled(gameId: string): boolean {
@@ -239,6 +260,9 @@ export class Database {
     for (const row of this.rows[table]) {
       if (!match(row)) continue
       if (!this.visible(actor, table, 'update', row)) continue
+      if (table === 'games' && this.blocksDirectGameStart(actor, row as unknown as GameRow, patch)) {
+        throw new DatabaseError(400, '42501', 'An enforced game can only be started via the start-game Edge Function.')
+      }
       Object.assign(row, structuredClone(patch))
       if (table === 'games' || table === 'game_state') row.updated_at = new Date().toISOString()
       updated.push(structuredClone(row))

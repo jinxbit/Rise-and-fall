@@ -29,7 +29,6 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import type { Action } from '../../engine/actions.ts'
 import { toClientGameState, type RedactedGameState } from '../../engine/redaction.ts'
 import type { GameState } from '../../engine/types.ts'
-import { buildGenesisState } from '../../lib/gameGenesis.ts'
 import type { GameRow, PlayerRow } from '../../lib/dbTypes.ts'
 import { decompressGameStateFromStorage, type StoredGameState } from '../../lib/gameStateCompression.ts'
 import type { ProductionGameFixture } from '../fixtures/productionGames/loadFixtures.ts'
@@ -117,17 +116,39 @@ async function invoke(client: SupabaseClient, name: string, body: Record<string,
 }
 
 /**
+ * Same response-unwrapping as invoke() above, but for start-game
+ * (supabase/functions/start-game/index.ts), whose success response is just
+ * `{ok:true}` — no state/version to redact or collapse.
+ */
+async function invokeStartGame(client: SupabaseClient, gameId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { error } = await client.functions.invoke('start-game', { body: { gameId } })
+  if (!error) return { ok: true }
+  const context = (error as { context?: Response }).context
+  if (context) {
+    try {
+      const parsed = (await context.clone().json()) as { error?: string }
+      if (parsed.error) return { ok: false, error: parsed.error }
+    } catch {
+      // Not JSON — fall through to the generic message below.
+    }
+  }
+  return { ok: false, error: error.message }
+}
+
+/**
  * Creates one throwaway account per seat, opens a room, seats everyone, pins
- * the settings this game's genesis needs, and writes genesis — the same
- * sequence CreateGamePage.tsx and LobbyPage.tsx's `handleStart` perform
- * (resolve settings, `insertGameState(buildGenesisState(...))`, flip
- * `games.status` to 'active').
+ * the settings this game's genesis needs, and starts it — the same sequence
+ * CreateGamePage.tsx and LobbyPage.tsx's `handleStart` perform (resolve
+ * settings, then — since this room is always `ruleEnforcementEnabled` — the
+ * `start-game` Edge Function, not a direct client write: it re-resolves the
+ * roster itself, writes genesis, and flips `games.status` to 'active' under
+ * its own service-role client, per `0029_start_game_edge_function.sql`).
  *
  * Every step runs as the user who would really do it: each player seats
  * themselves (0001's `users can seat themselves` policy checks
- * `user_id = auth.uid()`), and only the owner edits settings or status. A
- * failure part-way through tears down whatever was created before rethrowing,
- * so a broken run doesn't leave a room behind.
+ * `user_id = auth.uid()`), and only the owner edits settings or starts the
+ * game. A failure part-way through tears down whatever was created before
+ * rethrowing, so a broken run doesn't leave a room behind.
  */
 export async function provisionLiveRoom(config: LiveProjectConfig, fixture: ProductionGameFixture): Promise<LiveRoom> {
   const admin = createClient(config.url, config.serviceRoleKey, { auth: { persistSession: false, autoRefreshToken: false } })
@@ -217,19 +238,52 @@ export async function provisionLiveRoom(config: LiveProjectConfig, fixture: Prod
     // needs that isn't already on the row (a recovered preset board, a
     // resolved "build alone" builder and turn order) is pinned now, in this
     // room's ids, so genesis is a deterministic function of the row alone.
-    const { error: settingsError } = await ownerClient.from('games').update({ settings: remapped.settings }).eq('id', gameId)
+    const { data: pinnedGame, error: settingsError } = await ownerClient
+      .from('games')
+      .update({ settings: remapped.settings })
+      .eq('id', gameId)
+      .select('config_version')
+      .single()
     if (settingsError) throw new Error(`Could not pin the room's settings: ${settingsError.message}`)
 
+    // Pinning settings after everyone's already seated bumps config_version
+    // past whatever each player's seat-time ready_for_version was set to
+    // (0009_config_versioning.sql) — a real lobby's players would just click
+    // Ready again; do the same here so start-game's own canStartGame check
+    // (below) doesn't see a room that looks un-ready.
+    const configVersion = (pinnedGame as { config_version: number }).config_version
+    for (const player of players) {
+      if (player.user_id === ownerUserId) continue
+      const { error: readyError } = await clientByUserId
+        .get(player.user_id)!
+        .from('players')
+        .update({ ready_for_version: configVersion })
+        .eq('id', player.id)
+      if (readyError) throw new Error(`Could not mark ${player.display_name} ready: ${readyError.message}`)
+    }
+
     const game: GameRow = { ...(gameRow as GameRow), settings: remapped.settings }
-    const genesis = buildGenesisState(game, players)
 
-    const { error: stateError } = await ownerClient
-      .from('game_state')
-      .insert({ game_id: gameId, state: genesis, turn: genesis.turn, active_player_id: genesis.activePlayerId })
-    if (stateError) throw new Error(`Could not write the genesis game_state row: ${stateError.message}`)
+    // 0029_start_game_edge_function.sql: this room is always
+    // ruleEnforcementEnabled (see the games.insert above), so genesis is no
+    // longer a direct client write — the start-game Edge Function resolves
+    // the roster itself, writes `game_state`, and flips `games.status` to
+    // 'active', all under its own service-role client.
+    const startResult = await invokeStartGame(ownerClient, gameId)
+    if (!startResult.ok) throw new Error(`Could not start the smoke room: ${startResult.error}`)
 
-    const { error: statusError } = await ownerClient.from('games').update({ status: 'active' }).eq('id', gameId)
-    if (statusError) throw new Error(`Could not move the room out of the lobby: ${statusError.message}`)
+    // Read the row straight back afterward for the actual (server-computed)
+    // genesis this room started from — the same deterministic
+    // `buildGenesisState(game, players)` output either way, just produced
+    // server-side now. Through get-game-state rather than a direct table
+    // select: this room may also have `hiddenInformationEnabled` on, and
+    // 0028_hidden_information_rls_lockdown.sql makes such a game's
+    // `game_state` row invisible to a direct SELECT entirely, seated player
+    // or not (redaction can't happen within a row) — genesis has no
+    // actionHistory to redact yet, so this is a no-op collapse either way.
+    const readResult = await invoke(ownerClient, 'get-game-state', { gameId })
+    if (!readResult.ok) throw new Error(`Could not read the smoke room's genesis: ${readResult.error}`)
+    const genesis = readResult.state
 
     const clientFor = (userId: string): SupabaseClient => {
       const client = clientByUserId.get(userId)

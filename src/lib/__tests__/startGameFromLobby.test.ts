@@ -105,3 +105,128 @@ describe('startGameFromLobby', () => {
     expect(stateAsAlice).toBeNull()
   })
 })
+
+// issue #519's follow-up ("perhaps start game should be an edge function?"):
+// for a ruleEnforcementEnabled game, startGameFromLobby now routes through
+// the start-game Edge Function instead of writing game_state/games directly
+// — see gameApi.ts's own doc comment for why (making the server, not
+// whichever client clicks Start, authoritative for genesis too).
+describe('startGameFromLobby (ruleEnforcementEnabled)', () => {
+  let stack: ProductionStack
+
+  beforeEach(async () => {
+    stack = await createProductionStack()
+    stack.addUser(ALICE, { displayName: 'Alice' })
+    stack.addUser(BOB, { displayName: 'Bob' })
+    stack.addUser(CAROL, { displayName: 'Carol' })
+  })
+
+  afterEach(() => {
+    stack.dispose()
+  })
+
+  it('still closes the roster race from the non-enforced test above, via the server instead of a re-fetch', async () => {
+    currentClient = stack.clientFor(ALICE)
+    const { game } = await createGame({
+      name: 'Enforced race room',
+      playMode: 'live',
+      userId: ALICE,
+      displayName: 'Alice',
+      avatarUrl: null,
+      minPlayers: 2,
+      maxPlayers: 4,
+      ruleEnforcementEnabled: true,
+    })
+
+    currentClient = stack.clientFor(BOB)
+    const bobSeat = await joinGame({ game, userId: BOB, displayName: 'Bob', avatarUrl: null })
+    await markReady(bobSeat.id, game.config_version)
+
+    // Carol joins moments before Alice clicks Start, same as the non-enforced
+    // test — Alice's own client never refreshes its `players` snapshot.
+    currentClient = stack.clientFor(CAROL)
+    const carolSeat = await joinGame({ game, userId: CAROL, displayName: 'Carol', avatarUrl: null })
+    await markReady(carolSeat.id, game.config_version)
+
+    currentClient = stack.clientFor(ALICE)
+    await startGameFromLobby(game)
+
+    const stateAsAlice = await getGameState(game.id)
+    expect(stateAsAlice?.state.players).toHaveLength(3)
+    expect(stack.db.table('games').find((row) => row.id === game.id)?.status).toBe('active')
+  })
+
+  it('refuses to start if the fresh roster no longer meets the minimum by the time Start is actually called', async () => {
+    currentClient = stack.clientFor(ALICE)
+    const { game } = await createGame({
+      name: 'Enforced shrinking room',
+      playMode: 'live',
+      userId: ALICE,
+      displayName: 'Alice',
+      avatarUrl: null,
+      minPlayers: 2,
+      maxPlayers: 4,
+      ruleEnforcementEnabled: true,
+    })
+
+    currentClient = stack.clientFor(BOB)
+    const bobSeat = await joinGame({ game, userId: BOB, displayName: 'Bob', avatarUrl: null })
+    await markReady(bobSeat.id, game.config_version)
+
+    currentClient = stack.clientFor(BOB)
+    await removePlayer(bobSeat.id)
+
+    currentClient = stack.clientFor(ALICE)
+    await expect(startGameFromLobby(game)).rejects.toThrow(/changed/)
+    expect(await getGameState(game.id)).toBeNull()
+  })
+
+  it('rejects a non-owner trying to start the game', async () => {
+    currentClient = stack.clientFor(ALICE)
+    const { game } = await createGame({
+      name: 'Owner-only room',
+      playMode: 'live',
+      userId: ALICE,
+      displayName: 'Alice',
+      avatarUrl: null,
+      minPlayers: 2,
+      maxPlayers: 2,
+      ruleEnforcementEnabled: true,
+    })
+
+    currentClient = stack.clientFor(BOB)
+    const bobSeat = await joinGame({ game, userId: BOB, displayName: 'Bob', avatarUrl: null })
+    await markReady(bobSeat.id, game.config_version)
+
+    const result = await stack.startGame(BOB, game.id)
+    expect(result).toMatchObject({ ok: false, status: 403 })
+    expect(await getGameState(game.id)).toBeNull()
+  })
+
+  it('rejects a direct client write attempting to start the game, now that genesis is server-authoritative', async () => {
+    currentClient = stack.clientFor(ALICE)
+    const { game } = await createGame({
+      name: 'No direct start room',
+      playMode: 'live',
+      userId: ALICE,
+      displayName: 'Alice',
+      avatarUrl: null,
+      minPlayers: 1,
+      maxPlayers: 2,
+      ruleEnforcementEnabled: true,
+    })
+
+    // The old client-trusted sequence (insertGameState then a status flip) —
+    // 0029_start_game_edge_function.sql must reject both steps for an
+    // enforced game.
+    const insertResult = await stack
+      .clientFor(ALICE)
+      .from('game_state')
+      .insert({ game_id: game.id, state: {}, turn: 0, active_player_id: null })
+    expect(insertResult.error).toBeTruthy()
+
+    const updateResult = await stack.clientFor(ALICE).from('games').update({ status: 'active' }).eq('id', game.id)
+    expect(updateResult.error).toBeTruthy()
+    expect(stack.db.table('games').find((row) => row.id === game.id)?.status).toBe('lobby')
+  })
+})

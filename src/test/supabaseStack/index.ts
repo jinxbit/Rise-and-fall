@@ -49,6 +49,9 @@ export type EnforcedCallResult = ({ ok: true; state: GameState; version: number 
  */
 export type GameStateReadResult = ({ ok: true; state: RedactedGameState; version: number } | { ok: false; error: string }) & { status: number }
 
+/** start-game's response shape — no state/version to redact, unlike every other Edge Function here (see supabase/functions/start-game/index.ts). */
+export type StartGameCallResult = ({ ok: true } | { ok: false; error: string }) & { status: number }
+
 export interface ProductionStack {
   /**
    * Where this stack answers, and the two keys it answers to — the same three
@@ -85,6 +88,8 @@ export interface ProductionStack {
   applyAction(userId: string, gameId: string, action: Action): Promise<EnforcedCallResult>
   undoAction(userId: string, gameId: string): Promise<EnforcedCallResult>
   redoAction(userId: string, gameId: string): Promise<EnforcedCallResult>
+  /** Calls the real start-game Edge Function as `userId` — gameApi.ts's startGameFromLobby's enforced branch. */
+  startGame(userId: string, gameId: string): Promise<StartGameCallResult>
   /**
    * The other write path: a game that never opted into enforcement, where the
    * client applies the action itself and writes the resulting state straight
@@ -169,6 +174,14 @@ export async function createProductionStack(): Promise<ProductionStack> {
 
   const tokenByUserId = new Map<string, string>()
   const clients = new Map<string, SupabaseClient>()
+  // Same shape as an Edge Function's own serviceRoleClient() (gameEnforcement.ts)
+  // — used only by seedStartedGame below, to seed an enforced game's genesis
+  // the way start-game/index.ts actually writes it (0029_start_game_edge_function.sql
+  // narrows game_state's INSERT policy to require enforcement off, so a
+  // seated player's own client can no longer do this for such a game).
+  const serviceClient = createClient(STACK_URL, SERVICE_ROLE_KEY, {
+    auth: { persistSession: false, autoRefreshToken: false, storageKey: 'sb-test-service-role' },
+  })
 
   installFetch({
     db,
@@ -229,8 +242,13 @@ export async function createProductionStack(): Promise<ProductionStack> {
    * Edge Function response as `error` with `data: null`, hiding the function's
    * own `{ok:false, error}` body inside `error.context`. Reproducing that
    * unwrapping here is the point — it's the shape the app has to cope with.
+   *
+   * Generic over the whole `ok: true` success shape (not just a `state` type)
+   * so this covers start-game's `{ok:true}` — no state/version to redact —
+   * the same way it covers apply-action/undo-action/redo-action/get-game-state's
+   * `{ok:true, state, version}`.
    */
-  async function invoke<TState = GameState>(name: EdgeFunctionName, userId: string, body: Record<string, unknown>): Promise<({ ok: true; state: TState; version: number } | { ok: false; error: string }) & { status: number }> {
+  async function invoke<TOk extends { ok: true }>(name: EdgeFunctionName, userId: string, body: Record<string, unknown>): Promise<(TOk | { ok: false; error: string }) & { status: number }> {
     const { data, error } = await clientFor(userId).functions.invoke(name, { body })
     if (error) {
       const context = (error as { context?: Response }).context
@@ -246,7 +264,7 @@ export async function createProductionStack(): Promise<ProductionStack> {
       }
       return { ok: false, error: error.message, status: 0 }
     }
-    return { ...(data as { ok: true; state: TState; version: number }), status: 200 }
+    return { ...(data as TOk), status: 200 }
   }
 
   /**
@@ -258,7 +276,7 @@ export async function createProductionStack(): Promise<ProductionStack> {
    * replayFixture.ts's local re-application and final fixture comparison).
    */
   async function invokeEnforced(name: EdgeFunctionName, userId: string, body: Record<string, unknown>): Promise<EnforcedCallResult> {
-    const result = await invoke<RedactedGameState>(name, userId, body)
+    const result = await invoke<{ ok: true; state: RedactedGameState; version: number }>(name, userId, body)
     if (!result.ok) return result
     return { ...result, state: toClientGameState(result.state) }
   }
@@ -318,9 +336,13 @@ export async function createProductionStack(): Promise<ProductionStack> {
       for (const player of players) db.seed('players', player as unknown as Record<string, unknown>)
 
       // gameApi.ts's insertGameState, verbatim in shape — an uncompressed
-      // GameState written by a seated player, which is what every game in
-      // production starts from regardless of its enforcement setting.
-      const { error } = await clientFor(players[0].user_id)
+      // GameState written directly. A non-enforced game really is written
+      // this way by a seated player (0001_init_schema.sql's INSERT policy);
+      // an enforced game's genesis now comes from start-game/index.ts's
+      // service-role client instead (0029_start_game_edge_function.sql), so
+      // this uses whichever actor a real one of each kind would.
+      const insertingClient = game.settings.ruleEnforcementEnabled ? serviceClient : clientFor(players[0].user_id)
+      const { error } = await insertingClient
         .from('game_state')
         .insert({ game_id: game.id, state: genesis, turn: genesis.turn, active_player_id: genesis.activePlayerId })
       if (error) throw new Error(`Seeding the genesis game_state row failed: ${error.message}`)
@@ -333,10 +355,11 @@ export async function createProductionStack(): Promise<ProductionStack> {
       return { state: await decompressGameStateFromStorage(data.state as StoredGameState), version: data.version as number }
     },
 
-    getGameState: (userId, gameId) => invoke<RedactedGameState>('get-game-state', userId, { gameId }),
+    getGameState: (userId, gameId) => invoke<{ ok: true; state: RedactedGameState; version: number }>('get-game-state', userId, { gameId }),
     applyAction: (userId, gameId, action) => invokeEnforced('apply-action', userId, { gameId, action }),
     undoAction: (userId, gameId) => invokeEnforced('undo-action', userId, { gameId }),
     redoAction: (userId, gameId) => invokeEnforced('redo-action', userId, { gameId }),
+    startGame: (userId, gameId) => invoke<{ ok: true }>('start-game', userId, { gameId }),
 
     applyActionClientTrusted: (userId, gameId, action, content) =>
       writeClientTrusted(userId, gameId, (state) =>

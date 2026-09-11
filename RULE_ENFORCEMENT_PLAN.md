@@ -720,12 +720,12 @@ to rule enforcement (2, 5) are omitted here.
    - `0026_rule_enforcement_flag.sql` replaces `game_state`'s UPDATE RLS
      policy with one that additionally requires the owning game's flag to be
      off, `coalesce`d so every pre-existing/default game is unaffected.
-     **INSERT is deliberately left alone** — `LobbyPage.tsx`'s one
-     `insertGameState` call (writing the deterministic genesis state before
-     any action exists) isn't an "action against existing state" in §4's
-     sense (`apply-action` itself requires a `game_state` row to already
-     exist), so it's out of this document's scope; see §10 for the
-     follow-up this leaves open.
+     **INSERT was deliberately left alone at the time** — `LobbyPage.tsx`'s
+     one `insertGameState` call (writing the deterministic genesis state
+     before any action exists) isn't an "action against existing state" in
+     §4's sense (`apply-action` itself requires a `game_state` row to already
+     exist), so it was out of this document's original scope. **Since closed
+     — see §10's 2026-09-11 update.**
    - `gameApi.ts` gained `applyActionEnforced`/`undoActionEnforced`/
      `redoActionEnforced`, thin wrappers around
      `supabase.functions.invoke('apply-action'|'undo-action'|'redo-action', ...)`
@@ -925,7 +925,7 @@ to rule enforcement (2, 5) are omitted here.
     at a time, same as any other entry. This also removes the last reason
     the write-side rewire's checkbox needed to stay labeled "experimental"
     for this specific gap.
-  - The initial `game_state` row (`LobbyPage.tsx`'s `insertGameState`, the
+  - ~~The initial `game_state` row (`LobbyPage.tsx`'s `insertGameState`, the
     deterministic genesis state) is still a direct, unenforced client
     insert for every game, flagged or not (`0026_rule_enforcement_flag.sql`
     only restricts UPDATE) — a malicious client could in principle submit a
@@ -935,7 +935,28 @@ to rule enforcement (2, 5) are omitted here.
     not an action against existing state. If this is judged to matter
     enough to close even for a fabricated one-off row, it needs its own
     "create-game-state" Edge Function (or folding into `apply-action`'s
-    `loadGameContext` allowing a null `gameState`) — not attempted here.
+    `loadGameContext` allowing a null `gameState`) — not attempted here.~~ —
+    **resolved (2026-09-11, issue #519, per jinxbit: "yes, I want the
+    authoritative question fixed. So edge function it is.")** The gap turned
+    out to matter for more than the malicious-client case above: it also
+    meant a `ruleEnforcementEnabled` game's genesis was built from whichever
+    roster a client's own React state happened to hold, not a fresh DB read —
+    exactly the race issue #519/#524 hit (a room's genesis permanently sized
+    for 2 players when 3 were actually seated). Closed with the
+    "create-game-state" Edge Function this bullet already named, under a
+    different one: `start-game/index.ts`, mirroring `apply-action`'s shape —
+    it re-fetches the roster itself (never trusting a client-supplied one),
+    calls the same `buildGenesisState`, and does the authoritative insert plus
+    the `games.status` flip under a service-role client.
+    `0029_start_game_edge_function.sql` closes the RLS/trigger side: a
+    `ruleEnforcementEnabled` game's `game_state` INSERT now requires
+    enforcement to be off (mirroring 0026's UPDATE policy), and the
+    `enforce_game_status_transition` trigger rejects a direct client's
+    `lobby` -> `active` flip for such a game (has to live in the trigger, not
+    a plain RLS policy, since the rule needs both the row's old and new
+    value — see that migration's own comment). Non-enforced games are
+    completely untouched: `gameApi.ts`'s `startGameFromLobby()` still writes
+    them directly, exactly as before this change.
 
 (See `HIDDEN_INFORMATION_PLAN.md` §10 for redaction-specific open items:
 the reveal high-water mark's storage shape, the `get_game_state`
