@@ -111,17 +111,57 @@ function isStaleForcedFollowUp(state: GameState, entry: LoggedEntry, fixture: Pr
  * server's own message the moment one is rejected — which is the useful half
  * of a failure here: "action 143/210, RESOLVE_UNIT_ACTION by seat-2, 400: ..."
  * localizes a rules or enforcement regression to one move of one real game.
+ *
+ * Skipping a stale forced follow-up (above) means the log being built on the
+ * server is one entry shorter than the one production had, which matters the
+ * moment the game undoes back across that entry: UNDO_ACTION steps the
+ * *server's* pointer, and production's marker was recorded against a log that
+ * still had the folded entry in it, so submitting it verbatim rewinds one
+ * entry too far. So the walk below mirrors historyFold.ts's `walkHistory`
+ * over production's log, carrying one extra bit per substantive entry —
+ * whether it was actually submitted — and drops an undo/redo marker that
+ * crosses an entry the server never received. The two models agree again as
+ * soon as the pointer settles, because a folded entry's effect lives inside
+ * the entry before it: production at "…#176, #177 undone" and the server at
+ * "…#176 with #177 folded in" differ, but undoing #176 too lands both on
+ * "…#175". A game that undid a folded follow-up and then acted from that
+ * intermediate state has no equivalent under today's engine at all, and
+ * fails here loudly rather than silently replaying as something else.
  */
 export async function replayFixtureThroughStack(stack: ReplayTarget, fixture: ProductionGameFixture): Promise<ReplayOutcome> {
   const history = fixture.finalState.actionHistory
   const foldedEntryIndices: number[] = []
   let state = fixture.genesis
   let version = 0
+  /** Per substantive entry of production's log, in `walkHistory` order: did it reach the server? */
+  const reachedServer: boolean[] = []
+  let pointer = 0
 
   for (const [index, entry] of history.entries()) {
-    if (isStaleForcedFollowUp(state, entry, fixture)) {
+    const isUndo = entry.action.type === 'UNDO_ACTION'
+    const isRedo = entry.action.type === 'REDO_ACTION'
+    if (isUndo || isRedo) {
+      const moved = isUndo ? Math.max(0, pointer - 1) : Math.min(reachedServer.length, pointer + 1)
+      // The entry this marker steps over — the one it undoes, or the one it
+      // steps back onto. A marker production logged with the pointer already
+      // pinned at either end moves over nothing and is submitted as-is.
+      const crossed = isUndo ? moved : pointer
+      const skip = moved !== pointer && !reachedServer[crossed]
+      pointer = moved
+      if (skip) {
+        foldedEntryIndices.push(index)
+        continue
+      }
+    } else if (isStaleForcedFollowUp(state, entry, fixture)) {
+      reachedServer.length = pointer // same branching rule as walkHistory
+      reachedServer.push(false)
+      pointer += 1
       foldedEntryIndices.push(index)
       continue
+    } else {
+      reachedServer.length = pointer
+      reachedServer.push(true)
+      pointer += 1
     }
     const result = await submitLoggedEntry(stack, fixture, entry)
     if (!result.ok) {

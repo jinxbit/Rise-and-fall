@@ -24,7 +24,10 @@ import { runProductionSmoke } from '../productionSmoke/runSmoke.ts'
 import type { CompressedGameState } from '../../lib/gameStateCompression.ts'
 
 const fixtures = await loadProductionGameFixtures()
-const enforcedFixtures = fixtures.filter((fixture) => fixture.game.settings.ruleEnforcementEnabled)
+// Mirrors runSmoke.ts's own `eligibility`: the smoke runner replays a game
+// against the live project only if it was played rule-enforced *and* it
+// finished, an unfinished export having no end state to verify against.
+const eligibleFixtures = fixtures.filter((fixture) => fixture.game.settings.ruleEnforcementEnabled && fixture.finalState.status === 'completed')
 
 describe('production smoke runner', () => {
   let stack: ProductionStack
@@ -46,16 +49,21 @@ describe('production smoke runner', () => {
     expect(reports).toHaveLength(fixtures.length)
     for (const report of reports) {
       const fixture = fixtures.find((candidate) => candidate.name === report.fixture)!
-      if (fixture.game.settings.ruleEnforcementEnabled) {
-        expect(report.skippedReason, `${report.fixture} should have run`).toBeUndefined()
-        expect(report.actionsSubmitted).toBeGreaterThan(0)
-      } else {
+      if (!fixture.game.settings.ruleEnforcementEnabled) {
         // A client-trusted game is skipped with a reason rather than forced
         // through rules it was never played under.
         expect(report.skippedReason).toContain('client-trusted')
+      } else if (fixture.finalState.status !== 'completed') {
+        // So is a game still in progress: it is a perfectly good replay
+        // fixture (productionGames.test.ts runs it), but there is no recorded
+        // end state for a live run to check itself against.
+        expect(report.skippedReason).toContain('never finished')
+      } else {
+        expect(report.skippedReason, `${report.fixture} should have run`).toBeUndefined()
+        expect(report.actionsSubmitted).toBeGreaterThan(0)
       }
     }
-    expect(reports.filter((report) => !report.skippedReason).length).toBe(enforcedFixtures.length)
+    expect(reports.filter((report) => !report.skippedReason).length).toBe(eligibleFixtures.length)
   }, 180_000)
 
   it('leaves nothing behind — no room, no players, no state, no users', async () => {
@@ -70,7 +78,7 @@ describe('production smoke runner', () => {
   }, 180_000)
 
   it('provisions a room that looks like a real one, and stores its state the enforced way', async () => {
-    const fixture = enforcedFixtures[0]
+    const fixture = eligibleFixtures[0]
     const room = await provisionLiveRoom(config(), fixture)
     try {
       // Never listed publicly, never 'async' — both notification Edge
@@ -103,7 +111,7 @@ describe('production smoke runner', () => {
   }, 60_000)
 
   it('tears the room down even when provisioning fails part-way', async () => {
-    const fixture = enforcedFixtures[0]
+    const fixture = eligibleFixtures[0]
     // A game id that already exists makes the `game_state` insert fail on its
     // primary key, after users and a room have been created.
     const room = await provisionLiveRoom(config(), fixture)

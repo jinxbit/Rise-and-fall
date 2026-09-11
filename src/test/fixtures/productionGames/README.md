@@ -55,7 +55,23 @@ dispatched as a trusted replay, such an entry is the one case that succeeds
 with no steps. Those entries are skipped, and the final state is compared with
 them dropped from the expected log — they are no-ops by construction, so
 nothing else about the game changes. `red-beats-blue-async` has 12 of them out
-of 263, `three-player-red-runaway` 18 out of 229.
+of 263, `three-player-red-runaway` 18 out of 229,
+`async-three-player-midgame` 19 out of 313.
+
+Skipping one shortens the log the server is building, which matters as soon as
+the game undoes back across it: UNDO_ACTION steps the *server's* pointer, and
+production's marker was recorded against a log that still had the folded entry
+in it, so submitting it verbatim rewinds one entry too far. So
+`replayFixtureThroughStack` mirrors `historyFold.ts`'s `walkHistory` over
+production's log, tracking which substantive entries actually reached the
+server, and drops a marker that steps over one that didn't. The two models
+agree again once the pointer settles, because a folded entry's effect lives
+inside the entry before it — production at "#176, #177 undone" and the server
+at "#176 with #177 folded in" differ, but undoing #176 as well lands both on
+"#175", which is exactly what `async-three-player-midgame` does at entries
+177-179. A game that undid a folded follow-up and then *acted* from that
+intermediate state has no equivalent under today's engine, and fails here
+loudly rather than replaying as something else.
 
 One field is likewise left out of the comparison:
 `declineSourceZoneByCardId` is checked only while a decline phase is open,
