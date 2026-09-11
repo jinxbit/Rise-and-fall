@@ -1143,7 +1143,7 @@ describe('RoundView — confirm before revealing cards (issue #528)', () => {
     expect(onChooseCard).toHaveBeenCalledWith(cardIdFor('p2', 'ship'))
   })
 
-  it('submits a staged pick right away if another player retracts before it is confirmed, instead of leaving it stuck', () => {
+  it('keeps a staged pick — and relabels the button to "Submit" — if another player retracts before it is confirmed (issue #546)', () => {
     const state = { ...makeState(), pendingPlayerIds: ['p2'] }
     const onChooseCard = vi.fn()
     const { rerender } = renderRoundView(state, 'p2', { onChooseCard })
@@ -1152,8 +1152,9 @@ describe('RoundView — confirm before revealing cards (issue #528)', () => {
     expect(onChooseCard).not.toHaveBeenCalled()
 
     // p1 retracts their own already-resolved pick — p2 is no longer the one
-    // whose submission would trigger a reveal, so nothing should be left
-    // waiting on a button that no longer says what it does.
+    // whose submission would trigger a reveal, but p2's own staged pick is
+    // still an unsubmitted decision and must not fire on its own just
+    // because someone else's action changed pendingPlayerIds.
     const retracted = { ...state, pendingPlayerIds: ['p1', 'p2'] }
     rerender(
       <RoundView
@@ -1180,6 +1181,10 @@ describe('RoundView — confirm before revealing cards (issue #528)', () => {
       />,
     )
 
+    expect(onChooseCard).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: 'Reveal all cards' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Submit' }))
     expect(onChooseCard).toHaveBeenCalledWith(cardIdFor('p2', 'city'))
   })
 
@@ -1206,6 +1211,48 @@ describe('RoundView — confirm before revealing cards (issue #528)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'City' }))
     expect(onMoveToDecline).toHaveBeenCalledWith(cardIdFor('p2', 'city'))
     expect(screen.queryByRole('button', { name: 'Reveal all cards' })).not.toBeInTheDocument()
+  })
+
+  it('keeps a staged decline pick — and relabels the button to "Submit" — if another player retracts before it is confirmed (issue #546)', () => {
+    const base = makeState()
+    const state: GameState = { ...base, roundPhase: 'decline', pendingPlayerIds: ['p2'] }
+    const onMoveToDecline = vi.fn()
+    const { rerender } = renderRoundView(state, 'p2', { onMoveToDecline })
+
+    fireEvent.click(screen.getByRole('button', { name: 'City' }))
+    expect(onMoveToDecline).not.toHaveBeenCalled()
+
+    const retracted: GameState = { ...state, pendingPlayerIds: ['p1', 'p2'] }
+    rerender(
+      <RoundView
+        state={retracted}
+        players={players}
+        myPlayerId="p2"
+        unitContent={EMPTY_UNIT_CONTENT}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
+        turnReview={null}
+        showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
+        gameLog={[]}
+        confirmBeforeRevealingCards={true}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={onMoveToDecline}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+
+    expect(onMoveToDecline).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: 'Reveal all cards' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Submit' }))
+    expect(onMoveToDecline).toHaveBeenCalledWith(cardIdFor('p2', 'city'))
   })
 })
 

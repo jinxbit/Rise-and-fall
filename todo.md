@@ -4558,3 +4558,31 @@ reproducing the exact "toggle admin mode reactively right before Undo"
 scenario end-to-end through the real `apply-action`/`undo-action` Edge
 Functions. `npm run lint`, `npm run test` (1236 tests), and `npm run build`
 all pass.
+
+## 94. Retracting a pick could auto-submit a different player's still-staged pick (issue #546)
+
+Issue #528's "Reveal all cards" confirmation (entry 86 above) deliberately
+traded one race for another: when a staged pick's player stopped being the
+one who'd trigger a reveal — because another player retracted their own
+already-resolved pick, putting them back in `pendingPlayerIds` — an effect
+in `useStagedCardChoice` (`RoundView.tsx`) submitted the staged pick right
+away, on the theory that leaving it stuck behind a button that no longer
+described what it did was worse. In practice this meant player A retracting
+their own choice silently submitted player B's still-unsubmitted one, which
+is exactly backwards: an action by A should never decide something B hasn't
+confirmed yet.
+
+Removed that auto-submit effect. A staged pick (`stagedCardId`) now only
+ever leaves state via an explicit click on the confirm button, or by staging
+a different card — never as a side effect of someone else's action changing
+`pendingPlayerIds`. `SelectCardsPanel`/`DeclinePanel` already recompute
+`wouldReveal` from live state every render, so once it goes false while a
+pick sits staged, they just relabel the same button from "Reveal all cards"
+to "Submit" instead of firing it — the player still explicitly decides when
+their own pick goes in.
+
+Updated `RoundView.test.tsx`'s issue #528 case that had pinned the old
+auto-submit behavior to assert the new keep-staged-and-relabel behavior
+instead, and added the same coverage for the decline phase (the original
+case only covered select-cards). `npm run lint`, `npm run test` (1237
+tests), and `npm run build` all pass.

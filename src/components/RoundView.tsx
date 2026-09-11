@@ -833,28 +833,22 @@ function LogPanel({ gameLog, players }: { gameLog: GameEvent[]; players: PlayerR
  * resolves the select-cards/decline phase gets a chance to review — and
  * change — their pick behind `confirm` before anything is actually sent.
  *
- * Race condition (per the issue): `shouldStage` is recomputed by the caller
- * every render straight from the live, server-synced `pendingPlayerIds` —
- * it is not a snapshot taken when staging began. If another player
- * retracts their own pick while this one sits staged, this player is no
- * longer the one who'd trigger a reveal, so `shouldStage` flips to false;
- * the effect below then submits the staged pick immediately, exactly as if
- * staging had never applied — the same outcome an ordinary (non-last)
- * click already has. This can't be resolved the other way around (staging
- * a pick that was submitted immediately because `shouldStage` was
- * momentarily stale) without a network round-trip before every click, so
- * that direction is left as a rare, harmless early reveal rather than
- * "fixed" — see RoundView's `confirmBeforeRevealingCards` prop doc comment.
+ * `shouldStage` is recomputed by the caller every render straight from the
+ * live, server-synced `pendingPlayerIds` — it is not a snapshot taken when
+ * staging began. If another player retracts their own pick while this one
+ * sits staged, this player is no longer the one who'd trigger a reveal, so
+ * `shouldStage` flips to false — but a card the player staged themselves is
+ * a real, not-yet-submitted decision of theirs, so it must never fire just
+ * because *someone else's* action changed `pendingPlayerIds` (issue #546:
+ * player A retracting their pick used to auto-submit player B's still-staged
+ * one). The staged pick is left in place either way; `stagedCardId` only
+ * ever leaves state via `confirm` — an explicit click — or `choose` staging
+ * a different card. The caller uses `shouldStage` itself to relabel the
+ * confirm button ("Reveal all cards" vs. plain "Submit") once it no longer
+ * describes an actual reveal.
  */
 function useStagedCardChoice(shouldStage: boolean, submit: (cardId: string) => void) {
   const [stagedCardId, setStagedCardId] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (stagedCardId && !shouldStage) {
-      submit(stagedCardId)
-      setStagedCardId(null)
-    }
-  }, [shouldStage, stagedCardId, submit])
 
   function choose(cardId: string) {
     if (shouldStage) {
@@ -929,7 +923,7 @@ function SelectCardsPanel(props: {
       </div>
       {stagedCardId && (
         <button onClick={confirm} className="self-start rounded-md bg-indigo-600 px-3 py-1 font-medium text-white hover:bg-indigo-500">
-          Reveal all cards
+          {wouldReveal ? 'Reveal all cards' : 'Submit'}
         </button>
       )}
     </div>
@@ -1131,7 +1125,7 @@ function DeclinePanel(props: {
       </div>
       {stagedCardId && (
         <button onClick={confirm} className="self-start rounded-md bg-indigo-600 px-3 py-1 font-medium text-white hover:bg-indigo-500">
-          Reveal all cards
+          {wouldReveal ? 'Reveal all cards' : 'Submit'}
         </button>
       )}
     </div>
@@ -1306,7 +1300,11 @@ export function RoundView(props: {
    * viewer, or most tests) falls back to false — the original
    * submit-immediately behaviour — rather than the profile default of "on",
    * since a caller that never passes this prop has nothing loaded to
-   * disagree with in the first place.
+   * disagree with in the first place. If another player's own action (e.g.
+   * a retraction) makes the viewer no longer the one who'd trigger a reveal
+   * while a pick sits staged, the button just relabels to "Submit" rather
+   * than firing on its own — see `useStagedCardChoice`'s doc comment
+   * (issue #546).
    */
   confirmBeforeRevealingCards?: boolean
   /** True while a move submitted via GamePage's submitAction() is in flight (issue #434) — shown as a small "Sending…" badge in the board's top-right corner, beside the expand/collapse chevron. */
