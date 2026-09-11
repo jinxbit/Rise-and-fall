@@ -4243,3 +4243,70 @@ generic string. Added a regression test forcing a genuine exception
 `stack.startGame()` gets back a parseable 500 with the real message rather
 than an opaque failure. `npm run lint`, `npm run test` (1205 tests), and
 `npm run build` all pass.
+
+## 85. Pre-production deploys failing on `supabase link`, with one opaque line to go on
+
+Every `Deploy Supabase` run to Preview since 2026-09-11 07:45 has failed at
+the link step with a single line:
+
+```
+Authorization failed for the access token and project ref pair: {"message":"Your account does not have the necessary privileges to access this endpoint."}
+```
+
+**This is not a code failure, and nothing in this repository can fix it.**
+`git log eb49a96..afcc372 -- .github/workflows/` is empty: no workflow, no
+migration, no `src/lib` change sits between the last green deploy (run 43,
+2026-09-09 23:03) and the first red one (run 44, 2026-09-11 07:45). What
+changed is outside the repo — the `SUPABASE_ACCESS_TOKEN` secret, or the
+Supabase account behind it.
+
+The evidence narrows it to the token specifically, not the project and not
+the ref:
+
+- The "Refuse to touch the wrong project" guard *passed*, so the `Preview`
+  environment does have its own `SUPABASE_PROJECT_ID` and it is not
+  production's — the ref is configured and plausible.
+- The Preview Supabase project is demonstrably alive. That same morning's
+  nightly `smoke (Preview)` (run 34581609853, 08:56) passed end to end:
+  migrations applied, Edge Functions booting, RLS as written, keys valid.
+  It passes because it authenticates with the project's *anon and
+  service-role* keys, which have nothing to do with the account-level
+  personal access token `supabase link` uses.
+- `smoke (production)` failed in that same run, but on a `redaction.ts`
+  TypeError (issue #523) — an unrelated failure, not an auth one.
+
+So: a healthy project, a correct ref, and a management token that can no
+longer reach it. The remedy is a maintainer action — mint a fresh personal
+access token at https://supabase.com/dashboard/account/tokens signed in as an
+account that is a member of *both* the Preview and production Supabase
+organizations, and update the `SUPABASE_ACCESS_TOKEN` secret (repository
+level, unless the `Preview` environment has since been given one of its own,
+in which case that copy is the one that is being used).
+
+What *is* fixable here is that the failure said none of the above.
+`deploy-supabase.yml` gained a "Check the access token can reach this
+project" step ahead of the link, which asks the Supabase Management API the
+question directly — `GET /v1/projects/{ref}`, falling back to
+`GET /v1/projects` — and distinguishes the three causes that the CLI collapses
+into one sentence: token rejected outright (HTTP 401: revoked, expired, or
+mistyped), token valid but this project not among the ones its account can
+see (prints the refs it *can* see, which is what identifies a wrong account
+or a lost org membership — a ref is not secret, per the guard above it), and
+ref wrong. It fails the run only on an unambiguous answer: an unreachable or
+unrecognised Management API response is a `::warning::` and `supabase link`
+stays the authority, so a Supabase API blip can never block a deploy that
+would otherwise work.
+
+`DELIVERY_PIPELINE_PLAN.md` §5 previously called this token "the one secret
+here where inheritance is the right answer" without the caveat that makes it
+conditional: account-scoped still means the account must be a member of every
+environment's organization. That caveat is now written down, and §8 carries
+the failure mode.
+
+Verified the new step by extracting it from the parsed YAML and running all
+six branches against a stubbed `curl` (reachable, 401, valid-token-wrong-
+account, unreachable API, listed-but-probe-odd, unparseable list body); each
+produces the intended message and exit status. `npm run lint`, `npm run
+test`, and `npm run build` all pass — none of them touch workflow files, so
+that is a statement about the repo being unbroken, not about this change
+being exercised.

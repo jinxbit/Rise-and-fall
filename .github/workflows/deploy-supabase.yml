@@ -144,6 +144,67 @@ jobs:
           fi
           echo "Environment '$ENVIRONMENT' -> Supabase project '$SUPABASE_PROJECT_ID' (production is '$PRODUCTION_PROJECT_ID')."
 
+      # `supabase link` reports a token that cannot reach this project with a
+      # single opaque line — "Authorization failed for the access token and
+      # project ref pair" — and it is the same line for three unrelated
+      # causes: the token is revoked or mistyped, the token is valid but
+      # belongs to an account with no access to THIS project, or the ref is
+      # wrong. Preview's deploys started failing that way on 2026-09-11 with
+      # nothing in this repository changed and the project itself
+      # demonstrably healthy (that night's `smoke (Preview)` passed against
+      # it over its own keys), and that one line cannot tell you which of the
+      # three it is.
+      #
+      # The Management API answers the question directly, so ask it first and
+      # fail with the real reason. It only ever fails the run on an
+      # unambiguous answer: an API that is unreachable, or that says
+      # something this check doesn't understand, is a warning, and the link
+      # step below stays the authority.
+      - name: Check the access token can reach this project
+        env:
+          ENVIRONMENT: ${{ needs.resolve.outputs.environment }}
+        run: |
+          if [ -z "$SUPABASE_ACCESS_TOKEN" ]; then
+            echo "::error::No SUPABASE_ACCESS_TOKEN for environment '$ENVIRONMENT'. It is account-scoped, so it normally lives at repository level and every environment inherits it (DELIVERY_PIPELINE_PLAN.md section 5)."
+            exit 1
+          fi
+
+          probe() {
+            curl -sS --max-time 20 -o "$2" -w '%{http_code}' \
+              -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" "$1" || echo 000
+          }
+
+          project="$(mktemp)"
+          if [ "$(probe "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_ID" "$project")" = "200" ]; then
+            echo "SUPABASE_ACCESS_TOKEN can reach project '$SUPABASE_PROJECT_ID'."
+            exit 0
+          fi
+
+          # It could not. Ask what the token CAN see, so the message can name
+          # which half is wrong instead of leaving it to be guessed.
+          list="$(mktemp)"
+          status="$(probe https://api.supabase.com/v1/projects "$list")"
+          case "$status" in
+            401)
+              echo "::error::The Supabase Management API rejected SUPABASE_ACCESS_TOKEN for environment '$ENVIRONMENT' outright (HTTP 401), so the token is the problem, not project '$SUPABASE_PROJECT_ID'. It has been revoked, has expired, or is mistyped. Mint a replacement at https://supabase.com/dashboard/account/tokens signed in as an account that belongs to every environment's Supabase organization, and update the secret."
+              exit 1
+              ;;
+            200)
+              if ! refs="$(jq -r '.[].id' "$list" 2>/dev/null)"; then
+                echo "::warning::The Supabase Management API answered the project list in a shape this check does not understand, so it cannot say whether project '$SUPABASE_PROJECT_ID' is reachable. Continuing; the link step below is the real check."
+              elif printf '%s\n' "$refs" | grep -Fqx -- "$SUPABASE_PROJECT_ID"; then
+                echo "::warning::SUPABASE_ACCESS_TOKEN lists project '$SUPABASE_PROJECT_ID' among the ones it can see, yet the per-project endpoint did not answer 200. Continuing; the link step below is the real check."
+              else
+                echo "::error::SUPABASE_ACCESS_TOKEN is a valid token, but the Supabase account behind it cannot see project '$SUPABASE_PROJECT_ID' — which is exactly what makes the next step fail with 'Authorization failed for the access token and project ref pair'. Either the secret now holds a token from a different Supabase account, or that account was removed from this project's organization. The token is account-scoped and shared by both environments (DELIVERY_PIPELINE_PLAN.md section 5), so one account has to be a member of every environment's organization. The projects it CAN see are listed below; a ref is not secret, see the step above."
+                jq -r '.[] | "  \(.id)  organization=\(.organization_id)"' "$list" 2>/dev/null || printf '  %s\n' "$refs"
+                exit 1
+              fi
+              ;;
+            *)
+              echo "::warning::Could not pre-check SUPABASE_ACCESS_TOKEN against the Supabase Management API (HTTP $status). Continuing; the link step below is the real check."
+              ;;
+          esac
+
       - name: Link Supabase project
         run: supabase link --project-ref "$SUPABASE_PROJECT_ID"
 

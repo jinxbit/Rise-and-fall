@@ -214,7 +214,13 @@ Per environment: `SUPABASE_DB_PASSWORD`, `SUPABASE_PROJECT_ID`,
 `SMOKE_SUPABASE_ANON_KEY`, `SMOKE_SUPABASE_SERVICE_ROLE_KEY`.
 `SUPABASE_ACCESS_TOKEN` is account-scoped rather than project-scoped, so it
 can be left at repository level and inherited by both — it is the one secret
-here where inheritance is the right answer.
+here where inheritance is the right answer. Account-scoped is not the same as
+unconditional, though: the token only reaches a project whose **organization
+the token's account is a member of**, so a single inherited token requires
+one account that belongs to *every* environment's organization. If the
+environments ever end up in different organizations, or that account is
+removed from one of them, the deploy to that environment starts failing on
+`supabase link` — see §8.
 
 Plus one repository **secret**, `AUTOMATION_TOKEN` — a fine-grained PAT on
 this repository with Contents, Pull requests and Issues write. It is not
@@ -326,6 +332,21 @@ not the same as proving the app works.
   against the repository variable `PRODUCTION_SUPABASE_PROJECT_ID` before
   touching anything, which is the only reason it is a survivable mistake
   rather than a destructive one.
+- **One shared access token means one account's memberships.** The
+  inherited `SUPABASE_ACCESS_TOKEN` (§5) is the whole pipeline's single point
+  of failure for *every* environment at once, and it fails in a way that
+  looks like nothing else: `supabase link` answers "Authorization failed for
+  the access token and project ref pair" — one line, no HTTP status, no
+  indication whether the token or the ref is the wrong half. Preview's
+  deploys went red that way on 2026-09-11 with nothing in the repository
+  changed and the project itself healthy (the same night's
+  `smoke (Preview)` passed against it over its own keys, because those are
+  project keys and untouched by whatever happened to the account token).
+  `deploy-supabase.yml` now pre-checks the token against the Supabase
+  Management API and fails with the actual reason — token rejected outright,
+  versus token valid but this project not among the ones its account can see,
+  with those listed. It only ever fails the run on an unambiguous answer; an
+  unreachable API is a warning and `supabase link` stays the authority.
 - **A smoke test can report green on a project nobody deployed.** `smoke.yml`
   follows a successful `Deploy Supabase`, and a `workflow_run` payload carries
   the triggering run's *branch* but not its *inputs*. Inferring the target
