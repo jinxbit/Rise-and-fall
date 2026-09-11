@@ -249,6 +249,10 @@ export function toClientGameState(redacted: RedactedGameState): GameState {
  * "who's no longer pending" is a reliable, redaction-independent source for
  * this even though the log entry itself may be missing. A no-op on the
  * client-trusted path, where `announced` already covers every such player.
+ * The synthesized line's own `adminMode` tag (issue #536) can only read
+ * `state.adminModeActive` — the *current* value — rather than the real
+ * entry's `LoggedAction.viaAdminMode`, since that entry was never sent to
+ * this client to read it from.
  */
 export function redactGameLog(events: GameEvent[], state: GameState, viewerId: string | null): GameEvent[] {
   const hideChosenCards = state.roundPhase === 'selectCards' && state.pendingPlayerIds.length > 0
@@ -277,6 +281,14 @@ export function redactGameLog(events: GameEvent[], state: GameState, viewerId: s
       // Function gotchas").
       message: '{player} chose a card',
       timestamp: new Date().toISOString(),
+      // The real entry this stands in for was never sent to this client at
+      // all (unredactedPrefix cut it, see this function's doc comment), so
+      // there's no LoggedAction.viaAdminMode to read for it — `state`'s own
+      // *current* adminModeActive is the best available signal for whether
+      // it was made under admin mode. Same caveat as everywhere else this
+      // synthesized line stands in for the real one: it's a display-only
+      // approximation, not a replay of history.
+      adminMode: state.adminModeActive || undefined,
     })),
   ]
 }

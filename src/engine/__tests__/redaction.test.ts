@@ -624,6 +624,19 @@ describe('redactGameLog (issue #399)', () => {
     expect(asP1.find((e) => e.playerId === 'p1')).toBeUndefined()
   })
 
+  it('tags a synthesized "chose a card" line as admin mode when the game currently has it on (issue #536)', () => {
+    const genesis = makeActiveGameWithFullHands()
+    const withAdminOn = requireOk(applyAction(genesis, { type: 'SET_ADMIN_MODE', playerId: 'p1', enabled: true }))
+    const state = requireOk(applyAction(withAdminOn, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }))
+    expect(state.pendingPlayerIds).toEqual(['p2'])
+    const log = buildGameLog(genesis, []) // p1's CHOOSE_CARD entry never reached this client
+
+    const asP2 = redactGameLog(log, state, 'p2')
+    const synthesized = asP2.find((e) => e.playerId === 'p1')!
+    expect(synthesized.message).toBe(`${PLAYER_PLACEHOLDER} chose a card`)
+    expect(synthesized.adminMode).toBe(true)
+  })
+
   it('does not duplicate a synthesized line once the real (redacted-message) event is already present', () => {
     const genesis = makeActiveGameWithFullHands()
     const state = requireOk(applyAction(genesis, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }))

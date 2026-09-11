@@ -4485,3 +4485,20 @@ room's URL. Replaced the whole function body with a single
 MIME-type write, since there's nothing left to distinguish plain-text from
 rich-text once the clipboard content is just a bare URL. `npm run lint`,
 `npm run test` (1224 tests), and `npm run build` all pass.
+
+## 91. A card chosen with admin mode on didn't always show admin mode in the log (issue #536)
+
+In a `hiddenInformationEnabled` game, while a player's `CHOOSE_CARD` pick is
+still secret (the round's `selectCards` phase, other players still
+deciding), `get-game-state`'s `unredactedPrefix` cuts that player's raw
+`actionHistory` entry out of what's sent to other clients entirely — so
+`redactGameLog` (`src/engine/redaction.ts`, issue #497) synthesizes a
+placeholder `"{player} chose a card"` line to fill the gap. That
+synthesized line never set `GameEvent.adminMode`, unlike a real entry
+(which carries it straight from `LoggedAction.viaAdminMode`) — so a card
+chosen for a still-pending player while admin mode was on showed no
+"(admin mode)" tag until the pick was later revealed and the real logged
+entry replaced the placeholder. Tagged the synthesized line with the
+game's current `adminModeActive` instead — the best available signal,
+since the real historical flag was never sent to this client to read.
+`npm run lint`, `npm run test` (1225 tests), and `npm run build` all pass.
