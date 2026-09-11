@@ -37,12 +37,14 @@ export interface GameStateSummary {
   /**
    * Player ids still owed a turn right now, straight from
    * `game_state_meta.pending_player_ids` — see that column's comment
-   * (`0027_game_state_meta_pending_players.sql`) for exactly what it holds
-   * per phase: `state.pendingPlayerIds` during the simultaneous
-   * `selectCards`/`decline` phases (everyone pending at once, so this can
-   * repeat ids for decline's per-player card count — dedupe before display),
-   * the derived board-setup tile/unit placer during `boardSetup` (0 or 1
-   * id), or `[]` otherwise (turn-order phases use `activePlayerId` instead).
+   * (`0027_game_state_meta_pending_players.sql`, updated by
+   * `0030_purchase_phase_simultaneous.sql` for issue #553) for exactly what
+   * it holds per phase: `state.pendingPlayerIds` during the simultaneous
+   * `selectCards`/`decline`/`purchase` phases (everyone pending at once, so
+   * this can repeat ids for decline's per-player card count — dedupe before
+   * display), the derived board-setup tile/unit placer during `boardSetup`
+   * (0 or 1 id), or `[]` otherwise (the turn-order `actions` phase uses
+   * `activePlayerId` instead).
    */
   pendingPlayerIds: string[]
 }
@@ -55,7 +57,7 @@ export function pendingActorIdsFor(summary: GameStateSummary | null): string[] {
   if (!summary) return []
   if (summary.status === 'boardSetup') return summary.pendingPlayerIds
   if (summary.status !== 'active') return []
-  if (summary.roundPhase === 'selectCards' || summary.roundPhase === 'decline') {
+  if (summary.roundPhase === 'selectCards' || summary.roundPhase === 'decline' || summary.roundPhase === 'purchase') {
     return [...new Set(summary.pendingPlayerIds)]
   }
   return summary.activePlayerId ? [summary.activePlayerId] : []

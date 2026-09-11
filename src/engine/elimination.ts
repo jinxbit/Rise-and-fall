@@ -50,11 +50,11 @@ export function eliminatePlayer(state: GameState, playerId: string, conceded = f
   const units = state.units.filter((u) => u.ownerId !== playerId || u.kind === 'bridge')
   const turnOrder = state.turnOrder.filter((id) => id !== playerId)
   const pendingPlayerIds = state.pendingPlayerIds.filter((id) => id !== playerId)
-  // selectCards and decline are both simultaneous phases with no single
-  // active player; actions/purchase are turn order, so the next pending
-  // player (if any) becomes active.
+  // selectCards, decline, and purchase (issue #553) are all simultaneous
+  // phases with no single active player; only actions is turn order, so the
+  // next pending player (if any) becomes active.
   const activePlayerId =
-    state.roundPhase === 'selectCards' || state.roundPhase === 'decline' ? null : (pendingPlayerIds[0] ?? null)
+    state.roundPhase === 'selectCards' || state.roundPhase === 'decline' || state.roundPhase === 'purchase' ? null : (pendingPlayerIds[0] ?? null)
 
   const remainingPlayerIds = players.filter((p) => !p.eliminated).map((p) => p.id)
   if (remainingPlayerIds.length <= 1) {

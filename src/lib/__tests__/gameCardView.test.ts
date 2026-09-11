@@ -168,16 +168,20 @@ describe('pendingActorIdsFor', () => {
     expect(pendingActorIdsFor(makeSummary({ status: 'completed', roundPhase: null }))).toEqual([])
   })
 
-  // game_state_meta.pending_player_ids (0027_game_state_meta_pending_players.sql)
-  // mirrors state.pendingPlayerIds during these simultaneous phases: everyone
-  // still owed a turn at once, not just one "active" player.
-  it('returns everyone still pending during a simultaneous selectCards/decline phase', () => {
+  // game_state_meta.pending_player_ids (0027_game_state_meta_pending_players.sql,
+  // updated by 0030_purchase_phase_simultaneous.sql for issue #553) mirrors
+  // state.pendingPlayerIds during these simultaneous phases: everyone still
+  // owed a turn at once, not just one "active" player.
+  it('returns everyone still pending during a simultaneous selectCards/decline/purchase phase', () => {
     expect(
       pendingActorIdsFor(makeSummary({ roundPhase: 'selectCards', activePlayerId: null, pendingPlayerIds: ['p1', 'p2'] })),
     ).toEqual(['p1', 'p2'])
     expect(
       pendingActorIdsFor(makeSummary({ roundPhase: 'decline', activePlayerId: null, pendingPlayerIds: ['p2'] })),
     ).toEqual(['p2'])
+    expect(
+      pendingActorIdsFor(makeSummary({ roundPhase: 'purchase', activePlayerId: null, pendingPlayerIds: ['p1', 'p2'] })),
+    ).toEqual(['p1', 'p2'])
   })
 
   // decline's pendingPlayerIds can repeat a player id (once per card still

@@ -90,36 +90,39 @@ export function beginDeclinePhase(
 }
 
 /**
- * Skips past any player(s) at the front of the purchase-phase queue who
- * have nothing meaningful to decide: either their decline is empty, or the
- * current buyback price (calculatePurchaseCost) costs more gold than they
- * have — either way no card purchase is actually possible for them, so no
- * PASS_PURCHASE action should be required. Keeps skipping across multiple
- * consecutive such players until it finds one who can actually afford
- * something, or runs out. A no-op outside the purchase phase.
+ * Drops every currently pending player who has nothing meaningful to
+ * decide: either their decline is empty, or the current buyback price
+ * (calculatePurchaseCost) costs more gold than they have — either way no
+ * card purchase is actually possible for them, so no PASS_PURCHASE action
+ * should be required from them. Unlike a turn-order queue, this filters the
+ * *whole* `pendingPlayerIds` list in one pass rather than only its front:
+ * the purchase phase is simultaneous (issue #553), so there is no "next up"
+ * player to stop at — every pending player's own eligibility is independent
+ * of every other's (each buys back from their own decline, paying gold that
+ * only ever leaves their own hoard). A no-op outside the purchase phase.
  */
 export function skipEmptyDeclinePurchasers(state: GameState, achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT): GameState {
+  if (state.roundPhase !== 'purchase') return state
+
   const achievementsClaimedSoFar = Object.keys(state.claimedByAchievementId).length
   const cost = calculatePurchaseCost(achievementsClaimedSoFar, achievementContent.purchaseCostTable)
 
-  let nextState = state
-  while (nextState.roundPhase === 'purchase' && nextState.pendingPlayerIds.length > 0) {
-    const playerId = nextState.pendingPlayerIds[0]
-    const player = nextState.players.find((p) => p.id === playerId)
-    if (!player || (player.declineCardIds.length > 0 && player.resources.gold >= cost)) break
-    nextState = { ...nextState, pendingPlayerIds: nextState.pendingPlayerIds.slice(1) }
-    nextState = { ...nextState, activePlayerId: nextState.pendingPlayerIds[0] ?? null }
-  }
-  return nextState
+  const pendingPlayerIds = state.pendingPlayerIds.filter((playerId) => {
+    const player = state.players.find((p) => p.id === playerId)
+    return player != null && player.declineCardIds.length > 0 && player.resources.gold >= cost
+  })
+  return pendingPlayerIds.length === state.pendingPlayerIds.length ? state : { ...state, pendingPlayerIds }
 }
 
 /**
- * Round step 4: every player may buy one card back from decline, or pass,
- * in turn order. Players with an empty decline, or who can't afford the
- * current buyback price, are skipped automatically (see
- * skipEmptyDeclinePurchasers) — if that empties the whole queue (the
- * common case: nobody has declined anything yet), the round finishes
- * immediately without any player having to act.
+ * Round step 4: every player may simultaneously buy one card back from
+ * decline, or pass — like select-cards/decline, not turn order (issue
+ * #553), so `activePlayerId` stays null throughout and any pending player
+ * may act in any order relative to the others. Players with an empty
+ * decline, or who can't afford the current buyback price, are skipped
+ * automatically (see skipEmptyDeclinePurchasers) — if that empties the
+ * whole queue (the common case: nobody has declined anything yet), the
+ * round finishes immediately without any player having to act.
  */
 export function beginPurchasePhase(
   state: GameState,
@@ -130,7 +133,7 @@ export function beginPurchasePhase(
     ...state,
     roundPhase: 'purchase',
     pendingPlayerIds: [...state.turnOrder],
-    activePlayerId: state.turnOrder[0] ?? null,
+    activePlayerId: null,
   }
   const afterSkips = skipEmptyDeclinePurchasers(started, achievementContent)
   return afterSkips.pendingPlayerIds.length === 0 ? finishRound(afterSkips, achievementContent, taleContent) : afterSkips

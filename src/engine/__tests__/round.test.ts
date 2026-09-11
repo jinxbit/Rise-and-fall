@@ -140,9 +140,11 @@ describe('round flow', () => {
     if (!result.ok) return
 
     // p1 was auto-skipped (nothing in decline); p2 has something, so the
-    // phase waits on them instead of auto-completing straight through.
+    // phase waits on them instead of auto-completing straight through. The
+    // purchase phase is simultaneous (issue #553), so activePlayerId stays
+    // null even with only one player left pending.
     expect(result.state.roundPhase).toBe('purchase')
-    expect(result.state.activePlayerId).toBe('p2')
+    expect(result.state.activePlayerId).toBeNull()
     expect(result.state.pendingPlayerIds).toEqual(['p2'])
 
     result = applyAction(result.state, { type: 'PASS_PURCHASE', playerId: 'p2' })
@@ -290,6 +292,38 @@ describe('round flow', () => {
     expect(p1After.handCardIds).toContain(cardIdFor('p1', 'temple'))
   })
 
+  it('purchase is simultaneous, not turn order (issue #553): p2 may buy back before p1 even though turnOrder is [p1, p2]', () => {
+    let state = makeActiveGameWithFullHands()
+    const players = state.players.map((player) =>
+      moveCard({ ...player, resources: { gold: 100, wood: 0, stone: 0 } }, cardIdFor(player.id, 'temple'), 'decline'),
+    )
+    state = { ...state, players }
+
+    let result = applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') })
+    if (!result.ok) throw new Error('setup failed')
+    result = applyAction(result.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') })
+    if (!result.ok) throw new Error('setup failed')
+    result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p1' })
+    if (!result.ok) throw new Error('setup failed')
+    result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p2' })
+    if (!result.ok) throw new Error('setup failed')
+    expect(result.state.roundPhase).toBe('purchase')
+    expect(result.state.pendingPlayerIds).toEqual(['p1', 'p2'])
+    expect(result.state.activePlayerId).toBeNull()
+
+    // p2 acts first, out of turn order — legal because the phase is simultaneous.
+    result = applyAction(result.state, { type: 'PURCHASE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'temple') }, testUnitContent)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.state.roundPhase).toBe('purchase')
+    expect(result.state.pendingPlayerIds).toEqual(['p1'])
+
+    result = applyAction(result.state, { type: 'PASS_PURCHASE', playerId: 'p1' }, testUnitContent)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.state.roundPhase).toBe('selectCards')
+  })
+
   it('rejects PURCHASE_CARD for a card not in that player\'s decline', () => {
     // p1 needs *something* in decline, or the purchase phase auto-skips
     // them entirely (see skipEmptyDeclinePurchasers in ../round.ts) before
@@ -383,8 +417,10 @@ describe('round flow', () => {
 
     // p1 was auto-skipped (5 gold buyback, only 0 gold) — the game just
     // continues to whoever can actually act, same as the empty-decline case.
+    // The purchase phase is simultaneous (issue #553), so activePlayerId
+    // stays null even with only one player left pending.
     expect(result.state.roundPhase).toBe('purchase')
-    expect(result.state.activePlayerId).toBe('p2')
+    expect(result.state.activePlayerId).toBeNull()
     expect(result.state.pendingPlayerIds).toEqual(['p2'])
 
     result = applyAction(result.state, { type: 'PASS_PURCHASE', playerId: 'p2' }, testUnitContent, achievementContent)

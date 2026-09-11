@@ -93,14 +93,14 @@ describe('pendingActorIds', () => {
     expect(pendingActorIds(state)).toEqual(['p2'])
   })
 
-  it('returns only the active player during the turn-order purchase phase', () => {
+  it('returns every pending player during the simultaneous purchase phase (issue #553)', () => {
     const state = makeState({
       status: 'active',
       roundPhase: 'purchase',
-      pendingPlayerIds: ['p2', 'p1'],
-      activePlayerId: 'p2',
+      pendingPlayerIds: ['p1', 'p2'],
+      activePlayerId: null,
     })
-    expect(pendingActorIds(state)).toEqual(['p2'])
+    expect(pendingActorIds(state)).toEqual(['p1', 'p2'])
   })
 
   it('returns every pending player during the simultaneous selectCards phase', () => {

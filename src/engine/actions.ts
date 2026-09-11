@@ -12,9 +12,9 @@ import type { Coordinate } from './types.ts'
 // can be submitted any number of times for the same player's turn;
 // PASS_ACTIONS is the one action that actually ends that turn — see both
 // in ./applyAction.ts), MOVE_TO_DECLINE (phase 3, simultaneous, only
-// reachable when triggered), PURCHASE_CARD / PASS_PURCHASE (phase 4, turn
-// order). Recycle-check and round-end are automatic engine bookkeeping,
-// not player actions. CONCEDE is the one exception to all of the above: any
+// reachable when triggered), PURCHASE_CARD / PASS_PURCHASE (phase 4,
+// simultaneous — issue #553). Recycle-check and round-end are automatic
+// engine bookkeeping, not player actions. CONCEDE is the one exception to all of the above: any
 // player may submit it at any point once the game is active, regardless of
 // round phase or whose turn it is.
 
