@@ -526,7 +526,18 @@ export async function checkHiddenInformationWire(
 
     let realtimePayloadsObserved: number | undefined
     if (options.includeRealtime) {
-      await waitUntil(() => capturedRealtime.length >= 1, 20_000)
+      // 60s, not 20s (issue #555): this file's own two `.smoke.ts` entry
+      // points run as separate vitest files, which vitest parallelizes by
+      // default (see vitest.smoke.config.ts) — issue #513's own root-cause
+      // analysis already documented that `productionSmoke.smoke.ts` can be
+      // mid-replay of a 200+ action fixture at the same time this check is
+      // waiting on a single game_state_meta row's Realtime delivery, and a
+      // 20s window turned out tight enough for that shared load to blow
+      // through it with zero payloads observed rather than a late one. The
+      // leak-scan below is unaffected by a wider window: it only widens how
+      // long a payload can arrive before this check gives up on ever seeing
+      // one, not what counts as a leak once one does.
+      await waitUntil(() => capturedRealtime.length >= 1, 60_000)
       assertThat(
         capturedRealtime.length > 0,
         `[${label}] no Realtime payload arrived at all — the watcher's subscription likely never connected, which would make this check prove nothing.`,
