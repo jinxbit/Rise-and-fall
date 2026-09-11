@@ -321,6 +321,35 @@ entry happens to sit at the tip. Concretely:
   `HIDDEN_INFORMATION_PLAN.md` §5.3 for the one piece this doesn't give for
   free: keeping their *already-revealed* pick from flickering back to secret
   for a client that saw it, right up until someone actually branches.
+- **Update (2026-09-11, issue #529): the case above assumed some *other*
+  player's pick sits in the pruned tail too — that's true whenever the
+  caller wasn't the one who resolved the phase.** When the caller *was* the
+  last one pending — their own `CHOOSE_CARD`/`MOVE_TO_DECLINE` is what
+  emptied `pendingPlayerIds` — undoing once lands the pointer right before
+  that single entry, with nobody else's action behind it: `redoableTail` is
+  just that one entry, all of it the caller's own, so
+  `branchDiscardsAnotherPlayersAction` (renamed `requiresOwnerOverride` at
+  its actual call site, `supabase/functions/_shared/gameEnforcement.ts` —
+  see that function's doc comment) was **false**, and resubmitting a
+  different pick went through with no override needed at all — even though
+  that pick had already resolved the phase and so was already revealed to
+  everyone else. New opt-in per-game setting
+  `GameSettings.lockRevealedInformationEnabled` (`GameState` carries the
+  same flag, copied at genesis like `hiddenInformationEnabled`) closes this:
+  when on, `requiresOwnerOverride` also returns true whenever the discarded
+  tail contains *any* `CHOOSE_CARD`/`MOVE_TO_DECLINE` entry, regardless of
+  whose — safe to check unconditionally on entry type rather than first
+  determining whether that particular phase had resolved, because a
+  still-*open* pick never needs branching to retract: `RETRACT_CHOICE`/
+  `RETRACT_DECLINE` above are ordinary forward submissions with no
+  owner-override check of their own, always available directly, so any
+  `CHOOSE_CARD`/`MOVE_TO_DECLINE` reached instead via undo+resubmit is, by
+  construction, one that already resolved. Off by default (unlike
+  `ruleEnforcementEnabled`/`hiddenInformationEnabled`'s checked-by-default —
+  issues #432/#481): this is a stricter behavior change with no equivalent
+  prior sign-off on an on-by-default rollout. See
+  `HIDDEN_INFORMATION_PLAN.md`'s own note on this issue for the
+  hidden-information-plan side of the same change.
 
 ### 4.5 Admin / room-owner privileges (issue #391)
 

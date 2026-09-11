@@ -23,11 +23,12 @@ const EMPTY_RESOURCES: Resources = { gold: 0, wood: 0, stone: 0 }
  * it. Optional and defaults to empty (no resources) so existing
  * callers/tests that don't touch it aren't forced to pass it.
  *
- * `activeTaleIds`/`gameLength`/`hiddenInformationEnabled` are just carried
- * into the resulting GameState verbatim (see GameState's own doc comments)
- * — the engine never interprets any of them itself, so all three are
- * optional and default to "off"/"unset" (`[]`/`Infinity`/`false`) for
- * callers/tests that don't care.
+ * `activeTaleIds`/`gameLength`/`hiddenInformationEnabled`/
+ * `lockRevealedInformationEnabled` are just carried into the resulting
+ * GameState verbatim (see GameState's own doc comments) — the engine never
+ * interprets any of them itself, so all four are optional and default to
+ * "off"/"unset" (`[]`/`Infinity`/`false`/`false`) for callers/tests that
+ * don't care.
  */
 export function createNewGame(params: {
   gameId: string
@@ -38,6 +39,7 @@ export function createNewGame(params: {
   activeTaleIds?: string[]
   gameLength?: number
   hiddenInformationEnabled?: boolean
+  lockRevealedInformationEnabled?: boolean
 }): GameState {
   const cards: Record<string, Card> = {}
   const players: Player[] = params.players.map((seed) => {
@@ -70,6 +72,7 @@ export function createNewGame(params: {
     activeTaleIds: params.activeTaleIds ?? [],
     gameLength: params.gameLength ?? Infinity,
     hiddenInformationEnabled: params.hiddenInformationEnabled ?? false,
+    lockRevealedInformationEnabled: params.lockRevealedInformationEnabled ?? false,
     turn: 0,
     activePlayerId: null,
     roundPhase: 'selectCards',

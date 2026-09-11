@@ -224,9 +224,31 @@ export function redactedResponseState(ctx: GameContext, callerUserId: string, st
  * (same reasoning as isAuthorizedToActAs's hotseat branch above: one shared
  * `auth.uid()` covers every seat, so there is no second human whose undone
  * move could be discarded).
+ *
+ * `lockRevealedInformationEnabled` (issue #529,
+ * GameState.lockRevealedInformationEnabled — see that field's own doc
+ * comment) closes a second gap the "someone else's action" check above
+ * doesn't: a player who was the *last* to pick in a simultaneous
+ * `selectCards`/`decline` phase can undo straight back to before their own
+ * pick and resubmit a different one — only their own entry sits in the
+ * discarded tail, so the check above sees nothing to protect, even though
+ * that pick already resolved the phase and so was already revealed to
+ * everyone. When on, a branch that would discard *any*
+ * `CHOOSE_CARD`/`MOVE_TO_DECLINE` entry — regardless of whose — needs the
+ * same override, not just one that discards another player's. This is safe
+ * to apply unconditionally on entry type rather than first checking whether
+ * that particular phase had actually resolved: a still-*open* pick never
+ * needs branching to retract in the first place — `RETRACT_CHOICE`/
+ * `RETRACT_DECLINE` (RULE_ENFORCEMENT_PLAN.md §4.4's refinement) are
+ * ordinary forward actions the caller can always submit directly for their
+ * own still-pending pick, with no owner-override check at all — so any
+ * `CHOOSE_CARD`/`MOVE_TO_DECLINE` a client instead reaches via undo+resubmit
+ * is, by construction, one that already resolved.
  */
-export function requiresOwnerOverride(rawHistory: LoggedAction[], submittedByPlayerId: string): boolean {
-  return redoableTail(rawHistory).some((entry) => entry.action.playerId !== submittedByPlayerId)
+export function requiresOwnerOverride(rawHistory: LoggedAction[], submittedByPlayerId: string, lockRevealedInformationEnabled: boolean): boolean {
+  const tail = redoableTail(rawHistory)
+  if (tail.some((entry) => entry.action.playerId !== submittedByPlayerId)) return true
+  return lockRevealedInformationEnabled && tail.some((entry) => entry.action.type === 'CHOOSE_CARD' || entry.action.type === 'MOVE_TO_DECLINE')
 }
 
 /**

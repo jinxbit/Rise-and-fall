@@ -8,7 +8,10 @@ import { TaleSelector } from '../components/TaleSelector'
 import { useAuth } from '../hooks/useAuth'
 import { useDisplayName } from '../hooks/useDisplayName'
 import { createGame, MAX_PLAYERS } from '../lib/gameApi'
-import { hiddenInformationAvailable as computeHiddenInformationAvailable } from '../lib/hiddenInformationEligibility'
+import {
+  hiddenInformationAvailable as computeHiddenInformationAvailable,
+  lockRevealedInformationAvailable as computeLockRevealedInformationAvailable,
+} from '../lib/hiddenInformationEligibility'
 import { randomRoomName } from '../lib/randomRoomName'
 import { toAppError, type AppError } from '../lib/errors'
 import type { PlayMode } from '../engine/types'
@@ -27,6 +30,7 @@ export function CreateGamePage() {
   const [skipHotseatPassGate, setSkipHotseatPassGate] = useState(true)
   const [ruleEnforcementEnabled, setRuleEnforcementEnabled] = useState(true)
   const [hiddenInformationEnabled, setHiddenInformationEnabled] = useState(true)
+  const [lockRevealedInformationEnabled, setLockRevealedInformationEnabled] = useState(false)
   const [activeTaleIds, setActiveTaleIds] = useState<string[]>([])
   const [gameLength, setGameLength] = useState(4)
   const [minPlayersInput, setMinPlayersInput] = useState('2')
@@ -58,6 +62,12 @@ export function CreateGamePage() {
   // outside those conditions — including its own default of checked
   // (issue #481, matching ruleEnforcementEnabled's issue #432 default).
   const hiddenInformationAvailable = computeHiddenInformationAvailable(playMode, ruleEnforcementEnabled)
+  // See hiddenInformationEligibility.ts: only meaningful once hidden
+  // information itself is actually on. Same disabled-but-not-reset pattern
+  // as hiddenInformationAvailable above, and unlike that checkbox's
+  // checked-by-default, this one starts unchecked (issue #529 — a stricter
+  // behavior change with no prior sign-off on an on-by-default rollout).
+  const lockRevealedInformationAvailable = computeLockRevealedInformationAvailable(hiddenInformationAvailable && hiddenInformationEnabled)
 
   if (loading) {
     return <div className="p-8 text-neutral-400">Loading…</div>
@@ -97,6 +107,7 @@ export function CreateGamePage() {
         skipHotseatPassGate,
         ruleEnforcementEnabled,
         hiddenInformationEnabled: hiddenInformationAvailable && hiddenInformationEnabled,
+        lockRevealedInformationEnabled: lockRevealedInformationAvailable && lockRevealedInformationEnabled,
         activeTaleIds,
         gameLength,
         minPlayers,
@@ -228,6 +239,16 @@ export function CreateGamePage() {
             className="h-4 w-4 rounded border-neutral-700 bg-neutral-900 disabled:opacity-50"
           />
           Hide in-progress card picks from opponents (experimental, requires rule enforcement)
+        </label>
+        <label className={`flex items-center gap-2 text-sm ${lockRevealedInformationAvailable ? 'text-neutral-400' : 'text-neutral-600'}`}>
+          <input
+            type="checkbox"
+            checked={lockRevealedInformationEnabled}
+            disabled={!lockRevealedInformationAvailable}
+            onChange={(e) => setLockRevealedInformationEnabled(e.target.checked)}
+            className="h-4 w-4 rounded border-neutral-700 bg-neutral-900 disabled:opacity-50"
+          />
+          Lock a card pick once revealed — only the room owner or an admin, with admin mode on, can undo past it (experimental, requires hiding in-progress picks)
         </label>
         <button
           disabled={busy || displayNameLoading || name.trim().length === 0 || !playerCountValid}

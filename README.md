@@ -526,6 +526,16 @@ half (server-side redaction of other players' secrets — today's redaction
 runs client-side, so an opponent's still-secret card pick is hidden in the
 UI but present in the row the client fetched).
 
+With hidden information on, a second checkbox — **"Lock a card pick once
+revealed"** (`settings.lockRevealedInformationEnabled`, issue #529) — closes
+one remaining gap: normally, undo lets even the player who resolved a
+simultaneous `selectCards`/`decline` phase (the last one pending) go back
+and change their own pick after everyone's has already been revealed, since
+only their own move needs discarding. With this on, that also needs the
+room-owner/admin-mode override that undoing *another* player's move already
+requires (`RULE_ENFORCEMENT_PLAN.md` §4.4/§4.5). Off by default — unlike the
+two checkboxes above it, it ships opt-in.
+
 ## What's built
 
 The game is complete end to end and being played: create or join a room,

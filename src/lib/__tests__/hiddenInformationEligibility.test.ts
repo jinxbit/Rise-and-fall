@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { hiddenInformationAvailable } from '../hiddenInformationEligibility'
+import { hiddenInformationAvailable, lockRevealedInformationAvailable } from '../hiddenInformationEligibility'
 
 describe('hiddenInformationAvailable', () => {
   it('is available for live/async games with rule enforcement on', () => {
@@ -15,5 +15,12 @@ describe('hiddenInformationAvailable', () => {
     expect(hiddenInformationAvailable('live', false)).toBe(false)
     expect(hiddenInformationAvailable('async', false)).toBe(false)
     expect(hiddenInformationAvailable('hotseat', false)).toBe(false)
+  })
+})
+
+describe('lockRevealedInformationAvailable', () => {
+  it('is available exactly when hidden information itself is enabled', () => {
+    expect(lockRevealedInformationAvailable(true)).toBe(true)
+    expect(lockRevealedInformationAvailable(false)).toBe(false)
   })
 })

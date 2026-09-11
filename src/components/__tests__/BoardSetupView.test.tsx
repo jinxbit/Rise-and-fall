@@ -49,6 +49,7 @@ function makeWaterPlacementState(board: GameState['board']): GameState {
     activeTaleIds: [],
     gameLength: Infinity,
     hiddenInformationEnabled: false,
+    lockRevealedInformationEnabled: false,
     winnerPlayerIds: [],
     claimedByAchievementId: {},
     achievementsClaimedThisRound: 0,

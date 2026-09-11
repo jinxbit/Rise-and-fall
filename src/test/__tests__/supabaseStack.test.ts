@@ -45,6 +45,7 @@ function settingsFor(overrides: Partial<GameSettings> = {}): GameSettings {
     skipHotseatPassGate: false,
     ruleEnforcementEnabled: true,
     hiddenInformationEnabled: false,
+    lockRevealedInformationEnabled: false,
     activeTaleIds: [],
     gameLength: 3,
     ...overrides,
@@ -379,6 +380,76 @@ describe('production Supabase stack', () => {
     if (!accepted.ok) throw new Error(accepted.error)
     expect(accepted.state.chosenCardIdByPlayerId['seat-bob']).toBe(bobCardId)
     expect(accepted.state.pendingPlayerIds).not.toContain('seat-bob')
+  })
+
+  /**
+   * The gap GameSettings.lockRevealedInformationEnabled (issue #529) closes:
+   * requiresOwnerOverride (../../../supabase/functions/_shared/
+   * gameEnforcement.ts) only required the room-owner/admin override when a
+   * branch would discard *another* player's action — so the player who
+   * resolves a simultaneous selectCards phase (the last one pending) could
+   * always undo straight back to before their own now-revealed pick and
+   * resubmit a different one, since only their own entry sits in the
+   * discarded tail. Bob picks first (doesn't resolve, Alice still pending),
+   * Alice picks second (resolves it — both picks are now visible), then
+   * Alice undoes once to land back on her own still-pending pick and tries
+   * to choose differently.
+   */
+  describe('locking a revealed pick against undo (issue #529)', () => {
+    async function reachAliceResolvingPick(settings: GameSettings) {
+      const genesis = await seed(stack, settings)
+      const { state: afterSetup } = await playThroughStack(stack, genesis, PLAYERS.length * 3)
+      expect(afterSetup.roundPhase).toBe('selectCards')
+
+      const bob = afterSetup.players.find((player) => player.id === 'seat-bob')!
+      const bobChose = await stack.applyAction(BOB, GAME_ID, { type: 'CHOOSE_CARD', playerId: 'seat-bob', cardId: bob.handCardIds[0] })
+      if (!bobChose.ok) throw new Error(bobChose.error)
+      expect(bobChose.state.roundPhase).toBe('selectCards')
+
+      const alice = bobChose.state.players.find((player) => player.id === 'seat-alice')!
+      const aliceOriginalCardId = alice.handCardIds[0]
+      const aliceOtherCardId = alice.handCardIds[1]
+      const aliceChose = await stack.applyAction(ALICE, GAME_ID, { type: 'CHOOSE_CARD', playerId: 'seat-alice', cardId: aliceOriginalCardId })
+      if (!aliceChose.ok) throw new Error(aliceChose.error)
+      // The phase actually resolved — both picks are revealed.
+      expect(aliceChose.state.roundPhase).not.toBe('selectCards')
+      expect(aliceChose.state.chosenCardIdByPlayerId['seat-bob']).toBe(bob.handCardIds[0])
+
+      const undone = await stack.undoAction(ALICE, GAME_ID)
+      if (!undone.ok) throw new Error(undone.error)
+      // Only Alice's own pick was undone — Bob's stays intact and in effect.
+      expect(undone.state.roundPhase).toBe('selectCards')
+      expect(undone.state.pendingPlayerIds).toEqual(['seat-alice'])
+      expect(undone.state.chosenCardIdByPlayerId['seat-bob']).toBe(bob.handCardIds[0])
+
+      return { aliceOtherCardId }
+    }
+
+    it('refuses an ordinary player changing their own already-revealed pick when the setting is on', async () => {
+      const { aliceOtherCardId } = await reachAliceResolvingPick(settingsFor({ lockRevealedInformationEnabled: true }))
+
+      const result = await stack.applyAction(ALICE, GAME_ID, { type: 'CHOOSE_CARD', playerId: 'seat-alice', cardId: aliceOtherCardId })
+      expect(result).toMatchObject({ ok: false, status: 403 })
+    })
+
+    it('still allows it once the room owner switches admin mode on', async () => {
+      const { aliceOtherCardId } = await reachAliceResolvingPick(settingsFor({ lockRevealedInformationEnabled: true }))
+
+      const adminOn = await stack.applyAction(ALICE, GAME_ID, { type: 'SET_ADMIN_MODE', playerId: null, enabled: true })
+      if (!adminOn.ok) throw new Error(adminOn.error)
+
+      const result = await stack.applyAction(ALICE, GAME_ID, { type: 'CHOOSE_CARD', playerId: 'seat-alice', cardId: aliceOtherCardId })
+      if (!result.ok) throw new Error(result.error)
+      expect(result.state.chosenCardIdByPlayerId['seat-alice']).toBe(aliceOtherCardId)
+    })
+
+    it('allows an ordinary player to change their own already-revealed pick when the setting is off (unchanged pre-#529 behavior)', async () => {
+      const { aliceOtherCardId } = await reachAliceResolvingPick(settingsFor({ lockRevealedInformationEnabled: false }))
+
+      const result = await stack.applyAction(ALICE, GAME_ID, { type: 'CHOOSE_CARD', playerId: 'seat-alice', cardId: aliceOtherCardId })
+      if (!result.ok) throw new Error(result.error)
+      expect(result.state.chosenCardIdByPlayerId['seat-alice']).toBe(aliceOtherCardId)
+    })
   })
 
   describe('fixture reconstruction', () => {

@@ -131,6 +131,37 @@ export interface GameSettings {
    * hotseat; no existing game's behavior changes.
    */
   hiddenInformationEnabled: boolean
+  /**
+   * Opt-in switch (issue #529) that closes the one gap
+   * RULE_ENFORCEMENT_PLAN.md §4.4's owner-override check left open: a player
+   * who was the *last* to pick in a simultaneous `selectCards`/`decline`
+   * phase can undo straight back to before their own pick and resubmit a
+   * different one — since only their own entry sits in the discarded tail,
+   * `requiresOwnerOverride` (supabase/functions/_shared/gameEnforcement.ts)
+   * sees no *other* player's action to protect and lets it through, even
+   * though that pick already resolved the phase and so was already revealed
+   * to everyone (HIDDEN_INFORMATION_PLAN.md §5.3/§5.4, todo.md #86's "a
+   * reveal can't be taken back once it happens"). When true, `apply-action`
+   * additionally requires the room-owner/admin override (`isOwnerOrAdmin` +
+   * `GameState.adminModeActive`) for any branch that would discard a
+   * `CHOOSE_CARD`/`MOVE_TO_DECLINE` entry at all, regardless of whose it is —
+   * see `requiresOwnerOverride`'s doc comment for why that blanket check is
+   * safe: a still-open pick is always retractable without branching at all,
+   * via `RETRACT_CHOICE`/`RETRACT_DECLINE` (RULE_ENFORCEMENT_PLAN.md §4.4's
+   * refinement), so this only ever affects a pick that already resolved.
+   * Only meaningful alongside `hiddenInformationEnabled` (CreateGamePage.tsx
+   * only offers the checkbox once that one is checked) and never for hotseat
+   * (apply-action already skips the whole owner-override check there, issue
+   * #486 — one shared `auth.uid()` means there's no second human to protect
+   * a reveal from). Defaults to `false` here and every game that existed
+   * before this key was added reads as `false` too — createGame()'s default
+   * is unaffected. CreateGamePage.tsx's checkbox itself also defaults to
+   * unchecked, unlike ruleEnforcementEnabled/hiddenInformationEnabled's
+   * checked-by-default (issues #432/#481): this is a stricter behavior
+   * change with no prior sign-off on an on-by-default rollout, so it ships
+   * opt-in until a maintainer decides otherwise.
+   */
+  lockRevealedInformationEnabled: boolean
   /** Content ids of active Tales (src/content/tales.json). Empty = Tales variant off. */
   activeTaleIds: string[]
   /** Total achievements claimed (across all players) that ends the game. content/achievements.json's gameLength.min/max bounds it (1-6). */

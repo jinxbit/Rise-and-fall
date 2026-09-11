@@ -41,6 +41,7 @@ function settingsFor(overrides: Partial<GameSettings> = {}): GameSettings {
     // actual redaction (GameSettings.hiddenInformationEnabled). The
     // "not opted in"/hotseat tests below override it back to false.
     hiddenInformationEnabled: true,
+    lockRevealedInformationEnabled: false,
     activeTaleIds: [],
     gameLength: 3,
     ...overrides,

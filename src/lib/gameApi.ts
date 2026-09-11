@@ -219,6 +219,8 @@ export async function createGame(params: {
   ruleEnforcementEnabled?: boolean
   /** Opt in to HIDDEN_INFORMATION_PLAN.md's redacted read path (see GameSettings.hiddenInformationEnabled) — only meaningful alongside ruleEnforcementEnabled. Defaults to false when omitted, same contract as ruleEnforcementEnabled above; CreateGamePage.tsx's checkbox itself defaults to *checked* (issue #481), so games created through the UI hide in-progress picks unless the creator opts out, unticks rule enforcement, or is on hotseat (src/lib/hiddenInformationEligibility.ts). */
   hiddenInformationEnabled?: boolean
+  /** Opt in to locking a `selectCards`/`decline` pick once it's been revealed (see GameSettings.lockRevealedInformationEnabled) — only meaningful alongside hiddenInformationEnabled. Defaults to false when omitted, same contract as hiddenInformationEnabled above; CreateGamePage.tsx's checkbox itself also defaults to unchecked (issue #529 — a stricter behavior change, not opted into by default without explicit sign-off, unlike ruleEnforcementEnabled/hiddenInformationEnabled). */
+  lockRevealedInformationEnabled?: boolean
   /** Content ids of active Tales (src/content/tales.json) for the Tales variant, or omitted/empty for none. */
   activeTaleIds?: string[]
   /** Total achievements claimed (across all players) that ends the game — content/achievements.json's gameLength.min/max bounds it (1-6). Defaults to gameLength.default (4). */
@@ -245,6 +247,7 @@ export async function createGame(params: {
     skipHotseatPassGate: params.skipHotseatPassGate ?? false,
     ruleEnforcementEnabled: params.ruleEnforcementEnabled ?? false,
     hiddenInformationEnabled: params.hiddenInformationEnabled ?? false,
+    lockRevealedInformationEnabled: params.lockRevealedInformationEnabled ?? false,
     activeTaleIds: params.activeTaleIds ?? [],
     gameLength: params.gameLength ?? 4,
   }

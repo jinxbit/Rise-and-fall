@@ -44,6 +44,7 @@ function settingsFor(overrides: Partial<GameSettings> = {}): GameSettings {
     skipHotseatPassGate: false,
     ruleEnforcementEnabled: true,
     hiddenInformationEnabled: true,
+    lockRevealedInformationEnabled: false,
     activeTaleIds: [],
     gameLength: 3,
     ...overrides,
