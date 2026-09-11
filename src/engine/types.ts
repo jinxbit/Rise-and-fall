@@ -237,8 +237,9 @@ export interface Player {
  *    `selectCards`) moves one or more cards from hand/discard to decline —
  *    more than one if more than one achievement was claimed this round
  *    (`GameState.achievementsClaimedThisRound`).
- * 4. `purchase` — every player, in turn order, may buy one card back from
- *    their decline (cost rules TBD) or pass.
+ * 4. `purchase` — every player simultaneously (not turn order — issue #553,
+ *    same as `selectCards`/`decline`) may buy one card back from their
+ *    decline or pass.
  * Recycle-check and round-end/game-end are automatic bookkeeping the engine
  * performs when the purchase phase completes, so they aren't states a game
  * ever sits in — see `finishRound` in ./round.ts.
@@ -390,10 +391,10 @@ export interface GameState {
   /** Round number — increments each time a round finishes (see ./round.ts). */
   turn: number
   /**
-   * Whoever must act next in the current sequential phase (`actions`/
-   * `purchase`) — the head of `pendingPlayerIds`. Null during `selectCards`
-   * and `decline`, since both are simultaneous phases with no single active
-   * player.
+   * Whoever must act next in the current sequential phase (`actions`) — the
+   * head of `pendingPlayerIds`. Null during `selectCards`, `decline`, and
+   * `purchase` (issue #553), since all three are simultaneous phases with no
+   * single active player.
    */
   activePlayerId: string | null
   roundPhase: RoundPhase

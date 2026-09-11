@@ -1141,9 +1141,10 @@ function PurchasePanel(props: {
   onPassPurchase: () => void
 }) {
   const { state, players, myPlayerId, achievementContent, onPurchaseCard, onPassPurchase } = props
-  const activePlayerId = state.pendingPlayerIds[0] ?? null
-  if (activePlayerId !== myPlayerId) {
-    return <p className="text-sm text-neutral-300">Waiting for {playerName(players, activePlayerId)} to buy or pass.</p>
+  if (!myPlayerId) return null
+  if (!state.pendingPlayerIds.includes(myPlayerId)) {
+    const stillPending = [...new Set(state.pendingPlayerIds)]
+    return <p className="text-sm text-neutral-300">Waiting for: {stillPending.map((id) => playerName(players, id)).join(', ') || '…'}</p>
   }
 
   const me = state.players.find((p) => p.id === myPlayerId)
@@ -1155,7 +1156,7 @@ function PurchasePanel(props: {
   return (
     <div className="flex flex-col gap-2 text-sm">
       <p className="font-medium text-indigo-400">
-        Your turn — buy a card back from decline for <span className="text-amber-400">{cost}</span> gold (you have{' '}
+        Buy a card back from decline for <span className="text-amber-400">{cost}</span> gold (you have{' '}
         {me.resources.gold}), or pass.
         {upcoming.length > 0 && (
           <span className="block text-xs font-normal text-neutral-500">Price rises to {upcoming.join(' → ')} gold as more achievements are claimed.</span>

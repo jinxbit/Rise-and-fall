@@ -4687,3 +4687,57 @@ No engine or Edge Function change — this only changes what `CreateGamePage.tsx
 submits to an existing, already-tested `createGame()` API, so no new test
 coverage was needed beyond the existing suite passing unchanged. `npm run
 lint`, `npm run test` (1246 tests), and `npm run build` all pass.
+
+## 97. Card buy-back (round step 4, the purchase phase) made simultaneous instead of turn order (issue #553)
+
+Requested: buying a card back from decline shouldn't make players wait on
+each other in turn order — each player only ever buys from their own
+decline, at a price that's the same for everyone regardless of who acts
+first (`calculatePurchaseCost` prices off total achievements claimed, not
+anything that changes mid-phase), so there was never a rules reason for the
+turn-order queue `beginPurchasePhase` (`src/engine/round.ts`) used since the
+purchase phase was first built.
+
+Made it simultaneous, the same shape as `selectCards`/`decline`:
+`beginPurchasePhase` now leaves `activePlayerId` null and seeds
+`pendingPlayerIds` with the whole `turnOrder`, and `applyPurchaseCard`/
+`applyPassPurchase` (`src/engine/applyAction.ts`) accept any pending player
+in any order (`pendingPlayerIds.includes(playerId)`, filtering just that one
+id out) instead of requiring `pendingPlayerIds[0]`.
+`skipEmptyDeclinePurchasers` — which auto-drops a player with an empty
+decline or who can't afford the current price, so they're never made to
+submit a pointless `PASS_PURCHASE` — used to stop at the first player it
+couldn't skip (a turn-order "who's up next" scan); it now filters the whole
+`pendingPlayerIds` list in one pass, since there's no "next up" once the
+phase is simultaneous and every player's own eligibility is independent of
+everyone else's.
+
+Follow-on fixes needed everywhere something special-cased "`actions`/
+`purchase` are the turn-order phases": `eliminatePlayer` (`elimination.ts`,
+concede/auto-elimination's `activePlayerId` branch), `pendingActorIds`
+(`turnOrder.ts`, drives async turn notifications and hotseat's pass-the-
+device order), `pendingActorIdsFor` (`gameCardView.ts`, listing-screen turn
+highlighting) plus its `game_state_meta.pending_player_ids` DB source
+(`0030_purchase_phase_simultaneous.sql`, recreating
+`game_state_sync_meta()` — same trigger `0027_game_state_meta_pending_players.sql`/
+`0028_hidden_information_rls_lockdown.sql` already touched), and the two
+hand-ported copies of `pendingActorIds` inside `notify-discord-turn`/
+`notify-web-push` (Edge Functions can't import `src/engine/`'s Vite-aliased
+sources for a webhook trigger, so these carry a deliberate, comment-flagged
+duplicate to keep in sync). `RoundView.tsx`'s `PurchasePanel` switched from
+"whoever's at the front of `pendingPlayerIds` acts, everyone else waits" to
+DeclinePanel's existing shape: any pending player sees the buy/pass
+controls, everyone else sees "Waiting for: ...". `src/test/supabaseStack/
+sampleGame.ts`'s `nextLegalAction` — the harness self-test's "always take
+the first legal move" driver — read `state.activePlayerId` for the purchase
+phase the same way it does for the turn-order `actions` phase; left
+unchanged, `activePlayerId` is now always null during purchase, so the
+driver would have seen "no legal action" and treated a normal purchase
+phase as if the game were wedged. Fixed to read `pendingPlayerIds[0]`
+instead, same as its `selectCards`/`decline` branch.
+
+No change to `calculatePurchaseCost` itself, to hidden-information redaction
+(purchase was never masked either way — a player's own decline pile was
+already public), or to any existing game's stored data — this only changes
+how the purchase phase's turn-taking is sequenced from here on. `npm run
+lint`, `npm run test`, and `npm run build` all pass.

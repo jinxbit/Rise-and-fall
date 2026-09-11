@@ -831,10 +831,12 @@ function applyRetractDecline(state: GameState, playerId: string, cardId?: string
 }
 
 /**
- * Round step 4: a player buys one card back from their own decline, paying
- * gold per calculatePurchaseCost() (./purchaseCost.ts) — the cost rises
- * with the total achievements claimed so far, across all players. The
- * bought-back card lands in `hand` and is immediately re-synced (see
+ * Round step 4: a player simultaneously buys one card back from their own
+ * decline (issue #553 — not turn order, like select-cards/decline: any
+ * pending player may act in any order relative to the others), paying gold
+ * per calculatePurchaseCost() (./purchaseCost.ts) — the cost rises with the
+ * total achievements claimed so far, across all players. The bought-back
+ * card lands in `hand` and is immediately re-synced (see
  * syncCardZonesWithBoard in ./cards.ts) in case the player currently has no
  * unit of that kind on the board, in which case it belongs in `supply`
  * instead — same rule 5/6 logic every other card move already respects.
@@ -849,8 +851,8 @@ function applyPurchaseCard(
   if (state.roundPhase !== 'purchase') {
     return { ok: false, error: 'Not in the purchase phase' }
   }
-  if (state.pendingPlayerIds[0] !== playerId) {
-    return { ok: false, error: "It is not this player's turn in the purchase phase" }
+  if (!state.pendingPlayerIds.includes(playerId)) {
+    return { ok: false, error: 'This player has no purchase decision remaining this round' }
   }
 
   const playerIndex = state.players.findIndex((p) => p.id === playerId)
@@ -874,9 +876,13 @@ function applyPurchaseCard(
   nextPlayer = moveCard(nextPlayer, cardId, 'hand')
   const players = state.players.map((p) => (p.id === playerId ? nextPlayer : p))
 
-  let nextState: GameState = { ...state, players, resourceBank: spent.bank, pendingPlayerIds: state.pendingPlayerIds.slice(1) }
+  let nextState: GameState = {
+    ...state,
+    players,
+    resourceBank: spent.bank,
+    pendingPlayerIds: state.pendingPlayerIds.filter((id) => id !== playerId),
+  }
   nextState = syncCardZonesWithBoard(nextState, companionKindsByCardKind(taleContent))
-  nextState = { ...nextState, activePlayerId: nextState.pendingPlayerIds[0] ?? null }
   nextState = skipEmptyDeclinePurchasers(nextState, achievementContent)
 
   if (nextState.pendingPlayerIds.length === 0) {
@@ -885,7 +891,7 @@ function applyPurchaseCard(
   return { ok: true, state: nextState }
 }
 
-/** Round step 4: a player declines their opportunity to buy a card back from decline. */
+/** Round step 4: a player declines their opportunity to buy a card back from decline — simultaneous, like PURCHASE_CARD above (issue #553), not turn order. */
 function applyPassPurchase(
   state: GameState,
   playerId: string,
@@ -895,12 +901,11 @@ function applyPassPurchase(
   if (state.roundPhase !== 'purchase') {
     return { ok: false, error: 'Not in the purchase phase' }
   }
-  if (state.pendingPlayerIds[0] !== playerId) {
-    return { ok: false, error: "It is not this player's turn in the purchase phase" }
+  if (!state.pendingPlayerIds.includes(playerId)) {
+    return { ok: false, error: 'This player has no purchase decision remaining this round' }
   }
 
-  let nextState: GameState = { ...state, pendingPlayerIds: state.pendingPlayerIds.slice(1) }
-  nextState = { ...nextState, activePlayerId: nextState.pendingPlayerIds[0] ?? null }
+  let nextState: GameState = { ...state, pendingPlayerIds: state.pendingPlayerIds.filter((id) => id !== playerId) }
   nextState = skipEmptyDeclinePurchasers(nextState, achievementContent)
 
   if (nextState.pendingPlayerIds.length === 0) {

@@ -154,6 +154,21 @@ describe('eliminatePlayer', () => {
     expect(next.pendingPlayerIds).toEqual(['p2'])
   })
 
+  it('leaves activePlayerId null during the purchase phase too, which is simultaneous like select-cards/decline (issue #553)', () => {
+    const state = makeState({
+      roundPhase: 'purchase',
+      turnOrder: ['p1', 'p2'],
+      pendingPlayerIds: ['p1', 'p2'],
+      activePlayerId: null,
+      players: [makePlayer('p1'), makePlayer('p2')],
+    })
+
+    const next = eliminatePlayer(state, 'p1')
+
+    expect(next.activePlayerId).toBeNull()
+    expect(next.pendingPlayerIds).toEqual(['p2'])
+  })
+
   it('sets activePlayerId to null once nobody is left pending', () => {
     const state = makeState({
       roundPhase: 'actions',

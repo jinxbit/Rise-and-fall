@@ -90,11 +90,21 @@ export function nextLegalAction(state: GameState, content: GameContent): Action 
       }
       return null
     }
-    case 'actions':
-    case 'purchase': {
+    case 'actions': {
       const playerId = state.activePlayerId
       if (!playerId) return null
-      const action: Action = state.roundPhase === 'actions' ? { type: 'PASS_ACTIONS', playerId } : { type: 'PASS_PURCHASE', playerId }
+      const action: Action = { type: 'PASS_ACTIONS', playerId }
+      return isLegal(state, action, content) ? action : null
+    }
+    case 'purchase': {
+      // Simultaneous (issue #553), like selectCards/decline above — any
+      // pending player may act, not just state.activePlayerId (always null
+      // here). PASS_PURCHASE always resolves that one player's decision
+      // (buying back is never forced), same as this driver's original
+      // turn-order behavior.
+      const playerId = state.pendingPlayerIds[0]
+      if (!playerId) return null
+      const action: Action = { type: 'PASS_PURCHASE', playerId }
       return isLegal(state, action, content) ? action : null
     }
   }

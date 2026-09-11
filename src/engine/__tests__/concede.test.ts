@@ -128,6 +128,30 @@ describe('CONCEDE', () => {
     expect(result.state.players.find((p) => p.id === 'p3')?.eliminated).toBe(true)
   })
 
+  it('leaves activePlayerId null and does not chain phases while others are still pending during the simultaneous purchase phase (issue #553)', () => {
+    const purchaseState: GameState = { ...state, roundPhase: 'purchase', pendingPlayerIds: ['p1', 'p2'], activePlayerId: null }
+
+    const result = applyAction(purchaseState, { type: 'CONCEDE', playerId: 'p1' })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(result.state.roundPhase).toBe('purchase')
+    expect(result.state.activePlayerId).toBeNull()
+    expect(result.state.pendingPlayerIds).toEqual(['p2'])
+    expect(result.state.players.find((p) => p.id === 'p1')?.eliminated).toBe(true)
+  })
+
+  it('chains past the purchase phase once the conceding player was the last one pending there', () => {
+    const purchaseState: GameState = { ...state, roundPhase: 'purchase', pendingPlayerIds: ['p2'], activePlayerId: null }
+
+    const result = applyAction(purchaseState, { type: 'CONCEDE', playerId: 'p2' })
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+
+    expect(result.state.roundPhase).not.toBe('purchase')
+    expect(result.state.players.find((p) => p.id === 'p2')?.eliminated).toBe(true)
+  })
+
   it('ends the game immediately if conceding leaves only one player standing, without chaining to the next phase', () => {
     const players = state.players.map((p) => (p.id === 'p2' ? { ...p, eliminated: true } : p))
     const eliminatedState: GameState = { ...state, players, turnOrder: ['p1', 'p3'], pendingPlayerIds: ['p1', 'p3'] }

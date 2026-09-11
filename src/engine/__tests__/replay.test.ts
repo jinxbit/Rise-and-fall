@@ -245,16 +245,18 @@ describe('actionHistory + replayActions — round phase', () => {
       state = result.state
     }
     // p1 has a card in decline, so they land in the purchase phase with a
-    // real choice; p2 doesn't, and is auto-skipped (see
-    // skipEmptyDeclinePurchasers in round.ts).
+    // real choice; p2 doesn't, and is auto-skipped up front — the purchase
+    // phase is simultaneous (issue #553), so skipEmptyDeclinePurchasers
+    // filters the whole pendingPlayerIds list at phase start, not just its
+    // front.
     expect(state.roundPhase).toBe('purchase')
-    expect(state.pendingPlayerIds).toEqual(['p1', 'p2'])
+    expect(state.pendingPlayerIds).toEqual(['p1'])
     const stateBeforePass = state
 
     const passResult = applyAction(state, { type: 'PASS_PURCHASE', playerId: 'p1' }, roundUnitContent)
     if (!passResult.ok) throw new Error('PASS_PURCHASE failed: ' + passResult.error)
-    // p2's auto-skip plus p1's pass empties the purchase queue, so this
-    // single PASS_PURCHASE also closes out the round (finishRound runs) —
+    // p2 was already auto-skipped, so p1's pass alone empties the purchase
+    // queue, closing out the round (finishRound runs) —
     // and since both players' hands recycle back down to their single
     // 'city' card for the new round, that same PASS_PURCHASE dispatch
     // immediately folds in both of their forced next-round CHOOSE_CARD
