@@ -4435,3 +4435,40 @@ undo inside their shared setup helper — issue #529's original tests undid
 Alice's pick as part of *reaching* the test scenario, which no longer
 succeeds unconditionally now that undo itself is gated. `npm run lint`,
 `npm run test` (1224 tests), and `npm run build` all pass.
+
+## 89. Start Game / Cancel crashed with "undefined is not an object (evaluating '...settings.skipHotseatPassGate')" (issue #533)
+
+Reported twice: right after clicking Start Game, and again while canceling
+a game — both times the room's page crashed outright rather than showing an
+`ErrorBanner`. `GamePage.tsx`'s `skipHotseatGate` reads
+`game?.settings.skipHotseatPassGate` unconditionally on every render — the
+`?.` only guards `game` itself, and that line, like roughly a dozen other
+`game.settings.*` reads in the room-details panel further down the same
+file, has always assumed that whenever `game` is set, `game.settings` is a
+full object. The DB backs that assumption (`games.settings` is `NOT NULL
+DEFAULT '{}'`), but `subscribeToGame`'s Realtime handler in both
+`GamePage.tsx` and `LobbyPage.tsx` was calling `setGame(payload.new)`,
+replacing the entire known-good row with whatever Postgres's logical
+replication sent for that one UPDATE — and a column that's unchanged by a
+given UPDATE *and* stored out-of-line (TOASTed) is omitted from that
+payload outright rather than repeated at its last value. `settings` can be
+TOASTed once it embeds a map-pool board (tens of KB, see
+`GAME_LIST_COLUMNS`'s comment in `gameApi.ts`), and neither Start Game's
+`lobby -> active` flip nor Cancel's `-> canceled` one ever touches
+`settings` — so the very next Realtime echo of either left `game.settings`
+`undefined` for the rest of the session, crashing the room page's render on
+the spot. Root-caused rather than reproduced directly: the in-process
+Supabase stack doubles Postgres and so doesn't model TOAST/logical-
+replication column omission, and reproducing it for real needs a `settings`
+payload large enough to be stored out-of-line, which no existing fixture
+has.
+
+Fixed both `subscribeToGame` call sites to merge the Realtime row onto the
+last known one (`{ ...prev, ...updated }`) instead of replacing it outright,
+and documented the gotcha on `subscribeToGame` itself
+(`gameApi.ts`) so a future caller doesn't reintroduce a bare
+`setGame(payload.new)`. `status`/`room_code` — the only fields either
+call site reads directly off the fresh payload rather than through
+`game`/`setGame` — are small, non-TOASTable columns, so reading them
+straight off `updated` stays correct either way. `npm run lint`,
+`npm run test` (1224 tests), and `npm run build` all pass.

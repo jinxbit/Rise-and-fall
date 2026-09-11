@@ -422,7 +422,17 @@ export function GamePage() {
     // Live status updates (e.g. the Owner canceling from another tab/device)
     // — GamePage otherwise only fetches `game` once on mount, unlike
     // LobbyPage which already subscribes for its own status-driven navigate.
-    const unsubscribeGame = subscribeToGame(gameId, setGame)
+    // Merge onto the last known row rather than replacing it outright:
+    // Postgres logical replication omits a column from an UPDATE's "new"
+    // record when it's unchanged *and* TOASTed (stored out-of-line, which
+    // `settings` can be once it embeds a map-pool board — see
+    // GAME_LIST_COLUMNS's comment in gameApi.ts), and status/cancel updates
+    // never touch `settings`. A bare `setGame(payload.new)` then leaves
+    // `game.settings` `undefined` on this render, crashing every unguarded
+    // `game.settings.*` read below (issue #533).
+    const unsubscribeGame = subscribeToGame(gameId, (updated) =>
+      setGame((prev) => (prev ? { ...prev, ...updated } : updated)),
+    )
 
     return () => {
       cancelled = true
