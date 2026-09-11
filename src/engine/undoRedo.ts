@@ -32,7 +32,11 @@ export { resolveHistory, undoWouldReopenRevealedPick } from './historyFold.ts'
  * one of its own (see applyAction.ts), so there's nothing left to walk back
  * past here (issue #131's original fix, since superseded): undoing that one
  * entry naturally reverts the triggering action and everything it forced in
- * one step.
+ * one step. The one exception is `SET_ADMIN_MODE` (issue #545): it's never
+ * "the tip" for this purpose, however recently it was logged — see
+ * walkHistory's doc comment (./historyFold.ts) — so `canUndo` below reflects
+ * whether there's a real gameplay entry to revert, not merely whether
+ * `.effective` is non-empty.
  */
 export function applyUndoAction(
   genesis: GameState,
@@ -43,7 +47,7 @@ export function applyUndoAction(
   boardGenerationContent: BoardGenerationContent = EMPTY_BOARD_GENERATION_CONTENT,
   taleContent: TaleContent = EMPTY_TALE_CONTENT,
 ): ActionResult {
-  if (!resolveHistory(state.actionHistory).effective.at(-1)) {
+  if (!resolveHistory(state.actionHistory).canUndo) {
     return { ok: false, error: 'Nothing left to undo.' }
   }
   const history = [...state.actionHistory, { action: { type: 'UNDO_ACTION' as const, playerId }, turn: state.turn, timestamp: new Date().toISOString() }]

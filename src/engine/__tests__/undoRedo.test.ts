@@ -224,3 +224,77 @@ describe('applyRedoAction', () => {
     expect(stateRest).toEqual(tipRest)
   })
 })
+
+describe('SET_ADMIN_MODE is immune to Undo/Redo (issue #545)', () => {
+  it('a bare Undo right after switching admin mode on reverts the real action underneath instead, leaving admin mode on', () => {
+    const genesis = makeGenesis()
+    const afterP1 = choose(genesis, 'p1')
+    const toggledOn = applyAction(afterP1, { type: 'SET_ADMIN_MODE', playerId: null, enabled: true }, unitContent)
+    if (!toggledOn.ok) throw new Error('setup failed')
+    expect(toggledOn.state.adminModeActive).toBe(true)
+    const toggleEntry = toggledOn.state.actionHistory.at(-1)!
+
+    const undone = applyUndoAction(genesis, toggledOn.state, 'p1', unitContent)
+    expect(undone.ok).toBe(true)
+    if (!undone.ok) return
+    // p1's CHOOSE_CARD, not the toggle, is what got reverted — the toggle
+    // itself is still applied, just no longer the tip of anything undoable.
+    expect(resolveHistory(undone.state.actionHistory).effective).toEqual([toggleEntry])
+    expect(undone.state.adminModeActive).toBe(true)
+  })
+
+  it('reports "nothing to undo" when the only logged entry is the toggle itself, rather than undoing the toggle', () => {
+    const genesis = makeGenesis()
+    const toggledOn = applyAction(genesis, { type: 'SET_ADMIN_MODE', playerId: null, enabled: true }, unitContent)
+    if (!toggledOn.ok) throw new Error('setup failed')
+
+    const result = applyUndoAction(genesis, toggledOn.state, null, unitContent)
+    expect(result.ok).toBe(false)
+  })
+
+  it('stays on across repeated Undo/Redo of the real actions around it', () => {
+    const genesis = makeGenesis()
+    const afterP1 = choose(genesis, 'p1')
+    const toggledOn = applyAction(afterP1, { type: 'SET_ADMIN_MODE', playerId: null, enabled: true }, unitContent)
+    if (!toggledOn.ok) throw new Error('setup failed')
+    const toggleEntry = toggledOn.state.actionHistory.at(-1)!
+    const afterP2 = choose(toggledOn.state, 'p2', 'nomad')
+
+    let state = afterP2
+    for (let i = 0; i < 2; i++) {
+      const result = applyUndoAction(genesis, state, 'p1', unitContent)
+      if (!result.ok) throw new Error(result.error)
+      state = result.state
+      expect(state.adminModeActive).toBe(true)
+    }
+    // Both real gameplay picks are undone — only the toggle is left in effect.
+    expect(resolveHistory(state.actionHistory).effective).toEqual([toggleEntry])
+    expect(resolveHistory(state.actionHistory).canUndo).toBe(false)
+
+    for (let i = 0; i < 2; i++) {
+      const result = applyRedoAction(genesis, state, 'p1', unitContent)
+      if (!result.ok) throw new Error(result.error)
+      state = result.state
+      expect(state.adminModeActive).toBe(true)
+    }
+  })
+
+  it('turning it back off is likewise immune to a later Undo of an unrelated action', () => {
+    const genesis = makeGenesis()
+    // p2, not p1: p1's single-card hand would get auto-forced into a
+    // CHOOSE_CARD folded straight into the very first dispatch below (see
+    // this file's own "forced-follow-up cascade" test above) — an
+    // unrelated wrinkle this test isn't about.
+    const toggledOn = applyAction(genesis, { type: 'SET_ADMIN_MODE', playerId: null, enabled: true }, unitContent)
+    if (!toggledOn.ok) throw new Error('setup failed')
+    const toggledOff = applyAction(toggledOn.state, { type: 'SET_ADMIN_MODE', playerId: null, enabled: false }, unitContent)
+    if (!toggledOff.ok) throw new Error('setup failed')
+    const afterP2 = choose(toggledOff.state, 'p2', 'nomad')
+    expect(afterP2.adminModeActive).toBe(false)
+
+    const undone = applyUndoAction(genesis, afterP2, 'p2', unitContent)
+    expect(undone.ok).toBe(true)
+    if (!undone.ok) return
+    expect(undone.state.adminModeActive).toBe(false)
+  })
+})

@@ -4522,3 +4522,39 @@ row, even when that repeats the header already shown for the same day
 higher up — the per-day header marks a day's *newest* entry, which isn't
 the same thing as marking where the game started. `npm run lint`,
 `npm run test` (1226 tests), and `npm run build` all pass.
+
+## 93. Undo while admin mode is on should not cancel admin mode (issue #545)
+
+`SET_ADMIN_MODE` (issue #464) is an ordinary logged `actionHistory` entry, so
+whenever it happened to be the most recent one — the common case: switch
+admin mode on, then immediately click Undo to use the override it just
+unlocked — a bare Undo reverted the toggle itself instead of the real action
+underneath it, silently switching admin mode back off before ever reaching
+what the click was actually meant to undo. Issue #534's writeup above had
+already flagged this exact composition gap and worked around it in tests by
+toggling admin mode before either player's pick rather than reactively right
+before the undo; this closes it for real instead of just avoiding it.
+
+`resolveHistory`/`walkHistory` (`src/engine/historyFold.ts`) now keep
+`SET_ADMIN_MODE` out of the undo/redo pointer walk entirely — it's never the
+thing a bare Undo reverts and never sits in a discarded/un-redone tail
+either — while still keeping every `SET_ADMIN_MODE` entry in `.effective`
+unconditionally, so both the toggle's own effect and any forced follow-up
+cascade folded into it (RULE_ENFORCEMENT_PLAN.md §4.2/§4.3) still replay
+correctly regardless of where the gameplay pointer ends up. `ResolvedHistory`
+gained an explicit `canUndo` (true only when there's a real gameplay entry to
+revert — unlike `effective.length`, this stays false when the only thing
+logged so far is the toggle) alongside the existing `canRedo`; `GamePage.tsx`'s
+Undo button and `applyUndoAction`'s own "nothing to undo" guard both switched
+to it. `undoWouldReopenRevealedPick` (issue #534) now finds the last
+non-`SET_ADMIN_MODE` entry in `.effective` instead of assuming the raw tip is
+always the entry a bare Undo would revert.
+
+Added cases to `historyFold.test.ts` and `undoRedo.test.ts` covering the
+toggle staying applied across Undo/Redo of the surrounding real actions
+(including when it's the only thing logged, and when it's immediately
+adjacent to what gets undone), plus a `supabaseStack.test.ts` case
+reproducing the exact "toggle admin mode reactively right before Undo"
+scenario end-to-end through the real `apply-action`/`undo-action` Edge
+Functions. `npm run lint`, `npm run test` (1236 tests), and `npm run build`
+all pass.

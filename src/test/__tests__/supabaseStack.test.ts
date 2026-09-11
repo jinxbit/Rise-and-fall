@@ -405,14 +405,14 @@ describe('production Supabase stack', () => {
   describe('locking a revealed pick against undo (issues #529, #534)', () => {
     /**
      * `adminModeOnFromStart` switches admin mode on right *before* either
-     * player picks a card, not right before the undo attempt: SET_ADMIN_MODE
-     * is itself an ordinary logged action, so toggling it after Alice's pick
-     * has already resolved the phase would make it the new tip — a bare
-     * Undo at that point would revert the toggle, not Alice's pick, before
-     * ever reaching the entry this test actually wants to exercise. Toggling
-     * it beforehand instead means Bob's and Alice's own picks land on top of
-     * it as two more ordinary forward entries, so it's Alice's pick, not the
-     * toggle, that's still the tip when the undo under test happens.
+     * player picks a card, rather than right before the undo attempt, purely
+     * so Alice's pick — not the toggle — is the tip these tests care about
+     * undoing. It doesn't matter which order any more (issue #545:
+     * SET_ADMIN_MODE is kept out of resolveHistory's undo/redo pointer walk,
+     * so a bare Undo always reaches the real entry underneath it regardless
+     * of where the toggle sits) — see the "switched on reactively right
+     * before the undo" test below, which toggles it after Alice's pick has
+     * already resolved the phase and gets the same result.
      */
     async function reachAliceResolvingPick(settings: GameSettings, { adminModeOnFromStart = false } = {}) {
       const genesis = await seed(stack, settings)
@@ -458,6 +458,32 @@ describe('production Supabase stack', () => {
       const undone = await stack.undoAction(ALICE, GAME_ID)
       if (!undone.ok) throw new Error(undone.error)
       // Only Alice's own pick was undone — Bob's stays intact and in effect.
+      expect(undone.state.roundPhase).toBe('selectCards')
+      expect(undone.state.pendingPlayerIds).toEqual(['seat-alice'])
+      expect(undone.state.chosenCardIdByPlayerId['seat-bob']).toBe(bobCardId)
+
+      const result = await stack.applyAction(ALICE, GAME_ID, { type: 'CHOOSE_CARD', playerId: 'seat-alice', cardId: aliceOtherCardId })
+      if (!result.ok) throw new Error(result.error)
+      expect(result.state.chosenCardIdByPlayerId['seat-alice']).toBe(aliceOtherCardId)
+    })
+
+    it('still allows the undo, and the resubmission after it, with room admin mode switched on reactively right before the undo (issue #545)', async () => {
+      const { aliceOtherCardId, bobCardId } = await reachAliceResolvingPick(settingsFor({ lockRevealedInformationEnabled: true }))
+
+      // Unlike adminModeOnFromStart above, this switches admin mode on
+      // *after* Alice's pick has already resolved the phase — making
+      // SET_ADMIN_MODE the new tip. Before issue #545's fix, a bare Undo at
+      // this point reverted the toggle itself (silently switching admin mode
+      // back off) rather than ever reaching Alice's pick underneath it, so
+      // the undo below would have failed the same 403 the "off" test above
+      // gets. Now it reaches straight through to Alice's pick instead.
+      const adminOn = await stack.applyAction(ALICE, GAME_ID, { type: 'SET_ADMIN_MODE', playerId: null, enabled: true })
+      if (!adminOn.ok) throw new Error(adminOn.error)
+      expect(adminOn.state.adminModeActive).toBe(true)
+
+      const undone = await stack.undoAction(ALICE, GAME_ID)
+      if (!undone.ok) throw new Error(undone.error)
+      expect(undone.state.adminModeActive).toBe(true)
       expect(undone.state.roundPhase).toBe('selectCards')
       expect(undone.state.pendingPlayerIds).toEqual(['seat-alice'])
       expect(undone.state.chosenCardIdByPlayerId['seat-bob']).toBe(bobCardId)
