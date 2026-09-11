@@ -498,43 +498,54 @@ There's also a **"Show game state JSON"** toggle in the same menu that
 prints the current state as plain (uncompressed) pretty-printed JSON
 inline in the page, for quick eyeballing without decoding anything.
 
-## Server-side rule enforcement (opt-in, per game)
+## Server-side rule enforcement
 
 By default a game is *client-trusted*: each client runs the engine itself
 and writes the resulting `game_state` row directly, with the `version`
 column providing compare-and-swap concurrency. That is fine among friends
 but takes every client at its word.
 
-**"Enable server-side rule enforcement"** on the create-game screen
-(`settings.ruleEnforcementEnabled`) switches that game onto the
-`apply-action` / `undo-action` / `redo-action` Edge Functions instead. It is
-**checked by default** for new games (issue #432, after the enforced path
-ran without surprises); unchecking it puts that game back on the
-client-trusted path. The
-client then submits the raw *action*, and the server resolves the caller's
-seat from their JWT, refuses any action naming somebody else's seat,
-re-derives the state with the same engine code the client bundles, and does
-its own compare-and-swap write. `0026_rule_enforcement_flag.sql` makes RLS
-reject direct `game_state` writes for these games, so the Edge Functions
-are the only way in. Their state is also stored gzipped.
+The create-game screen no longer offers a choice here (issue #552, after the
+enforced path ran checked-by-default with no surprises since issue #432):
+every game it creates has `settings.ruleEnforcementEnabled` on, switching it
+onto the `apply-action` / `undo-action` / `redo-action` Edge Functions
+instead of the client-trusted path. The client submits the raw *action*, and
+the server resolves the caller's seat from their JWT, refuses any action
+naming somebody else's seat, re-derives the state with the same engine code
+the client bundles, and does its own compare-and-swap write.
+`0026_rule_enforcement_flag.sql` makes RLS reject direct `game_state` writes
+for these games, so the Edge Functions are the only way in. Their state is
+also stored gzipped.
 
-The flag is per game and fixed at creation, and every game created before
-it existed reads as off, so no in-progress game was affected by the switch.
-Both paths are exercised by the test suite. See `RULE_ENFORCEMENT_PLAN.md`
-for the design and `HIDDEN_INFORMATION_PLAN.md` for the still-open read-side
-half (server-side redaction of other players' secrets — today's redaction
-runs client-side, so an opponent's still-secret card pick is hidden in the
-UI but present in the row the client fetched).
+The flag is per game and fixed at creation, and every game created before it
+existed (or before issue #432 flipped its now-removed checkbox to
+checked-by-default) reads as off, so no in-progress game was affected by
+either change; `createGame()`'s own default for any caller that omits the
+flag (tests included) is still off. Both paths are exercised by the test
+suite. See `RULE_ENFORCEMENT_PLAN.md` for the design and
+`HIDDEN_INFORMATION_PLAN.md` for the still-open read-side half (server-side
+redaction of other players' secrets — today's redaction runs client-side, so
+an opponent's still-secret card pick is hidden in the UI but present in the
+row the client fetched).
 
-With hidden information on, a second checkbox — **"Lock a card pick once
-revealed"** (`settings.lockRevealedInformationEnabled`, issue #529) — closes
-one remaining gap: normally, undo lets even the player who resolved a
+Hiding in-progress card picks (`settings.hiddenInformationEnabled`) is
+likewise no longer a checkbox (issue #552, after issue #481's
+checked-by-default checkbox ran with no surprises): it's on automatically
+for every non-hotseat game, since rule enforcement — a prerequisite — is now
+always on too. Hotseat never gets it, checkbox or not: one shared login
+across every local seat makes per-seat masking actively wrong there
+(`src/lib/hiddenInformationEligibility.ts`).
+
+The create-game screen's one remaining checkbox in this area, **"Lock a card
+pick once revealed"** (`settings.lockRevealedInformationEnabled`, issue
+#529), is now **checked by default** too (issue #552, once the two defaults
+above had run without surprises) but can still be unchecked. It closes one
+remaining gap: normally, undo lets even the player who resolved a
 simultaneous `selectCards`/`decline` phase (the last one pending) go back
 and change their own pick after everyone's has already been revealed, since
 only their own move needs discarding. With this on, that also needs the
 room-owner/admin-mode override that undoing *another* player's move already
-requires (`RULE_ENFORCEMENT_PLAN.md` §4.4/§4.5). Off by default — unlike the
-two checkboxes above it, it ships opt-in.
+requires (`RULE_ENFORCEMENT_PLAN.md` §4.4/§4.5).
 
 ## What's built
 
@@ -567,7 +578,8 @@ screen.
   server-side by Edge Functions so they fire with every tab closed.
 - **PWA**: installable, with a custom service worker and an update banner
   when a newer build is live.
-- **Server-side rule enforcement** as an opt-in per game (above).
+- **Server-side rule enforcement**, on by default with no opt-out for new
+  games (above).
 - **Testing**: the engine suite, component tests, an in-process Supabase
   stack that behaves like production, and real games replayed as regression
   tests.

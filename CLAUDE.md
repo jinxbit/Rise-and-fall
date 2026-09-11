@@ -110,25 +110,29 @@ break replay, the Edge Functions, or both:
 
 Per-game flag `games.settings.ruleEnforcementEnabled` selects which one a
 game uses. It reads as `false` for any game predating it (`createGame()`
-defaults it to `false` when omitted), but `CreateGamePage.tsx` ships the
-checkbox **checked**, so games created through the UI are enforced unless
-the creator opts out (issue #432; `RULE_ENFORCEMENT_PLAN.md` §10).
+defaults it to `false` when omitted). `CreateGamePage.tsx` no longer offers a
+checkbox for it at all (issue #552, superseding issue #432's checked-by-
+default checkbox; `RULE_ENFORCEMENT_PLAN.md` §10) — it always passes `true`,
+so every game created through the UI is enforced, with no creator opt-out.
+The client-trusted path itself isn't removed: it's still what every
+pre-#552 game runs on, and still what `createGame()` gives any other caller
+that omits the flag (tests included).
 
 `games.settings.hiddenInformationEnabled` (only meaningful alongside rule
 enforcement) follows the same split: `createGame()` still defaults it to
 `false` when omitted — that's the contract for every caller that doesn't
-pass it, tests and pre-existing games included — but `CreateGamePage.tsx`'s
-checkbox itself now defaults to **checked** too (issue #481), so a game
-created through the UI hides in-progress picks unless the creator opts out,
-unticks rule enforcement, or is on hotseat, where hiding is never offered or
-submitted (`src/lib/hiddenInformationEligibility.ts`;
+pass it, tests and pre-existing games included — but `CreateGamePage.tsx`
+also no longer offers a checkbox for this (issue #552, superseding issue
+#481's checked-by-default checkbox): since rule enforcement is now always on
+too, it always passes `hiddenInformationAvailable`, so a game created
+through the UI hides in-progress picks unless it's hotseat, where hiding is
+never offered or submitted (`src/lib/hiddenInformationEligibility.ts`;
 `HIDDEN_INFORMATION_PLAN.md`). This changes new games only — no existing
 game's stored settings change.
 
 `GamePage.tsx`'s `submitAction` branches on it:
 
-- **Client-trusted (every older game, and any game whose creator unticked
-  the box):** the client runs
+- **Client-trusted (every older game):** the client runs
   `applyAction()` itself and writes `game_state` directly, with an
   optimistic-concurrency retry loop against the `version` column
   (`writeWithRetry`). State is stored as a plain JSON `GameState`.

@@ -16,6 +16,14 @@ import { randomRoomName } from '../lib/randomRoomName'
 import { toAppError, type AppError } from '../lib/errors'
 import type { PlayMode } from '../engine/types'
 
+// Rule enforcement and hidden-information-hiding are both mandatory for
+// every game created through this page now (issue #552) — there is no
+// creator-facing opt-out, unlike the earlier checked-by-default checkboxes
+// (issues #432/#481). See CLAUDE.md's "two write paths" section: the
+// client-trusted path and hiddenInformationEnabled: false still exist for
+// games that predate this, so createGame()'s own defaults are unchanged.
+const RULE_ENFORCEMENT_ENABLED = true
+
 export function CreateGamePage() {
   const { session, loading } = useAuth()
   const { displayName, loading: displayNameLoading } = useDisplayName(session?.user ?? null)
@@ -28,9 +36,7 @@ export function CreateGamePage() {
   const [soloBuilderSelection, setSoloBuilderSelection] = useState<SoloBuilderSelection>('owner')
   const [soloBuilderUnitOrder, setSoloBuilderUnitOrder] = useState<SoloBuilderUnitOrder>('last')
   const [skipHotseatPassGate, setSkipHotseatPassGate] = useState(true)
-  const [ruleEnforcementEnabled, setRuleEnforcementEnabled] = useState(true)
-  const [hiddenInformationEnabled, setHiddenInformationEnabled] = useState(true)
-  const [lockRevealedInformationEnabled, setLockRevealedInformationEnabled] = useState(false)
+  const [lockRevealedInformationEnabled, setLockRevealedInformationEnabled] = useState(true)
   const [activeTaleIds, setActiveTaleIds] = useState<string[]>([])
   const [gameLength, setGameLength] = useState(4)
   const [minPlayersInput, setMinPlayersInput] = useState('2')
@@ -55,19 +61,18 @@ export function CreateGamePage() {
         ? `Max players can't be lower than min players.`
         : null
 
-  // See hiddenInformationEligibility.ts for why this is gated on rule
-  // enforcement and unavailable for hotseat. The checkbox stays visually
-  // checked/unchecked as the player left it (so re-enabling rule enforcement
-  // restores their choice) but is disabled, and never actually submitted,
-  // outside those conditions — including its own default of checked
-  // (issue #481, matching ruleEnforcementEnabled's issue #432 default).
-  const hiddenInformationAvailable = computeHiddenInformationAvailable(playMode, ruleEnforcementEnabled)
+  // Rule enforcement is always on now (see RULE_ENFORCEMENT_ENABLED above),
+  // so this is unavailable only for hotseat (src/lib/hiddenInformationEligibility.ts)
+  // — hiding in-progress picks is otherwise always on too, with no
+  // creator-facing checkbox (issue #552).
+  const hiddenInformationAvailable = computeHiddenInformationAvailable(playMode, RULE_ENFORCEMENT_ENABLED)
   // See hiddenInformationEligibility.ts: only meaningful once hidden
-  // information itself is actually on. Same disabled-but-not-reset pattern
-  // as hiddenInformationAvailable above, and unlike that checkbox's
-  // checked-by-default, this one starts unchecked (issue #529 — a stricter
-  // behavior change with no prior sign-off on an on-by-default rollout).
-  const lockRevealedInformationAvailable = computeLockRevealedInformationAvailable(hiddenInformationAvailable && hiddenInformationEnabled)
+  // information itself is actually on, which now just means "not hotseat."
+  // The checkbox stays visually checked/unchecked as the player left it (so
+  // switching away from hotseat restores their choice) but is disabled, and
+  // never actually submitted, otherwise. Defaults to checked (issue #552,
+  // superseding issue #529's opt-in default).
+  const lockRevealedInformationAvailable = computeLockRevealedInformationAvailable(hiddenInformationAvailable)
 
   if (loading) {
     return <div className="p-8 text-neutral-400">Loading…</div>
@@ -105,8 +110,8 @@ export function CreateGamePage() {
         soloBuilderSelection,
         soloBuilderUnitOrder,
         skipHotseatPassGate,
-        ruleEnforcementEnabled,
-        hiddenInformationEnabled: hiddenInformationAvailable && hiddenInformationEnabled,
+        ruleEnforcementEnabled: RULE_ENFORCEMENT_ENABLED,
+        hiddenInformationEnabled: hiddenInformationAvailable,
         lockRevealedInformationEnabled: lockRevealedInformationAvailable && lockRevealedInformationEnabled,
         activeTaleIds,
         gameLength,
@@ -221,25 +226,6 @@ export function CreateGamePage() {
           />
           List this room on the Public rooms screen
         </label>
-        <label className="flex items-center gap-2 text-sm text-neutral-400">
-          <input
-            type="checkbox"
-            checked={ruleEnforcementEnabled}
-            onChange={(e) => setRuleEnforcementEnabled(e.target.checked)}
-            className="h-4 w-4 rounded border-neutral-700 bg-neutral-900"
-          />
-          Enable server-side rule enforcement (experimental)
-        </label>
-        <label className={`flex items-center gap-2 text-sm ${hiddenInformationAvailable ? 'text-neutral-400' : 'text-neutral-600'}`}>
-          <input
-            type="checkbox"
-            checked={hiddenInformationEnabled}
-            disabled={!hiddenInformationAvailable}
-            onChange={(e) => setHiddenInformationEnabled(e.target.checked)}
-            className="h-4 w-4 rounded border-neutral-700 bg-neutral-900 disabled:opacity-50"
-          />
-          Hide in-progress card picks from opponents (experimental, requires rule enforcement)
-        </label>
         <label className={`flex items-center gap-2 text-sm ${lockRevealedInformationAvailable ? 'text-neutral-400' : 'text-neutral-600'}`}>
           <input
             type="checkbox"
@@ -248,7 +234,7 @@ export function CreateGamePage() {
             onChange={(e) => setLockRevealedInformationEnabled(e.target.checked)}
             className="h-4 w-4 rounded border-neutral-700 bg-neutral-900 disabled:opacity-50"
           />
-          Lock a card pick once revealed — only the room owner or an admin, with admin mode on, can undo past it (experimental, requires hiding in-progress picks)
+          Lock a card pick once revealed — only the room owner or an admin, with admin mode on, can undo past it (experimental, unavailable for hotseat)
         </label>
         <button
           disabled={busy || displayNameLoading || name.trim().length === 0 || !playerCountValid}

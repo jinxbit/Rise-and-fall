@@ -353,10 +353,11 @@ export interface GameState {
    * creation-time choice (games.settings.hiddenInformationEnabled),
    * immutable for the whole game, carried here for the same reason as
    * activeTaleIds/gameLength above. Only meaningful alongside
-   * ruleEnforcementEnabled (CreateGamePage.tsx only offers the checkbox
-   * once rule enforcement is on, and never for hotseat — one shared
-   * `auth.uid()` across every local seat makes per-seat masking actively
-   * wrong there, see redaction.ts) — a client-trusted game has no server
+   * ruleEnforcementEnabled (CreateGamePage.tsx no longer offers a checkbox
+   * for either — issue #552 — so it's on whenever rule enforcement is,
+   * except never for hotseat: one shared `auth.uid()` across every local
+   * seat makes per-seat masking actively wrong there, see redaction.ts) —
+   * a client-trusted game has no server
    * authority to redact from in the first place, so this is meaningless
    * (and never set) for one. The engine itself never reads this field
    * directly; get-game-state (supabase/functions/) is the only consumer,

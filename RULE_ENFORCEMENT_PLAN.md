@@ -350,6 +350,12 @@ entry happens to sit at the tip. Concretely:
   prior sign-off on an on-by-default rollout. See
   `HIDDEN_INFORMATION_PLAN.md`'s own note on this issue for the
   hidden-information-plan side of the same change.
+  - **Update (2026-09-11, issue #552): now checked by default too**, once
+    the on-by-default rollout of `ruleEnforcementEnabled`/
+    `hiddenInformationEnabled` (and by then this setting itself) had run in
+    the same session without surprises. `createGame()`'s own
+    `lockRevealedInformationEnabled ?? false` default is unchanged — this is
+    a `CreateGamePage.tsx` UI-default change only, and new games only.
 - **Update (2026-09-11, issue #534): the case above left the *undo itself*
   ungated — closed.** `requiresOwnerOverride` only ever runs when a new
   action is submitted while behind the tip (`apply-action`); plain undo
@@ -978,6 +984,14 @@ to rule enforcement (2, 5) are omitted here.
   per-game. The off-path (client-trusted writes) and its RLS carve-out
   (`0026_rule_enforcement_flag.sql`) stay in place for existing games and
   anyone who opts back out — not deleted by this change.
+- **Update (2026-09-11, per jinxbit, issue #552): checkbox removed
+  entirely.** After running checked-by-default with no surprises, the
+  `CreateGamePage.tsx` checkbox is gone and `ruleEnforcementEnabled: true` is
+  always sent — there is no longer a creator opt-out for games created
+  through the UI. The off-path (client-trusted writes) and its RLS carve-out
+  are still not deleted: they remain how every pre-#552 game runs, and the
+  `createGame()` param and `GameSettings.ruleEnforcementEnabled` field both
+  keep defaulting to `false` for any other caller (tests included).
 - **New (2026-09-05), from the write-side rewire (§8 phase 8):**
   - ~~`undo-action`/`redo-action` don't yet repeat `GamePage.tsx`'s
     forced-single-card walk-back loop (issue #131)~~ — **resolved

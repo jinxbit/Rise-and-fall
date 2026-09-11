@@ -4648,3 +4648,42 @@ progressed-actions-phase/eliminated-player rejections, and updated
 `undoDecision.test.ts` to cover the same cases through
 `shouldRetractOwnChoice`. `npm run lint`, `npm run test` (1246 tests), and
 `npm run build` all pass.
+
+## 96. Room creation: rule enforcement and hidden-information checkboxes removed, lock-card-pick default flipped (issue #552)
+
+Requested: three create-game-screen settings graduate past their
+issue-#432/#481/#529 checked/unchecked-by-default rollouts, having run each
+default without surprises. "Enable server-side rule enforcement" and "Hide
+in-progress card picks from opponents" stop being creator choices at all —
+every game `CreateGamePage.tsx` creates gets both, no way to opt out. "Lock a
+card pick once revealed" stays a checkbox but now defaults to checked
+instead of unchecked.
+
+`CreateGamePage.tsx` no longer has `ruleEnforcementEnabled`/
+`hiddenInformationEnabled` state or checkboxes: `createGame()` is always
+called with `ruleEnforcementEnabled: true`, and
+`hiddenInformationEnabled: hiddenInformationAvailable` — the same
+`src/lib/hiddenInformationEligibility.ts` helper as before, now only ever
+false for hotseat (rule enforcement, its other precondition, is no longer
+conditional). `lockRevealedInformationEnabled`'s checkbox is unchanged
+except its initial `useState` flips from `false` to `true`; it's still
+disabled and unsubmitted whenever hiding in-progress picks isn't available
+(i.e. hotseat).
+
+None of this touches `createGame()`'s own defaults (`ruleEnforcementEnabled`/
+`hiddenInformationEnabled`/`lockRevealedInformationEnabled` all still
+default to `false` when a caller omits them — tests included), the
+client-trusted write path, or any existing game's stored `settings`: this is
+a `CreateGamePage.tsx`-only change to what new games created through the UI
+get, same shape as the three defaults it supersedes. Doc comments describing
+the old checkbox defaults updated in the same commit: `CLAUDE.md`'s "two
+write paths" section, `dbTypes.ts`'s `GameSettings` field comments,
+`gameApi.ts`'s `createGame` param comments, `engine/types.ts`'s
+`hiddenInformationEnabled` comment, `RULE_ENFORCEMENT_PLAN.md` §10,
+`HIDDEN_INFORMATION_PLAN.md`'s issue-#481 decision note, and `README.md`'s
+"Server-side rule enforcement" section.
+
+No engine or Edge Function change — this only changes what `CreateGamePage.tsx`
+submits to an existing, already-tested `createGame()` API, so no new test
+coverage was needed beyond the existing suite passing unchanged. `npm run
+lint`, `npm run test` (1246 tests), and `npm run build` all pass.

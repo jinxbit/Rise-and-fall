@@ -104,10 +104,12 @@ export interface GameSettings {
    * `redo-action` Edge Functions instead of writing the table directly.
    * Defaults to `false`, and every game that existed before this key was
    * added reads as `false` too (coalesced in the RLS policy) — old games and
-   * default new games are completely unaffected. Set at creation
+   * any caller that omits this are completely unaffected. Set at creation
    * (CreateGamePage.tsx) and never changed afterward — same lifecycle as
    * mapTemplateId etc, just consumed at every write instead of only at
-   * genesis time.
+   * genesis time. CreateGamePage.tsx no longer offers a checkbox for this at
+   * all (issue #552, superseding issue #432's checked-by-default checkbox)
+   * — every game created through the UI is enforced, with no opt-out.
    */
   ruleEnforcementEnabled: boolean
   /**
@@ -118,17 +120,17 @@ export interface GameSettings {
    * through the `get-game-state` Edge Function instead of the raw
    * `game_state` row, so a still-secret simultaneous pick
    * (chosenCardIdByPlayerId/declineCardIds mid selectCards/decline) never
-   * reaches an opponent's browser at all. CreateGamePage.tsx only offers
-   * the checkbox once rule enforcement is checked, and never for hotseat
-   * (one shared `auth.uid()` across every local seat makes per-seat
-   * masking actively wrong there — see get-game-state/index.ts). Defaults
-   * to `false` here, same as ruleEnforcementEnabled, and every game that
-   * existed before this key was added reads as `false` too — createGame()'s
-   * own default is unchanged by issue #481. Only CreateGamePage.tsx's
-   * checkbox now defaults to checked (matching ruleEnforcementEnabled's
-   * issue #432 default), so new games created through the UI have this on
-   * unless the creator opts out, unticks rule enforcement, or is on
-   * hotseat; no existing game's behavior changes.
+   * reaches an opponent's browser at all. Never for hotseat (one shared
+   * `auth.uid()` across every local seat makes per-seat masking actively
+   * wrong there — see get-game-state/index.ts). Defaults to `false` here,
+   * same as ruleEnforcementEnabled, and every game that existed before this
+   * key was added reads as `false` too — createGame()'s own default is
+   * unchanged. CreateGamePage.tsx no longer offers a checkbox for this at
+   * all (issue #552, superseding issue #481's checked-by-default checkbox):
+   * since rule enforcement is now always on too, it always passes
+   * `hiddenInformationAvailable` (true unless hotseat) — so a game created
+   * through the UI hides in-progress picks unless it's hotseat; no existing
+   * game's behavior changes.
    */
   hiddenInformationEnabled: boolean
   /**
@@ -150,16 +152,16 @@ export interface GameSettings {
    * via `RETRACT_CHOICE`/`RETRACT_DECLINE` (RULE_ENFORCEMENT_PLAN.md §4.4's
    * refinement), so this only ever affects a pick that already resolved.
    * Only meaningful alongside `hiddenInformationEnabled` (CreateGamePage.tsx
-   * only offers the checkbox once that one is checked) and never for hotseat
-   * (apply-action already skips the whole owner-override check there, issue
-   * #486 — one shared `auth.uid()` means there's no second human to protect
-   * a reveal from). Defaults to `false` here and every game that existed
-   * before this key was added reads as `false` too — createGame()'s default
-   * is unaffected. CreateGamePage.tsx's checkbox itself also defaults to
-   * unchecked, unlike ruleEnforcementEnabled/hiddenInformationEnabled's
-   * checked-by-default (issues #432/#481): this is a stricter behavior
-   * change with no prior sign-off on an on-by-default rollout, so it ships
-   * opt-in until a maintainer decides otherwise.
+   * only offers the checkbox once that one is available) and never for
+   * hotseat (apply-action already skips the whole owner-override check
+   * there, issue #486 — one shared `auth.uid()` means there's no second
+   * human to protect a reveal from). Defaults to `false` here and every game
+   * that existed before this key was added reads as `false` too —
+   * createGame()'s default is unaffected. CreateGamePage.tsx's checkbox
+   * itself now defaults to checked too (issue #552, superseding issue
+   * #529's opt-in default, once the on-by-default rollout of
+   * ruleEnforcementEnabled/hiddenInformationEnabled had run without
+   * surprises).
    */
   lockRevealedInformationEnabled: boolean
   /** Content ids of active Tales (src/content/tales.json). Empty = Tales variant off. */
