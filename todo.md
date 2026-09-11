@@ -4288,3 +4288,61 @@ bystander's log the way `GamePage.tsx` actually does, through
 production path rather than the always-unmasked `state.actionHistory` the
 rest of that file's `RETRACT_CHOICE` test already covered. `npm run lint`,
 `npm run test` (1206 tests), and `npm run build` all pass.
+
+## 86. Confirm before revealing cards: a "Reveal all cards" step for the last pick in select-cards/decline (issue #528)
+
+Whoever's pick resolves the select-cards or decline phase — the one that
+empties `pendingPlayerIds` — used to reveal every player's simultaneous
+choice the instant they clicked a card, with no chance to reconsider first.
+
+Added a new per-account preference, `confirmBeforeRevealingCards`
+(`ProfilePreferences` in `src/lib/dbTypes.ts`, resolved by
+`src/lib/cardRevealConfirmation.ts`; defaults to **on**, unlike most
+preferences here — a reveal can't be taken back once it happens, so the
+safer default is to ask first). Set on the profile page
+(`ConfirmBeforeRevealingCardsSettings.tsx`, `useConfirmBeforeRevealingCards`
+hook), stored in `profiles.preferences` like `unitReserveDisplay` — no
+migration needed.
+
+This is deliberately a client-only, UI-staging feature, not an engine
+change: `applyAction`'s one-action-in-one-log-entry contract
+(RULE_ENFORCEMENT_PLAN.md §4.2/§4.3) and the reveal semantics
+HIDDEN_INFORMATION_PLAN.md documents are both untouched. `RoundView.tsx`'s
+`SelectCardsPanel`/`DeclinePanel` compute `wouldReveal` — `pendingPlayerIds`
+has exactly one entry left and it's the viewer's — straight from the live,
+server-synced state on every render. When `wouldReveal` and the preference
+are both true, clicking a card holds it locally (`useStagedCardChoice`)
+instead of submitting, and shows a "Reveal all cards" button; clicking a
+different card just changes the staged pick, and only the confirm button
+actually calls `onChooseCard`/`onMoveToDecline`. The same check
+(`pendingPlayerIds.length === 1`) works unmodified for decline's
+multi-card-owed case, since only the single submission that empties the
+whole queue — regardless of who owed what — is ever the one that reveals
+anything.
+
+Race condition (called out in the issue): staging is keyed off the live
+props every render, not a snapshot taken when the pick was staged. If
+another player retracts their own choice while this one sits staged,
+`wouldReveal` flips back to false on the next render, and an effect
+submits the staged pick immediately — the same outcome an ordinary
+(non-last) click already has — instead of leaving the player stuck on a
+button that no longer describes what it does. The opposite race (a click
+lands while the local `pendingPlayerIds` is stale, so a pick that's
+actually last gets submitted immediately instead of staged) isn't fully
+closed — doing so would need a network round-trip before every click — and
+is left as a rare, harmless early reveal; see `useStagedCardChoice`'s doc
+comment in `RoundView.tsx`.
+
+`RoundView`'s new `confirmBeforeRevealingCards` prop defaults to `false`
+when omitted (not the profile default of `true`), so every existing caller
+that doesn't pass it — in particular the ~90 call sites in
+`RoundView.test.tsx` — keeps the original submit-immediately behaviour
+unchanged; `GamePage.tsx` is the only caller that wires the real,
+per-account preference through. Buyback (the purchase phase) needed no
+change: it's turn-order, not simultaneous, so nothing is ever hidden there
+to begin with — the issue's mention of it was about decline's reveal being
+what makes buyback possible, not a second reveal step of its own. Added
+seven `RoundView.test.tsx` cases covering staging, the non-last and
+preference-off no-ops, changing a staged pick, the retraction race, and
+decline's version of both. `npm run lint`, `npm run test` (1213 tests), and
+`npm run build` all pass.

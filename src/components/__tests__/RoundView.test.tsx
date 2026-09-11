@@ -1062,6 +1062,152 @@ describe('RoundView — select-cards phase (issue #25, revised per RULE_ENFORCEM
   })
 })
 
+describe('RoundView — confirm before revealing cards (issue #528)', () => {
+  const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
+
+  function renderRoundView(
+    state: GameState,
+    myPlayerId: string,
+    overrides: { onChooseCard?: (cardId: string) => void; onMoveToDecline?: (cardId: string) => void; confirmBeforeRevealingCards?: boolean } = {},
+  ) {
+    return render(
+      <RoundView
+        state={state}
+        players={players}
+        myPlayerId={myPlayerId}
+        unitContent={EMPTY_UNIT_CONTENT}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
+        turnReview={null}
+        showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
+        gameLog={[]}
+        confirmBeforeRevealingCards={overrides.confirmBeforeRevealingCards ?? true}
+        onChooseCard={overrides.onChooseCard ?? (() => {})}
+        onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={overrides.onMoveToDecline ?? (() => {})}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+  }
+
+  it('stages the last pending pick behind a "Reveal all cards" button instead of submitting immediately', () => {
+    const state = { ...makeState(), pendingPlayerIds: ['p2'] } // p1 already chosen; p2 is last
+    const onChooseCard = vi.fn()
+    renderRoundView(state, 'p2', { onChooseCard })
+
+    fireEvent.click(screen.getByRole('button', { name: 'City' }))
+    expect(onChooseCard).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reveal all cards' }))
+    expect(onChooseCard).toHaveBeenCalledWith(cardIdFor('p2', 'city'))
+  })
+
+  it("doesn't stage a pick when another player is still pending, even with the preference on", () => {
+    const state = makeState() // both p1 and p2 pending
+    const onChooseCard = vi.fn()
+    renderRoundView(state, 'p1', { onChooseCard })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Nomad' }))
+    expect(onChooseCard).toHaveBeenCalledWith(cardIdFor('p1', 'nomad'))
+    expect(screen.queryByRole('button', { name: 'Reveal all cards' })).not.toBeInTheDocument()
+  })
+
+  it("doesn't stage anything when the preference is off, even as the last pending player", () => {
+    const state = { ...makeState(), pendingPlayerIds: ['p2'] }
+    const onChooseCard = vi.fn()
+    renderRoundView(state, 'p2', { onChooseCard, confirmBeforeRevealingCards: false })
+
+    fireEvent.click(screen.getByRole('button', { name: 'City' }))
+    expect(onChooseCard).toHaveBeenCalledWith(cardIdFor('p2', 'city'))
+  })
+
+  it('lets the last pending player change their staged pick before confirming', () => {
+    const base = makeState()
+    const p2 = makeEnginePlayer('p2', ['city', 'ship'])
+    const state = { ...base, players: [base.players[0], p2], pendingPlayerIds: ['p2'] }
+    const onChooseCard = vi.fn()
+    renderRoundView(state, 'p2', { onChooseCard })
+
+    fireEvent.click(screen.getByRole('button', { name: 'City' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Ship' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Reveal all cards' }))
+
+    expect(onChooseCard).toHaveBeenCalledTimes(1)
+    expect(onChooseCard).toHaveBeenCalledWith(cardIdFor('p2', 'ship'))
+  })
+
+  it('submits a staged pick right away if another player retracts before it is confirmed, instead of leaving it stuck', () => {
+    const state = { ...makeState(), pendingPlayerIds: ['p2'] }
+    const onChooseCard = vi.fn()
+    const { rerender } = renderRoundView(state, 'p2', { onChooseCard })
+
+    fireEvent.click(screen.getByRole('button', { name: 'City' }))
+    expect(onChooseCard).not.toHaveBeenCalled()
+
+    // p1 retracts their own already-resolved pick — p2 is no longer the one
+    // whose submission would trigger a reveal, so nothing should be left
+    // waiting on a button that no longer says what it does.
+    const retracted = { ...state, pendingPlayerIds: ['p1', 'p2'] }
+    rerender(
+      <RoundView
+        state={retracted}
+        players={players}
+        myPlayerId="p2"
+        unitContent={EMPTY_UNIT_CONTENT}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
+        turnReview={null}
+        showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
+        gameLog={[]}
+        confirmBeforeRevealingCards={true}
+        onChooseCard={onChooseCard}
+        onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+
+    expect(onChooseCard).toHaveBeenCalledWith(cardIdFor('p2', 'city'))
+  })
+
+  it('stages the decline phase\'s last pending submission the same way', () => {
+    const base = makeState()
+    const state: GameState = { ...base, roundPhase: 'decline', pendingPlayerIds: ['p2'] }
+    const onMoveToDecline = vi.fn()
+    renderRoundView(state, 'p2', { onMoveToDecline })
+
+    fireEvent.click(screen.getByRole('button', { name: 'City' }))
+    expect(onMoveToDecline).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reveal all cards' }))
+    expect(onMoveToDecline).toHaveBeenCalledWith(cardIdFor('p2', 'city'))
+  })
+
+  it("doesn't stage a decline submission while more than one queue entry remains, even if they're all the same player's", () => {
+    const base = makeState()
+    const p2 = makeEnginePlayer('p2', ['city', 'ship'])
+    const state: GameState = { ...base, players: [base.players[0], p2], roundPhase: 'decline', pendingPlayerIds: ['p2', 'p2'] }
+    const onMoveToDecline = vi.fn()
+    renderRoundView(state, 'p2', { onMoveToDecline })
+
+    fireEvent.click(screen.getByRole('button', { name: 'City' }))
+    expect(onMoveToDecline).toHaveBeenCalledWith(cardIdFor('p2', 'city'))
+    expect(screen.queryByRole('button', { name: 'Reveal all cards' })).not.toBeInTheDocument()
+  })
+})
+
 describe('RoundView — "Expand board" toggle', () => {
   it('hides the full player roster and achievements panel, and brings them back', () => {
     const state = makeState()

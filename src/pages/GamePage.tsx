@@ -38,6 +38,7 @@ import { useAuth } from '../hooks/useAuth'
 import { useIsAdmin } from '../hooks/useIsAdmin'
 import { useRefetchOnVisible } from '../hooks/useRefetchOnVisible'
 import { useTrafficStats } from '../hooks/useTrafficStats'
+import { useConfirmBeforeRevealingCards } from '../hooks/useConfirmBeforeRevealingCards'
 import { useUnitPlateColors } from '../hooks/useUnitPlateColors'
 import { useUnitReserveDisplayMode } from '../hooks/useUnitReserveDisplayMode'
 import type { GameRow, PlayerRow } from '../lib/dbTypes'
@@ -131,6 +132,7 @@ export function GamePage() {
   const trafficStats = useTrafficStats()
   const { colors: unitPlateColors } = useUnitPlateColors(session?.user ?? null)
   const { mode: unitReserveDisplayMode } = useUnitReserveDisplayMode(session?.user ?? null)
+  const { value: confirmBeforeRevealingCards } = useConfirmBeforeRevealingCards(session?.user ?? null)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -2064,6 +2066,7 @@ export function GamePage() {
           taleContent={taleContent}
           unitPlateColors={unitPlateColors}
           unitReserveDisplayMode={unitReserveDisplayMode}
+          confirmBeforeRevealingCards={confirmBeforeRevealingCards}
           submitting={submitting}
           turnReview={turnHalos}
           showHistory={isReviewingHistory}
