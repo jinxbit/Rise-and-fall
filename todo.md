@@ -4077,3 +4077,68 @@ either way; not meaningfully testable without a full GamePage render
 harness (which doesn't exist yet), so verified by reasoning through the
 call order instead of a new automated test. `npm run lint`, `npm run test`
 (1198), and `npm run build` all pass.
+
+## 82. Map building bug, take two: a 2-player genesis for a 3-player lobby (issue #519 follow-up)
+
+#80's fix (content resolution using a live `players`-table read instead of
+`state.players.length`) turned out to explain only half of the reported
+export's contradiction. The room's owner confirmed the actual room had
+**three** people seated — checked against the `players` table for that
+specific game id, not just account count — which #80's write-up couldn't
+reconcile: the embedded `GameState` itself had `players.length === 2` and
+board water-hex math to match, a value genesis (`buildGenesisState`) fixes
+permanently and no later content-resolution fix can touch.
+
+Root cause was upstream of anything #80 touched: `LobbyPage.tsx`'s
+`handleStart` built genesis from this component's own `players` React
+state — populated by the last `listPlayers()`/Realtime event this browser
+tab happened to receive — rather than re-fetching the roster at the moment
+Start was actually clicked. A third player joining in the gap between the
+host's last roster refresh and their own click on Start was invisible to
+`buildGenesisState`, producing a permanently 2-player `GameState` for a
+room with three `players` rows. That explains the original export
+completely: genesis's own player count (2) came from this race, while the
+Plain tier's inflated pool (14, the 3-player value) came from #80's
+already-identified live-`players`-count bug reading the *actual* three
+seated rows — two independent bugs disagreeing with each other, not one.
+
+Fix: moved Start Game's whole sequence (resolve `mapPoolRandomAtStart`
+and `soloBuildMap` picks, build genesis, insert `game_state`, flip
+`games.status`) out of `LobbyPage.tsx` and into a new `startGameFromLobby()`
+in `gameApi.ts`, which re-fetches `listPlayers()` itself immediately before
+using the roster for anything, and re-runs `canStartGame()` against that
+fresh read — aborting with a clear error if the room's shape changed since
+the caller last saw it (someone joined, left, or went un-ready) rather than
+silently building genesis from the stale one. `LobbyPage.tsx`'s
+`handleStart` is now a thin wrapper. A residual window remains between that
+fresh fetch and `insertGameState` (no DB-level CAS ties genesis's player
+count to the `players` table), but that's a single round-trip, not however
+long a browser tab had been sitting open.
+
+Added `startGameFromLobby.test.ts`, exercising the real `createGame`/
+`joinGame`/`startGameFromLobby` functions against the production-simulating
+stack (`src/test/supabaseStack/`) rather than a hand-rolled fixture — the
+first test to do so, via a `vi.mock('../supabase', …)` swap of the module's
+client singleton so each simulated player's calls run as themselves, the
+same functions LobbyPage.tsx itself calls. Doing this surfaced two gaps in
+the stack's fidelity to the real schema (`games.status` had no `'lobby'`
+default, and none of 0009_config_versioning.sql's player-readiness triggers
+were modeled) — worked around in the test by setting what those triggers
+would have set rather than modeling the triggers themselves, and fixed the
+`status` default directly in `database.ts` since every future test that
+exercises `createGame()` would hit the same gap. One test reproduces the
+original race directly (a third join lands after the other two are seated
+and ready, genesis still comes out 3-player); the other confirms the new
+guard rejects a start once a previously-ready roster has shrunk below
+`min_players`.
+
+The specific game from the report stays stuck: its genesis is permanently
+2-player (event sourcing — CLAUDE.md invariant 3 — forbids hand-editing a
+stored `GameState`, and nothing about `players.length` is something a later
+action can revise), so it cannot self-heal the way #80's write-up hoped.
+Unlike the tier-pool corruption #80 fixed, there is no future point where
+this room's action history reaches a state consistent with three players.
+Recovering it needs a human step outside code — canceling/recreating the
+room, or hand-repairing that one `game_state` row — not something this
+change attempts. `npm run lint`, `npm run test` (1200, was 1198), and `npm
+run build` all pass.

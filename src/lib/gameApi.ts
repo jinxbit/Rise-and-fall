@@ -1,6 +1,9 @@
 import { supabase } from './supabase'
 import { decompressGameStateFromStorage, type StoredGameState } from './gameStateCompression'
 import type { GameStateSummary } from './gameCardView'
+import { buildGenesisState, resolveMapPoolRandomAtStart, resolveSoloBuildMap } from './gameGenesis'
+import { pickRandomMapFromPool } from './mapPoolApi'
+import { canStartGame } from './roomReadiness'
 import { nextSeatIndex } from './seatIndex'
 import { remapGameSettingsPlayerIds, remapGameStatePlayerIds } from './duplicateGameState'
 import type { GameRow, GameSettings, GameStateMetaRow, PlayerRow, ProfilePreferences, PushSubscriptionRow } from './dbTypes'
@@ -731,7 +734,7 @@ export interface GameStateSnapshot {
 
 /**
  * Writes the game's very first GameState row (see createNewGame/startGame in
- * ../engine/createGame.ts). A no-op if a row already exists — LobbyPage
+ * ../engine/createGame.ts). A no-op if a row already exists — startGameFromLobby
  * checks first via getGameState, but this stays defensive in case "start
  * game" is ever clicked twice in a race.
  */
@@ -740,6 +743,76 @@ export async function insertGameState(gameId: string, state: EngineGameState): P
     .from('game_state')
     .insert({ game_id: gameId, state, turn: state.turn, active_player_id: state.activePlayerId })
   if (error && error.code !== '23505') throw error
+}
+
+/**
+ * LobbyPage's Start Game button. Deliberately re-fetches the seated roster
+ * here rather than trusting whatever `players` list the caller already had
+ * in React state: that state is only as fresh as the last `listPlayers()`
+ * call or Realtime event the host's browser happened to receive, and issue
+ * #519 was exactly this going stale — a 2-player GameState got built for a
+ * room with 3 people seated because the host clicked Start in the gap before
+ * their client's copy of `players` had picked up the third join. Re-running
+ * `canStartGame` against the freshly-fetched roster closes that gap: if the
+ * room's shape changed since the caller last saw it (someone joined, left,
+ * or went un-ready), this throws instead of silently building genesis from
+ * the wrong roster. A residual window remains between this fetch and
+ * `insertGameState` below — there's no DB-level CAS tying genesis's player
+ * count to the `players` table — but that's a DB round-trip, not however
+ * long a browser tab happened to sit open.
+ *
+ * A no-op past the roster check once a `game_state` row already exists (a
+ * retry after a prior call inserted genesis but failed before flipping
+ * `games.status`) — same idempotency `insertGameState` itself defends, one
+ * layer up.
+ */
+export async function startGameFromLobby(game: GameRow): Promise<void> {
+  const existingState = await getGameState(game.id)
+  if (!existingState) {
+    const players = await listPlayers(game.id)
+    if (!canStartGame(game, players)) {
+      throw new Error('This room changed since you loaded it — refresh and try again.')
+    }
+
+    // "Random saved map at start" (issue #166): resolve the actual pick now
+    // that the real seated player count is known, and persist it into
+    // settings.mapPoolBoard before building genesis — buildGenesisState must
+    // stay a synchronous, deterministic function of the game row alone (see
+    // gameGenesis.ts) for undo/replay to keep working, so the randomness
+    // can't live inside it. No saved map for this exact count just falls
+    // through to buildGenesisState's normal interactive board-building path,
+    // per GameSettings.mapPoolRandomAtStart.
+    let startingGame = game
+    if (game.settings.mapPoolRandomAtStart && !game.settings.mapPoolBoard) {
+      const picked = await pickRandomMapFromPool(players.length)
+      const settings = resolveMapPoolRandomAtStart(game.settings, picked)
+      if (settings !== game.settings) {
+        await updateGameSettings(game.id, { settings, minPlayers: game.min_players, maxPlayers: game.max_players })
+        startingGame = { ...game, settings }
+      }
+    }
+
+    // "Build alone" (issue #243): same resolve-then-persist reasoning as
+    // above — a random builder/unit-placement-order pick has to be rolled
+    // and locked in once, here, before buildGenesisState can use it (see
+    // resolveSoloBuildMap's own doc comment).
+    if (startingGame.settings.soloBuildMap) {
+      const settings = resolveSoloBuildMap(startingGame.settings, players)
+      if (settings !== startingGame.settings) {
+        await updateGameSettings(startingGame.id, { settings, minPlayers: startingGame.min_players, maxPlayers: startingGame.max_players })
+        startingGame = { ...startingGame, settings }
+      }
+    }
+
+    await insertGameState(game.id, buildGenesisState(startingGame, players))
+  }
+  // The `games` row's own status stays the coarse lobby/active/completed
+  // (see dbTypes.ts) — the engine's finer-grained status (boardSetup ->
+  // active) lives only in the game_state row's GameState.status, and
+  // GamePage branches its rendering on that instead. So starting a game
+  // means: build the real initial GameState (above), persist it, then flip
+  // `games.status` to 'active' just to move everyone out of the lobby screen.
+  await setGameStatus(game.id, 'active')
 }
 
 export async function getGameState(gameId: string): Promise<GameStateSnapshot | null> {

@@ -8,22 +8,18 @@ import { GameLengthSelector } from '../components/GameLengthSelector'
 import { MapModeSelector, type MapMode, type MapPoolChoice } from '../components/MapModeSelector'
 import { TaleSelector } from '../components/TaleSelector'
 import { listMapTemplates, listTales } from '../content/resolveContent'
-import { buildGenesisState, resolveMapPoolRandomAtStart, resolveSoloBuildMap } from '../lib/gameGenesis'
-import { pickRandomMapFromPool } from '../lib/mapPoolApi'
 import { setPendingRedirect } from '../lib/pendingRedirect'
 import {
   addLocalPlayer,
   deleteGame,
   getGameByRoomCode,
-  getGameState,
-  insertGameState,
   joinGame,
   listPlayers,
   markReady,
   MAX_PLAYERS,
   removePlayer,
-  setGameStatus,
   setGameVisibility,
+  startGameFromLobby,
   subscribeToGame,
   subscribeToPlayers,
   updateGameSettings,
@@ -250,48 +246,12 @@ export function LobbyPage() {
     if (!game) return
     setBusy(true)
     try {
-      // "Random saved map at start" (issue #166): resolve the actual pick
-      // now that the real seated player count is known, and persist it into
-      // settings.mapPoolBoard before building genesis — buildGenesisState
-      // must stay a synchronous, deterministic function of the game row
-      // alone (see gameGenesis.ts) for undo/replay to keep working, so the
-      // randomness can't live inside it. No saved map for this exact count
-      // just falls through to buildGenesisState's normal interactive
-      // board-building path, per GameSettings.mapPoolRandomAtStart.
-      let startingGame = game
-      if (game.settings.mapPoolRandomAtStart && !game.settings.mapPoolBoard) {
-        const picked = await pickRandomMapFromPool(players.length)
-        const settings = resolveMapPoolRandomAtStart(game.settings, picked)
-        if (settings !== game.settings) {
-          await updateGameSettings(game.id, { settings, minPlayers: game.min_players, maxPlayers: game.max_players })
-          startingGame = { ...game, settings }
-        }
-      }
-
-      // "Build alone" (issue #243): same resolve-then-persist reasoning as
-      // above — a random builder/unit-placement-order pick has to be rolled
-      // and locked in once, here, before buildGenesisState can use it (see
-      // resolveSoloBuildMap's own doc comment).
-      if (startingGame.settings.soloBuildMap) {
-        const settings = resolveSoloBuildMap(startingGame.settings, players)
-        if (settings !== startingGame.settings) {
-          await updateGameSettings(startingGame.id, { settings, minPlayers: startingGame.min_players, maxPlayers: startingGame.max_players })
-          startingGame = { ...startingGame, settings }
-        }
-      }
-
-      // The `games` row's own status stays the coarse lobby/active/completed
-      // (see dbTypes.ts) — the engine's finer-grained status (boardSetup ->
-      // active) lives only in the game_state row's GameState.status, and
-      // GamePage branches its rendering on that instead. So starting a game
-      // means: build the real initial GameState (createNewGame + startGame,
-      // which kicks off board setup), persist it, then flip `games.status`
-      // to 'active' just to move everyone out of the lobby screen.
-      const existingState = await getGameState(game.id)
-      if (!existingState) {
-        await insertGameState(game.id, buildGenesisState(startingGame, players))
-      }
-      await setGameStatus(game.id, 'active')
+      // startGameFromLobby re-fetches the seated roster itself rather than
+      // trusting this component's `players` state (issue #519: that state
+      // is only as fresh as the last Realtime event this tab received, and
+      // building genesis from a stale roster silently produced a
+      // wrong-player-count game) — see its own doc comment in gameApi.ts.
+      await startGameFromLobby(game)
       // Don't make this client depend on its own subscribeToGame Realtime
       // callback (above) to notice the status flip it just caused — this
       // client already knows the write landed, so navigate immediately
