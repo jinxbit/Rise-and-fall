@@ -30,6 +30,7 @@ export function buildGenesisState(game: GameRow, players: PlayerRow[]): GameStat
     activeTaleIds: game.settings.activeTaleIds,
     gameLength: game.settings.gameLength,
     hiddenInformationEnabled: game.settings.hiddenInformationEnabled,
+    lockRevealedInformationEnabled: game.settings.lockRevealedInformationEnabled,
   })
 
   if (game.settings.mapTemplateId) {

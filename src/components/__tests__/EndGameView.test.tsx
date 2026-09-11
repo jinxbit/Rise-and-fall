@@ -58,6 +58,7 @@ function makeState(): GameState {
     activeTaleIds: [],
     gameLength: Infinity,
     hiddenInformationEnabled: false,
+    lockRevealedInformationEnabled: false,
     winnerPlayerIds: ['p1'],
     claimedByAchievementId: { 'city-mastery': 'p1' },
     achievementsClaimedThisRound: 0,

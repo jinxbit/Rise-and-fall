@@ -363,6 +363,21 @@ export interface GameState {
    * deciding whether to run redactStateForPlayer at all.
    */
   hiddenInformationEnabled: boolean
+  /**
+   * Opt-in switch (issue #529, games.settings.lockRevealedInformationEnabled
+   * — see that field's own doc comment for the full rationale) closing the
+   * one gap left in RULE_ENFORCEMENT_PLAN.md §4.4's owner-override check: a
+   * player who was the last to pick in a simultaneous `selectCards`/
+   * `decline` phase could otherwise undo straight back to before their own
+   * already-revealed pick and resubmit a different one, since no *other*
+   * player's action sits in the discarded tail to trigger the existing
+   * check. A creation-time choice, immutable for the whole game, carried
+   * here for the same reason as hiddenInformationEnabled above. The engine
+   * itself never reads this field directly — `apply-action`
+   * (supabase/functions/) is the only consumer, via `requiresOwnerOverride`
+   * (supabase/functions/_shared/gameEnforcement.ts).
+   */
+  lockRevealedInformationEnabled: boolean
   /** Round number — increments each time a round finishes (see ./round.ts). */
   turn: number
   /**

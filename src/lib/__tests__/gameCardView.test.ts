@@ -18,6 +18,7 @@ function makeSettings(overrides: Partial<GameSettings> = {}): GameSettings {
     skipHotseatPassGate: false,
     ruleEnforcementEnabled: false,
     hiddenInformationEnabled: false,
+    lockRevealedInformationEnabled: false,
     activeTaleIds: [],
     gameLength: 4,
     ...overrides,

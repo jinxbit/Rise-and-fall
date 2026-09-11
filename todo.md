@@ -4346,3 +4346,45 @@ seven `RoundView.test.tsx` cases covering staging, the non-last and
 preference-off no-ops, changing a staged pick, the retraction race, and
 decline's version of both. `npm run lint`, `npm run test` (1213 tests), and
 `npm run build` all pass.
+
+## 87. Lock a revealed card pick against undo (issue #529)
+
+`RULE_ENFORCEMENT_PLAN.md` §4.4's owner-override check required the room
+owner/admin (with admin mode on) only when a branch would discard *another*
+player's undone move. It missed one case: the player who *resolves* a
+simultaneous `selectCards`/`decline` phase (the last one pending) could undo
+straight back to before their own pick and resubmit a different one — only
+their own entry sat in the discarded tail, so nothing tripped the check,
+even though that pick had already been revealed to everyone else.
+
+Added a new opt-in per-game setting, `GameSettings.lockRevealedInformationEnabled`
+(`GameState` carries the same flag, copied at genesis exactly like
+`hiddenInformationEnabled`). When on, `requiresOwnerOverride`
+(`supabase/functions/_shared/gameEnforcement.ts`) also requires the
+owner/admin-mode override whenever the discarded tail contains *any*
+`CHOOSE_CARD`/`MOVE_TO_DECLINE` entry, not just another player's — safe to
+check unconditionally on entry type rather than first determining whether
+that particular phase had actually resolved, since a still-*open* pick never
+needs branching to retract in the first place (`RETRACT_CHOICE`/
+`RETRACT_DECLINE` are ordinary forward submissions, always available
+directly, with no owner-override check of their own): any
+`CHOOSE_CARD`/`MOVE_TO_DECLINE` a client instead reaches via undo+resubmit
+is, by construction, one that already resolved.
+
+Only meaningful alongside `hiddenInformationEnabled`
+(`lockRevealedInformationAvailable`, `src/lib/hiddenInformationEligibility.ts`
+— the checkbox on `CreateGamePage.tsx` is disabled until that one is
+checked). Unlike `ruleEnforcementEnabled`/`hiddenInformationEnabled`
+(issues #432/#481), this checkbox defaults to **unchecked** — it's a
+stricter behavior change with no equivalent prior sign-off on shipping it
+on by default.
+
+Wired through the same chain as `hiddenInformationEnabled`:
+`GameSettings`/`GameState`/`createNewGame()`/`buildGenesisState()`/
+`createGame()`/`CreateGamePage.tsx`. Added three cases to
+`supabaseStack.test.ts` against the real `apply-action` Edge Function
+(a scripted two-player game reaching the exact "caller resolves the phase,
+then undoes their own pick" scenario): refused for an ordinary player with
+the setting on, allowed once the room owner switches admin mode on, and
+unchanged (still allowed) with the setting off. `npm run lint`,
+`npm run test` (1217 tests), and `npm run build` all pass.

@@ -261,6 +261,23 @@ it just because someone is reviewing history), while still resetting
 cleanly the moment that revelation's own causal history is actually
 discarded.
 
+**Related but distinct (issue #529, 2026-09-11): can undo actually *change*
+an already-revealed pick, not just re-mask it for review?** Everything
+above is about what a *read* shows while reviewing history — this section's
+own "flicker, not a leak" framing. Separately, RULE_ENFORCEMENT_PLAN.md
+§4.4 had a real gap on the *write* side: the player who resolved a
+simultaneous `selectCards`/`decline` phase (the last one pending) could undo
+straight back to before their own pick and submit a different one, with no
+owner-override needed, since only their own entry sat in the discarded
+tail — actually retroactively changing a pick everyone else had already
+seen, not merely flickering its display. New opt-in per-game setting
+`GameSettings.lockRevealedInformationEnabled` closes that: see
+RULE_ENFORCEMENT_PLAN.md §4.4's own entry on this issue for the mechanism.
+Deliberately *not* built on this section's reveal high-water mark (dropped
+above for needing a full replay just to answer a read) — the write-side
+check instead reuses the existing owner-override gate unconditionally on
+entry type (`CHOOSE_CARD`/`MOVE_TO_DECLINE`), which needs no replay at all.
+
 ### 5.4 What actually runs today (client-side)
 
 **Update (2026-09-08, phase 8): `get-game-state` is now a real read path —

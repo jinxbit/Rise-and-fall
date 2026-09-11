@@ -39,6 +39,7 @@ function makeGame(overrides: Partial<GameRow> = {}, settingsOverrides: Partial<G
       skipHotseatPassGate: false,
       ruleEnforcementEnabled: false,
       hiddenInformationEnabled: false,
+      lockRevealedInformationEnabled: false,
       activeTaleIds: [],
       gameLength: 4,
       ...settingsOverrides,

@@ -133,9 +133,11 @@ export function normalizeStateForComparison(state: GameState): GameState {
     ...stripTimestamps(state),
     adminModeActive: Boolean(state.adminModeActive),
     // Same "an export predating this field has it undefined, not false"
-    // coercion as adminModeActive above — hiddenInformationEnabled didn't
-    // exist when older production exports were captured.
+    // coercion as adminModeActive above — hiddenInformationEnabled/
+    // lockRevealedInformationEnabled didn't exist when older production
+    // exports were captured.
     hiddenInformationEnabled: Boolean(state.hiddenInformationEnabled),
+    lockRevealedInformationEnabled: Boolean(state.lockRevealedInformationEnabled),
     declineSourceZoneByCardId: declinePhaseOpen ? (state.declineSourceZoneByCardId ?? {}) : {},
   }
 }
@@ -240,6 +242,7 @@ function reconstructRoom(finalState: GameState, overrides: RoomOverrides): { gam
     skipHotseatPassGate: false,
     ruleEnforcementEnabled: true,
     hiddenInformationEnabled: finalState.hiddenInformationEnabled ?? false,
+    lockRevealedInformationEnabled: finalState.lockRevealedInformationEnabled ?? false,
     activeTaleIds: finalState.activeTaleIds,
     gameLength: finalState.gameLength,
     ...mapSettings,

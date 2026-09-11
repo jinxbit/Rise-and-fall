@@ -72,6 +72,7 @@ function settingsForWireCheck(): GameSettings {
     skipHotseatPassGate: false,
     ruleEnforcementEnabled: true,
     hiddenInformationEnabled: true,
+    lockRevealedInformationEnabled: false,
     activeTaleIds: [],
     gameLength: 3,
   }

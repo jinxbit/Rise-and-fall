@@ -71,6 +71,7 @@ function makeSetupState(overrides: Partial<GameState> = {}): GameState {
     activeTaleIds: [],
     gameLength: Infinity,
     hiddenInformationEnabled: false,
+    lockRevealedInformationEnabled: false,
     winnerPlayerIds: [],
     claimedByAchievementId: {},
     achievementsClaimedThisRound: 0,

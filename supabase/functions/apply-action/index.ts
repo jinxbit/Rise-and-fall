@@ -92,7 +92,11 @@ Deno.serve(async (req) => {
     // requires room admin mode to be switched on (GameState.adminModeActive,
     // toggled by SET_ADMIN_MODE above) — being the owner or an admin is no
     // longer sufficient by itself, so this privilege is something they have
-    // to deliberately opt into rather than silently always have.
+    // to deliberately opt into rather than silently always have. Issue #529
+    // (GameState.lockRevealedInformationEnabled) puts the same override
+    // behind the same gate for discarding an already-revealed pick of one's
+    // own, when the game opts into that stricter behavior — see
+    // requiresOwnerOverride's own doc comment.
     const ownerOverrideAvailable = ctx.isOwnerOrAdmin && Boolean(ctx.gameState.state.adminModeActive)
     // issue #486: this check exists to stop one human discarding another
     // human's undone move. In hotseat, one shared auth.uid() covers every
@@ -101,10 +105,15 @@ Deno.serve(async (req) => {
     // second human to protect from — undoing one seat's pick and then acting
     // for another seat is ordinary hotseat play, not a takeover.
     const isHotseat = ctx.game.play_mode === 'hotseat'
-    if (!isHotseat && requiresOwnerOverride(ctx.gameState.state.actionHistory, action.playerId) && !ownerOverrideAvailable) {
+    if (
+      !isHotseat &&
+      requiresOwnerOverride(ctx.gameState.state.actionHistory, action.playerId, Boolean(ctx.gameState.state.lockRevealedInformationEnabled)) &&
+      !ownerOverrideAvailable
+    ) {
       return jsonResponse(403, {
         ok: false,
-        error: "Submitting this action would discard another player's undone move — only the room owner or an admin, with room admin mode on, may do that.",
+        error:
+          "Submitting this action would discard another player's undone move, or a card pick that's already been revealed — only the room owner or an admin, with room admin mode on, may do that.",
       })
     }
   }
