@@ -287,7 +287,7 @@ export class Database {
       // `gen_random_uuid()` on the primary key (0001_init_schema.sql) — a row
       // inserted through the API supplies no id, only a seeded fixture does.
       case 'games':
-        return { id: globalThis.crypto.randomUUID(), created_at: now, updated_at: now, config_version: 1, visibility: 'private' }
+        return { id: globalThis.crypto.randomUUID(), created_at: now, updated_at: now, config_version: 1, visibility: 'private', status: 'lobby' }
       case 'players':
         return { id: globalThis.crypto.randomUUID(), avatar_url: null, is_active: true, joined_at: now }
       case 'profiles':
