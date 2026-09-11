@@ -3936,3 +3936,41 @@ existing `LogPanel (issue #358)` describe block) feeds three entries across
 two different calendar days and asserts each day's date header renders
 exactly once, not once per entry. `npm run lint`, `npm run test`, and `npm
 run build` all pass.
+
+## 79. Fixed: the "build alone" builder got stranded in the lobby, even after re-entering (issue #516)
+
+A 3-player "build alone" game reported the builder stuck on "setting up the
+game" while the other two correctly saw "placing water tiles — waiting for
+&lt;builder&gt;". A first pass (issue #516's own initial fix) had
+`LobbyPage.tsx`'s `handleStart()` navigate the clicking client to `/game/:code`
+directly instead of relying solely on the Realtime echo of its own
+`games.status` write — but the report came back reproducing again, this time
+even after leaving the game and re-entering, which rules out a click-time
+race: that path never runs handleStart at all.
+
+Root cause was one level up: `LobbyPage`'s `load()` fetched the room but
+never looked at `game.status` — navigation to `/game/:code` only happened
+from the live `subscribeToGame` callback reacting to a status *change* it
+happened to be subscribed for. Any client landing on `/lobby/:roomCode`
+after the game was already `active` (a reload, the shared room link,
+join-by-code, or re-entering post-leave) had no change to observe and sat on
+a lobby screen whose Start/config controls are all gated on `status ===
+'lobby'` — indistinguishable from being stuck. With the default
+`soloBuilderSelection: 'owner'`, the builder in "build alone" mode is the
+room creator, i.e. exactly the client most likely to still be sitting on
+that lobby URL, while the other two had already been pushed to `/game` by
+the live event when the host started the game — matching the report
+precisely.
+
+Fixed by having `load()` itself redirect to `/game/:roomCode` whenever it
+finds the game already `active` (or `completed`, per `GameRow`'s status
+comment in `src/lib/dbTypes.ts`), rather than waiting on a live transition —
+this covers every entry path, not just the click that starts the game.
+
+No new automated test: this repo has no component-test harness for
+`LobbyPage.tsx`/`GamePage.tsx` (same gap noted by the first pass at this
+issue), and the underlying builder-selection/board-setup logic in
+`gameGenesis.ts` and `boardSetup.ts` was verified correct end-to-end against
+the in-process production-like Supabase stack — the bug was purely this
+client-side navigation gap. `npm run lint`, `npm run test`, and `npm run
+build` all pass.
