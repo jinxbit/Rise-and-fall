@@ -233,7 +233,7 @@ function chooseCardKindForTemple(state: GameState): 'city' | 'nomad' | null {
 function playToFreshPhase(phase: 'selectCards' | 'decline'): GameState {
   const settings = settingsForWireCheck()
   const genesis = buildGenesisState(gameRowForWireCheck(settings), SEATS)
-  const content = resolveGameContent(genesis, SEATS.length)
+  const content = resolveGameContent(genesis)
 
   let state = genesis
   for (let guard = 0; ; guard++) {
@@ -501,7 +501,7 @@ export async function checkHiddenInformationWire(
 
     // 2. The middle seat's own apply-action response — issue #478's exact
     // scenario — must not hand back the still-pending watcher's pick either.
-    const content = resolveGameContent(state, room.players.length)
+    const content = resolveGameContent(state)
     const midSeatId = state.pendingPlayerIds[0]
     const midAction = nextLegalAction(state, content)
     assertThat(midAction !== null, `[${label}] no legal action for the middle seat ${midSeatId}.`)
@@ -516,7 +516,7 @@ export async function checkHiddenInformationWire(
       state.pendingPlayerIds.length === 1 && state.pendingPlayerIds[0] === watcherSeatId,
       `[${label}] expected only the watcher seat (${watcherSeatId}) still pending, got ${JSON.stringify(state.pendingPlayerIds)}.`,
     )
-    const lastAction = nextLegalAction(state, resolveGameContent(state, room.players.length))
+    const lastAction = nextLegalAction(state, resolveGameContent(state))
     assertThat(lastAction !== null, `[${label}] no legal action for the last seat ${watcherSeatId}.`)
     const lastRaw = await rawInvoke(room.clientFor(watcherUserId), 'apply-action', { gameId: room.game.id, action: lastAction })
     assertOk(lastRaw, `[${label}] the last seat's (${watcherSeatId}) own action`)

@@ -88,7 +88,7 @@ describe('get-game-state Edge Function', () => {
     stack.addUser(CAROL)
     stack.addUser(ADMIN, { isAdmin: true })
 
-    const content = resolveGameContent(genesis, PLAYERS.length)
+    const content = resolveGameContent(genesis)
     let state = genesis
     for (let i = 0; i < PLAYERS.length * 3; i++) {
       const action = nextLegalAction(state, content)!

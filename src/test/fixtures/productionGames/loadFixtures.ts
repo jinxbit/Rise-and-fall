@@ -272,7 +272,7 @@ export function buildFixture(name: string, envelope: { exportedAt: string; gameS
   const finalState = envelope.gameState
   const { game, players } = reconstructRoom(finalState, overrides)
   const genesis = buildGenesisState(game, players)
-  const content = resolveGameContent(finalState, players.length)
+  const content = resolveGameContent(finalState)
 
   const replayed = replayActions(
     genesis,

@@ -229,8 +229,28 @@ export function requiresOwnerOverride(rawHistory: LoggedAction[], submittedByPla
   return redoableTail(rawHistory).some((entry) => entry.action.playerId !== submittedByPlayerId)
 }
 
-/** GameState.activeTaleIds/gameLength + player count -> every content bundle applyAction's dispatch needs, mirroring GamePage.tsx's own resolution order (tale content first, since it modifies the other two). */
-export function resolveGameContent(state: GameState, playerCount: number) {
+/**
+ * GameState.activeTaleIds/gameLength + player count -> every content bundle
+ * applyAction's dispatch needs, mirroring GamePage.tsx's own resolution
+ * order (tale content first, since it modifies the other two).
+ *
+ * Player count comes from `state.players.length`, not a fresh `players`
+ * table read (contrast `ctx.players` in GameContext, which is deliberately
+ * live — see isAuthorizedToActAs/canReadGameState, which need the *current*
+ * roster for auth) — `state.players` is fixed at genesis and never shrinks
+ * afterward (elimination flags a player, it doesn't remove them, see
+ * elimination.ts), so it's the self-contained source CLAUDE.md's "read them
+ * from GameState, not the games row" already asks for elsewhere
+ * (activeTaleIds/gameLength above). Using a live count here instead let one
+ * request's content resolution (board-generation pool sizes, unit supply
+ * caps, ...) silently diverge from genesis's — confirmed against a reported
+ * 2-player game (issue #519) whose `boardSetup.tilesRemainingInTier` ended
+ * up permanently set to the *3*-player pool size for its next tile tier,
+ * because whatever `players` read happened to run for that one request
+ * returned 3 rows.
+ */
+export function resolveGameContent(state: GameState) {
+  const playerCount = state.players.length
   const boardGenerationContent = resolveBoardGenerationContent(playerCount)
   const taleContent = resolveTaleContent(state.activeTaleIds, playerCount)
   const unitContent = applyTaleModifiers(resolveUnitContent(playerCount), taleContent)
@@ -246,8 +266,8 @@ export function resolveGameContent(state: GameState, playerCount: number) {
  * forward identically here and there, folded into the same actionHistory
  * entry as `action` itself.
  */
-export function applyActionFullyEnforced(state: GameState, action: Action, playerCount: number): ActionResult {
-  const content = resolveGameContent(state, playerCount)
+export function applyActionFullyEnforced(state: GameState, action: Action): ActionResult {
+  const content = resolveGameContent(state)
   return applyAction(state, action, content.unitContent, content.achievementContent, content.boardGenerationContent, content.taleContent)
 }
 

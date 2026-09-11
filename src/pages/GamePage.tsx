@@ -435,7 +435,21 @@ export function GamePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [game?.id])
 
-  const boardGenerationContent = useMemo(() => resolveBoardGenerationContent(players.length), [players.length])
+  // Player count for content resolution comes from `gameState.players.length`
+  // when available, not the live `players` row count — `gameState.players`
+  // is fixed at genesis and never shrinks afterward (elimination flags a
+  // player, it doesn't remove them, see engine/elimination.ts), so it's the
+  // self-contained source, the same reasoning `activeTaleIds`/`gameLength`
+  // below already follow. `players.length` is only a bootstrap fallback for
+  // the brief window before `gameState` has loaded, when nothing here is
+  // rendered yet anyway. Falling back to a live re-fetch of the `players`
+  // table let one render's content resolution (board-generation pool sizes,
+  // unit supply caps, ...) silently diverge from genesis's — confirmed
+  // against a reported 2-player game (issue #519) whose
+  // `boardSetup.tilesRemainingInTier` ended up permanently set to the
+  // *3*-player pool size for its next tile tier.
+  const contentPlayerCount = gameState?.players.length ?? players.length
+  const boardGenerationContent = useMemo(() => resolveBoardGenerationContent(contentPlayerCount), [contentPlayerCount])
   // Tales (src/content/tales.json) and the achievement target chosen at
   // game creation (games.settings.activeTaleIds/gameLength — see
   // CreateGamePage.tsx's TaleSelector/GameLengthSelector) are carried into GameState itself
@@ -446,10 +460,10 @@ export function GamePage() {
   // no Tales active (the default, and every game before this variant
   // existed).
   const taleContent = useMemo(
-    () => resolveTaleContent(gameState?.activeTaleIds ?? [], players.length),
-    [players.length, gameState?.activeTaleIds],
+    () => resolveTaleContent(gameState?.activeTaleIds ?? [], contentPlayerCount),
+    [contentPlayerCount, gameState?.activeTaleIds],
   )
-  const unitContent = useMemo(() => applyTaleModifiers(resolveUnitContent(players.length), taleContent), [players.length, taleContent])
+  const unitContent = useMemo(() => applyTaleModifiers(resolveUnitContent(contentPlayerCount), taleContent), [contentPlayerCount, taleContent])
   // A Tale can grant a real Trophy of its own (e.g. The Capital Tale) —
   // merged onto the base achievements the same way Tale unit content is,
   // so claiming it goes through the exact same claim/decline/game-length

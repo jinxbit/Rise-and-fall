@@ -53,7 +53,7 @@ Deno.serve(async (req) => {
 
   const callerPlayerId = ctx.players.find((p) => p.user_id === callerUserId)?.id ?? null
 
-  const content = resolveGameContent(ctx.gameState.state, ctx.players.length)
+  const content = resolveGameContent(ctx.gameState.state)
   const result = applyRedoAction(
     genesis,
     ctx.gameState.state,
