@@ -58,6 +58,19 @@ export function LobbyPage() {
     try {
       const foundGame = await getGameByRoomCode(roomCode)
       setRoomNotFound(!foundGame)
+      // A game that's already active (or, per GameRow's status comment,
+      // completed) has nothing left for this screen to do — redirect
+      // instead of rendering a lobby whose Start/config controls are all
+      // gated on status === 'lobby'. This covers every way a client can
+      // land on /lobby/:roomCode *after* the game started (reload, the
+      // shared room link, join-by-code, re-entering after leaving), not
+      // just the live transition subscribeToGame's callback below reacts
+      // to — that callback only fires for a client that's already
+      // subscribed when the status changes.
+      if (foundGame && (foundGame.status === 'active' || foundGame.status === 'completed')) {
+        navigate(`/game/${foundGame.room_code}`)
+        return
+      }
       setGame(foundGame)
       if (foundGame) {
         setPlayers(await listPlayers(foundGame.id))
@@ -65,7 +78,7 @@ export function LobbyPage() {
     } catch (err) {
       setError(toAppError(err, 'Failed to load room'))
     }
-  }, [roomCode])
+  }, [roomCode, navigate])
 
   useEffect(() => {
     void load()
@@ -83,8 +96,9 @@ export function LobbyPage() {
     // Re-fetch once the subscriptions are live in case the game already
     // transitioned to 'active' in the gap between the initial load() and
     // subscribe() taking effect (e.g. the host started the game right as
-    // this client was loading the room) — otherwise that update would never
-    // be observed since these are the only two ways `game` gets set.
+    // this client was loading the room) — load() redirects on its own for
+    // that case, but without this the gap would otherwise go unnoticed
+    // until something else changes and the subscribeToGame callback fires.
     void load()
     return () => {
       unsubPlayers()
