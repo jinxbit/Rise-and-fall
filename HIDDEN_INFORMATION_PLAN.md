@@ -560,6 +560,29 @@ to hidden information (6) are omitted here.
    `toClientGameState`) and `writePathRedaction.test.ts` (the same scenario
    through the real `undo-action`/`get-game-state` Edge Functions).
 
+   **Update (2026-09-11, issue #514): the narration log itself still choked
+   on the `unredactedPrefix`-preserved masked entry — closed.** The #498 fix
+   above made `unredactedPrefix` correctly *keep* a masked-then-undone
+   `CHOOSE_CARD`/`MOVE_TO_DECLINE`/`RETRACT_DECLINE` entry (`cardId: null`)
+   in the client's `actionHistory`, alongside the real `UNDO_ACTION`/
+   `REDO_ACTION` that followed it — but `gameLog.ts`'s `extendGameLog` walks
+   that same array narrating each entry in turn, and for anything that
+   isn't itself `UNDO_ACTION`/`REDO_ACTION` it called `applyActionWithSteps`
+   straight on the raw entry, exactly as if `cardId: null` were a real
+   payload. That's never a legal `CHOOSE_CARD`, so it failed, and the loop's
+   defensive bail-on-failure (`ok: false`) discarded every event from that
+   point on — including the `UNDO_ACTION`/`REDO_ACTION` entries' own lines —
+   silently, since neither `buildGameLogFrom` nor `GamePage.tsx`'s cache
+   checks `ok`. Matches the bug report exactly: undo/redo done mid-`selectCards`
+   never appeared in the log, in any view (the truncation happens before the
+   log is even built, independent of which round a reviewer is looking at),
+   until the phase resolved and redaction stopped masking anything at all.
+   Fixed by teaching `extendGameLog` to recognize a masked entry
+   (`isMaskedRedactionEntry`) and skip it as a no-op — `unredactedPrefix`
+   only ever lets one through once it's no longer `.effective`, so it's
+   guaranteed to contribute nothing to the replayed state regardless.
+   Covered by `gameLog.test.ts`.
+
    **Decided (2026-09-09, issue #481): `CreateGamePage.tsx`'s checkbox now
    defaults to checked**, matching `ruleEnforcementEnabled`'s own
    issue-#432 default next to it — hiding in-progress picks was off unless
