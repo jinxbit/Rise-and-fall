@@ -350,6 +350,26 @@ entry happens to sit at the tip. Concretely:
   prior sign-off on an on-by-default rollout. See
   `HIDDEN_INFORMATION_PLAN.md`'s own note on this issue for the
   hidden-information-plan side of the same change.
+- **Update (2026-09-11, issue #534): the case above left the *undo itself*
+  ungated — closed.** `requiresOwnerOverride` only ever runs when a new
+  action is submitted while behind the tip (`apply-action`); plain undo
+  (`undo-action`) just moves the pointer and was never gated at all, on the
+  reasoning ("moving the pointer is non-destructive") that undo alone
+  discards nothing. That reasoning missed `lockRevealedInformationEnabled`'s
+  own case: undoing the tip's own `CHOOSE_CARD`/`MOVE_TO_DECLINE` when it's
+  what resolved the phase puts an already-revealed pick back under wraps by
+  itself — the undo always succeeded, and it was the *next* action attempt
+  (blocked by the check above) that then failed instead, leaving the game
+  reverted to card selection with no legal way to either finish the phase or
+  get back to where it was. `undoWouldReopenRevealedPick` (`src/engine/historyFold.ts`) answers "is the
+  entry a bare Undo would revert right now one of these, and did it resolve
+  its phase" from `state` alone (no replay needed — CLAUDE.md invariant 4
+  guarantees the resolving transition is folded into that same entry);
+  `undo-action/index.ts` now requires the same owner-override (room owner or
+  admin, with room admin mode on) this section's check already requires for
+  resubmission, with the same hotseat exemption (issue #486). `GamePage.tsx`
+  disables the Undo button itself under the same condition, rather than
+  letting the click round-trip to a 403.
 
 ### 4.5 Admin / room-owner privileges (issue #391)
 

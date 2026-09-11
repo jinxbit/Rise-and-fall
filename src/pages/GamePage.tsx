@@ -19,7 +19,7 @@ import { buildGameLogFrom, extendGameLog } from '../engine/gameLog'
 import { redactGameLog } from '../engine/redaction'
 import { calculateScoreHistory } from '../engine/scoreHistory'
 import { applyTaleAchievementModifiers, applyTaleModifiers } from '../engine/tales'
-import { applyRedoAction, applyUndoAction, resolveHistory } from '../engine/undoRedo'
+import { applyRedoAction, applyUndoAction, resolveHistory, undoWouldReopenRevealedPick } from '../engine/undoRedo'
 import { calculateGoldSpendingByCategory, calculateUnitValueDetail } from '../engine/unitValue'
 import type { ActionResult, GameEvent, GameState as EngineGameState, Coordinate } from '../engine/types'
 import {
@@ -499,6 +499,21 @@ export function GamePage() {
    * admin mode reuses below), so the toggle would be redundant there.
    */
   const canAdminOverride = (isCreator || isAdmin) && !isHotseat
+  /**
+   * Issue #534: with `lockRevealedInformationEnabled` on, undoing the tip's
+   * own entry can itself put an already-revealed CHOOSE_CARD/MOVE_TO_DECLINE
+   * pick back under wraps — the same case `requiresOwnerOverride`
+   * (supabase/functions/_shared/gameEnforcement.ts) blocks on resubmission
+   * (RULE_ENFORCEMENT_PLAN.md §4.4). Disabling the button here — mirroring
+   * `undo-action`'s own matching server-side check — stops the click from
+   * ever succeeding and leaving the *next* action the one that fails
+   * instead, stuck mid-reveal with no visible way forward.
+   */
+  const undoBlockedByRevealLock =
+    Boolean(gameState?.lockRevealedInformationEnabled) &&
+    !!gameState &&
+    undoWouldReopenRevealedPick(gameState) &&
+    !(adminModeActive && canAdminOverride)
 
   /**
    * Open spectating in history review mode (issue #105), not live — a
@@ -1755,9 +1770,13 @@ export function GamePage() {
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            disabled={undoing || isReviewingHistory || !gameState || historyPointer.effective.length === 0}
+            disabled={undoing || isReviewingHistory || !gameState || historyPointer.effective.length === 0 || undoBlockedByRevealLock}
             onClick={() => void handleUndo()}
-            title="Undo the last action — any player can do this, at any time, even after the game has ended. If you still have your own unrevealed card pick standing, this changes only your pick."
+            title={
+              undoBlockedByRevealLock
+                ? "Undoing this would reopen a card pick that's already been revealed — only the room owner or an admin, with room admin mode on, may do that."
+                : 'Undo the last action — any player can do this, at any time, even after the game has ended. If you still have your own unrevealed card pick standing, this changes only your pick.'
+            }
             className="rounded-md border border-neutral-700 px-3 py-1 text-sm hover:border-neutral-500 disabled:opacity-50"
           >
             {undoing ? 'Undoing…' : 'Undo'}

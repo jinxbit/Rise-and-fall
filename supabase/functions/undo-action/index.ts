@@ -5,9 +5,20 @@
 // gated on any seated player of this game, at any time" — no per-seat
 // ownership check on `action.playerId` (it's narration-only, never checked
 // for legality — see UndoAction's doc comment in src/engine/actions.ts), and
-// no owner-override either (moving the pointer is non-destructive; the
-// owner-override case only applies to a *new* action submitted while behind
-// the tip, i.e. apply-action, not to undo/redo themselves).
+// no owner-override for the general case either (moving the pointer is
+// non-destructive; the owner-override case for a *new* action submitted
+// while behind the tip lives in apply-action, not here).
+//
+// One exception (issue #534): with GameSettings.lockRevealedInformationEnabled
+// on, undoing the tip's own entry can itself put an already-revealed
+// CHOOSE_CARD/MOVE_TO_DECLINE pick back under wraps
+// (undoWouldReopenRevealedPick, src/engine/historyFold.ts) — reopening
+// exactly what that setting exists to keep resubmission from touching
+// (requiresOwnerOverride, ../_shared/gameEnforcement.ts). Left ungated, the
+// undo itself always succeeds and it's the *next* action attempt that fails
+// instead, leaving the game stuck mid-reveal with no visible way forward.
+// This needs the same owner-override carve-out and hotseat exemption as
+// apply-action's own check.
 //
 // Unlike apply-action, this needs the game's genesis (buildGenesisState,
 // src/lib/gameGenesis.ts) — undoing isn't a step forward from the current
@@ -23,6 +34,7 @@
 // #478, HIDDEN_INFORMATION_PLAN.md §8) — see redactedResponseState
 // (../_shared/gameEnforcement.ts).
 import { applyUndoAction } from '../../../src/engine/undoRedo.ts'
+import { undoWouldReopenRevealedPick } from '../../../src/engine/historyFold.ts'
 import {
   buildGenesisState,
   corsHeaders,
@@ -62,6 +74,22 @@ Deno.serve(async (req) => {
   const isSeated = ctx.players.some((p) => p.user_id === callerUserId)
   if (!isSeated && !ctx.isOwnerOrAdmin) {
     return jsonResponse(403, { ok: false, error: 'Only a seated player (or the room owner/an admin) may undo.' })
+  }
+
+  // Issue #534 — see this file's own doc comment above.
+  const isHotseat = ctx.game.play_mode === 'hotseat'
+  const ownerOverrideAvailable = ctx.isOwnerOrAdmin && Boolean(ctx.gameState.state.adminModeActive)
+  if (
+    !isHotseat &&
+    ctx.gameState.state.lockRevealedInformationEnabled &&
+    undoWouldReopenRevealedPick(ctx.gameState.state) &&
+    !ownerOverrideAvailable
+  ) {
+    return jsonResponse(403, {
+      ok: false,
+      error:
+        "Undoing this would reopen a card pick that's already been revealed — only the room owner or an admin, with room admin mode on, may do that.",
+    })
   }
 
   const genesisInputs = await loadFullGameAndPlayers(supabase, gameId)

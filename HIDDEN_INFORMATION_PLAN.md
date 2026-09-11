@@ -278,6 +278,25 @@ above for needing a full replay just to answer a read) — the write-side
 check instead reuses the existing owner-override gate unconditionally on
 entry type (`CHOOSE_CARD`/`MOVE_TO_DECLINE`), which needs no replay at all.
 
+**Follow-up (issue #534, 2026-09-11): the gap above was only closed on
+*resubmission* — the undo that sets it up was still unconditionally
+allowed.** Undoing the resolving `CHOOSE_CARD`/`MOVE_TO_DECLINE` itself
+re-opens `pendingPlayerIds` for that phase, which (per this section's own
+"flicker, not a leak" framing — §5.1 derives masking purely from
+`roundPhase`/`pendingPlayerIds`) makes `redactStateForPlayer` mask everyone's
+*already-revealed* picks for that phase again on every other viewer's next
+read — not just the acting player's own. Combined with `unredactedPrefix`
+cutting a viewer's `actionHistory` at the first still-effective masked entry
+(§8 phase 8/issue #498), that re-masking could cut *before* the just-appended
+`UNDO_ACTION` marker itself, so a bystander's client lost the marker along
+with it and read `canRedo` as false — matching this issue's report of Redo
+looking disabled after the undo. `RULE_ENFORCEMENT_PLAN.md` §4.4's matching
+update closes this by gating the undo itself the same way resubmission was
+already gated, so the game can no longer reach that reopened-but-stuck state
+in the first place; nothing changed in `redactStateForPlayer`/
+`unredactedPrefix` themselves, since a legitimately-still-open phase's
+masking-then-truncation behavior is correct and unrelated.
+
 ### 5.4 What actually runs today (client-side)
 
 **Update (2026-09-08, phase 8): `get-game-state` is now a real read path —

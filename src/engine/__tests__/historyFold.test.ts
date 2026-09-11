@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import type { LoggedAction } from '../actions'
-import { redoableTail, resolveHistory } from '../historyFold'
+import type { ChooseCardAction, LoggedAction, MoveToDeclineAction } from '../actions'
+import { redoableTail, resolveHistory, undoWouldReopenRevealedPick } from '../historyFold'
+import type { GameState } from '../types'
 
 /** A minimal substantive (non-undo/redo) logged entry — CONCEDE's payload is just `playerId`, so distinct ids are enough to tell entries apart by identity/deep-equality. */
 function entry(playerId: string): LoggedAction {
@@ -101,5 +102,53 @@ describe('redoableTail (RULE_ENFORCEMENT_PLAN.md §4.4 owner-override support)',
     // Same history as historyFold.test.ts's own branching case above: after
     // [a, b, undo(), c], c is the new tip and there's nothing left to redo.
     expect(redoableTail([entry('a'), entry('b'), undo(), entry('c')])).toEqual([])
+  })
+})
+
+describe('undoWouldReopenRevealedPick (RULE_ENFORCEMENT_PLAN.md §4.4/issue #534)', () => {
+  function chooseCard(playerId: string, cardId = 'card-1'): LoggedAction {
+    return { action: { type: 'CHOOSE_CARD', playerId, cardId } as ChooseCardAction, turn: 0, timestamp: '' }
+  }
+  function moveToDecline(playerId: string, cardId = 'card-1'): LoggedAction {
+    return { action: { type: 'MOVE_TO_DECLINE', playerId, cardId } as MoveToDeclineAction, turn: 0, timestamp: '' }
+  }
+  function stateWith(actionHistory: LoggedAction[], roundPhase: GameState['roundPhase']): Pick<GameState, 'actionHistory' | 'roundPhase'> {
+    return { actionHistory, roundPhase }
+  }
+
+  it('is false with nothing to undo', () => {
+    expect(undoWouldReopenRevealedPick(stateWith([], 'selectCards'))).toBe(false)
+  })
+
+  it('is false when the tip is a still-open CHOOSE_CARD (the phase never resolved)', () => {
+    // Bob picked first; Alice is still pending — roundPhase stays selectCards.
+    const history = [chooseCard('bob')]
+    expect(undoWouldReopenRevealedPick(stateWith(history, 'selectCards'))).toBe(false)
+  })
+
+  it('is true when the tip is the CHOOSE_CARD that resolved selectCards (roundPhase already moved on)', () => {
+    const history = [chooseCard('bob'), chooseCard('alice')]
+    expect(undoWouldReopenRevealedPick(stateWith(history, 'actions'))).toBe(true)
+  })
+
+  it('is false once that resolving CHOOSE_CARD has itself already been undone', () => {
+    const history = [chooseCard('bob'), chooseCard('alice'), undo()]
+    // Effective tip is now bob's still-open pick — undoing further doesn't reopen anything already resolved.
+    expect(undoWouldReopenRevealedPick(stateWith(history, 'selectCards'))).toBe(false)
+  })
+
+  it('is true when the tip is the MOVE_TO_DECLINE that resolved the decline phase', () => {
+    const history = [moveToDecline('bob'), moveToDecline('alice')]
+    expect(undoWouldReopenRevealedPick(stateWith(history, 'purchase'))).toBe(true)
+  })
+
+  it('is false when the tip is a still-open MOVE_TO_DECLINE', () => {
+    const history = [moveToDecline('bob')]
+    expect(undoWouldReopenRevealedPick(stateWith(history, 'decline'))).toBe(false)
+  })
+
+  it('is false for a tip entry that is neither CHOOSE_CARD nor MOVE_TO_DECLINE', () => {
+    const history = [entry('alice')]
+    expect(undoWouldReopenRevealedPick(stateWith(history, 'actions'))).toBe(false)
   })
 })

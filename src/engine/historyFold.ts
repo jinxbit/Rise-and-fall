@@ -1,4 +1,5 @@
 import type { LoggedAction } from './actions.ts'
+import type { GameState } from './types.ts'
 
 /**
  * The result of folding UNDO_ACTION/REDO_ACTION entries out of a raw
@@ -75,4 +76,39 @@ export function resolveHistory(history: LoggedAction[]): ResolvedHistory {
 export function redoableTail(history: LoggedAction[]): LoggedAction[] {
   const { substantive, pointer } = walkHistory(history)
   return substantive.slice(pointer)
+}
+
+/**
+ * Whether a plain UNDO_ACTION against `state` right now would revert a
+ * CHOOSE_CARD/MOVE_TO_DECLINE that has already resolved its simultaneous
+ * phase (selectCards/decline respectively) — i.e. put an already-revealed
+ * pick back under wraps rather than merely retract a still-open one.
+ *
+ * `resolveHistory(...).effective.at(-1)` is exactly the entry a bare Undo
+ * reverts next (see resolveHistory's own doc comment), and CLAUDE.md
+ * invariant 4 guarantees that if this entry's own submission emptied
+ * `pendingPlayerIds` and advanced the round, that transition was folded
+ * into this same entry rather than a separate one — so `state.roundPhase`
+ * having already moved past the phase this entry belongs to means this
+ * specific entry is what closed it, not some later one.
+ *
+ * Issue #534: closes the undo-side half of the gap
+ * `GameSettings.lockRevealedInformationEnabled` (issue #529) already closes
+ * on resubmission — see requiresOwnerOverride's doc comment
+ * (supabase/functions/_shared/gameEnforcement.ts). Without this, undo alone
+ * already reopens the phase (re-masking everyone's now-"unrevealed" pick,
+ * HIDDEN_INFORMATION_PLAN.md §5.3), and it was the *next* action attempt
+ * that then got rejected instead — leaving the game stuck mid-reveal with
+ * no visible way forward. Callers combine this with
+ * `lockRevealedInformationEnabled` themselves (this function doesn't know
+ * about that setting) and with whatever owner-override carve-out they use
+ * for `requiresOwnerOverride` — see undo-action/index.ts and GamePage.tsx's
+ * Undo button.
+ */
+export function undoWouldReopenRevealedPick(state: Pick<GameState, 'actionHistory' | 'roundPhase'>): boolean {
+  const tip = resolveHistory(state.actionHistory).effective.at(-1)
+  if (!tip) return false
+  if (tip.action.type === 'CHOOSE_CARD') return state.roundPhase !== 'selectCards'
+  if (tip.action.type === 'MOVE_TO_DECLINE') return state.roundPhase !== 'decline'
+  return false
 }
