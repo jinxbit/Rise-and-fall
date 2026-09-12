@@ -243,7 +243,10 @@ logged as numbered entries in `todo.md`.
 - [x] **Async ("play by turn"):** "your turn" notifications are built and
       sent server-side by Edge Functions, over Discord webhooks
       (`notify-discord-turn`) and Web Push (`notify-web-push`), so they
-      fire with every tab closed. Setup for both is in `README.md`.
+      fire with every tab closed. Setup for both is in `README.md`. The same
+      two channels also cover four room-lifecycle events — player joined
+      lobby, game started, game finished, game canceled — via
+      `notify-discord-lifecycle`/`notify-web-push-lifecycle` (issue #77).
 - [x] **Hotseat:** decided and built — neither of the two approaches
       `README.md` originally posed. One signed-in host seats several named
       local players under their own account
