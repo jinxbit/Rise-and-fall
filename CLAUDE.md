@@ -266,6 +266,7 @@ one check. See `RULE_ENFORCEMENT_PLAN.md` §10 (2026-09-11 update, issue
 | `PROJECT_PLAN.md` | Overall roadmap and open decisions. |
 | `RULE_ENFORCEMENT_PLAN.md` | The server-authority design: enforcement model, forced-action semantics, `ruleEnforcementEnabled` rollout, phases. |
 | `HIDDEN_INFORMATION_PLAN.md` | Redaction of simultaneous-phase secrets (`src/engine/redaction.ts`). |
+| `CHAT_PLAN.md` | Site-wide + in-game chat design (issue #466) — not yet implemented. |
 | `VARIANTS_PLAN.md` | Guilds & Tales variants — 23 Tales designed, a handful implemented. |
 | `UnitActions.md` | Per-unit-action implementation checklist + resolved rules questions. |
 | `ELO_SYSTEM_PLAN.md` | Rating system design (not built). |
