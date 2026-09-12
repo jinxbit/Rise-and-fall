@@ -223,7 +223,9 @@ export async function provisionLiveRoom(config: LiveProjectConfig, fixture: Prod
         .insert({ game_id: gameId, user_id: userId, display_name: player.displayName, avatar_url: null, seat_index: seatIndex, color: player.color })
         .select()
         .single()
-      if (error) throw new Error(`Could not seat ${player.displayName}: ${error.message}`)
+      // Identifies the seat by colour, not displayName: this error can end up
+      // in a failed run's log tail, which becomes a public GitHub issue body.
+      if (error) throw new Error(`Could not seat the ${player.color} seat: ${error.message}`)
       players.push(data as PlayerRow)
     }
 

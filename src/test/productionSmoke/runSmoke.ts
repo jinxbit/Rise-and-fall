@@ -62,9 +62,13 @@ export function fixtureForRoom(fixture: ProductionGameFixture, room: LiveRoom): 
       const breakdown = calculateVPBreakdown(state, fixture.content.achievementContent, fixture.content.taleContent)
       return Object.fromEntries(state.players.map((player) => [player.id, breakdown[player.id]?.total ?? 0]))
     },
+    // Identifies a seat by colour only, never by displayName: this feeds
+    // console.log and assertion messages, which a failed run's log tail
+    // becomes a public GitHub issue's body (smoke.yml's "Redact the run
+    // log" step scrubs secrets and JWTs, not player names).
     describePlayer(playerId: string) {
       const player = finalState.players.find((candidate) => candidate.id === playerId)
-      return player ? `${player.displayName} (${player.color})` : playerId
+      return player ? `${player.color} seat` : playerId
     },
   }
 }

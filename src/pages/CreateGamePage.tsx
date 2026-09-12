@@ -234,7 +234,7 @@ export function CreateGamePage() {
             onChange={(e) => setLockRevealedInformationEnabled(e.target.checked)}
             className="h-4 w-4 rounded border-neutral-700 bg-neutral-900 disabled:opacity-50"
           />
-          Lock a card pick once revealed — only the room owner or an admin, with admin mode on, can undo past it (experimental, unavailable for hotseat)
+          Lock a card pick once revealed — only the room owner or an admin, with admin mode on, can undo past it (unavailable for hotseat)
         </label>
         <button
           disabled={busy || displayNameLoading || name.trim().length === 0 || !playerCountValid}
