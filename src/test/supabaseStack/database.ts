@@ -14,13 +14,13 @@
 // modeled (Realtime, storage, Postgres types/constraints beyond primary keys)
 // the request path throws loudly instead of guessing — see ./postgrestServer.ts.
 
-import type { GameRow, PlayerRow } from '../../lib/dbTypes.ts'
+import type { AppConfigRow, GameRow, PlayerRow } from '../../lib/dbTypes.ts'
 import type { StoredGameState } from '../../lib/gameStateCompression.ts'
 
 export type Row = Record<string, unknown>
 
-/** Only the tables the game write path touches — anything else is a loud 404 from ./postgrestServer.ts. */
-export type TableName = 'profiles' | 'games' | 'players' | 'game_state' | 'game_state_meta'
+/** Only the tables the game write path touches, plus chat (0031_chat_messages.sql) — anything else is a loud 404 from ./postgrestServer.ts. */
+export type TableName = 'profiles' | 'games' | 'players' | 'game_state' | 'game_state_meta' | 'app_config' | 'chat_messages'
 
 /**
  * Who a request runs as. `service_role` bypasses RLS entirely (Supabase's
@@ -85,6 +85,8 @@ const PRIMARY_KEY: Record<TableName, string> = {
   players: 'id',
   game_state: 'game_id',
   game_state_meta: 'game_id',
+  app_config: 'id',
+  chat_messages: 'id',
 }
 
 export type SqlCommand = 'select' | 'insert' | 'update' | 'delete'
@@ -96,7 +98,14 @@ export class Database {
     players: [],
     game_state: [],
     game_state_meta: [],
+    // 0031_chat_messages.sql seeds exactly one row on migration; every fresh
+    // stack starts post-migration, same as a real project would.
+    app_config: [{ id: true, chat_enabled: false }],
+    chat_messages: [],
   }
+
+  /** `generated always as identity` (0031_chat_messages.sql) — the next chat_messages.id. */
+  private nextChatMessageId = 1
 
   /** Direct, RLS-free access for arranging a test's starting fixture — the equivalent of seeding via `psql`, not via the API. */
   seed(table: TableName, row: Row): void {
@@ -180,6 +189,27 @@ export class Database {
         const game = this.game(gameId)
         return this.isSeated(uid, gameId) || (game !== undefined && game.status !== 'lobby') || this.isAdmin(uid)
       }
+
+      // 0031_chat_messages.sql: readable by any signed-in user; no
+      // insert/update/delete policy at all, so nothing `authenticated` does
+      // can flip the kill switch.
+      case 'app_config':
+        return command === 'select'
+
+      case 'chat_messages': {
+        const gameId = row.game_id as string | null
+        if (!this.chatEnabled()) return false
+        if (command === 'select') {
+          if (gameId === null) return true
+          const game = this.game(gameId)
+          return this.isSeated(uid, gameId) || game?.visibility === 'public'
+        }
+        if (command === 'insert') {
+          if (row.sender_id !== uid) return false
+          return gameId === null || this.isSeated(uid, gameId)
+        }
+        return false
+      }
     }
   }
 
@@ -221,6 +251,11 @@ export class Database {
     return Boolean(this.game(gameId)?.settings?.hiddenInformationEnabled)
   }
 
+  /** `public.chat_enabled()` (0031_chat_messages.sql) — the chat kill switch. */
+  private chatEnabled(): boolean {
+    return Boolean((this.rows.app_config as unknown as AppConfigRow[])[0]?.chat_enabled)
+  }
+
   // ---------------------------------------------------------------------------
   // The three statements PostgREST turns a request into.
   // ---------------------------------------------------------------------------
@@ -236,6 +271,16 @@ export class Database {
       const key = PRIMARY_KEY[table]
       if (this.rows[table].some((existing) => existing[key] === row[key])) {
         throw new DatabaseError(409, '23505', `duplicate key value violates unique constraint "${table}_pkey"`)
+      }
+      // 0031_chat_messages.sql's `check (char_length(body) between 1 and
+      // 2000)` — the one column CHECK constraint a test in this repo actually
+      // needs modeled (everything else in this class-level comment's "not
+      // modeled" list stays unmodeled).
+      if (table === 'chat_messages') {
+        const body = row.body as string | undefined
+        if (body === undefined || body.length < 1 || body.length > 2000) {
+          throw new DatabaseError(400, '23514', 'new row for relation "chat_messages" violates check constraint "chat_messages_body_check"')
+        }
       }
       // A row RLS rejects is `new row violates row-level security policy`, a
       // 42501 — not a silent no-op the way a filtered-out UPDATE is.
@@ -291,7 +336,7 @@ export class Database {
    * ../productionSmoke/) would look like it worked while leaving orphans.
    */
   private cascadeFromGame(gameId: string): void {
-    for (const table of ['players', 'game_state', 'game_state_meta'] as const) {
+    for (const table of ['players', 'game_state', 'game_state_meta', 'chat_messages'] as const) {
       this.rows[table] = this.rows[table].filter((row) => row.game_id !== gameId)
     }
   }
@@ -316,6 +361,8 @@ export class Database {
         return { id: globalThis.crypto.randomUUID(), avatar_url: null, is_active: true, joined_at: now }
       case 'profiles':
         return { display_name: null, is_admin: false }
+      case 'chat_messages':
+        return { id: this.nextChatMessageId++, game_id: null, created_at: now }
       default:
         return {}
     }

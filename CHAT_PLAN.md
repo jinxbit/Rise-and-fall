@@ -238,6 +238,36 @@ This is a single global switch, not a per-game or per-environment
 `games.settings` value — the issue asks to gate the *feature*, not any one
 game.
 
+**Decision, 2026-09-12 (issue #563): chat is enabled in pre-production only,
+automatically, and never enabled in production by any code path.** `main` has
+to stay promotable to `production` at any moment for an unrelated change
+(`DELIVERY_PIPELINE_PLAN.md` §3), and chat must not ride along when that
+happens. The default-`false` seed above already gives that for free on first
+deploy; the mechanism for the pre-production half is a step in
+`deploy-supabase.yml`, added right after `Push database migrations`, that
+runs
+
+```sql
+do $$ begin
+  if to_regclass('public.app_config') is not null then
+    update public.app_config set chat_enabled = true;
+  end if;
+end $$;
+```
+
+over the Management API (`scripts/supabase/set-chat-enabled.sh`, following
+`register-database-webhook.sh`'s conventions), guarded by both halves of the
+"not production" check the deploy job's "Refuse to touch the wrong project"
+step already establishes (`needs.resolve.outputs.environment != 'production'`
+**and** the resolved `SUPABASE_PROJECT_ID` isn't
+`vars.PRODUCTION_SUPABASE_PROJECT_ID`), and soft-failing
+(`continue-on-error`) so a flag this low-stakes never fails a migration/
+function deploy. There is deliberately no inverse step: production's deploy
+never forces `chat_enabled = false`, since that would stomp a deliberate
+manual enable. Production is turned on by exactly one hand-run
+`update public.app_config set chat_enabled = true;` in the Supabase SQL
+editor, same as the mechanism described above minus the automation.
+
 ## 5. Realtime delivery
 
 New table added to the `supabase_realtime` publication, the same mechanical
@@ -335,9 +365,11 @@ Everything else in this document is a proposed default, not a request for a
 decision — flag it in review if any default is wrong. These four are
 genuine unknowns this document can't resolve on its own:
 
-1. **Can a public room's non-seated visitor post in-game chat, or only
-   read it?** §2 proposes read-only for a visitor, post-only-if-seated.
-   Confirm or override.
+1. ~~**Can a public room's non-seated visitor post in-game chat, or only
+   read it?**~~ **Resolved (issue #563): read-only.** §2's proposed default
+   stands — a public room's non-seated visitor may read in-game chat but not
+   post to it, enforced by the `post chat` RLS policy's seated-player check
+   (§3), not just a UI restriction.
 2. **Mention syntax and rendering** (`@name` vs `@userid`, plain-text
    storage vs. some markup) — needed before §7 is scoped into an issue, not
    needed for the initial phases.
@@ -360,7 +392,11 @@ other.
    `supabase_realtime` publication (§5). No UI yet. Testable entirely via
    `src/test/supabaseStack/` the same way every other RLS policy in this
    repo is (real Postgres-equivalent policy checks, no Docker needed) —
-   see `CLAUDE.md`'s Testing section.
+   see `CLAUDE.md`'s Testing section. Also carries the `deploy-supabase.yml`
+   change that enables chat automatically in pre-production only (§4's
+   2026-09-12 decision) — that step has nowhere else to live, since it has to
+   land in the same PR as the migration it depends on (`to_regclass('public.
+   app_config')`).
 2. **Site-wide chat UI.** `chatApi.ts`, `ChatPanel.tsx`, wired into
    `HomePage.tsx` above the room lists (§6), gated on `chat_enabled()` and
    session.
