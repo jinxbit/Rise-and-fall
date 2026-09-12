@@ -477,10 +477,19 @@ is dashboard work.
 - **Should the nightly smoke run against both environments,** or only
   production? Both, probably — it keeps staging awake (§8) and catches drift
   there before a promotion does.
-- **Where do hotfixes go?** Under §3's topology a hotfix still goes through
-  `main` and a promotion, which is correct but not instant. If a
-  production-only emergency path is wanted, it needs designing deliberately
-  rather than discovering it at 2am.
+- ~~**Where do hotfixes go?**~~ Resolved (2026-09-12): branch the hotfix
+  from `production`, merge it into `main` with a merge commit, then promote
+  **that commit** rather than `main`'s head. `promote.yml` checks that `main`
+  *contains* the commit, not that it *is* `main`'s head, so this passes both
+  that check and the fast-forward one while carrying nothing unready with it,
+  and leaves `production` an ancestor of `main` exactly as §3 requires — no
+  production-only path, no new workflow. The procedure and its three traps (a
+  squash merge destroys the commit being promoted; a hotfix migration
+  reaches production *before* the pending ones and can wedge the next
+  deploy; pre-production tests the fix merged with everything unready while
+  production gets it alone) are in `PRODUCTION_DEPLOYMENT.md`. The mitigation
+  that matters more is keeping `main` promotable: per-game config lives in
+  `games.settings`, so unfinished work can land dark.
 - **Should `claude-code-review.yml`'s verdict gate auto-merge?** Today it
   comments and nothing depends on it. Making a review blocking is a way to
   raise the bar on unattended merges, but risks deadlock when the reviewer

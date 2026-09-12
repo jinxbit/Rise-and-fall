@@ -66,9 +66,9 @@ Watch, in order:
    badge appears in production, the Vercel environment scoping is wrong.
 4. **Open the app.** Sign in, load a real game, take a turn.
 
-## This release (as of 2026-09-11)
+## This release (as of 2026-09-12)
 
-`main` is ~91 commits ahead of `production` and carries three unapplied
+`main` is ~95 commits ahead of `production` and carries three unapplied
 migrations, all of which change live behaviour:
 
 - `0028_hidden_information_rls_lockdown.sql` — revokes direct client
@@ -96,6 +96,55 @@ A Vercel instant-rollback reverts the frontend alone and leaves the new
 schema and functions deployed, so use it only when the frontend is the
 problem. Migrations have no down step — a migration that needs undoing needs
 a new migration.
+
+## Hotfixes
+
+When production needs a fix and `main` is carrying things that are not ready
+to go out, **branch the hotfix from `production`, not from `main`.**
+
+`promote.yml` checks that `main` *contains* the commit, not that it *is*
+`main`'s head — so a commit branched off `production` and then merged into
+`main` satisfies both that check and the fast-forward one, and drags nothing
+unready with it.
+
+```bash
+git fetch origin
+git checkout -b hotfix/thing origin/production   # branch from production
+# minimal fix, commit -> F
+git push -u origin hotfix/thing
+```
+
+1. Open a PR into `main` and **merge it with a merge commit, not a squash**.
+   A squash rewrites the fix into a new SHA, `F` never exists on `main`, and
+   the promote check fails. `automerge.yml` won't do this for you — it wants
+   a `claude/` branch with the `automerge` label — so merge it by hand.
+   This is also what gets CI green on `F` itself and puts the fix in
+   pre-production.
+2. Promote **`F`** — the hotfix commit's SHA, not `main`'s head. Its
+   ancestry is production's history plus the fix, so that is all production
+   gets.
+3. `production` is now `F`, still an ancestor of `main`, so the next ordinary
+   promotion is still a plain fast-forward. Nothing to back-merge.
+
+**A hotfix should not carry a migration.** Pending migrations on `main` are
+numbered below it, so a hotfix migration reaches production *first* and they
+apply *after* on the next promotion — the reverse of the order
+pre-production tested. `supabase db push` also refuses migrations sorting
+before the last one already applied remotely (it wants `--include-all`,
+which `deploy-supabase.yml` does not pass), so the next promotion's deploy
+can fail outright. If a migration is unavoidable, promote the pending ones
+too and accept that it is a full promotion.
+
+Two other things to know going in: pre-production smoke-tests the fix
+*merged with everything unready*, while production gets the fix alone — they
+only agree if the fix is small and self-contained. And a red pre-production
+blocks promotion even for an unrelated reason, exactly when you are in a
+hurry; the only way through is to fix pre-production first.
+
+**The real mitigation is upstream.** Per-game config lives in the
+`games.settings` jsonb column, so unfinished work can land dark behind a flag
+and `main` stays promotable at all times. A `main` that cannot go out is the
+thing worth avoiding; flags are cheaper than this procedure.
 
 ## One-time setup (already done; here so it can be checked)
 
