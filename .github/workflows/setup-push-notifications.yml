@@ -2,22 +2,23 @@ name: Set Up Web Push Notifications
 
 # One-time (manually-triggered) backend setup for the optional PWA push
 # notifications feature described in README.md's "Push notifications
-# (optional, per player)" section. Automates everything that's safely
-# scriptable with the Supabase CLI:
+# (optional, per player)" section — and, since the fold in todo.md #100, for
+# the game-finished lifecycle push too, which rides the same `game_state`
+# hook. Automates everything that's safely scriptable with the Supabase CLI:
 #   - deploying the notify-web-push Edge Function
 #   - generating a VAPID keypair (only when regenerate_vapid_keys=YES)
 #   - generating the webhook shared secret (every run)
 #   - setting all of the above as Supabase function secrets
+#   - registering the Database Webhook itself (as of issue #77): a webhook is
+#     only a Postgres trigger calling supabase_functions.http_request, so
+#     scripts/supabase/register-database-webhook.sh writes it over the
+#     Management API. If that can't run, the dashboard instructions are
+#     printed instead, as before.
 #
-# Two steps from the README are NOT automated here, because they have no
-# CLI/API equivalent and are dashboard-only, mobile-friendly actions:
-#   1. Setting VITE_VAPID_PUBLIC_KEY wherever the frontend is built/hosted
-#      (this repo's frontend deploys via Vercel, not this repo's Actions,
-#      so there's nothing here that could set it) and redeploying.
-#   2. Supabase dashboard -> Database -> Webhooks -> creating the hook on
-#      game_state/Update targeting notify-web-push with the printed
-#      webhook secret as the x-webhook-secret header.
-# This workflow prints exactly what to paste into both.
+# One step from the README is NOT automated here, because there is nothing
+# here that could do it: setting VITE_VAPID_PUBLIC_KEY wherever the frontend
+# is built/hosted (this repo's frontend deploys via Vercel, not this repo's
+# Actions) and redeploying. This workflow prints exactly what to paste.
 #
 # IMPORTANT: generating a new VAPID keypair invalidates every existing push
 # subscription (they're tied to the public key used when the browser
@@ -25,13 +26,22 @@ name: Set Up Web Push Notifications
 # separately behind regenerate_vapid_keys — leave that 'no' to safely
 # re-run this workflow later just to rotate/re-reveal the webhook secret
 # without disturbing VAPID keys already wired into your frontend host.
-# The private key is never printed and can't be read back afterward; the
-# webhook secret IS printed (deliberately, unmasked) each run since you
-# need to paste it into the Supabase dashboard.
+# The private key is never printed and can't be read back afterward. The
+# webhook secret is printed (deliberately, unmasked) only when the hook
+# could not be registered automatically and you have to paste it into the
+# dashboard yourself.
 
 on:
   workflow_dispatch:
     inputs:
+      environment:
+        description: 'Which Supabase project to set up. Preview is pre-production (what `main` deploys to); production is the live one.'
+        required: true
+        type: choice
+        options:
+          - Preview
+          - production
+        default: Preview
       confirm:
         description: 'Type YES to deploy notify-web-push, (re)generate the webhook secret, and set secrets'
         required: true
@@ -48,16 +58,45 @@ on:
         description: 'Optional: mailto: address for VAPID_CONTACT. Leave blank to keep the default placeholder.'
         required: false
         default: ''
+      anon_key:
+        description: 'Optional: the project anon/publishable key. Only needed if the run reports it could not resolve an Authorization header for the hook by itself.'
+        required: false
+        default: ''
 
 jobs:
   setup:
     runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Refuse to touch the wrong project
+        env:
+          ENVIRONMENT: ${{ github.event.inputs.environment }}
+          PRODUCTION_PROJECT_ID: ${{ vars.PRODUCTION_SUPABASE_PROJECT_ID }}
+        run: |
+          if [ -z "$SUPABASE_PROJECT_ID" ]; then
+            echo "::error::No SUPABASE_PROJECT_ID for environment '$ENVIRONMENT'."
+            exit 1
+          fi
+          if [ -z "$PRODUCTION_PROJECT_ID" ]; then
+            echo "::error::Repository variable PRODUCTION_SUPABASE_PROJECT_ID is not set, so the guard that keeps a non-production run away from production cannot work. Set it (Settings -> Secrets and variables -> Actions -> Variables) to the production project ref."
+            exit 1
+          fi
+          if [ "$ENVIRONMENT" = "production" ]; then
+            if [ "$SUPABASE_PROJECT_ID" != "$PRODUCTION_PROJECT_ID" ]; then
+              echo "::error::Environment 'production' resolved to project '$SUPABASE_PROJECT_ID', but PRODUCTION_SUPABASE_PROJECT_ID says production is '$PRODUCTION_PROJECT_ID'. Refusing to continue."
+              exit 1
+            fi
+          elif [ "$SUPABASE_PROJECT_ID" = "$PRODUCTION_PROJECT_ID" ]; then
+            echo "::error::Environment '$ENVIRONMENT' resolved to the PRODUCTION project ('$PRODUCTION_PROJECT_ID'). That means the '$ENVIRONMENT' GitHub Environment has no SUPABASE_PROJECT_ID of its own and inherited the repository-level one. Add it under Settings -> Environments -> $ENVIRONMENT. Refusing to continue."
+            exit 1
+          fi
+          echo "Environment '$ENVIRONMENT' -> Supabase project '$SUPABASE_PROJECT_ID' (production is '$PRODUCTION_PROJECT_ID')."
 
       - name: Install Supabase CLI
         uses: supabase/setup-cli@v1
@@ -126,43 +165,122 @@ jobs:
             supabase secrets set VAPID_CONTACT="$VAPID_CONTACT"
           fi
 
-      - name: Print remaining manual steps
+      # Soft-failing on purpose: the deploy, keys and secrets above are good
+      # either way, and the summary falls back to the dashboard instructions
+      # with the secret to paste if this can't run.
+      - name: Register the Database Webhook
+        if: ${{ github.event.inputs.confirm == 'YES' }}
+        id: hook
+        continue-on-error: true
+        env:
+          FUNCTION_NAME: notify-web-push
+          WEBHOOK_SECRET: ${{ steps.webhook.outputs.secret }}
+          WEBHOOK_HOOKS: 'game_state:UPDATE'
+          SUPABASE_ANON_KEY: ${{ github.event.inputs.anon_key }}
+        run: ./scripts/supabase/register-database-webhook.sh
+
+      # Sends exactly what the hook now sends. The payload names no real
+      # table, so the function falls through to its "ignored" branch without
+      # notifying anyone — but a mismatched secret still answers 401, and a
+      # project with no VAPID keys set still answers 500.
+      - name: Probe the function
+        if: ${{ github.event.inputs.confirm == 'YES' }}
+        id: probe
+        continue-on-error: true
+        env:
+          WEBHOOK_SECRET: ${{ steps.webhook.outputs.secret }}
+          AUTH_HEADER: ${{ steps.hook.outputs.auth_header }}
+          ANON_KEY: ${{ github.event.inputs.anon_key }}
+        run: |
+          set -uo pipefail
+          auth="$AUTH_HEADER"
+          if [ -z "$auth" ] && [ -n "$ANON_KEY" ]; then auth="Bearer $ANON_KEY"; fi
+          if [ -z "$auth" ]; then
+            echo "result=skipped" >> "$GITHUB_OUTPUT"
+            echo "::notice::Probe skipped: no Authorization header was resolved, so a 401 here would say nothing about this setup."
+            exit 0
+          fi
+          code="$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+            "https://${SUPABASE_PROJECT_ID}.supabase.co/functions/v1/notify-web-push" \
+            -H 'Content-Type: application/json' -H "x-webhook-secret: $WEBHOOK_SECRET" \
+            -H "Authorization: $auth" \
+            --data '{"type":"SETUP_PROBE","table":"__setup_probe","record":null,"old_record":null}' || echo 000)"
+          echo "notify-web-push -> HTTP $code"
+          case "$code" in
+            200) echo "result=ok" >> "$GITHUB_OUTPUT" ;;
+            500)
+              echo "result=problem" >> "$GITHUB_OUTPUT"
+              echo "::warning::notify-web-push answered 500, which for this function means VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY are not set on this project — re-run with regenerate_vapid_keys=YES (and update the frontend), or set them by hand."
+              exit 1 ;;
+            *)
+              echo "result=problem" >> "$GITHUB_OUTPUT"
+              echo "::warning::notify-web-push answered $code to the headers this run just configured — the hook will be treated the same way."
+              exit 1 ;;
+          esac
+
+      - name: Report
         if: ${{ github.event.inputs.confirm == 'YES' }}
         env:
+          ENVIRONMENT: ${{ github.event.inputs.environment }}
+          HOOK: ${{ steps.hook.outcome }}
+          PROBE: ${{ steps.probe.outputs.result }}
           REGEN_VAPID: ${{ github.event.inputs.regenerate_vapid_keys }}
           PUBLIC_KEY: ${{ steps.vapid.outputs.public_key }}
           WEBHOOK_SECRET: ${{ steps.webhook.outputs.secret }}
         run: |
+          set -euo pipefail
           {
-            echo "## Push notification backend: done"
+            echo "## Push notification backend: $ENVIRONMENT"
+            echo
+            echo "Deployed \`notify-web-push\` and set \`PUSH_NOTIFY_WEBHOOK_SECRET\` on project \`$SUPABASE_PROJECT_ID\`."
             echo
             if [ "$REGEN_VAPID" = "YES" ]; then
-              echo "New VAPID keypair generated. Save the public key now — it can't be retrieved again:"
+              echo "### Frontend env var — do this by hand"
               echo
-              echo "### 1. Frontend env var (wherever you host the frontend, e.g. Vercel → Project → Settings → Environment Variables)"
-              echo
-              echo "Set \`VITE_VAPID_PUBLIC_KEY\` to:"
+              echo "A new VAPID keypair was generated. Save the public key now, it can't be retrieved again. Wherever you host the frontend (e.g. Vercel → Project → Settings → Environment Variables), set \`VITE_VAPID_PUBLIC_KEY\` to:"
               echo '```'
               echo "$PUBLIC_KEY"
               echo '```'
-              echo "Then redeploy the frontend so the build picks it up. Every existing push subscription is now invalid until players re-enable push."
+              echo "Then redeploy the frontend so the build picks it up. Every existing push subscription is invalid until players re-enable push."
               echo
             else
               echo "VAPID keys were left unchanged (regenerate_vapid_keys was not YES) — nothing to update on the frontend."
               echo
             fi
-            echo "### 2. Supabase dashboard → Database → Webhooks"
+            if [ "$HOOK" = "success" ]; then
+              echo "### Database Webhook: registered automatically ✅"
+              echo
+              echo "\`game_state\` / Update -> \`notify-web-push\`, carrying the secret this run generated. Nothing to do in the dashboard; re-run this workflow to rotate."
+              echo
+              echo "The secret is not printed here, since nobody has to retype it."
+            else
+              echo "### Database Webhook: register it by hand ⚠️"
+              echo
+              echo "Automatic registration did not run (\`$HOOK\`) — see the step log for why. The function and its secrets are set; only the hook is missing."
+              echo
+              echo "Supabase dashboard for **$ENVIRONMENT** → Database → Webhooks. Create a new hook (or edit the existing notify-web-push target's header if you already made one):"
+              echo "- Table: \`game_state\`, Events: \`Update\`"
+              echo "- Type: **Supabase Edge Functions**, targeting \`notify-web-push\`"
+              echo "- HTTP header \`x-webhook-secret\` set to:"
+              echo '```'
+              echo "$WEBHOOK_SECRET"
+              echo '```'
+              echo
+              echo "This secret was just rotated — if a webhook already existed pointing at notify-web-push, update its header to this new value or it will start getting rejected."
+            fi
             echo
-            echo "Create a new hook (or edit the existing notify-web-push target's header if you already made one):"
-            echo "- Table: \`game_state\`, Events: \`Update\`"
-            echo "- Type: **Supabase Edge Functions**, targeting \`notify-web-push\`"
-            echo "- HTTP header \`x-webhook-secret\` set to:"
-            echo '```'
-            echo "$WEBHOOK_SECRET"
-            echo '```'
-            echo
-            echo "This secret was just rotated — if a webhook already existed pointing at notify-web-push, update its header to this new value or it will start getting rejected."
+            case "$PROBE" in
+              ok) echo "The function answered a probe carrying exactly the headers the hook now sends. ✅" ;;
+              skipped) echo "The post-setup probe was skipped — no Authorization header could be resolved to send with it." ;;
+              *) echo "⚠️ The post-setup probe did not come back clean — see the \"Probe the function\" step." ;;
+            esac
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail if a step that matters failed
+        if: ${{ github.event.inputs.confirm == 'YES' && (steps.hook.outcome == 'failure' || steps.probe.outcome == 'failure') }}
+        run: |
+          echo "::error::Setup finished with warnings — read the job summary. The Edge Function and its secrets are set; the webhook registration and/or the probe did not succeed."
+          exit 1
 
       - name: Skipped (confirmation not given)
         if: ${{ github.event.inputs.confirm != 'YES' }}

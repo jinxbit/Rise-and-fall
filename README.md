@@ -299,14 +299,22 @@ readable by anyone but the backend.
    room code instead of a link. Only the origin is used, so it's fine even
    if the value has a path on the end (e.g. one copy-pasted from the browser
    address bar while testing).
-3. In the Supabase dashboard: **Database → Webhooks → Create a new hook**.
+3. Register the Database Webhook — **Database → Webhooks → Create a new
+   hook** in the Supabase dashboard.
    - Table: `game_state`. Events: `Update`.
    - Type: **Supabase Edge Functions**, targeting `notify-discord-turn`.
    - Add an HTTP header `x-webhook-secret` set to the same value as
      `DISCORD_NOTIFY_WEBHOOK_SECRET` above.
 
-See `supabase/functions/notify-discord-turn/index.ts`'s doc comment for how
-the function decides who to ping.
+Steps 2 and 3 are what the **Set Up Discord Notifications** workflow
+(Actions → Run workflow) does for you, including registering the hook —
+see [Setting the backend up from GitHub Actions](#setting-the-backend-up-from-github-actions)
+below. Re-running it rotates the secret on both sides at once.
+
+This one hook feeds two pings: "it's your turn", and the game-finished
+lifecycle ping (see the lifecycle section below). See
+`supabase/functions/notify-discord-turn/index.ts`'s doc comment for how the
+function decides who to ping.
 
 ## Push notifications (optional, per player)
 
@@ -357,6 +365,12 @@ still fires even if every tab is closed.
    Functions**, targeting `notify-web-push`, with an HTTP header
    `x-webhook-secret` set to `PUSH_NOTIFY_WEBHOOK_SECRET` from step 4.
 
+Steps 4 and 5 (and the keypair in step 2) are what the **Set Up Web Push
+Notifications** workflow does for you — see [Setting the backend up from
+GitHub Actions](#setting-the-backend-up-from-github-actions) below. Step 3
+stays yours: nothing in this repo's Actions can set an env var on the
+frontend host.
+
 See `supabase/functions/notify-web-push/index.ts`'s doc comment for how the
 function decides who to ping — it's the same turn-detection logic as the
 Discord function, just a different delivery channel.
@@ -367,19 +381,31 @@ Same two channels and same per-player opt-in as above (Discord webhook /
 push subscription — there's no separate toggle for these), but for four
 room-lifecycle events instead of "it's your turn": a player joining the
 lobby, the game starting, the game finishing, and the game being canceled.
-Two more Edge Functions send these — `notify-discord-lifecycle` and
-`notify-web-push-lifecycle` — each triggered by three Database Webhooks
-instead of one, since the four events live on three different tables
-(`players` inserts, `games` status updates, `game_state` reaching
-`completed`).
+
+Three of the four are away from the board, on tables the turn notifications
+don't watch, so two more Edge Functions send them —
+`notify-discord-lifecycle` and `notify-web-push-lifecycle`, each triggered by
+two Database Webhooks (`players` inserts and `games` status updates). The
+fourth, **game finished**, is `game_state` reaching `completed` — the same
+table and event the turn notifications already watch, so `notify-discord-turn`
+and `notify-web-push` send that one off the hook they already have. Giving it
+its own hook meant invoking a second function on every action write in every
+game to catch the one write per game that completes it.
 
 Live players already see all of this over Realtime and hotseat has nobody
 remote to ping, so — same rule as the turn notifications above — only async
 games trigger a ping.
 
-**Backend setup** (do this once per Supabase project, in addition to the
-Discord/push backend setup above — these reuse the same `profiles`/
-`push_subscriptions` tables and, for push, the same VAPID keypair):
+**Backend setup**: run the **Set Up Lifecycle Notifications** workflow
+(Actions → Run workflow → pick the environment, type `YES`). It deploys both
+functions, generates and sets `DISCORD_LIFECYCLE_WEBHOOK_SECRET` /
+`PUSH_LIFECYCLE_WEBHOOK_SECRET`, registers all four Database Webhooks, and
+probes both functions with the headers those hooks now carry. Do the
+Discord/push turn-notification setup first: these functions reuse the same
+`profiles` / `push_subscriptions` tables, the same VAPID keypair, and the
+same per-player opt-in — there is no separate toggle for lifecycle events.
+
+By hand instead, once per Supabase project:
 
 1. Deploy both Edge Functions and set their secrets:
    ```bash
@@ -395,13 +421,15 @@ Discord/push backend setup above — these reuse the same `profiles`/
    the existing `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_CONTACT`
    secrets from the push notifications setup above — no new keypair, since
    it's the same subscriber pool.
-2. In the Supabase dashboard: **Database → Webhooks**, create three hooks
-   per function (six total) — one per source table, each targeting the
+2. In the Supabase dashboard: **Database → Webhooks**, create two hooks
+   per function (four total) — one per source table, each targeting the
    matching lifecycle function:
    - Table: `players`, Events: `Insert`
    - Table: `games`, Events: `Update`
-   - Table: `game_state`, Events: `Update` (a third target alongside the
-     existing turn-notification hooks on this same table/event)
+
+   No `game_state` hook: the turn notifications' existing one sends the
+   finished ping. If you set these up before that fold and have one, delete
+   it — the function ignores those payloads now.
 
    Each hook needs Type **Supabase Edge Functions** and an HTTP header
    `x-webhook-secret` set to `DISCORD_LIFECYCLE_WEBHOOK_SECRET` (for the
@@ -409,10 +437,52 @@ Discord/push backend setup above — these reuse the same `profiles`/
    `PUSH_LIFECYCLE_WEBHOOK_SECRET` (for the three targeting
    `notify-web-push-lifecycle`).
 
-Unlike the two notification features above, there's no one-click "Set Up ..."
-GitHub Actions workflow for this one — see
-`supabase/functions/notify-discord-lifecycle/index.ts`'s doc comment for the
-full trigger/dispatch details, which apply to both functions.
+See `supabase/functions/notify-discord-lifecycle/index.ts`'s doc comment for
+the full trigger/dispatch details, which apply to both functions.
+
+## Setting the backend up from GitHub Actions
+
+Three manually-dispatched workflows do the notification backend setup above
+without a terminal — useful for rotating a leaked secret from a phone, and
+the only practical way to keep six hooks consistent:
+
+| Workflow | Deploys | Registers |
+| --- | --- | --- |
+| Set Up Discord Notifications | `notify-discord-turn` | `game_state`/Update |
+| Set Up Web Push Notifications | `notify-web-push` | `game_state`/Update |
+| Set Up Lifecycle Notifications | `notify-discord-lifecycle`, `notify-web-push-lifecycle` | `players`/Insert, `games`/Update, per function |
+
+Each one asks which environment to target (Preview is pre-production, the
+project `main` deploys to; production is the live one) and refuses to run if
+that GitHub Environment has no `SUPABASE_PROJECT_ID` of its own and would
+have silently inherited production's — the same guard, and the same
+incident, as `deploy-supabase.yml`.
+
+Each generates a fresh webhook secret, sets it on the function, and writes
+it into the hooks in the same run, so **re-running a setup workflow is how
+you rotate a secret**; nothing has to be copied by hand and the two sides
+cannot drift apart. A Database Webhook is only a Postgres trigger calling
+`supabase_functions.http_request`, so registration is
+`scripts/supabase/register-database-webhook.sh` sending SQL over the
+Supabase Management API. It describes a function's hooks in full rather than
+adding to them: everything already pointing at that function is dropped
+first, so a hook you created by hand is adopted rather than doubled, and one
+the function no longer needs is retired. `WEBHOOK_DRY_RUN=1` prints the SQL
+instead of sending it.
+
+Two things stay manual, because nothing here can do them:
+
+- Each player's own opt-in — pasting a Discord webhook URL, or enabling
+  push — in the app's Profile screen. That's per-player data.
+- `VITE_VAPID_PUBLIC_KEY` on the frontend host (Vercel), after generating a
+  new keypair. The workflow prints the value to paste.
+
+If registration can't run at all — the Management API is unreachable, or
+Database Webhooks were never enabled on a fresh project (**Database →
+Webhooks → Enable**, which is what installs
+`supabase_functions.http_request`) — the run says so, prints the dashboard
+steps and the secret to paste, and fails loudly rather than leaving you with
+a function nothing calls.
 
 ## Replaying production games in tests
 

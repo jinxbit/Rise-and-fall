@@ -1,33 +1,34 @@
-// Sends Discord pings for game *lifecycle* events — a player joining the
-// lobby, the game starting, finishing, or being canceled — for async games.
-// Sibling of notify-discord-turn (see that function's doc comment for the
-// full "why server-side" rationale); kept as its own function rather than
-// folded into notify-discord-turn because it's driven by three different
-// Database Webhooks instead of one, and dispatches on `payload.table`
-// internally instead of just diffing one row shape.
+// Sends Discord pings for the game *lifecycle* events that happen away from
+// the board — a player joining the lobby, the game starting, or the game
+// being canceled — for async games. Sibling of notify-discord-turn (see that
+// function's doc comment for the full "why server-side" rationale); kept as
+// its own function rather than folded into it because those events are on
+// other tables, so they need their own Database Webhooks either way, and
+// this dispatches on `payload.table` internally instead of diffing one row
+// shape.
 //
-// Trigger: three separate Supabase Database Webhooks (configured in the
-// dashboard — see README's "Lobby & game lifecycle notifications" section),
-// all targeting this function:
-//   - `players` INSERT    -> a player joined the lobby
-//   - `games` UPDATE      -> the game started (status lobby -> active) or
-//                             was canceled (status -> canceled)
-//   - `game_state` UPDATE -> the game finished (state.status -> completed)
+// The fourth lifecycle event, **game finished**, is not here: it is a
+// `game_state` UPDATE, exactly what notify-discord-turn's own webhook
+// already delivers, so it lives there (todo.md #100). Watching that table
+// from here too meant a second hook and a second function invocation on
+// every action write in every game, to catch the one write per game that
+// completes it.
+//
+// Trigger: two separate Supabase Database Webhooks (registered by the Set Up
+// Lifecycle Notifications workflow — see README's "Lobby & game lifecycle
+// notifications" section), both targeting this function:
+//   - `players` INSERT -> a player joined the lobby
+//   - `games` UPDATE   -> the game started (status lobby -> active) or was
+//                          canceled (status -> canceled)
 // Each sends the standard Database Webhook payload
-// (`{ type, table, record, old_record }`). Configure every one of the three
-// webhooks to send the same `x-webhook-secret` header, matching this
-// function's `DISCORD_LIFECYCLE_WEBHOOK_SECRET` secret.
+// (`{ type, table, record, old_record }`). Configure both webhooks to send
+// the same `x-webhook-secret` header, matching this function's
+// `DISCORD_LIFECYCLE_WEBHOOK_SECRET` secret.
 //
 // `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` are provided automatically in
 // the Edge Function runtime, same as notify-discord-turn — the service-role
 // key is what lets this read any player's `profiles.discord_webhook_url`
 // regardless of RLS.
-//
-// A rule-enforced game's `game_state.state` is stored gzip+base64 under
-// `__gz` (src/lib/gameStateCompression.ts) — but `status` is one of the
-// fields duplicated in plaintext alongside it specifically so callers like
-// this one can read it without decompressing, so the finished-game check
-// below works unmodified for both write paths.
 
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2'
 
@@ -45,11 +46,6 @@ interface PlayerRow {
   id: string
   user_id: string
   display_name: string
-}
-
-interface GameStateStatusRow {
-  game_id: string
-  state: { status: string }
 }
 
 interface DatabaseWebhookPayload {
@@ -163,23 +159,6 @@ async function handleGameStatusChange(
   return new Response('ok', { status: 200 })
 }
 
-async function handleGameFinished(
-  supabase: SupabaseClient,
-  oldState: GameStateStatusRow,
-  newState: GameStateStatusRow,
-): Promise<Response> {
-  if (oldState.state.status === 'completed' || newState.state.status !== 'completed') {
-    return new Response('not a finish', { status: 200 })
-  }
-  const game = await fetchGame(supabase, newState.game_id)
-  if (!game || game.play_mode !== 'async') return new Response('not an async game', { status: 200 })
-
-  const players = await fetchPlayers(supabase, game.id)
-  const message = `**Rise & Fall** — ${roomText(game.name, game.room_code, gameUrlFor(game.room_code))} has finished!`
-  await notifyPlayers(supabase, players, message)
-  return new Response('ok', { status: 200 })
-}
-
 Deno.serve(async (req) => {
   const expectedSecret = Deno.env.get('DISCORD_LIFECYCLE_WEBHOOK_SECRET')
   if (expectedSecret && req.headers.get('x-webhook-secret') !== expectedSecret) {
@@ -194,9 +173,6 @@ Deno.serve(async (req) => {
   }
   if (payload.table === 'games' && payload.type === 'UPDATE' && payload.record && payload.old_record) {
     return handleGameStatusChange(supabase, payload.old_record as GameRow, payload.record as GameRow)
-  }
-  if (payload.table === 'game_state' && payload.type === 'UPDATE' && payload.record && payload.old_record) {
-    return handleGameFinished(supabase, payload.old_record as GameStateStatusRow, payload.record as GameStateStatusRow)
   }
   return new Response('ignored', { status: 200 })
 })
