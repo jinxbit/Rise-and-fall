@@ -57,11 +57,81 @@ jobs:
         with:
           deno-version: v2.x
 
+      # Whether AUTOMATION_TOKEN can actually push a workflow file is
+      # invisible at run time: claude-code-action silently falls back to its
+      # App token when the secret is missing, and GitHub only refuses the
+      # push much later, mid-task, once Claude has already done the work.
+      # Issue #563 is what that costs — a finished branch minus one file, and
+      # a diff left for a human to apply by hand.
+      #
+      # So check up front and say so in the log. Never fail the job over it:
+      # almost no task touches .github/workflows/, and none should be blocked
+      # on a scope it will never use.
+      - name: Check the automation token can push workflow files
+        continue-on-error: true
+        env:
+          AUTOMATION_TOKEN: ${{ secrets.AUTOMATION_TOKEN }}
+        run: |
+          set -uo pipefail
+          if [ -z "${AUTOMATION_TOKEN:-}" ]; then
+            echo "::warning::AUTOMATION_TOKEN is not set, so this run uses the GitHub App token and cannot push ANY change under .github/workflows/ — GitHub rejects the whole push, not just that file. See the github_token comment below."
+            exit 0
+          fi
+          # x-oauth-scopes is only returned for a classic PAT. A fine-grained
+          # token returns no such header, and its permissions are not
+          # introspectable this way — hence the distinct message.
+          scopes="$(curl -sS -o /dev/null -D - -H "Authorization: Bearer $AUTOMATION_TOKEN" https://api.github.com/ | tr -d '\r' | awk -F': ' 'tolower($1)=="x-oauth-scopes"{print $2}')"
+          if [ -z "$scopes" ]; then
+            echo "AUTOMATION_TOKEN looks like a fine-grained token (no x-oauth-scopes header), so its permissions cannot be read from here. It needs \"Workflows: Read and write\" to push a workflow file."
+            exit 0
+          fi
+          echo "AUTOMATION_TOKEN scopes: $scopes"
+          case ",$(echo "$scopes" | tr -d ' ')," in
+            *,workflow,*)
+              echo "ok: 'workflow' scope present — a push touching .github/workflows/ will be accepted."
+              ;;
+            *)
+              echo "::warning::AUTOMATION_TOKEN lacks the 'workflow' scope (has: $scopes), so this run cannot push a change under .github/workflows/. Add it under Settings -> Developer settings -> Personal access tokens, or expect any such task to land incomplete."
+              ;;
+          esac
+
       - name: Run Claude Code
         id: claude
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+          # Push with the automation PAT rather than the action's own GitHub
+          # App token, for one reason: a GitHub App token cannot create or
+          # update a file under .github/workflows/ without the `workflows`
+          # permission scope, and GitHub rejects the ENTIRE push the moment
+          # one such file is in it — not just that file. Issue #563 hit this
+          # (todo.md #101): the run had written its deploy-supabase.yml step,
+          # then had to revert that one file back out to get the other eight
+          # landed, and ask for the step to be applied by hand at merge time.
+          # That is exactly the human intervention claude-queue.yml exists to
+          # remove, and it is not rare — chat phases 4 and 6 (#566, #568) both
+          # add a workflow file, as does any future change to CI itself.
+          #
+          # AUTOMATION_TOKEN must therefore carry the `workflow` scope
+          # (classic PAT) or "Workflows: Read and write" (fine-grained). It is
+          # the same secret automerge.yml, claude-branch-pr.yml,
+          # claude-queue.yml and smoke.yml already hold, and the same reason
+          # they hold it: GitHub does not start workflow runs from events its
+          # own GITHUB_TOKEN caused.
+          #
+          # Two consequences, both intended. Commit *authorship* does not
+          # change — the action's own `bot_name`/`bot_id` inputs still default
+          # to claude[bot], so the commits keep reading as the bot's — but the
+          # push and every API call it makes now act as the token's owner, so
+          # that is who appears as the actor on the runs those pushes trigger.
+          # And the agent can reach whatever the PAT can, which is more than
+          # the App token could; that is the real cost here.
+          #
+          # Left unset, the action falls back to its App token and the
+          # workflow-file wall returns silently — the job does not fail, which
+          # is why the scope check below exists.
+          github_token: ${{ secrets.AUTOMATION_TOKEN }}
 
           # This is an optional setting that allows Claude to read CI results on PRs
           additional_permissions: |

@@ -5045,3 +5045,43 @@ by design.
 migration, but does touch `src/lib/**`, which `CLAUDE.md` calls a backend
 path for `deploy-supabase.yml`'s purposes — expect a Supabase deploy to fire
 even though nothing in `supabase/` changed.
+
+## 103. Let the `@claude` Action push workflow files (follow-up to #101)
+
+Entry #101 ends on an unresolved wall: a GitHub App token cannot create or
+update a file under `.github/workflows/` without the `workflows` permission
+scope, and GitHub rejects the **entire push** the moment one such file is in
+it — not just that file. So the issue #563 run wrote its `deploy-supabase.yml`
+step, found it could not push the branch at all, reverted that one file back
+out to land the other eight, and left the diff for a human to apply at merge
+time. That is exactly the manual step `claude-queue.yml` exists to remove, and
+it is not a one-off: chat phases 4 and 6 (#566, #568) each add a workflow
+file, as does any future change to CI itself.
+
+`claude.yml` now passes `AUTOMATION_TOKEN` to `claude-code-action` as its
+`github_token`. That is the same secret `automerge.yml`,
+`claude-branch-pr.yml`, `claude-queue.yml` and `smoke.yml` already hold, for a
+related reason — GitHub does not start workflow runs from events its own
+`GITHUB_TOKEN` caused. **It must carry the `workflow` scope** (classic PAT) or
+"Workflows: Read and write" (fine-grained); that is a property of the secret,
+not of this repository, so nothing here can assert it.
+
+Commit authorship does not change: the action's `bot_name`/`bot_id` inputs
+still default to `claude[bot]`, so its commits keep reading as the bot's. What
+changes is that the push and its API calls act as the token's owner — so that
+is the actor shown on the runs those pushes trigger — and that the agent can
+reach whatever the PAT can, which is more than the App token could. That last
+part is the real cost, and it is the reason this was a deliberate decision
+rather than an obvious fix.
+
+The failure mode this replaces was silent, which was the worst part of it:
+with no token the action just falls back to its App token and the push breaks
+later, mid-task, after the work is done. So `claude.yml` also gained a
+preflight step that reads the token's `x-oauth-scopes` and warns when
+`workflow` is absent — matching on the comma-delimited list so
+`workflow_dispatch` is not mistaken for `workflow`, and reporting "cannot
+verify" for a fine-grained token, which returns no such header. It never fails
+the job: almost no task touches `.github/workflows/`, and none should be
+blocked on a scope it will never use.
+
+No app, engine or schema change.
