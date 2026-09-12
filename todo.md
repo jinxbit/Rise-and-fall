@@ -4972,4 +4972,8 @@ chat never reaches `GameState` (§1).
 
 `npm run lint`, `npm run test` and `npm run build` all pass. This PR touches
 `supabase/migrations/**`, so it needs a human merge, same as any migration
-(`CLAUDE.md`).
+(`CLAUDE.md`). The `deploy-supabase.yml` step itself couldn't be pushed by
+this bot — a GitHub App can't update a workflow file without the `workflows`
+permission scope — so it's applied by hand from the PR description instead;
+everything else (migration, dbTypes, test double, tests, docs) is in the
+pushed commits.
