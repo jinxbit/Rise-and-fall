@@ -4972,8 +4972,16 @@ chat never reaches `GameState` (§1).
 
 `npm run lint`, `npm run test` and `npm run build` all pass. This PR touches
 `supabase/migrations/**`, so it needs a human merge, same as any migration
-(`CLAUDE.md`). The `deploy-supabase.yml` step itself couldn't be pushed by
-this bot — a GitHub App can't update a workflow file without the `workflows`
-permission scope — so it's applied by hand from the PR description instead;
-everything else (migration, dbTypes, test double, tests, docs) is in the
-pushed commits.
+(`CLAUDE.md`).
+
+One wrinkle worth recording, because it will recur: the `deploy-supabase.yml`
+step could not be pushed by the `@claude` Action at all. A GitHub App token
+cannot create or update a file under `.github/workflows/` without the
+`workflows` permission scope, and GitHub rejects the *whole push* the moment
+one is in it — so the run reverted that one file out of the branch to get the
+rest landed, and asked for it to be applied by hand. It was instead restored
+from history by a session whose token does carry the scope, so the branch is
+complete and nothing needs hand-applying. Until `claude.yml` runs the Action
+with a token that has the scope, every future issue that adds or edits a
+workflow file hits this same wall — chat phases 4 and 6 both do (a
+mention-notification setup workflow and a retention cron).
