@@ -4796,3 +4796,75 @@ functions have none either (they're only reachable via a dashboard-
 configured Database Webhook, not from any code path the Vitest suite or the
 in-process Supabase stack drives), so this follows the same precedent.
 `npm run lint`, `npm run test` (1250 tests), and `npm run build` all pass.
+
+## 99. One-click setup for the lifecycle notifications, and Database Webhooks registered from CI (follow-up to #77)
+
+Entry 98 shipped the lifecycle notification functions with a stated
+limitation: the run that built them could not create or edit
+`.github/workflows/*`, so unlike the two turn-notification features there was
+no "Set Up ..." workflow — just a README sequence ending in **six** Database
+Webhooks registered by hand in the dashboard, each with a pasted secret. Six
+hooks × two Supabase projects, and rotating either secret meant editing all
+of them without getting one wrong.
+
+The thing that unlocked this: a "Database Webhook" is not a distinct Supabase
+object. The dashboard's Webhooks screen creates an ordinary Postgres trigger
+calling `supabase_functions.http_request(url, method, headers_json,
+params_json, timeout_ms)` — which is already load-bearing knowledge in this
+repo, since `audit-and-fix-migrations.yml` redacts exactly those trigger
+definitions out of schema dumps (the `x-webhook-secret` value sits in them in
+plaintext; `pg_dump` masks `Authorization` and nothing else). So the step
+everyone called "dashboard-only" is just SQL, and SQL can be sent over the
+Supabase Management API with the `SUPABASE_ACCESS_TOKEN` the setup workflows
+already hold.
+
+Added `scripts/supabase/register-database-webhook.sh`: give it a function
+name, a secret and a `<table>:<EVENT>` list and it registers the hooks.
+Two details make it safe to re-run, which is the whole point — rotation
+becomes "run the workflow again" instead of a dashboard chore:
+
+- **Adopt-or-replace.** Before creating each trigger it drops every existing
+  `http_request` trigger on that table whose definition points at the same
+  function, whatever that trigger is named. A hook made by hand earlier is
+  taken over rather than duplicated (a duplicate would double every
+  notification). The match is on the function URL *including its closing
+  quote*, so `notify-web-push` can't match `notify-web-push-lifecycle`.
+- **The `Authorization` header is resolved, not assumed.** Deployed functions
+  verify a JWT, so a hook sending only `x-webhook-secret` gets a 401 before
+  the function runs; the dashboard hides this by filling the header in.
+  The script prefers copying the header off an existing working hook on the
+  project (whatever key format it uses), then an explicit `anon_key` input,
+  then the Management API's anon key — and if none of those work it changes
+  nothing and tells the caller to fall back.
+
+New `setup-lifecycle-notifications.yml` deploys both lifecycle functions,
+generates and sets both secrets, registers all six hooks, and probes both
+functions with exactly the headers the hooks now carry. The probe payload
+names no real table, so both functions fall through to their `ignored`
+branch without reading a game or notifying anyone — but a mismatched secret
+still answers 401, and `notify-web-push-lifecycle` still answers 500 when the
+VAPID keys from the push setup are missing, which are precisely the two
+failures that otherwise show up only as silence weeks later.
+
+`setup-discord-notifications.yml` and `setup-push-notifications.yml` got the
+same registration step and probe, so their last manual step is gone too, and
+both now print their secret **only** when registration failed and someone
+actually has to paste it.
+
+All three also gained an `environment` input (Preview / production) and
+`deploy-supabase.yml`'s "refuse to touch the wrong project" guard. They had
+neither: they read the repository-level `SUPABASE_PROJECT_ID`, which per that
+workflow's own comment is production's — so "set up notifications" always
+meant production, including the runs you'd want to rehearse on
+pre-production first. Default is Preview now.
+
+Still manual, because nothing in this repo can do it: each player's own
+opt-in (their Discord webhook URL / push permission — per-player data), and
+`VITE_VAPID_PUBLIC_KEY` on the frontend host after a keypair regeneration
+(the frontend deploys via Vercel, not Actions). Enabling Database Webhooks on
+a brand-new project is a one-time dashboard toggle as well; the script checks
+for `supabase_functions.http_request` up front and says so rather than
+failing inside a `DO` block.
+
+No app, engine or schema change — this is delivery tooling only; `npm run
+lint`, `npm run test` and `npm run build` are unaffected but were run anyway.

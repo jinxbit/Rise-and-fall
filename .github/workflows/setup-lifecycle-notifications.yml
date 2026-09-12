@@ -1,0 +1,278 @@
+name: Set Up Lifecycle Notifications
+
+# One-time setup AND secret rotation for README.md's "Lobby & game lifecycle
+# notifications" backend (issue #77): deploys notify-discord-lifecycle and
+# notify-web-push-lifecycle, (re)generates their two webhook secrets, and —
+# unlike the two older setup workflows, which stopped here and printed
+# instructions — registers all six Database Webhooks itself.
+#
+# Six hooks (three tables x two functions) hand-created in a dashboard, each
+# needing the same pasted secret, was the step most likely to be got wrong
+# and the reason rotating these secrets was a chore. A Database Webhook is
+# just a Postgres trigger calling supabase_functions.http_request, so
+# scripts/supabase/register-database-webhook.sh registers them over the
+# Management API instead; see that script's header for how, and for why
+# re-running is safe (it replaces the hooks pointing at each function rather
+# than stacking duplicates, so a hook made by hand earlier is adopted, not
+# doubled).
+#
+# What still can't be automated, and isn't:
+#   - Each player pastes their own Discord webhook URL / enables push in the
+#     app's Profile screen. That is per-player data, not backend config.
+#   - Enabling Database Webhooks on a brand-new project (Database ->
+#     Webhooks -> Enable), which installs supabase_functions.http_request.
+#     The script checks for it and says so rather than failing obscurely.
+#
+# Prerequisites: the Discord and/or push turn-notification setup has already
+# run on this project (Set Up Discord Notifications / Set Up Web Push
+# Notifications). These functions reuse those features' tables and, for push,
+# the same VAPID keypair — there is no separate opt-in for lifecycle events.
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Which Supabase project to set up. Preview is pre-production (what `main` deploys to); production is the live one.'
+        required: true
+        type: choice
+        options:
+          - Preview
+          - production
+        default: Preview
+      confirm:
+        description: 'Type YES to deploy both lifecycle functions, (re)generate their webhook secrets, and register the six Database Webhooks'
+        required: true
+        default: 'no'
+      site_url:
+        description: 'Optional: deployed site origin (e.g. https://your-app.vercel.app) for notification deep links. Leave blank to keep SITE_URL as already set by the turn-notification setup.'
+        required: false
+        default: ''
+      anon_key:
+        description: 'Optional: the project anon/publishable key. Only needed if the run reports it could not resolve an Authorization header for the hooks by itself.'
+        required: false
+        default: ''
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Same guard, and the same 2026-09-09 incident behind it, as
+      # deploy-supabase.yml: a GitHub Environment with no SUPABASE_PROJECT_ID
+      # of its own silently inherits the repository-level one, which is
+      # production's — inheritance here fails towards production.
+      - name: Refuse to touch the wrong project
+        env:
+          ENVIRONMENT: ${{ github.event.inputs.environment }}
+          PRODUCTION_PROJECT_ID: ${{ vars.PRODUCTION_SUPABASE_PROJECT_ID }}
+        run: |
+          if [ -z "$SUPABASE_PROJECT_ID" ]; then
+            echo "::error::No SUPABASE_PROJECT_ID for environment '$ENVIRONMENT'."
+            exit 1
+          fi
+          if [ -z "$PRODUCTION_PROJECT_ID" ]; then
+            echo "::error::Repository variable PRODUCTION_SUPABASE_PROJECT_ID is not set, so the guard that keeps a non-production run away from production cannot work. Set it (Settings -> Secrets and variables -> Actions -> Variables) to the production project ref."
+            exit 1
+          fi
+          if [ "$ENVIRONMENT" = "production" ]; then
+            if [ "$SUPABASE_PROJECT_ID" != "$PRODUCTION_PROJECT_ID" ]; then
+              echo "::error::Environment 'production' resolved to project '$SUPABASE_PROJECT_ID', but PRODUCTION_SUPABASE_PROJECT_ID says production is '$PRODUCTION_PROJECT_ID'. Refusing to continue."
+              exit 1
+            fi
+          elif [ "$SUPABASE_PROJECT_ID" = "$PRODUCTION_PROJECT_ID" ]; then
+            echo "::error::Environment '$ENVIRONMENT' resolved to the PRODUCTION project ('$PRODUCTION_PROJECT_ID'). That means the '$ENVIRONMENT' GitHub Environment has no SUPABASE_PROJECT_ID of its own and inherited the repository-level one. Add it under Settings -> Environments -> $ENVIRONMENT. Refusing to continue."
+            exit 1
+          fi
+          echo "Environment '$ENVIRONMENT' -> Supabase project '$SUPABASE_PROJECT_ID' (production is '$PRODUCTION_PROJECT_ID')."
+
+      - name: Install Supabase CLI
+        if: ${{ github.event.inputs.confirm == 'YES' }}
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link Supabase project
+        if: ${{ github.event.inputs.confirm == 'YES' }}
+        run: supabase link --project-ref "$SUPABASE_PROJECT_ID"
+
+      - name: Deploy lifecycle edge functions
+        if: ${{ github.event.inputs.confirm == 'YES' }}
+        run: |
+          set -euo pipefail
+          supabase functions deploy notify-discord-lifecycle
+          supabase functions deploy notify-web-push-lifecycle
+
+      - name: Generate webhook secrets
+        if: ${{ github.event.inputs.confirm == 'YES' }}
+        id: secrets
+        run: |
+          set -euo pipefail
+          {
+            echo "discord=$(openssl rand -hex 32)"
+            echo "push=$(openssl rand -hex 32)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set Supabase function secrets
+        if: ${{ github.event.inputs.confirm == 'YES' }}
+        env:
+          DISCORD_LIFECYCLE_WEBHOOK_SECRET: ${{ steps.secrets.outputs.discord }}
+          PUSH_LIFECYCLE_WEBHOOK_SECRET: ${{ steps.secrets.outputs.push }}
+          SITE_URL: ${{ github.event.inputs.site_url }}
+        run: |
+          set -euo pipefail
+          supabase secrets set DISCORD_LIFECYCLE_WEBHOOK_SECRET="$DISCORD_LIFECYCLE_WEBHOOK_SECRET"
+          supabase secrets set PUSH_LIFECYCLE_WEBHOOK_SECRET="$PUSH_LIFECYCLE_WEBHOOK_SECRET"
+          if [ -n "$SITE_URL" ]; then
+            supabase secrets set SITE_URL="$SITE_URL"
+          fi
+
+      # Soft-failing on purpose: if the Management API can't be used, the
+      # deploy and the secrets above are still good, and the summary falls
+      # back to the dashboard instructions with the secrets to paste.
+      - name: Register Discord lifecycle webhooks
+        if: ${{ github.event.inputs.confirm == 'YES' }}
+        id: hooks_discord
+        continue-on-error: true
+        env:
+          FUNCTION_NAME: notify-discord-lifecycle
+          WEBHOOK_SECRET: ${{ steps.secrets.outputs.discord }}
+          WEBHOOK_HOOKS: 'players:INSERT games:UPDATE game_state:UPDATE'
+          SUPABASE_ANON_KEY: ${{ github.event.inputs.anon_key }}
+        run: ./scripts/supabase/register-database-webhook.sh
+
+      - name: Register web push lifecycle webhooks
+        if: ${{ github.event.inputs.confirm == 'YES' }}
+        id: hooks_push
+        continue-on-error: true
+        env:
+          FUNCTION_NAME: notify-web-push-lifecycle
+          WEBHOOK_SECRET: ${{ steps.secrets.outputs.push }}
+          WEBHOOK_HOOKS: 'players:INSERT games:UPDATE game_state:UPDATE'
+          SUPABASE_ANON_KEY: ${{ github.event.inputs.anon_key }}
+        run: ./scripts/supabase/register-database-webhook.sh
+
+      # End-to-end check of exactly what a hook sends — same Authorization
+      # header the registration step resolved, same x-webhook-secret. The
+      # payload names no real table, so both functions fall through to their
+      # "ignored" branch without reading a game or notifying anyone, but a
+      # wrong secret still answers 401 and notify-web-push-lifecycle still
+      # answers 500 if the VAPID keys from the push setup are missing. Cheap,
+      # and it catches the two failures that would otherwise only show up as
+      # silence weeks later.
+      - name: Probe both functions
+        if: ${{ github.event.inputs.confirm == 'YES' }}
+        id: probe
+        continue-on-error: true
+        env:
+          DISCORD_SECRET: ${{ steps.secrets.outputs.discord }}
+          PUSH_SECRET: ${{ steps.secrets.outputs.push }}
+          AUTH_HEADER: ${{ steps.hooks_discord.outputs.auth_header }}
+          ANON_KEY: ${{ github.event.inputs.anon_key }}
+        run: |
+          set -uo pipefail
+          auth="$AUTH_HEADER"
+          if [ -z "$auth" ] && [ -n "$ANON_KEY" ]; then auth="Bearer $ANON_KEY"; fi
+          if [ -z "$auth" ]; then
+            # Without it every call gets a 401 from the function gateway's own
+            # JWT check, which says nothing about this setup. Report honestly
+            # rather than raising a false alarm.
+            echo "result=skipped" >> "$GITHUB_OUTPUT"
+            echo "::notice::Probe skipped: no Authorization header was resolved, so a 401 here would be meaningless."
+            exit 0
+          fi
+          base="https://${SUPABASE_PROJECT_ID}.supabase.co/functions/v1"
+          payload='{"type":"SETUP_PROBE","table":"__setup_probe","record":null,"old_record":null}'
+          failed=0
+          probe() {
+            local fn="$1" secret="$2" code
+            code="$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$base/$fn" \
+              -H 'Content-Type: application/json' -H "x-webhook-secret: $secret" \
+              -H "Authorization: $auth" --data "$payload" || echo 000)"
+            echo "$fn -> HTTP $code"
+            case "$code" in
+              200) ;;
+              401) echo "::warning::$fn rejected the headers this run just configured (401) — the hooks will be rejected the same way. Check the function's logs."; failed=1 ;;
+              500) echo "::warning::$fn answered 500 — for notify-web-push-lifecycle that usually means VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY are not set on this project (run Set Up Web Push Notifications first)."; failed=1 ;;
+              *) echo "::warning::$fn answered $code."; failed=1 ;;
+            esac
+          }
+          probe notify-discord-lifecycle "$DISCORD_SECRET"
+          probe notify-web-push-lifecycle "$PUSH_SECRET"
+          echo "result=$([ "$failed" = 0 ] && echo ok || echo problem)" >> "$GITHUB_OUTPUT"
+          exit "$failed"
+
+      - name: Report
+        if: ${{ github.event.inputs.confirm == 'YES' }}
+        env:
+          ENVIRONMENT: ${{ github.event.inputs.environment }}
+          HOOKS_DISCORD: ${{ steps.hooks_discord.outcome }}
+          HOOKS_PUSH: ${{ steps.hooks_push.outcome }}
+          PROBE: ${{ steps.probe.outputs.result }}
+          DISCORD_SECRET: ${{ steps.secrets.outputs.discord }}
+          PUSH_SECRET: ${{ steps.secrets.outputs.push }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## Lifecycle notification backend: $ENVIRONMENT"
+            echo
+            echo "Deployed \`notify-discord-lifecycle\` and \`notify-web-push-lifecycle\`, and set their webhook secrets on project \`$SUPABASE_PROJECT_ID\`."
+            echo
+            if [ "$HOOKS_DISCORD" = "success" ] && [ "$HOOKS_PUSH" = "success" ]; then
+              echo "### Database Webhooks: registered automatically ✅"
+              echo
+              echo "All six hooks now point at the freshly generated secrets — nothing to do in the dashboard:"
+              echo
+              echo "| Function | Table | Event |"
+              echo "|---|---|---|"
+              for fn in notify-discord-lifecycle notify-web-push-lifecycle; do
+                echo "| \`$fn\` | \`players\` | Insert |"
+                echo "| \`$fn\` | \`games\` | Update |"
+                echo "| \`$fn\` | \`game_state\` | Update |"
+              done
+              echo
+              echo "The secrets themselves are not printed here, since nobody has to retype them. Re-run this workflow to rotate them."
+            else
+              echo "### Database Webhooks: register these by hand ⚠️"
+              echo
+              echo "Automatic registration did not run (discord: \`$HOOKS_DISCORD\`, push: \`$HOOKS_PUSH\`) — see the step logs for why. The functions and secrets above are set; only the hooks are missing."
+              echo
+              echo "In the Supabase dashboard for **$ENVIRONMENT** → Database → Webhooks, create three hooks per function (six total), Type **Supabase Edge Functions**:"
+              echo "- Table \`players\`, Events \`Insert\`"
+              echo "- Table \`games\`, Events \`Update\`"
+              echo "- Table \`game_state\`, Events \`Update\`"
+              echo
+              echo "HTTP header \`x-webhook-secret\` for the three targeting \`notify-discord-lifecycle\`:"
+              echo '```'
+              echo "$DISCORD_SECRET"
+              echo '```'
+              echo "…and for the three targeting \`notify-web-push-lifecycle\`:"
+              echo '```'
+              echo "$PUSH_SECRET"
+              echo '```'
+              echo
+              echo "Both secrets were just (re)generated: any hook that already existed must be updated to these values or it will start getting rejected."
+            fi
+            echo
+            case "$PROBE" in
+              ok) echo "Both functions answered a probe request carrying exactly the headers the hooks now send. ✅" ;;
+              skipped) echo "The post-setup probe was skipped — no Authorization header could be resolved to send with it." ;;
+              *) echo "⚠️ The post-setup probe did not come back clean — see the \"Probe both functions\" step." ;;
+            esac
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail if a step that matters failed
+        if: ${{ github.event.inputs.confirm == 'YES' && (steps.hooks_discord.outcome == 'failure' || steps.hooks_push.outcome == 'failure' || steps.probe.outcome == 'failure') }}
+        run: |
+          echo "::error::Setup finished with warnings — read the job summary. The Edge Functions and their secrets are set; the webhook registration and/or the probe did not succeed."
+          exit 1
+
+      - name: Skipped (confirmation not given)
+        if: ${{ github.event.inputs.confirm != 'YES' }}
+        run: |
+          echo "::notice::confirm input was '${{ github.event.inputs.confirm }}', not 'YES' — nothing was deployed, generated or registered. Re-run with confirm=YES when ready."
