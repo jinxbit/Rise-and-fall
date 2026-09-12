@@ -4935,7 +4935,9 @@ delete policy at all, mirroring the `profiles.is_admin` precedent
 `chat_messages`' policies resolve open question §10.1 with the doc's
 proposed default — a public room's non-seated visitor can read that game's
 chat but not post to it, enforced by the `post chat` policy's seated-player
-check, not just a UI restriction. Both tables added to `supabase_realtime`,
+check, not just a UI restriction. `chat_messages` added to
+`supabase_realtime` (`app_config` is not — the client reads the flag once on
+load, and a table nothing subscribes to has no reason to be published),
 same guarded pattern `0001_init_schema.sql`/`0025_game_state_meta.sql` use.
 
 The kill switch needed a second decision (recorded in `CHAT_PLAN.md` §4):
