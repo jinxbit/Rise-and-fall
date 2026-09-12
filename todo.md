@@ -4741,3 +4741,58 @@ No change to `calculatePurchaseCost` itself, to hidden-information redaction
 already public), or to any existing game's stored data — this only changes
 how the purchase phase's turn-taking is sequenced from here on. `npm run
 lint`, `npm run test`, and `npm run build` all pass.
+
+## 98. Lobby & game lifecycle notifications: player joined, game started, finished, canceled (issue #77)
+
+Requested: extend the existing "it's your turn" notification system to four
+more events — a player joining the lobby, the game starting, the game
+finishing, and the game being canceled.
+
+Both new events' underlying states already existed and needed no schema
+work: `games.status` has had a `'canceled'` value since
+`0008_room_lifecycle.sql`, and "finished" is `game_state.state.status ===
+'completed'` (set by `src/engine/round.ts`) — `games.status` itself never
+becomes `'completed'`, a pre-existing quirk documented in `dbTypes.ts` and
+`0008_room_lifecycle.sql`'s own header comment. `startGameFromLobby()`
+(`gameApi.ts`) flips `games.status` from `'lobby'` to `'active'` on both
+write paths (client-trusted and the `start-game` Edge Function), so a single
+`games` UPDATE watch covers "started" for both.
+
+Added two new Edge Functions, siblings of `notify-discord-turn`/
+`notify-web-push`: `notify-discord-lifecycle` and
+`notify-web-push-lifecycle`. Unlike the turn-notification pair (one
+Database Webhook each, on `game_state` UPDATE), each new function is driven
+by three separate Database Webhooks — `players` INSERT (player joined),
+`games` UPDATE (started/canceled, distinguished by the old/new `status`
+values in the payload), and `game_state` UPDATE (finished, diffing
+`state.status -> 'completed'`) — and dispatches on the webhook payload's
+`table` field internally rather than getting a dedicated function per event,
+to avoid needing eight near-duplicate files for four events across two
+channels. Same async-only rule as the turn notifications (live players get
+Realtime, hotseat has nobody remote to ping), same per-player opt-in
+channels (a player's existing `profiles.discord_webhook_url` / push
+subscription, set up once for turn notifications, covers these too — no new
+opt-in surface). "Started"/"canceled" notify every seated player (the
+Database Webhook payload carries no caller identity, so there's no way to
+exclude "the player who clicked the button" the way "player joined" can
+exclude the joiner); "finished" stays silent on the winner rather than
+decompressing a rule-enforced game's gzip'd `game_state.state` for
+`winnerPlayerIds` (not one of the fields `gameStateCompression.ts` duplicates
+in plaintext) — kept out of scope for a first pass.
+
+Documented backend setup (Edge Function deploy, new
+`DISCORD_LIFECYCLE_WEBHOOK_SECRET`/`PUSH_LIFECYCLE_WEBHOOK_SECRET` secrets,
+six new dashboard Database Webhook registrations) in README.md's new "Lobby
+& game lifecycle notifications" section, reusing the existing VAPID keypair
+for push. No new GitHub Actions "Set Up ..." workflow this time (unlike
+`setup-discord-notifications.yml`/`setup-push-notifications.yml`) — left as
+a manual `supabase functions deploy`/`secrets set` sequence in README
+instead.
+
+No engine, schema, or existing-function change — this only adds two new,
+independently-deployed Edge Functions and their README setup instructions.
+No new automated test coverage: the two existing turn-notification
+functions have none either (they're only reachable via a dashboard-
+configured Database Webhook, not from any code path the Vitest suite or the
+in-process Supabase stack drives), so this follows the same precedent.
+`npm run lint`, `npm run test` (1250 tests), and `npm run build` all pass.

@@ -361,6 +361,59 @@ See `supabase/functions/notify-web-push/index.ts`'s doc comment for how the
 function decides who to ping — it's the same turn-detection logic as the
 Discord function, just a different delivery channel.
 
+## Lobby & game lifecycle notifications (optional, per player)
+
+Same two channels and same per-player opt-in as above (Discord webhook /
+push subscription — there's no separate toggle for these), but for four
+room-lifecycle events instead of "it's your turn": a player joining the
+lobby, the game starting, the game finishing, and the game being canceled.
+Two more Edge Functions send these — `notify-discord-lifecycle` and
+`notify-web-push-lifecycle` — each triggered by three Database Webhooks
+instead of one, since the four events live on three different tables
+(`players` inserts, `games` status updates, `game_state` reaching
+`completed`).
+
+Live players already see all of this over Realtime and hotseat has nobody
+remote to ping, so — same rule as the turn notifications above — only async
+games trigger a ping.
+
+**Backend setup** (do this once per Supabase project, in addition to the
+Discord/push backend setup above — these reuse the same `profiles`/
+`push_subscriptions` tables and, for push, the same VAPID keypair):
+
+1. Deploy both Edge Functions and set their secrets:
+   ```bash
+   supabase functions deploy notify-discord-lifecycle
+   supabase secrets set DISCORD_LIFECYCLE_WEBHOOK_SECRET=$(openssl rand -hex 32)
+
+   supabase functions deploy notify-web-push-lifecycle
+   supabase secrets set PUSH_LIFECYCLE_WEBHOOK_SECRET=$(openssl rand -hex 32)
+   ```
+   Both reuse `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` (automatic) and
+   `SITE_URL` (optional, already set above if you configured turn
+   notifications) for the game link. `notify-web-push-lifecycle` also reuses
+   the existing `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_CONTACT`
+   secrets from the push notifications setup above — no new keypair, since
+   it's the same subscriber pool.
+2. In the Supabase dashboard: **Database → Webhooks**, create three hooks
+   per function (six total) — one per source table, each targeting the
+   matching lifecycle function:
+   - Table: `players`, Events: `Insert`
+   - Table: `games`, Events: `Update`
+   - Table: `game_state`, Events: `Update` (a third target alongside the
+     existing turn-notification hooks on this same table/event)
+
+   Each hook needs Type **Supabase Edge Functions** and an HTTP header
+   `x-webhook-secret` set to `DISCORD_LIFECYCLE_WEBHOOK_SECRET` (for the
+   three targeting `notify-discord-lifecycle`) or
+   `PUSH_LIFECYCLE_WEBHOOK_SECRET` (for the three targeting
+   `notify-web-push-lifecycle`).
+
+Unlike the two notification features above, there's no one-click "Set Up ..."
+GitHub Actions workflow for this one — see
+`supabase/functions/notify-discord-lifecycle/index.ts`'s doc comment for the
+full trigger/dispatch details, which apply to both functions.
+
 ## Replaying production games in tests
 
 Real games can be turned into regression tests by dropping their export into
