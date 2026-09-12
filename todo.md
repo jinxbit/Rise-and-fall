@@ -4868,3 +4868,52 @@ failing inside a `DO` block.
 
 No app, engine or schema change — this is delivery tooling only; `npm run
 lint`, `npm run test` and `npm run build` are unaffected but were run anyway.
+
+## 100. Fold the game-finished ping into the turn notifications (follow-up to #99)
+
+Entry 98 gave each lifecycle function three Database Webhooks, one of which
+was `game_state` UPDATE — the same table and the same event the turn
+notifications have watched since entry 70. So every action write in every
+game was fanning out to four Edge Function invocations (Discord turn, push
+turn, and both lifecycle functions) where two would do, and the two extra
+existed to catch the single write per game that sets `state.status` to
+`completed`. Entry 99 automated registering those hooks, which made the
+redundancy cheap to live with but no less real.
+
+`handleGameFinished` moved out of both lifecycle functions and into their
+turn-notification siblings, which already receive exactly that payload. The
+lifecycle functions keep the three events that genuinely live elsewhere —
+`players` INSERT (joined) and `games` UPDATE (started/canceled) — so the
+registration list per function drops from three hooks to two, four in total
+instead of six. Message wording, the async-only rule and the recipient sets
+are unchanged; a completed game leaves nobody pending, so the finish branch
+and the turn branch can never both fire on one payload.
+
+Two incidental improvements while in there: `notify-web-push`'s inline
+subscription send became `pushToUsers()`, shared by both of its branches
+(one copy of the 404/410 dead-subscription cleanup rather than two), and
+`gameUrlFor()` was extracted in both turn functions — the lifecycle versions
+already had it. A subscriptions-lookup failure still surfaces as a 500 in the
+turn path, and now does in the finish path too, where the lifecycle version
+had swallowed it.
+
+The registration script was tightened to match: `WEBHOOK_HOOKS` now describes
+a function's hooks *in full* rather than adding to them — every trigger
+pointing at that function is dropped first, on any table, before the listed
+ones are created. That is what retires the lifecycle functions' old
+`game_state` hooks on the next setup run; without it they would have kept
+invoking a function that now ignores them.
+
+Rollout ordering is worth knowing: deploy all four functions together
+(`supabase functions deploy` with no arguments, which is what
+`deploy-supabase.yml` runs) — the lifecycle functions stop handling
+`game_state` in the same push that teaches the turn functions to handle it.
+Deployed the other way round, a game finishing in the gap gets no ping; only
+a stale *lifecycle* deploy paired with a fresh *turn* deploy could double one,
+which that ordering makes a sub-second window. The old hooks left behind until
+the next setup run are harmless — the new lifecycle code answers `ignored`.
+
+`npm run lint`, `npm run test` (1250 tests) and `npm run build` all pass;
+`deno check` on the four functions reports only the four `payload.record as
+GameRow` casts that predate this work (main has eight — the four removed with
+`handleGameFinished`). No app, engine or schema change.

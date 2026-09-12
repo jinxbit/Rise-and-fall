@@ -1,7 +1,9 @@
 name: Set Up Discord Notifications
 
 # One-time setup AND secret rotation for README.md's "Discord turn
-# notifications" backend. Deploys notify-discord-turn and (re)generates
+# notifications" backend — and, since the fold in todo.md #100, for the
+# game-finished lifecycle ping too, which rides the same `game_state` hook.
+# Deploys notify-discord-turn and (re)generates
 # DISCORD_NOTIFY_WEBHOOK_SECRET — safe to re-run any time you need to
 # rotate that secret (e.g. after it's been exposed somewhere it
 # shouldn't have been), since rotating it doesn't break anything for

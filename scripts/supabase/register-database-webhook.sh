@@ -21,13 +21,17 @@
 # with a hand-pasted secret — the step most likely to be got wrong, and the
 # reason rotating a webhook secret was a chore rather than a button.
 #
-# Registration is idempotent and rotation-safe. Before creating each
-# trigger it drops every existing http_request trigger on that table whose
-# definition points at this same function, so:
+# Registration is idempotent and rotation-safe. WEBHOOK_HOOKS describes the
+# function's hooks in full, not an addition to them: every existing
+# http_request trigger pointing at this function is dropped first, whatever
+# table it is on and whatever it is called, so
 #   - re-running with a fresh secret updates the header instead of stacking
-#     a second hook (which would double every notification), and
-#   - a hook originally created by hand in the dashboard, under whatever
-#     name, is adopted rather than duplicated.
+#     a second hook (which would double every notification),
+#   - a hook originally created by hand in the dashboard is adopted rather
+#     than duplicated, and
+#   - a hook on a table the function has stopped watching is removed (this is
+#     what retires the lifecycle functions' old `game_state` hooks, todo.md
+#     #100) instead of invoking it for nothing on every write.
 # The match is on the function URL *including its closing quote*, so
 # `notify-web-push` never matches `notify-web-push-lifecycle`.
 #
@@ -162,21 +166,19 @@ build_sql() {
   headers_json="$(jq -nc --arg auth "$AUTH_HEADER" --arg secret "$WEBHOOK_SECRET" \
     '{"Content-Type": "application/json", "Authorization": $auth, "x-webhook-secret": $secret}')"
 
-  for hook in $WEBHOOK_HOOKS; do
-    table="${hook%%:*}"
-    events="${hook#*:}"
-    [ "$table" = "$hook" ] && fail_hard "WEBHOOK_HOOKS entry '$hook' is not <table>:<EVENT>"
-    event="$(printf '%s' "$events" | tr ',' ' ' | tr '[:upper:]' '[:lower:]')"
-    trigger_name="$(printf '%s_%s_%s' "${FUNCTION_NAME//-/_}" "$table" "$(printf '%s' "$events" | tr ',' '_' | tr '[:upper:]' '[:lower:]')")"
-
-    # Adopt-or-replace: drop whatever already points at this function on this
-    # table, whatever it is called, then create ours under a stable name.
-    cat <<SQL
+  # Drop every trigger already pointing at this function, on any table, before
+  # creating the listed ones — the function's hooks end up being exactly what
+  # WEBHOOK_HOOKS says and nothing else. That makes this the whole update, not
+  # just an addition: a hook made by hand under some other name is adopted
+  # rather than duplicated (a duplicate would double every notification), and
+  # a hook on a table the function has stopped watching is cleaned up instead
+  # of being left to invoke it for nothing.
+  cat <<SQL
 do \$register\$
 declare existing record;
 begin
   for existing in
-    select tg.tgname
+    select tg.tgname, cl.relname, nsp.nspname
     from pg_trigger tg
     join pg_class cl on cl.oid = tg.tgrelid
     join pg_namespace nsp on nsp.oid = cl.relnamespace
@@ -184,14 +186,23 @@ begin
     join pg_namespace pn on pn.oid = p.pronamespace
     where not tg.tgisinternal
       and pn.nspname = 'supabase_functions' and p.proname = 'http_request'
-      and nsp.nspname = 'public' and cl.relname = $(sql_literal "$table")
       and pg_get_triggerdef(tg.oid) like $(sql_literal "%${FUNCTION_URL}'%")
   loop
-    raise notice 'replacing existing webhook trigger %', existing.tgname;
-    execute format('drop trigger if exists %I on public.%I', existing.tgname, $(sql_literal "$table"));
+    raise notice 'replacing existing webhook trigger % on %.%', existing.tgname, existing.nspname, existing.relname;
+    execute format('drop trigger if exists %I on %I.%I', existing.tgname, existing.nspname, existing.relname);
   end loop;
 end
 \$register\$;
+SQL
+
+  for hook in $WEBHOOK_HOOKS; do
+    table="${hook%%:*}"
+    events="${hook#*:}"
+    [ "$table" = "$hook" ] && fail_hard "WEBHOOK_HOOKS entry '$hook' is not <table>:<EVENT>"
+    event="$(printf '%s' "$events" | tr ',' ' ' | tr '[:upper:]' '[:lower:]')"
+    trigger_name="$(printf '%s_%s_%s' "${FUNCTION_NAME//-/_}" "$table" "$(printf '%s' "$events" | tr ',' '_' | tr '[:upper:]' '[:lower:]')")"
+
+    cat <<SQL
 
 drop trigger if exists $trigger_name on public.$table;
 create trigger $trigger_name

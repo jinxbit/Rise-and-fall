@@ -5,13 +5,23 @@
 // to be readable by co-players, and the ping no longer depends on a
 // browser tab staying open after the triggering write).
 //
-// Trigger: a Supabase Database Webhook on `game_state` UPDATE (configured
-// in the dashboard, see README) POSTs the standard Database Webhook payload
-// here — `{ type: 'UPDATE', table: 'game_state', record, old_record }` —
-// with `record`/`old_record` being the new/old game_state rows. Configure
-// the webhook to send a custom header `x-webhook-secret: <a random value>`
-// and set that same value as this function's `DISCORD_NOTIFY_WEBHOOK_SECRET`
-// secret, so this endpoint can't be triggered by anyone who finds the URL.
+// Trigger: a Supabase Database Webhook on `game_state` UPDATE (registered by
+// the Set Up Discord Notifications workflow, see README) POSTs the standard
+// Database Webhook payload here — `{ type: 'UPDATE', table: 'game_state',
+// record, old_record }` — with `record`/`old_record` being the new/old
+// game_state rows. Configure the webhook to send a custom header
+// `x-webhook-secret: <a random value>` and set that same value as this
+// function's `DISCORD_NOTIFY_WEBHOOK_SECRET` secret, so this endpoint can't
+// be triggered by anyone who finds the URL.
+//
+// That one webhook feeds two different pings. Besides "it's your turn", this
+// function also sends the **game finished** lifecycle ping, because a game
+// finishing *is* a `game_state` UPDATE — same table, same event, same
+// payload. It lived in notify-discord-lifecycle at first (issue #77), which
+// meant a second hook and a second function invocation on every action write
+// in every game to catch the one write per game that completes it. The other
+// three lifecycle events are on other tables and are still that function's;
+// see its doc comment, and todo.md #100 for the fold.
 //
 // `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` are provided automatically
 // in the Edge Function runtime — the service-role key is what lets this
@@ -22,7 +32,7 @@
 // (from their Discord OAuth identity) so the ping can `@mention` them —
 // a plain name in a webhook message doesn't actually notify anyone.
 
-import { createClient } from 'jsr:@supabase/supabase-js@2'
+import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2'
 
 // --- Pure turn-order logic, ported from src/engine/turnOrder.ts and
 // src/engine/boardSetup.ts (currentTilePlacerId/currentUnitPlacerId). Deno
@@ -81,6 +91,14 @@ function pendingActorIds(state: GameState): string[] {
   return []
 }
 
+// A game_state UPDATE that moves the state to `completed` is the "game
+// finished" event. `status` is one of the fields gameStateCompression.ts
+// duplicates in plaintext alongside a rule-enforced game's gzipped state, so
+// this reads correctly on both write paths without decompressing anything.
+function justFinished(oldState: GameState, newState: GameState): boolean {
+  return oldState.status !== 'completed' && newState.status === 'completed'
+}
+
 // --- Human-readable phase label, mirrors src/lib/discordNotify.ts's ---
 const ROUND_PHASE_LABEL: Record<RoundPhase, string> = {
   selectCards: 'select a card',
@@ -95,6 +113,23 @@ function phaseLabel(state: GameState): string {
 }
 
 // --- Discord ---
+
+// SITE_URL is an optional secret (supabase secrets set SITE_URL=...) — without
+// it the message falls back to showing the room code instead of a clickable link.
+// Only the origin is used, so a value that's accidentally a full page URL (e.g.
+// copy-pasted from the browser while testing, like https://site.example/lobby/AB12)
+// still produces a correct link instead of nesting that path into the game URL.
+function gameUrlFor(roomCode: string): string | null {
+  const siteUrl = Deno.env.get('SITE_URL')
+  if (!siteUrl) return null
+  try {
+    return `${new URL(siteUrl).origin}/game/${roomCode}`
+  } catch {
+    // Malformed SITE_URL secret — fall back to the room code rather than emitting a broken link.
+    return null
+  }
+}
+
 const WEBHOOK_URL_PATTERN = /^https:\/\/(?:discord\.com|discordapp\.com)\/api\/webhooks\/\d+\/[\w-]+$/
 
 // Kept in sync with src/lib/discordNotify.ts's turnNotificationMessage — see
@@ -135,6 +170,40 @@ async function sendDiscordNotification(webhookUrl: string, content: string): Pro
   }
 }
 
+// Identical wording to the version this replaces in notify-discord-lifecycle,
+// which still sends the other three lifecycle pings.
+function roomText(name: string, roomCode: string, url: string | null): string {
+  return url ? `[${name}](${url})` : `**${name}** (room \`${roomCode}\`)`
+}
+
+async function handleGameFinished(supabase: SupabaseClient, gameId: string): Promise<Response> {
+  const { data: game } = await supabase.from('games').select('room_code, name, play_mode').eq('id', gameId).maybeSingle()
+  // Live players watched it end over Realtime; hotseat is one shared device.
+  // Same async-only rule as the turn ping below.
+  if (!game || game.play_mode !== 'async') return new Response('not an async game', { status: 200 })
+
+  const { data: players } = await supabase.from('players').select('user_id').eq('game_id', gameId)
+  if (!players || players.length === 0) return new Response('no players', { status: 200 })
+
+  const { data: profiles } = await supabase
+    .from('profiles')
+    .select('user_id, discord_webhook_url')
+    .in(
+      'user_id',
+      players.map((p: { user_id: string }) => p.user_id),
+    )
+
+  const message = `**Rise & Fall** — ${roomText(game.name, game.room_code, gameUrlFor(game.room_code))} has finished!`
+  await Promise.allSettled(
+    ((profiles ?? []) as { user_id: string; discord_webhook_url: string | null }[]).map((profile) => {
+      const webhookUrl = profile.discord_webhook_url
+      if (!webhookUrl || !WEBHOOK_URL_PATTERN.test(webhookUrl)) return Promise.resolve()
+      return sendDiscordNotification(webhookUrl, message)
+    }),
+  )
+  return new Response('ok', { status: 200 })
+}
+
 interface DatabaseWebhookPayload {
   type: string
   table: string
@@ -153,13 +222,20 @@ Deno.serve(async (req) => {
     return new Response('ignored', { status: 200 })
   }
 
+  const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
+
+  // The write that completes a game leaves nobody pending, so these two
+  // branches can't both have something to say about the same payload.
+  if (justFinished(payload.old_record.state, payload.record.state)) {
+    return handleGameFinished(supabase, payload.record.game_id)
+  }
+
   const wasPending = new Set(pendingActorIds(payload.old_record.state))
   const nowPending = pendingActorIds(payload.record.state).filter((id) => !wasPending.has(id))
   if (nowPending.length === 0) {
     return new Response('no new pending players', { status: 200 })
   }
 
-  const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
   const gameId = payload.record.game_id
 
   const { data: game, error: gameError } = await supabase
@@ -172,20 +248,7 @@ Deno.serve(async (req) => {
   // shared device with nobody to page. Only async games need a ping.
   if (!game || game.play_mode !== 'async') return new Response('not an async game', { status: 200 })
 
-  // SITE_URL is an optional secret (supabase secrets set SITE_URL=...) — without
-  // it the message falls back to showing the room code instead of a clickable link.
-  // Only the origin is used, so a value that's accidentally a full page URL (e.g.
-  // copy-pasted from the browser while testing, like https://site.example/lobby/AB12)
-  // still produces a correct link instead of nesting that path into the game URL.
-  const siteUrl = Deno.env.get('SITE_URL')
-  let gameUrl: string | null = null
-  if (siteUrl) {
-    try {
-      gameUrl = `${new URL(siteUrl).origin}/game/${game.room_code}`
-    } catch {
-      // Malformed SITE_URL secret — fall back to the room code rather than emitting a broken link.
-    }
-  }
+  const gameUrl = gameUrlFor(game.room_code)
   const phase = phaseLabel(payload.record.state)
   const round = payload.record.state.status === 'active' ? payload.record.state.turn : null
 

@@ -2,8 +2,9 @@ name: Set Up Web Push Notifications
 
 # One-time (manually-triggered) backend setup for the optional PWA push
 # notifications feature described in README.md's "Push notifications
-# (optional, per player)" section. Automates everything that's safely
-# scriptable with the Supabase CLI:
+# (optional, per player)" section — and, since the fold in todo.md #100, for
+# the game-finished lifecycle push too, which rides the same `game_state`
+# hook. Automates everything that's safely scriptable with the Supabase CLI:
 #   - deploying the notify-web-push Edge Function
 #   - generating a VAPID keypair (only when regenerate_vapid_keys=YES)
 #   - generating the webhook shared secret (every run)
