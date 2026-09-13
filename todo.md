@@ -4987,3 +4987,61 @@ complete and nothing needs hand-applying. Until `claude.yml` runs the Action
 with a token that has the scope, every future issue that adds or edits a
 workflow file hits this same wall — chat phases 4 and 6 both do (a
 mention-notification setup workflow and a retention cron).
+
+## 102. Chat phase 2: site-wide chat UI on the main page (issue #564)
+
+Phase 2 of `CHAT_PLAN.md`'s §11 execution order, on top of phase 1's schema/
+RLS/kill switch (#563, entry 101 above): the site-wide chat surface itself.
+
+`src/lib/chatApi.ts` is a small typed data layer mirroring `gameApi.ts`'s
+shape, parameterized by `gameId: string | null` throughout (`null` =
+site-wide) so phase 3 (in-game chat, #565) reuses it unchanged: `isChatEnabled()`,
+`listChatMessages()`, `postChatMessage()`, `subscribeToChatMessages()`, and
+`getChatDisplayNames()`. `isChatEnabled()` reads `app_config.chat_enabled` via
+a plain table select rather than a `chat_enabled()` RPC call — `CHAT_PLAN.md`
+§4 explicitly allows either ("a cheap RPC call, or folded into whatever the
+client already fetches on load"), and no `supabase.rpc()` call exists
+anywhere else in this codebase, so a table read matches every other query
+here and is directly exercisable by phase 1's existing RLS coverage
+(`src/test/__tests__/chatMessages.test.ts`) with no new plumbing.
+`subscribeToChatMessages()` appends straight from the Realtime INSERT
+payload, per §5 — no follow-up fetch.
+
+`src/components/ChatPanel.tsx` is the one shared component `CHAT_PLAN.md` §6
+calls for, taking just `gameId: string | null` — it manages its own
+`useAuth()`/kill-switch state internally so a caller never has to plumb
+session through. It renders nothing at all (not even an empty shell) until
+both the kill switch is on and a session exists, per §4/§6's "a normal user
+must see no trace of the feature." Wired into `HomePage.tsx` as
+`<ChatPanel gameId={null} />`, right after the header/banners/error banners
+and before the "Create a game" / "Join by code" section, matching §6's "above
+the room lists." No `src/engine/` involvement anywhere — chat isn't a game
+rule (§1).
+
+One gap surfaced during implementation, deliberately not patched over: §3
+says sender names come from "the existing `profiles`/`useDisplayName` path,"
+but `profiles`' RLS (`0013_discord_notify_backend.sql`) only exposes a row to
+its own owner or a co-player sharing a game — it does not let one site-wide
+chatter read a stranger's custom display name, since two people can easily
+chat site-wide without ever having shared a game. `getChatDisplayNames()`
+still uses that path exactly as specified, batch-fetching `profiles.display_name`
+for whichever sender ids RLS actually returns, and `ChatPanel` falls back to
+a generic `"Player"` label for anyone outside that window — the same final
+fallback `resolveDisplayName()` itself uses. The feature works end-to-end as
+a result, just with a less personal label for strangers; widening `profiles`'
+read policy (or adding a name-lookup view/RPC) is a separate decision, since
+`profiles` also carries `discord_webhook_url` and a broader policy can't be
+scoped to just the one safe column without a view or `security definer`
+function of its own.
+
+Component tests (`src/components/__tests__/ChatPanel.test.tsx`) cover
+`CHAT_PLAN.md` §12's list for this phase: renders nothing with the kill
+switch off, renders nothing with no session, renders the list once both
+hold, submits a message, and appends a Realtime INSERT — `chatApi.ts` and the
+two hooks are mocked, so no Supabase stack is involved. No new engine tests,
+by design.
+
+`npm run lint`, `npm run test` and `npm run build` all pass. This PR adds no
+migration, but does touch `src/lib/**`, which `CLAUDE.md` calls a backend
+path for `deploy-supabase.yml`'s purposes — expect a Supabase deploy to fire
+even though nothing in `supabase/` changed.

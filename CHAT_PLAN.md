@@ -120,7 +120,16 @@ Notes:
   replay. Editing is not requested by the issue.
 - `sender_id`'s display name/avatar comes from `profiles`/`useDisplayName`
   exactly like every other player-identity lookup already in the app — no
-  denormalized copy of the name onto the row.
+  denormalized copy of the name onto the row. **Caveat found in phase 2
+  (issue #564):** unlike `players.display_name` (readable by any signed-in
+  user, `0001_init_schema.sql`), `profiles`' RLS
+  (`0013_discord_notify_backend.sql`) only exposes a row to its own owner or
+  a co-player sharing a game — it does not cover two people who post in
+  site-wide chat without ever having shared a game. `chatApi.ts`'s
+  `getChatDisplayNames()` still queries `profiles` exactly as specified and
+  falls back to a generic label for whichever senders that policy hides, so
+  the feature works, just with a less personal label for strangers. See open
+  question §10.5.
 - Soft-delete (a `deleted_at` or `hidden_at` column) is deliberately **not**
   added yet — it belongs to the reporting/moderation phase (§8) and adding
   it there, gated behind that phase's own migration, avoids an unused column
@@ -378,6 +387,16 @@ genuine unknowns this document can't resolve on its own:
 4. **Cleanup job: Edge Function vs. plain SQL RPC** for §9 — low-stakes,
    pick whichever is easier to wire into a scheduled workflow when that
    phase starts.
+5. **Should a signed-in user be able to read any other signed-in user's
+   `profiles.display_name`, at least for chat purposes?** Surfaced in phase 2
+   (issue #564, §3's caveat): today's RLS restricts a `profiles` row to its
+   owner or a co-player, so two people chatting site-wide without a shared
+   game can't see each other's custom name — the UI falls back to a generic
+   label instead, which works but isn't ideal. Widening it needs its own
+   migration (a plain RLS relaxation would also expose `discord_webhook_url`
+   to row visibility, since RLS is row- not column-scoped, so the real
+   options are a dedicated view or a `security definer` name-lookup
+   function, mirroring `chat_enabled()`'s own pattern) — not decided here.
 
 ## 11. Execution plan
 
