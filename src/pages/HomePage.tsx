@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { ChatPanel } from '../components/ChatPanel'
 import { DiscordSignIn } from '../components/DiscordSignIn'
 import { EmailPasswordAuth } from '../components/EmailPasswordAuth'
 import { ErrorBanner } from '../components/ErrorBanner'
@@ -190,6 +191,8 @@ export function HomePage() {
 
       {error && <ErrorBanner message={error.message} details={error.details} onDismiss={() => setError(null)} />}
       {loadError && <ErrorBanner message={loadError.message} details={loadError.details} onDismiss={() => setLoadError(null)} />}
+
+      <ChatPanel gameId={null} />
 
       <section className="flex flex-col gap-3">
         <Link
