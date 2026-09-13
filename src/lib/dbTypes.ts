@@ -291,6 +291,30 @@ export interface ProfilePreferences {
   confirmBeforeRevealingCards?: boolean
 }
 
+/**
+ * Site-wide config singleton (0031_chat_messages.sql) — currently just the
+ * chat kill switch. `id` is always `true`; there is exactly one row.
+ */
+export interface AppConfigRow {
+  id: true
+  /** CHAT_PLAN.md §4: gates chat_messages' RLS policies. No client can write this column — see that migration's table comment. */
+  chat_enabled: boolean
+}
+
+/**
+ * One chat message (0031_chat_messages.sql, CHAT_PLAN.md §3) — site-wide
+ * (`game_id` null) or scoped to one game. Append-only: no edit/soft-delete
+ * support yet. Sender identity is looked up via `profiles`/`useDisplayName`
+ * like everywhere else in the app, not denormalized onto this row.
+ */
+export interface ChatMessageRow {
+  id: number
+  game_id: string | null
+  sender_id: string
+  body: string
+  created_at: string
+}
+
 /** Per-account settings — see supabase/migrations/0005_discord_webhooks.sql. */
 export interface ProfileRow {
   user_id: string

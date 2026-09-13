@@ -4917,3 +4917,73 @@ the next setup run are harmless — the new lifecycle code answers `ignored`.
 `deno check` on the four functions reports only the four `payload.record as
 GameRow` casts that predate this work (main has eight — the four removed with
 `handleGameFinished`). No app, engine or schema change.
+
+## 101. Chat phase 1: `chat_messages` schema, RLS, and the `chat_enabled` kill switch (issue #563)
+
+Issue #466 (site-wide + in-game chat) was designed in `CHAT_PLAN.md` (#561)
+but nothing in the repo implemented any of it yet. This is phase 1 of the
+plan's §11 execution order: the data layer and kill switch only, no UI —
+phases 2/3 (the two chat surfaces) build on top of this.
+
+`0031_chat_messages.sql` adds `public.chat_messages` (nullable `game_id` =
+site-wide, `body` 1-2000 chars, no `updated_at`/soft-delete yet) and
+`public.app_config`, a one-row singleton whose `chat_enabled` column gates
+every `chat_messages` policy through a `security definer` `chat_enabled()`
+function. `app_config` has a `select`-only RLS policy and no insert/update/
+delete policy at all, mirroring the `profiles.is_admin` precedent
+(`0017_admin_delete_any_game.sql`): nothing in the app can flip the switch.
+`chat_messages`' policies resolve open question §10.1 with the doc's
+proposed default — a public room's non-seated visitor can read that game's
+chat but not post to it, enforced by the `post chat` policy's seated-player
+check, not just a UI restriction. `chat_messages` added to
+`supabase_realtime` (`app_config` is not — the client reads the flag once on
+load, and a table nothing subscribes to has no reason to be published),
+same guarded pattern `0001_init_schema.sql`/`0025_game_state_meta.sql` use.
+
+The kill switch needed a second decision (recorded in `CHAT_PLAN.md` §4):
+chat is enabled in pre-production only, automatically, and never in
+production by any code path — `main` has to stay promotable to `production`
+at any moment for an unrelated change (`DELIVERY_PIPELINE_PLAN.md` §3), so
+chat can't ride along when that happens. `deploy-supabase.yml` gained a step
+right after `Push database migrations` that runs a
+`to_regclass('public.app_config') is not null`-guarded `update` (safe against
+a deploy predating this migration, or a revert) via a new
+`scripts/supabase/set-chat-enabled.sh`, following
+`register-database-webhook.sh`'s Management API + `DRY_RUN` conventions. The
+step checks both halves of the existing "not production" guard (the resolved
+environment name *and* the resolved project id against
+`vars.PRODUCTION_SUPABASE_PROJECT_ID`, the same double check "Refuse to touch
+the wrong project" already does) and soft-fails
+(`continue-on-error`) rather than ever blocking a deploy over this. There is
+deliberately no inverse step — production's deploy never forces
+`chat_enabled = false`, so it can't stomp a deliberate manual enable;
+production only ever gets turned on by one hand-run SQL statement.
+
+`src/test/supabaseStack/database.ts` gained both tables (RLS transcribed from
+the migration, including the `body` length `check` constraint — the one
+column constraint this test double models, everything else in that class's
+own "not modeled" list is unchanged) and a new
+`src/test/__tests__/chatMessages.test.ts` covers the kill-switch and RLS
+matrix: switch off rejects both surfaces; switch on lets any signed-in user
+read/post site-wide, a seated player read/post in-game, a signed-in visitor
+read (not post) a public room's chat, and rejects a visitor reading a private
+room's chat, an impersonated `sender_id`, and an out-of-bounds `body`; and
+`app_config` is unwritable through the API from any actor. `ChatMessageRow`/
+`AppConfigRow` added to `dbTypes.ts`. No `src/engine/` change anywhere —
+chat never reaches `GameState` (§1).
+
+`npm run lint`, `npm run test` and `npm run build` all pass. This PR touches
+`supabase/migrations/**`, so it needs a human merge, same as any migration
+(`CLAUDE.md`).
+
+One wrinkle worth recording, because it will recur: the `deploy-supabase.yml`
+step could not be pushed by the `@claude` Action at all. A GitHub App token
+cannot create or update a file under `.github/workflows/` without the
+`workflows` permission scope, and GitHub rejects the *whole push* the moment
+one is in it — so the run reverted that one file out of the branch to get the
+rest landed, and asked for it to be applied by hand. It was instead restored
+from history by a session whose token does carry the scope, so the branch is
+complete and nothing needs hand-applying. Until `claude.yml` runs the Action
+with a token that has the scope, every future issue that adds or edits a
+workflow file hits this same wall — chat phases 4 and 6 both do (a
+mention-notification setup workflow and a retention cron).

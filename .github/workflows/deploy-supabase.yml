@@ -150,5 +150,31 @@ jobs:
       - name: Push database migrations
         run: supabase db push
 
+      # CHAT_PLAN.md §4 (decided 2026-09-12): chat is enabled in
+      # pre-production only, automatically — never in production by any code
+      # path. Both halves of the "not production" guard are checked, not just
+      # the environment name, for the same reason "Refuse to touch the wrong
+      # project" above checks the project id too: the environment name alone
+      # has already failed towards production once (2026-09-09).
+      #
+      # Soft-failing on purpose (continue-on-error): a pre-production chat
+      # flag is not worth failing a migration/function deploy over. Production
+      # is turned on by exactly one hand-run
+      # `update public.app_config set chat_enabled = true;` in the Supabase
+      # SQL editor, never by this workflow — do not add the inverse step here;
+      # forcing chat_enabled = false on every production deploy would stomp
+      # that manual enable.
+      - name: Enable chat (pre-production only)
+        if: needs.resolve.outputs.environment != 'production'
+        continue-on-error: true
+        env:
+          PRODUCTION_PROJECT_ID: ${{ vars.PRODUCTION_SUPABASE_PROJECT_ID }}
+        run: |
+          if [ "$SUPABASE_PROJECT_ID" = "$PRODUCTION_PROJECT_ID" ]; then
+            echo "::warning::Environment '${{ needs.resolve.outputs.environment }}' resolved to the production project — refusing to enable chat here even though the environment name isn't 'production'."
+            exit 0
+          fi
+          bash scripts/supabase/set-chat-enabled.sh
+
       - name: Deploy edge functions
         run: supabase functions deploy

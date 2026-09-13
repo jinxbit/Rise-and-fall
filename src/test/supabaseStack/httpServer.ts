@@ -19,7 +19,7 @@ export const STACK_URL = 'http://supabase.test'
 export const ANON_KEY = 'test-anon-key'
 export const SERVICE_ROLE_KEY = 'test-service-role-key'
 
-const TABLES: TableName[] = ['profiles', 'games', 'players', 'game_state', 'game_state_meta']
+const TABLES: TableName[] = ['profiles', 'games', 'players', 'game_state', 'game_state_meta', 'app_config', 'chat_messages']
 
 /** Access tokens minted by ./index.ts, resolved here the way GoTrue resolves a real JWT. */
 export type TokenRegistry = Map<string, { userId: string; email: string }>
