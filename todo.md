@@ -5085,3 +5085,52 @@ the job: almost no task touches `.github/workflows/`, and none should be
 blocked on a scope it will never use.
 
 No app, engine or schema change.
+
+## 104. Chat phase 3: in-game chat on the game page (issue #565)
+
+Written after the fact. Phase 3 merged (PR #572) without a `todo.md` entry —
+`main` went 101 (phase 1) to 102 (phase 2) and then straight to the automation
+token change, leaving the in-game surface with no changelog record at all.
+Since this file is what `CLAUDE.md` sends you to first when touching anything
+with history, a silent gap is worse than a late entry. Reconstructed from
+`11565ab`.
+
+The last of `CHAT_PLAN.md` §11's three buildable phases, on top of phase 1's
+schema/RLS/kill switch (#563, entry 101) and phase 2's `chatApi.ts` +
+`ChatPanel.tsx` (#564, entry 102). No new data layer: `ChatPanel` is reused,
+extended with two optional props whose defaults leave the site-wide surface
+byte-identical in behaviour.
+
+`compact` starts the panel collapsed behind a Show/Hide toggle, and is what
+keeps a chat box pinned above the board from pushing the board below the fold
+on a phone — the same problem the mobile pass already solved for the history
+bar (entry 69). It is solved the same way, deliberately: `collapsed` is plain
+page-local `useState` inside `ChatPanel`, reset on remount, not written
+anywhere durable, because this app has no `localStorage`-backed UI state to
+be consistent with. The Realtime subscription and the message list stay live
+while collapsed; only the JSX is hidden, so expanding shows current messages
+rather than a panel that has to catch up.
+
+`canPost` mirrors the `post chat` RLS policy rather than duplicating its
+logic: `GamePage` passes `canPost={!!ownSeat}`, the same "does this session
+hold a seat here" check every other panel already gates on. A signed-in
+non-seated visitor to a `visibility: 'public'` game can read that game's chat
+and gets an explanation where the composer would be, instead of a composer
+that submits and fails with a raw RLS error — §10.1's resolution surfaced in
+the UI, with the server still the thing actually enforcing it.
+
+Hotseat needs no special casing and gets none: every local seat shares the
+host's `auth.uid()` (`0003_hotseat_local_players.sql`), so `ownSeat` is always
+found and the composer behaves as in any other game — consistent with how
+`HIDDEN_INFORMATION_PLAN.md` already treats hotseat as out of scope for
+seat-distinguishing behaviour rather than specially blocked.
+
+`GamePage.tsx` renders `<ChatPanel gameId={game.id} compact
+canPost={!!ownSeat} />` as the first element of the returned JSX, ahead of the
+room-header row. Three component tests were added (collapsed-by-default and
+expands on toggle; expanded with no toggle when `compact` is omitted;
+read-only explanation when `canPost` is false). `CHAT_PLAN.md` §6 and §11.3
+updated to describe what shipped rather than what was proposed.
+
+No engine change, no migration, and — unlike phase 2 — nothing under
+`src/lib/**`, so this one fires no Supabase deploy.
