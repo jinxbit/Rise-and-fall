@@ -94,6 +94,20 @@ jobs:
     needs: resolve
     runs-on: ubuntu-latest
     environment: ${{ needs.resolve.outputs.environment }}
+    # Shared with smoke.yml's job of the same group name, so a deploy and a
+    # smoke run never touch one project at the same time — see that file for
+    # the 2026-09-13 run this closes, where a migration's `alter publication
+    # supabase_realtime` landed underneath a live Realtime subscription and
+    # the smoke failure got filed as a product bug.
+    #
+    # This is keyed on the RESOLVED environment, which the workflow-level
+    # group above cannot be: that one is evaluated before any job runs, so it
+    # only has the branch name, and `main`/`production` are not the same
+    # strings as `Preview`/`production`. Both groups apply; they cannot
+    # deadlock, because nothing else ever waits on the workflow-level one.
+    concurrency:
+      group: supabase-${{ needs.resolve.outputs.environment }}
+      cancel-in-progress: false
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}

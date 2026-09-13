@@ -540,7 +540,20 @@ export async function checkHiddenInformationWire(
       await waitUntil(() => capturedRealtime.length >= 1, 60_000)
       assertThat(
         capturedRealtime.length > 0,
-        `[${label}] no Realtime payload arrived at all — the watcher's subscription likely never connected, which would make this check prove nothing.`,
+        // Deliberately does NOT blame the connection: `subscribeForLeakCheck`
+        // resolves its `ready` promise only on SUBSCRIBED and rejects on
+        // CHANNEL_ERROR/TIMED_OUT/CLOSED, and that promise is awaited before
+        // any action is dispatched — so a subscription that never connected
+        // threw earlier, with a different message. Reaching here means it
+        // connected and then delivered nothing, which this check cannot tell
+        // apart from a real delivery failure. The message used to say "likely
+        // never connected" and cost a real investigation: run #42 on
+        // 2026-09-13 was read as Realtime being broken on Preview, when a
+        // concurrent deploy had in fact altered the supabase_realtime
+        // publication underneath this subscription (smoke.yml and
+        // deploy-supabase.yml now share a concurrency group so that cannot
+        // recur).
+        `[${label}] the watcher's subscription connected (SUBSCRIBED) but no Realtime payload arrived within 60s, so this check could not prove anything either way. Rule out a deploy or migration touching this project mid-run before treating it as a delivery fault.`,
       )
       for (const payload of capturedRealtime) {
         const text = JSON.stringify(payload)

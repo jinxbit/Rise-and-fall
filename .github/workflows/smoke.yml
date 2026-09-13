@@ -149,12 +149,30 @@ jobs:
       matrix:
         environment: ${{ fromJSON(needs.resolve.outputs.environments) }}
     environment: ${{ matrix.environment }}
-    # Never two runs against the SAME project at once: each creates and
-    # deletes real rows, and serializing keeps a failure's leftovers
-    # unambiguous. Different environments are independent, so they run in
-    # parallel.
+    # One job at a time per PROJECT — and the group is shared with
+    # deploy-supabase.yml's deploy job, not just with other smoke runs.
+    #
+    # Two reasons, and the second is why the group is named for the project
+    # rather than for this workflow. First, as before: each run creates and
+    # deletes real rows, so serializing keeps a failure's leftovers
+    # unambiguous. Second, a deploy running *underneath* a smoke run breaks it
+    # in a way that looks like a product bug. On 2026-09-13 smoke run #42 sat
+    # queued for ~56 minutes waiting for a runner, started at 05:14, and
+    # overlapped deploy #61 (05:13:58-05:15:15) against the same Preview
+    # project: at 05:14:55 that deploy applied 0031_chat_messages.sql, whose
+    # `alter publication supabase_realtime add table` reshapes the very
+    # publication the hidden-information check's subscription is listening to,
+    # and then redeployed all nine Edge Functions under it. The check failed
+    # with "no Realtime payload arrived at all" and was filed against #570 as
+    # a product problem. It was not one.
+    #
+    # Normally smoke follows a deploy (the `workflow_run: completed` trigger
+    # above), so they cannot overlap. The gap this closes is a nightly or
+    # manual smoke run colliding with a merge-triggered deploy.
+    #
+    # Different environments stay independent and still run in parallel.
     concurrency:
-      group: smoke-${{ matrix.environment }}
+      group: supabase-${{ matrix.environment }}
       cancel-in-progress: false
     permissions:
       contents: read

@@ -5134,3 +5134,53 @@ updated to describe what shipped rather than what was proposed.
 
 No engine change, no migration, and — unlike phase 2 — nothing under
 `src/lib/**`, so this one fires no Supabase deploy.
+
+## 105. Stop a deploy from running underneath the smoke test (issue #570)
+
+`smoke.yml` replays real games against a real project, and one of its checks
+(`hiddenInformationWire.ts`, issue #480) subscribes to Realtime and asserts a
+still-pending opponent never receives a secret pick. It went red on Preview
+and filed #570. Two greens on the same commit, then two reds, then a green —
+which read as an intermittent Realtime fault in pre-production, alarming
+because chat had just shipped and both surfaces deliver over Realtime
+`postgres_changes` (`CHAT_PLAN.md` §5).
+
+It was not a Realtime fault. Run #42 sat queued ~56 minutes waiting for a
+GitHub-hosted runner, started at 05:14, and overlapped deploy #61
+(05:13:58-05:15:15) against the same Preview project. At 05:14:55 that deploy
+applied `0031_chat_messages.sql`, whose `alter publication supabase_realtime
+add table` reshapes the exact publication the check's subscription is
+listening to; seconds later it redeployed all nine Edge Functions underneath
+the run. A subscription going quiet through that is expected behaviour, not a
+defect.
+
+Both workflows already had concurrency groups, but different ones —
+`deploy-supabase-<branch>` and `smoke-<environment>` — so nothing prevented
+them touching one project at once. They now share `supabase-<environment>`.
+On `deploy-supabase.yml` this has to be a job-level group on `deploy`, since
+the workflow-level group is evaluated before any job runs and therefore only
+knows the branch name, and `main`/`production` are not the same strings as
+`Preview`/`production`; the workflow-level group stays as it was. Both apply,
+and they cannot deadlock because nothing ever waits on the workflow-level one.
+Different environments remain independent and still run in parallel.
+
+Normally smoke follows a deploy via `workflow_run: completed` and the two
+cannot overlap at all. The gap closed here is a nightly or manual smoke run
+colliding with a merge-triggered deploy — which is exactly what happened, and
+only happened because the runner shortage delayed the manual run into the
+deploy's window.
+
+The check's own failure message made this worse and is fixed too. It said the
+subscription "likely never connected" — but `subscribeForLeakCheck` resolves
+its `ready` promise only on SUBSCRIBED and rejects on
+CHANNEL_ERROR/TIMED_OUT/CLOSED, and that promise is awaited before any action
+is dispatched, so a subscription that never connected throws earlier with a
+different message. Reaching that assertion always meant "connected, then
+nothing arrived". The message now says that, and points at a concurrent
+deploy as the first thing to rule out.
+
+Not changed: the 60s window (issue #555) and `vitest.smoke.config.ts`'s file
+parallelism both stand. Run #40 — the nightly that first filed #570 —
+overlapped no deploy, so the original load-contention theory may still explain
+that one; this fixes a distinct, proven cause rather than claiming to explain
+every red. No app, engine or schema change.
