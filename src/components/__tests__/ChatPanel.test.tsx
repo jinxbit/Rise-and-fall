@@ -102,4 +102,43 @@ describe('ChatPanel', () => {
 
     expect(await screen.findByText('incoming')).toBeInTheDocument()
   })
+
+  it('starts collapsed in compact mode and expands on toggle', async () => {
+    mockAuth.session = makeSession('alice')
+    chatApi.listChatMessages.mockResolvedValue([makeMessage(1, 'bob', 'hello there')])
+    chatApi.getChatDisplayNames.mockResolvedValue({ bob: 'Bob' })
+
+    render(<ChatPanel gameId="game-1" compact />)
+
+    await waitFor(() => expect(chatApi.isChatEnabled).toHaveBeenCalled())
+    expect(screen.queryByPlaceholderText('Message')).not.toBeInTheDocument()
+    expect(screen.queryByText('hello there')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show chat' }))
+
+    expect(await screen.findByText('hello there')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Message')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide chat' }))
+    expect(screen.queryByPlaceholderText('Message')).not.toBeInTheDocument()
+  })
+
+  it('is expanded by default (no compact prop) and has no toggle', async () => {
+    mockAuth.session = makeSession('alice')
+
+    render(<ChatPanel gameId={null} />)
+
+    expect(await screen.findByPlaceholderText('Message')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /show chat|hide chat/i })).not.toBeInTheDocument()
+  })
+
+  it('shows a read-only explanation instead of the composer when canPost is false', async () => {
+    mockAuth.session = makeSession('alice')
+
+    render(<ChatPanel gameId="game-1" canPost={false} />)
+
+    expect(await screen.findByText("Only seated players can post in this game's chat.")).toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('Message')).not.toBeInTheDocument()
+    expect(chatApi.postChatMessage).not.toHaveBeenCalled()
+  })
 })

@@ -297,12 +297,22 @@ appends the new row straight from the payload, no follow-up fetch needed.
   rooms" per the issue, since everything from `roomEntries` down (line 219
   onward) is the room lists. Only rendered once `chat_enabled()` is true and
   a session exists (§2).
-- **In-game** (`GamePage.tsx`): a new `<ChatPanel gameId={game.id} />` at the
-  very top of the returned JSX (`GamePage.tsx:1520` today, ahead of the
-  room-header row at line 1535), collapsible/dismissible so it doesn't push
-  the board below the fold on small screens — the existing mobile pass
-  (`PROJECT_PLAN.md` §5) already had to solve exactly this problem for the
-  history bar.
+- **In-game** (`GamePage.tsx`): `<ChatPanel gameId={game.id} compact
+  canPost={!!ownSeat} />` at the very top of the returned JSX, ahead of the
+  room-header row — implemented in issue #565. `compact` starts the panel
+  collapsed behind a Show/Hide toggle so it doesn't push the board below the
+  fold on small screens, matching how the mobile pass (`PROJECT_PLAN.md` §5)
+  solved the same problem for the history bar (`todo.md` #69): plain
+  page-local `useState` inside `ChatPanel`, reset on remount rather than
+  written anywhere durable — this app has no `localStorage`-backed UI state
+  to follow instead. `canPost` mirrors the "post chat" RLS policy (§3/§10.1):
+  false for a signed-in non-seated visitor to a public game (GamePage's
+  `ownSeat`, the same "does this session have a seat here" check every other
+  panel already gates on), which swaps the composer for an explanation
+  instead of letting the post fail on submit with a raw RLS error. Hotseat
+  games get no special casing — every local seat shares the host's
+  `auth.uid()` (`0003_hotseat_local_players.sql`), so `ownSeat` is always
+  found and the composer behaves like any other game.
 - A single shared `ChatPanel` component (`src/components/ChatPanel.tsx`)
   parameterized by `gameId: string | null`, backed by a small `chatApi.ts`
   in `src/lib/` (list + subscribe + post), mirroring the existing
@@ -419,7 +429,8 @@ other.
 2. **Site-wide chat UI.** `chatApi.ts`, `ChatPanel.tsx`, wired into
    `HomePage.tsx` above the room lists (§6), gated on `chat_enabled()` and
    session.
-3. **In-game chat UI.** `ChatPanel.tsx` reused with a `gameId`, wired into
+3. **In-game chat UI (issue #565, done).** `ChatPanel.tsx` reused unchanged
+   in shape, extended with `compact`/`canPost` props, wired into
    `GamePage.tsx` at the top (§6), collapsible for mobile.
 4. **(Future) `@mention` + notification** (§7) — needs open question §10.2
    answered first.

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { BoardSetupView } from '../components/BoardSetupView'
+import { ChatPanel } from '../components/ChatPanel'
 import { EndGameView } from '../components/EndGameView'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { RoundView } from '../components/RoundView'
@@ -1531,6 +1532,7 @@ export function GamePage() {
         setReviewIndex(null)
       }}
     >
+      <ChatPanel gameId={game.id} compact canPost={!!ownSeat} />
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap items-center gap-3">
           <div ref={menuRef} className="relative">
