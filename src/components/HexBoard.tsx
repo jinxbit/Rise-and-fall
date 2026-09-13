@@ -848,7 +848,7 @@ export function HexBoard(props: {
   clickableCoords?: Coordinate[]
   onHexClick?: (coord: Coordinate) => void
   size?: number
-  /** Raises the board's max on-screen height (see RoundView.tsx's "Expand board" toggle, used once the player status sidebar is hidden and there's more room to fill). Default false — the normal 70vh cap. */
+  /** Raises the board's max on-screen height (see RoundView.tsx's "Expand board" toggle, used once the player status sidebar is hidden and there's more room to fill). Default false — the normal 70svh cap. */
   expanded?: boolean
   /**
    * Covers the board with an "Analyzing legal placement…" overlay — shown
@@ -1056,8 +1056,19 @@ export function HexBoard(props: {
        * this wrapper's height instead leaves the `<svg>` always full width —
        * a board taller than the cap now scrolls vertically within the
        * wrapper rather than shrinking horizontally.
+       *
+       * `svh` (small viewport height), not `vh`: `vh` is defined against the
+       * browser's *largest* possible viewport (address bar/chrome hidden),
+       * which on mobile is taller than what's actually on screen at page-load
+       * time (chrome still showing) — so a board capped in `vh` could render
+       * taller than the real visible area and need an unwanted scroll before
+       * the player has done anything (issue #575: "game map should fit the
+       * screen on default"). `svh` is defined against the smallest possible
+       * viewport instead, so the cap never exceeds what's actually visible.
+       * `src/index.css`'s `body { min-height: 100svh }` already relies on the
+       * same unit for the same reason.
        */}
-      <div className={`overflow-auto ${props.expanded ? 'max-h-[92vh]' : 'max-h-[70vh]'}`}>
+      <div className={`overflow-auto ${props.expanded ? 'max-h-[92svh]' : 'max-h-[70svh]'}`}>
       <svg
         viewBox={`${minX} ${minY} ${maxX - minX} ${maxY - minY}`}
         style={{ overflow: 'visible' }}

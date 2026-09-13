@@ -5205,3 +5205,25 @@ directory's two `.smoke.ts` files run one after another instead of racing for
 the runner's CPU. No timeout-minutes exists on the `smoke` job to raise —
 GitHub's default (360 minutes) already covers the longer, now-sequential,
 total run. No app, engine or schema change.
+
+## 107. Game map didn't fit the screen on default — `vh` vs `svh` (issue #575)
+
+`HexBoard.tsx`'s board wrapper caps its own on-screen height with plain `vh`
+units (`max-h-[70vh]`, `max-h-[92vh]` once "Expand board" is on) so a very
+tall board scrolls within the wrapper instead of shrinking the whole `<svg>`
+(see that div's own doc comment — a deliberate earlier tradeoff, not this
+bug). `vh` is defined against the browser's *largest* possible viewport
+(chrome collapsed), not what's actually visible — on mobile the address bar
+is normally still showing at page-load time, so a cap computed in `vh` is
+taller than the real visible area, and the map needed an unwanted scroll
+before the player had done anything.
+
+`src/index.css` already carries the fix for the same class of bug on `body`
+(`min-height: 100svh`, `svh` = *small* viewport height, sized against the
+smallest possible viewport instead) — `HexBoard.tsx`'s cap now uses the same
+unit (`max-h-[70svh]` / `max-h-[92svh]`), for consistency and so the cap
+never exceeds what's actually on screen. The comment explaining the choice
+of unit was updated in the same commit. Added a regression test
+(`HexBoard.test.tsx`) asserting the wrapper class carries `svh` and not
+plain `vh`, for both the default and `expanded` cases. No engine or schema
+change.
