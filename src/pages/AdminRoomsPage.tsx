@@ -102,7 +102,7 @@ export function AdminRoomsPage() {
           entries={inProgress}
           userId={session.user.id}
           onOpen={(entry) => navigate(`/game/${entry.game.room_code}`)}
-          renderAction={() => 'Observe'}
+          renderAction={() => 'Watch'}
         />
       )}
 
