@@ -108,7 +108,7 @@ export function PublicRoomsPage() {
           userId={session.user.id}
           onOpen={(entry) => navigate(`/game/${entry.game.room_code}`)}
           renderAction={(entry) =>
-            entry.players.some((p) => p.user_id === session.user.id) ? undefined : 'Observe'
+            entry.players.some((p) => p.user_id === session.user.id) ? undefined : 'Watch'
           }
         />
       )}

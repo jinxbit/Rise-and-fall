@@ -267,7 +267,7 @@ export function HomePage() {
           ) : (
             <ul className="flex flex-col gap-2">
               {inProgressPageItems.map((entry) => (
-                <RoomRow key={entry.game.id} entry={entry} userId={user.id} action="Observe" onOpen={() => navigate(`/game/${entry.game.room_code}`)} />
+                <RoomRow key={entry.game.id} entry={entry} userId={user.id} action="Watch" onOpen={() => navigate(`/game/${entry.game.room_code}`)} />
               ))}
             </ul>
           )}
