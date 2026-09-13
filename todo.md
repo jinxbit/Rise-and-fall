@@ -5184,3 +5184,24 @@ parallelism both stand. Run #40 — the nightly that first filed #570 —
 overlapped no deploy, so the original load-contention theory may still explain
 that one; this fixes a distinct, proven cause rather than claiming to explain
 every red. No app, engine or schema change.
+
+## 106. Serialize the two smoke test files (issue #573)
+
+Confirmed the leftover theory from #105: run #46 (commit 25c30d2, the #570 fix
+itself) failed with the identical "no Realtime payload arrived within 60s"
+error, on a run whose Actions API timestamps rule out a concurrent deploy —
+the triggering deploy finished at 07:45:41, and the smoke replay step didn't
+start until 07:46:06, with nothing else touching Preview in between. That
+leaves the load-contention theory #105 explicitly declined to act on: with no
+`fileParallelism` setting, vitest ran `hiddenInformationWire.smoke.ts` (a 60s
+Realtime wait) concurrently with `productionSmoke.smoke.ts` (700+ actions,
+~340s of continuous HTTPS calls), and a GitHub-hosted runner's ~2 CPUs are
+easily saturated by that pairing — which is exactly what run #46's own log
+showed: the Realtime wait timed out while `productionSmoke.smoke.ts` was
+mid-replay of a 251-action fixture.
+
+Fix: `vitest.smoke.config.ts` now sets `fileParallelism: false`, so this
+directory's two `.smoke.ts` files run one after another instead of racing for
+the runner's CPU. No timeout-minutes exists on the `smoke` job to raise —
+GitHub's default (360 minutes) already covers the longer, now-sequential,
+total run. No app, engine or schema change.
