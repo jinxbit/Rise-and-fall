@@ -155,6 +155,25 @@ describe('HexBoard — unit markers', () => {
   })
 })
 
+describe('HexBoard — default on-screen fit', () => {
+  it(
+    'caps the board wrapper height with svh, not vh (issue #575: "game map should fit the screen on default" — ' +
+      'plain vh is sized against the browser\'s largest possible viewport, which on mobile is taller than what\'s ' +
+      'actually visible while the address bar is still showing on page load, so the board could render taller ' +
+      'than the real visible area and need an unwanted scroll before the player has done anything)',
+    () => {
+      const { container, rerender } = render(<HexBoard board={makeBoard()} />)
+      const wrapper = container.querySelector('svg')!.parentElement!
+      expect(wrapper.className).toContain('svh')
+      expect(wrapper.className).not.toMatch(/(?<!s)vh/)
+
+      rerender(<HexBoard board={makeBoard()} expanded />)
+      expect(wrapper.className).toContain('svh')
+      expect(wrapper.className).not.toMatch(/(?<!s)vh/)
+    },
+  )
+})
+
 describe('HexBoard — ghost cell placement preview', () => {
   it('does not resize or shift the viewBox as the ghost preview moves between hexes — bug report: "the whole map moves when moving the tile"', () => {
     const board = makeBoard()
