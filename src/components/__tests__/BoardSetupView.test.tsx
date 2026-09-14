@@ -64,6 +64,19 @@ const boardGenerationContent: BoardGenerationContent = {
   tiers: [{ terrain: 'water', shapeCells: domino, placesOn: null, poolSize: 5 }],
 }
 
+function makeUnitPlacementState(board: GameState['board']): GameState {
+  return {
+    ...makeWaterPlacementState(board),
+    boardSetup: {
+      tileTierQueue: [],
+      tilesRemainingInTier: 0,
+      tilePlacerIndex: 0,
+      unitsRemainingByPlayerId: { p1: ['city', 'nomad', 'ship'], p2: ['city', 'nomad', 'ship'] },
+      unitPlacerIndex: 0,
+    },
+  }
+}
+
 describe('BoardSetupView — tile placement ghost legality', () => {
   it('shows the ghost as illegal (red) and hides Confirm entirely when the placement fails an extra rule (touching < 2 Sea tiles) — regression for the reported "shows green when it cannot be placed" bug', async () => {
     const board = setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'water')
@@ -224,5 +237,44 @@ describe('BoardSetupView — tile placement ghost legality', () => {
     const boxWidth = Number(foreignObject!.getAttribute('width'))
     // The controls box is horizontally centered on the same hex the player clicked.
     expect(boxX + boxWidth / 2).toBeCloseTo(hexCenterX, 0)
+  })
+})
+
+describe('BoardSetupView — unit placement highlighting', () => {
+  it('does not highlight legal placement hexes while waiting for another player to place a unit — issue #589', () => {
+    const board = setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'plain')
+    const state = makeUnitPlacementState(board)
+
+    const { container } = render(
+      <BoardSetupView
+        state={state}
+        players={[makePlayerRow('p1', 'Alice'), makePlayerRow('p2', 'Bob')]}
+        myPlayerId="p2"
+        boardGenerationContent={boardGenerationContent}
+        onPlaceTile={vi.fn()}
+        onPlaceUnit={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText(/Waiting for Alice/)).toBeInTheDocument()
+    expect(container.querySelector('[data-ghost-coord]')).toBeNull()
+  })
+
+  it('highlights legal placement hexes on the placing player\'s own turn', () => {
+    const board = setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'plain')
+    const state = makeUnitPlacementState(board)
+
+    const { container } = render(
+      <BoardSetupView
+        state={state}
+        players={[makePlayerRow('p1', 'Alice'), makePlayerRow('p2', 'Bob')]}
+        myPlayerId="p1"
+        boardGenerationContent={boardGenerationContent}
+        onPlaceTile={vi.fn()}
+        onPlaceUnit={vi.fn()}
+      />,
+    )
+
+    expect(container.querySelector('[data-ghost-coord="0,0"]')).not.toBeNull()
   })
 })
