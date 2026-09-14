@@ -542,6 +542,15 @@ least as far along) when nothing matched. Two reasons, not one:
   the join/seat code path (`gameApi.ts`), and is stricter than "at join
   time" in one respect: it also protects the very first time anyone opens a
   game's chat at all from seeing its entire backlog marked unread.
+- **A message is never "new" to its own sender** (issue #586). Both the
+  badge count and the divider (below) exclude any message whose `sender_id`
+  is the viewer's own `auth.uid()` — the live read cursor already caught up
+  to a self-sent message almost immediately in practice (it advances
+  whenever the panel is open+visible and `messages` changes, which posting
+  triggers via the same Realtime round-trip as everyone else's messages),
+  but the divider had no equivalent catch-up at all (next bullet), so a
+  message the viewer had just typed themselves could sit under a "New
+  messages" divider indefinitely.
 
 ### UI
 
@@ -549,11 +558,25 @@ least as far along) when nothing matched. Two reasons, not one:
   `ChatPanel.tsx` — shown whether the panel is expanded or collapsed, since
   the heading row itself is never hidden (§6). In-game chat only; the
   site-wide instance never has a nonzero unread count to show one for.
-- A "new messages" divider inside the message list, positioned at whatever
-  the cursor was when the component *mounted* (frozen — it doesn't chase the
-  live cursor as the user reads further within the same mount), the same
-  "resets only on remount" posture `collapsed` already has. Also in-game
-  only, for the same reason.
+- A "new messages" divider inside the message list, bracketed by
+  `readBoundaryId` (the read cursor as it stood before this viewing session)
+  and `readBoundaryTopId` (the newest message id already loaded when the
+  session started) — only a message in `(readBoundaryId, readBoundaryTopId]`
+  and not sent by the viewer can be the divider's target. **Revised, issue
+  #586:** the original design snapshotted this boundary once, at the
+  component's first mount, and never again — since `GamePage` keeps
+  `ChatPanel` mounted across every open/close cycle of its own header toggle
+  (§14), that one-time snapshot meant a message arriving *any* later while
+  the panel happened to be open (someone else's, or the viewer's own reply)
+  still landed after the frozen boundary and was flagged new, even though
+  the viewer was watching it arrive live. The boundary now re-snapshots on
+  every closed/hidden → open+visible transition (not just the first), and
+  `readBoundaryTopId` caps it so a message appended *after* that transition
+  — while the session is still open — is never added to what counts as new.
+  It still doesn't chase the live cursor as the viewer reads further within
+  one session once snapshotted, the same "resets only on remount [or
+  reopen], not on every render" posture `collapsed` itself has. Also
+  in-game only, for the same reason as the badge.
 - **No aggregate badge across games.** A player with several games open in
   other tabs sees each `ChatPanel` track and display its own game's unread
   count independently — there's no shared header across games to put a

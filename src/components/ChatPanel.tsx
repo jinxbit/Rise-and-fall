@@ -113,17 +113,27 @@ export function ChatPanel({ gameId, players, compact = false, canPost = true, op
   // cursor and never shows a badge or divider; every effect below is a
   // no-op for it. `lastReadId` is the live cursor — it only ever advances
   // while the panel is open and the tab is visible, and drives the unread
-  // badge. `readBoundaryId` freezes at whatever `lastReadId` was when this
-  // component mounted, and only that frozen value positions the "new
-  // messages" divider — it deliberately doesn't move as the user reads
-  // further within the same mount, the same "resets only on remount, not
-  // on every toggle" posture `collapsed` itself already documents above.
+  // badge. `readBoundaryId`/`readBoundaryTopId` bracket the "new messages"
+  // divider: they snapshot whatever `lastReadId` and the latest loaded
+  // message id were at the moment the panel most recently transitioned
+  // from closed/hidden to open+visible (see the boundary-snapshot effect
+  // below), not just once at mount — `GamePage` keeps this component
+  // mounted across many open/close cycles (issue #580), so a one-time
+  // snapshot would go stale after the first cycle. Capping at
+  // `readBoundaryTopId` (issue #586) is what keeps a message that arrives
+  // *after* that transition — while the panel is still open and being
+  // watched live — from also being flagged new.
   const [lastReadId, setLastReadId] = useState<number | null>(null)
   const [readBoundaryId, setReadBoundaryId] = useState<number | null>(null)
+  const [readBoundaryTopId, setReadBoundaryTopId] = useState<number | null>(null)
   const [readStatusLoaded, setReadStatusLoaded] = useState(false)
   const [pageVisible, setPageVisible] = useState(isPageVisible)
   const flushTimerRef = useRef<number | undefined>(undefined)
   const pendingReadRef = useRef<{ gameId: string; userId: string; lastReadId: number } | null>(null)
+  // Edge-detects the closed/hidden → open+visible transition the boundary
+  // snapshot below fires on, and forces a re-snapshot on a game switch
+  // (this component isn't remounted when `gameId` changes either).
+  const activeRef = useRef<{ gameId: string | null; active: boolean }>({ gameId: null, active: false })
 
   function flushRead() {
     if (flushTimerRef.current !== undefined) {
@@ -178,7 +188,6 @@ export function ChatPanel({ gameId, players, compact = false, canPost = true, op
 
         if (readStatus) {
           setLastReadId(readStatus.last_read_id)
-          setReadBoundaryId(readStatus.last_read_id)
         } else {
           // First time this user has ever opened this game's chat —
           // CHAT_PLAN.md §13's "new player joins mid-game" edge case: treat
@@ -186,9 +195,12 @@ export function ChatPanel({ gameId, players, compact = false, canPost = true, op
           // whole channel history into the unread badge.
           const latestId = rows.length > 0 ? rows[rows.length - 1].id : 0
           setLastReadId(latestId)
-          setReadBoundaryId(latestId)
           void markChatRead(gameId, uid, latestId).catch(() => {})
         }
+        // Force the boundary-snapshot effect below to re-fire for this game
+        // even if the panel was already open+visible for a *previous* game
+        // (this component isn't remounted on a game switch).
+        activeRef.current = { gameId, active: false }
         if (!cancelled) setReadStatusLoaded(true)
       } catch (err) {
         if (!cancelled) setError(toAppError(err, 'Failed to load chat'))
@@ -213,6 +225,29 @@ export function ChatPanel({ gameId, players, compact = false, canPost = true, op
       window.removeEventListener('blur', update)
     }
   }, [])
+
+  // Snapshots the "new messages" divider's bounds on the closed/hidden →
+  // open+visible edge (issue #586) — `readBoundaryId` (the pre-existing read
+  // cursor) and `readBoundaryTopId` (the newest message id already loaded)
+  // together bracket exactly the backlog that was unread *before* this
+  // viewing started. Declared ahead of the read-cursor-advance effect below
+  // so it reads `lastReadId`'s pre-advance value in the same commit. Once
+  // `activeRef` records the transition, further renders while the panel
+  // stays open (messages/lastReadId still changing) don't re-snapshot, so a
+  // message that arrives afterward — from anyone, including a reply the
+  // viewer sends themselves — falls above `readBoundaryTopId` and is never
+  // flagged new; see `dividerIndex` below.
+  useEffect(() => {
+    if (gameId === null || !readStatusLoaded) return
+    const isActive = !collapsed && pageVisible
+    const prior = activeRef.current
+    if (isActive && (prior.gameId !== gameId || !prior.active)) {
+      setReadBoundaryId(lastReadId)
+      setReadBoundaryTopId(messages && messages.length > 0 ? messages[messages.length - 1].id : lastReadId)
+    }
+    activeRef.current = { gameId, active: isActive }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gameId, readStatusLoaded, collapsed, pageVisible, lastReadId, messages])
 
   // Advances the read cursor while the panel is open and the tab is
   // visible/focused — CHAT_PLAN.md §13: "mark read when the chat panel is
@@ -257,13 +292,15 @@ export function ChatPanel({ gameId, players, compact = false, canPost = true, op
   }, [messages])
 
   // Unread badge (numeric, capped at "9+" per CHAT_PLAN.md §13) — how many
-  // loaded messages are newer than the live read cursor. Messages beyond
-  // CHAT_PAGE_SIZE aren't loaded at all (chatApi.ts's listChatMessages has
-  // no older-history paging yet), but that only matters once the true count
-  // already exceeds the "9+" cap, so it never under-displays. `lastReadId`
-  // stays null forever for site-wide chat (gameId === null, see the load
-  // effect above), so this is always 0 there and the badge never renders.
-  const unreadCount = messages === null || lastReadId === null ? 0 : messages.filter((message) => message.id > lastReadId).length
+  // loaded messages, excluding the viewer's own (issue #586: a message you
+  // wrote yourself is never "new" to you), are newer than the live read
+  // cursor. Messages beyond CHAT_PAGE_SIZE aren't loaded at all (chatApi.ts's
+  // listChatMessages has no older-history paging yet), but that only matters
+  // once the true count already exceeds the "9+" cap, so it never
+  // under-displays. `lastReadId` stays null forever for site-wide chat
+  // (gameId === null, see the load effect above), so this is always 0 there
+  // and the badge never renders.
+  const unreadCount = messages === null || lastReadId === null ? 0 : messages.filter((message) => message.sender_id !== userId && message.id > lastReadId).length
 
   // Bubbles the count to a caller controlling `open` externally (issue #580)
   // so it can badge its own toggle button — computed above, not gated behind
@@ -313,11 +350,18 @@ export function ChatPanel({ gameId, players, compact = false, canPost = true, op
     }
   }
 
-  // "New messages" divider position — the first loaded message newer than
-  // the cursor as it stood when this component mounted (readBoundaryId),
-  // not the live one, so the divider stays put while the user reads rather
-  // than chasing the cursor up the list.
-  const dividerIndex = messages !== null && readBoundaryId !== null ? messages.findIndex((message) => message.id > readBoundaryId) : -1
+  // "New messages" divider position — the first loaded message, not sent by
+  // the viewer (issue #586), whose id falls in `(readBoundaryId,
+  // readBoundaryTopId]`: newer than the cursor as it stood before this
+  // viewing session started, but no newer than what was already loaded when
+  // it started. The upper bound is what keeps the divider from chasing a
+  // message that arrives — from anyone — while the panel is still open and
+  // being watched live (issue #586); the lower bound is what keeps it from
+  // chasing the cursor as the viewer reads further within the same session.
+  const dividerIndex =
+    messages !== null && readBoundaryId !== null && readBoundaryTopId !== null
+      ? messages.findIndex((message) => message.sender_id !== uid && message.id > readBoundaryId && message.id <= readBoundaryTopId)
+      : -1
 
   return (
     <section className="flex flex-col gap-2 rounded-md border border-neutral-800 bg-neutral-900 p-3">
