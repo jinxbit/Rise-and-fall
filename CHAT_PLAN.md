@@ -297,22 +297,20 @@ appends the new row straight from the payload, no follow-up fetch needed.
   rooms" per the issue, since everything from `roomEntries` down (line 219
   onward) is the room lists. Only rendered once `chat_enabled()` is true and
   a session exists (§2).
-- **In-game** (`GamePage.tsx`): `<ChatPanel gameId={game.id} compact
-  canPost={!!ownSeat} />` at the very top of the returned JSX, ahead of the
-  room-header row — implemented in issue #565. `compact` starts the panel
-  collapsed behind a Show/Hide toggle so it doesn't push the board below the
-  fold on small screens, matching how the mobile pass (`PROJECT_PLAN.md` §5)
-  solved the same problem for the history bar (`todo.md` #69): plain
-  page-local `useState` inside `ChatPanel`, reset on remount rather than
-  written anywhere durable — this app has no `localStorage`-backed UI state
-  to follow instead. `canPost` mirrors the "post chat" RLS policy (§3/§10.1):
-  false for a signed-in non-seated visitor to a public game (GamePage's
-  `ownSeat`, the same "does this session have a seat here" check every other
-  panel already gates on), which swaps the composer for an explanation
-  instead of letting the post fail on submit with a raw RLS error. Hotseat
-  games get no special casing — every local seat shares the host's
-  `auth.uid()` (`0003_hotseat_local_players.sql`), so `ownSeat` is always
-  found and the composer behaves like any other game.
+- **In-game** (`GamePage.tsx`): originally (issue #565) `<ChatPanel
+  gameId={game.id} compact canPost={!!ownSeat} />` at the very top of the
+  returned JSX, `compact` starting the panel collapsed behind its own
+  Show/Hide toggle. **Superseded by issue #580 (§14):** the toggle button
+  and its unread badge moved into the header row, to the left of the
+  player-name list, and the panel itself — when open — now renders directly
+  under that header instead of pinned above it. `canPost` mirrors the "post
+  chat" RLS policy (§3/§10.1): false for a signed-in non-seated visitor to a
+  public game (GamePage's `ownSeat`, the same "does this session have a seat
+  here" check every other panel already gates on), which swaps the composer
+  for an explanation instead of letting the post fail on submit with a raw
+  RLS error. Hotseat games get no special casing — every local seat shares
+  the host's `auth.uid()` (`0003_hotseat_local_players.sql`), so `ownSeat` is
+  always found and the composer behaves like any other game.
 - A single shared `ChatPanel` component (`src/components/ChatPanel.tsx`)
   parameterized by `gameId: string | null`, backed by a small `chatApi.ts`
   in `src/lib/` (list + subscribe + post), mirroring the existing
@@ -440,6 +438,9 @@ other.
 7. **Unread indicator (issue #579, done).** `chat_read_status` table + RLS,
    `chatApi.ts`'s `getChatReadStatus`/`markChatRead`, `ChatPanel.tsx`'s badge
    and "new messages" divider (§13). Depended only on 1–3, not on 4–6.
+8. **In-game chat position and size (issue #580, done).** `ChatPanel.tsx`'s
+   `open`/`onUnreadCountChange` props, `GamePage.tsx`'s header toggle button
+   (§14). Depended only on 3 and 7, not on 4–6.
 
 Phases 4–6 are intentionally not started until jinxbit confirms scope/timing
 on this document, per the issue's own "Future" heading treating them as
@@ -571,3 +572,38 @@ least as far along) when nothing matched. Two reasons, not one:
   badge counts unread among only those loaded, which under-counts a true
   backlog larger than 50, but never under-*displays*: once the loaded count
   already hits the "9+" cap the true count doesn't change what's shown.
+
+## 14. In-game chat position and size (issue #580)
+
+Issue #580 asked for the in-game chat toggle to move: when closed, it should
+be nothing but a button next to the player-name list with an unread badge on
+it; when open, the panel should sit under the player names rather than
+pinned above the whole page.
+
+- **`GamePage.tsx`** now owns the open/closed state itself (`chatOpen`,
+  `useState(false)`) instead of `ChatPanel` owning it via `compact`. The
+  toggle button — a chat-bubble icon plus the same numeric badge style §13
+  already used inside `ChatPanel`'s own heading (`chatApi.ts`'s
+  `formatUnreadBadge`, moved there from `ChatPanel.tsx` so both callers
+  import a plain function rather than a component file) — is rendered in the
+  header row, immediately before the player-name `<ul>` (i.e. to that list's
+  left, per the issue). `<ChatPanel>` itself moved from ahead of `<header>`
+  to right after it, so an open panel renders directly under the row
+  containing the player names.
+- **`ChatPanel.tsx`** gained two props to support this without duplicating
+  its own state: `open` (controlled visibility — when passed, it replaces
+  `compact`'s internal `collapsed` state entirely, and the component renders
+  nothing at all while `open` is false rather than showing its own
+  heading/badge/Show-Hide toggle) and `onUnreadCountChange` (fires whenever
+  the live unread count changes, so `GamePage.tsx`'s external button can
+  badge itself). The component stays mounted regardless of `open` — its
+  Realtime subscription and read-cursor tracking (§13) keep running while
+  hidden, the same "collapsed but still live" behavior `compact` already
+  had, just with the visible chrome moved out to the caller. `compact`'s own
+  self-contained toggle (heading + Show/Hide button) is unchanged for
+  `HomePage.tsx`'s site-wide instance, which passes neither `compact` nor
+  `open` and stays permanently expanded with no toggle at all, same as
+  before.
+- No `chat_read_status`/RLS/schema change — this is a pure UI relayout on
+  top of §13's existing unread-tracking data flow, just re-plumbed to expose
+  the count to an external toggle instead of an internal one.

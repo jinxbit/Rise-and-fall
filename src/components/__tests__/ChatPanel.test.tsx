@@ -27,6 +27,7 @@ const chatApi = vi.hoisted(() => ({
   getChatDisplayNames: vi.fn(),
   getChatReadStatus: vi.fn(),
   markChatRead: vi.fn(),
+  formatUnreadBadge: (count: number) => (count > 9 ? '9+' : String(count)),
 }))
 vi.mock('../../lib/chatApi', () => chatApi)
 
@@ -151,6 +152,42 @@ describe('ChatPanel', () => {
     expect(await screen.findByText("Only seated players can post in this game's chat.")).toBeInTheDocument()
     expect(screen.queryByPlaceholderText('Message')).not.toBeInTheDocument()
     expect(chatApi.postChatMessage).not.toHaveBeenCalled()
+  })
+
+  describe('externally-controlled visibility (issue #580, CHAT_PLAN.md §14)', () => {
+    it('renders nothing while open=false, with no internal toggle button', async () => {
+      mockAuth.session = makeSession('alice')
+      chatApi.listChatMessages.mockResolvedValue([makeMessage(1, 'bob', 'hello there')])
+
+      const { container } = render(<ChatPanel gameId="game-1" open={false} />)
+
+      await waitFor(() => expect(chatApi.isChatEnabled).toHaveBeenCalled())
+      expect(container).toBeEmptyDOMElement()
+      expect(screen.queryByRole('button', { name: /show chat|hide chat/i })).not.toBeInTheDocument()
+    })
+
+    it('renders the panel while open=true, with no internal toggle button', async () => {
+      mockAuth.session = makeSession('alice')
+      chatApi.listChatMessages.mockResolvedValue([makeMessage(1, 'bob', 'hello there')])
+      chatApi.getChatDisplayNames.mockResolvedValue({ bob: 'Bob' })
+
+      render(<ChatPanel gameId="game-1" open={true} />)
+
+      expect(await screen.findByText('hello there')).toBeInTheDocument()
+      expect(screen.getByPlaceholderText('Message')).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /show chat|hide chat/i })).not.toBeInTheDocument()
+    })
+
+    it('reports the unread count to onUnreadCountChange while closed', async () => {
+      mockAuth.session = makeSession('alice')
+      chatApi.listChatMessages.mockResolvedValue([makeMessage(1, 'bob', 'first'), makeMessage(2, 'bob', 'second')])
+      chatApi.getChatReadStatus.mockResolvedValue({ id: 'r1', user_id: 'alice', game_id: 'game-1', last_read_id: 0, updated_at: new Date(0).toISOString() })
+      const onUnreadCountChange = vi.fn()
+
+      render(<ChatPanel gameId="game-1" open={false} onUnreadCountChange={onUnreadCountChange} />)
+
+      await waitFor(() => expect(onUnreadCountChange).toHaveBeenCalledWith(2))
+    })
   })
 
   describe('unread indicator (issue #579, CHAT_PLAN.md §13) — in-game chat only', () => {

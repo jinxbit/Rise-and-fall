@@ -10,6 +10,11 @@ import type { ChatMessageRow, ChatReadStatusRow } from './dbTypes'
 /** No older-history paging yet — CHAT_PLAN.md doesn't ask for it. This is "enough to see the recent conversation on load." */
 const CHAT_PAGE_SIZE = 50
 
+/** Unread badge text (1-9, "9+" beyond) — CHAT_PLAN.md §13. Shared by ChatPanel's own heading and GamePage's external toggle button (§14) so both format a count identically. */
+export function formatUnreadBadge(count: number): string {
+  return count > 9 ? '9+' : String(count)
+}
+
 let chatEnabledCache: Promise<boolean> | null = null
 
 /**

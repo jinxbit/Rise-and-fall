@@ -42,6 +42,7 @@ import { useTrafficStats } from '../hooks/useTrafficStats'
 import { useConfirmBeforeRevealingCards } from '../hooks/useConfirmBeforeRevealingCards'
 import { useUnitPlateColors } from '../hooks/useUnitPlateColors'
 import { useUnitReserveDisplayMode } from '../hooks/useUnitReserveDisplayMode'
+import { formatUnreadBadge } from '../lib/chatApi'
 import type { GameRow, PlayerRow } from '../lib/dbTypes'
 import { simpleError, toAppError, type AppError } from '../lib/errors'
 import { buildGenesisState } from '../lib/gameGenesis'
@@ -189,6 +190,17 @@ export function GamePage() {
   /** The top-left hamburger menu (Main menu, Show/Hide game state JSON) — see the click-outside/Escape effect below. */
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
+  /**
+   * In-game chat's own open/closed state (issue #580), lifted out of
+   * ChatPanel so its toggle button can live next to the player-name list in
+   * the header instead of ChatPanel rendering its own bordered box wherever
+   * it sits in the page. Closed by default, same as the old `compact` prop's
+   * initial `collapsed` — a chat panel pinned open would push the board
+   * below the fold on a phone (issue #565).
+   */
+  const [chatOpen, setChatOpen] = useState(false)
+  /** Mirrors ChatPanel's live unread count (issue #580's `onUnreadCountChange`) so the header's own toggle button can show a matching badge while the panel itself renders nothing. */
+  const [chatUnreadCount, setChatUnreadCount] = useState(0)
   /** The "Reviewing history" banner (Prev/Next/slider/Back to live, etc.) — see the page-wide click-to-exit handler below. */
   const reviewBannerRef = useRef<HTMLDivElement>(null)
   const [copiedStateJson, setCopiedStateJson] = useState(false)
@@ -1532,7 +1544,6 @@ export function GamePage() {
         setReviewIndex(null)
       }}
     >
-      <ChatPanel gameId={game.id} compact canPost={!!ownSeat} />
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap items-center gap-3">
           <div ref={menuRef} className="relative">
@@ -1773,6 +1784,25 @@ export function GamePage() {
           >
             Next game
           </button>
+          <button
+            type="button"
+            onClick={() => setChatOpen((v) => !v)}
+            aria-expanded={chatOpen}
+            title={chatOpen ? 'Hide chat' : 'Show chat'}
+            className="relative rounded-md border border-neutral-700 p-2 hover:border-neutral-500"
+          >
+            <svg viewBox="0 0 20 20" className="h-5 w-5 fill-current" aria-hidden="true">
+              <path d="M3 4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h1.5v3.25a.75.75 0 0 0 1.28.53L9.31 14H17a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H3Z" />
+            </svg>
+            {chatUnreadCount > 0 && (
+              <span
+                className="absolute -right-1 -top-1 rounded-full bg-sky-600 px-1.5 py-0.5 text-xs font-semibold leading-none text-white"
+                aria-label={`${chatUnreadCount} unread message${chatUnreadCount === 1 ? '' : 's'}`}
+              >
+                {formatUnreadBadge(chatUnreadCount)}
+              </span>
+            )}
+          </button>
           <ul className="flex flex-wrap gap-3 text-sm text-neutral-400">
             {players.map((p) => (
               <li key={p.id} className="flex items-center gap-1">
@@ -1829,6 +1859,8 @@ export function GamePage() {
           </button>
         </div>
       </header>
+
+      <ChatPanel gameId={game.id} canPost={!!ownSeat} open={chatOpen} onUnreadCountChange={setChatUnreadCount} />
 
       {isReviewingHistory && (
         <div
