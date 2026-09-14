@@ -441,6 +441,9 @@ other.
 8. **In-game chat position and size (issue #580, done).** `ChatPanel.tsx`'s
    `open`/`onUnreadCountChange` props, `GamePage.tsx`'s header toggle button
    (§14). Depended only on 3 and 7, not on 4–6.
+9. **Typewriter look and older-history paging (issue #587, done).** Smaller
+   text, a monospace "typewriter" font, a scroll-position fix, and
+   `chatApi.ts`'s `listOlderChatMessages` (§16). Depended only on 1–3.
 
 Phases 4–6 are intentionally not started until jinxbit confirms scope/timing
 on this document, per the issue's own "Future" heading treating them as
@@ -591,10 +594,11 @@ least as far along) when nothing matched. Two reasons, not one:
   sequence if that ever changes.
 - **Unread count beyond the loaded window:** `chatApi.ts`'s
   `listChatMessages` only ever loads the most recent `CHAT_PAGE_SIZE` (50)
-  messages — there's no older-history paging (§3's own doc comment). The
-  badge counts unread among only those loaded, which under-counts a true
-  backlog larger than 50, but never under-*displays*: once the loaded count
-  already hits the "9+" cap the true count doesn't change what's shown.
+  messages on open. **Older messages can now be paged in by scrolling (issue
+  #587, §16)**, but only backwards — the badge still counts unread among only
+  what's loaded, which under-counts a true backlog larger than 50, but never
+  under-*displays*: once the loaded count already hits the "9+" cap the true
+  count doesn't change what's shown.
 
 ## 14. In-game chat position and size (issue #580)
 
@@ -657,3 +661,51 @@ client-side — no schema/RLS change:
 
 Both paths live entirely in `ChatPanel.tsx`'s new `colorFor()` — no other
 file changed.
+
+## 16. Typewriter look and older-history paging (issue #587)
+
+Four requests, all UI/data-layer only — no RLS or schema change:
+
+- **Smaller text.** The message list and composer dropped from `text-sm` to
+  `text-xs`; the heading/badge/toggle text (already `text-sm`/`text-xs`)
+  were left alone since the ask was about the chat content, not its chrome.
+- **Typewriter font.** `index.css` adds a Tailwind v4 `@theme` token,
+  `--font-typewriter: 'Courier New', Courier, 'Liberation Mono', monospace`,
+  applied to the whole `<section>` in `ChatPanel.tsx`. Deliberately a
+  web-safe system stack rather than a bundled or Google-Fonts-linked
+  typewriter face (e.g. "Special Elite") — `CLAUDE.md`'s "all copy/artwork is
+  original" posture and this app's general avoidance of third-party runtime
+  dependencies extend naturally to not pulling in a licensed font file or an
+  external font CDN for a cosmetic change. Courier New is an actual
+  typewriter typeface and ships on effectively every desktop OS.
+- **Allow scrolling.** The list already had `overflow-y-auto`; what actually
+  blocked reading history was `ChatPanel`'s own auto-scroll effect, which
+  unconditionally reset `scrollTop` to the bottom on every `messages` change
+  — including a Realtime message from someone else arriving while the viewer
+  had scrolled up to read older text. The effect (now `useLayoutEffect`, so
+  the jump-to-bottom or position-restore happens before paint) only snaps to
+  the bottom when the viewer was already within `SCROLL_EDGE_THRESHOLD_PX`
+  (40px) of it before the update — tracked in a `nearBottomRef` kept current
+  by the list's own `onScroll` handler. Standard "don't yank someone back
+  down mid-read" chat behavior; unchanged for the common case (new message
+  arrives while already following the bottom of the conversation, or on
+  first load).
+- **Load older rows on scroll.** `chatApi.ts` gains
+  `listOlderChatMessages(gameId, beforeId)`, the same shape as
+  `listChatMessages` but `lt('id', beforeId)` and reusing the same
+  `CHAT_PAGE_SIZE` (50, now exported) so the caller can tell a short page
+  means there's nothing older left (`hasOlder` in `ChatPanel.tsx`).
+  Scrolling within `SCROLL_EDGE_THRESHOLD_PX` of the top fetches the page
+  before whatever's currently the oldest loaded message and prepends it.
+  Prepending would otherwise jump the viewport (the content above what the
+  viewer was looking at just got taller); `loadOlderMessages` records the
+  list's `scrollHeight` immediately before the splice, and the same
+  `useLayoutEffect` above restores position by the delta once the new
+  `scrollHeight` is known, so the viewer stays looking at the same messages.
+  A ref-backed `loadingOlderRef` (not just the `loadingOlder` state used for
+  the "Loading older messages…" line) guards against a burst of scroll events
+  firing a second fetch before the first one's state update has committed.
+  No change to the initial load, the unread cursor, or the "new messages"
+  divider — paging only ever prepends messages *older* than anything already
+  loaded, so it can't affect what's newest (§13's unread/divider math looks
+  only at the newest end).

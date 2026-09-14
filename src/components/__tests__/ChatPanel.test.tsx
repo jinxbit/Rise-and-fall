@@ -21,8 +21,10 @@ vi.mock('../../hooks/useDisplayName', () => ({
 }))
 
 const chatApi = vi.hoisted(() => ({
+  CHAT_PAGE_SIZE: 50,
   isChatEnabled: vi.fn(),
   listChatMessages: vi.fn(),
+  listOlderChatMessages: vi.fn(),
   postChatMessage: vi.fn(),
   subscribeToChatMessages: vi.fn(),
   getChatDisplayNames: vi.fn(),
@@ -31,6 +33,28 @@ const chatApi = vi.hoisted(() => ({
   formatUnreadBadge: (count: number) => (count > 9 ? '9+' : String(count)),
 }))
 vi.mock('../../lib/chatApi', () => chatApi)
+
+/**
+ * jsdom never computes real layout, so scrollTop/scrollHeight/clientHeight
+ * are otherwise always 0 — this stubs them per-element with a controllable
+ * backing store so scroll-position tests (issue #587) can simulate "scrolled
+ * away from the bottom" and "content grew after a prepend" deterministically.
+ */
+function mockScrollMetrics(el: HTMLElement, initial: { scrollTop?: number; scrollHeight?: number; clientHeight?: number } = {}) {
+  let scrollTop = initial.scrollTop ?? 0
+  let scrollHeight = initial.scrollHeight ?? 0
+  const clientHeight = initial.clientHeight ?? 0
+  Object.defineProperty(el, 'scrollTop', {
+    configurable: true,
+    get: () => scrollTop,
+    set: (v: number) => {
+      scrollTop = v
+    },
+  })
+  Object.defineProperty(el, 'scrollHeight', { configurable: true, get: () => scrollHeight })
+  Object.defineProperty(el, 'clientHeight', { configurable: true, get: () => clientHeight })
+  return { setScrollHeight: (v: number) => (scrollHeight = v) }
+}
 
 function makeSession(userId: string): Session {
   return { user: { id: userId } } as Session
@@ -60,6 +84,7 @@ describe('ChatPanel', () => {
     mockAuth.session = null
     chatApi.isChatEnabled.mockReset().mockResolvedValue(true)
     chatApi.listChatMessages.mockReset().mockResolvedValue([])
+    chatApi.listOlderChatMessages.mockReset().mockResolvedValue([])
     chatApi.postChatMessage.mockReset().mockResolvedValue(undefined)
     chatApi.getChatDisplayNames.mockReset().mockResolvedValue({})
     chatApi.subscribeToChatMessages.mockReset().mockReturnValue(() => {})
@@ -273,7 +298,7 @@ describe('ChatPanel', () => {
       const { container } = render(<ChatPanel gameId="game-1" />)
       await screen.findByText('brand new')
 
-      expect(screen.getByRole('separator')).toBeInTheDocument()
+      expect(await screen.findByRole('separator')).toBeInTheDocument()
       // The divider sits between the already-read message and the unread one.
       const text = container.textContent ?? ''
       expect(text.indexOf('seen already')).toBeLessThan(text.indexOf('New messages'))
@@ -377,6 +402,85 @@ describe('ChatPanel', () => {
       const probe = document.createElement('span')
       probe.style.color = hashDisplayNameToColor('Bob')
       expect(name.style.color).toBe(probe.style.color)
+    })
+  })
+
+  describe('typewriter look and older-history paging (issue #587, CHAT_PLAN.md §16)', () => {
+    it('renders the panel in a smaller, typewriter-styled font', async () => {
+      mockAuth.session = makeSession('alice')
+
+      const { container } = render(<ChatPanel gameId={null} />)
+
+      await screen.findByPlaceholderText('Message')
+      expect(container.querySelector('section')).toHaveClass('font-typewriter')
+      expect(container.querySelector('.overflow-y-auto')).toHaveClass('text-xs')
+    })
+
+    it('does not snap back to the bottom when a message arrives while scrolled away from it', async () => {
+      mockAuth.session = makeSession('alice')
+      chatApi.listChatMessages.mockResolvedValue([makeMessage(1, 'bob', 'hello there')])
+      let onInsert: ((message: ChatMessageRow) => void) | undefined
+      chatApi.subscribeToChatMessages.mockImplementation((_gameId: string | null, cb: (message: ChatMessageRow) => void) => {
+        onInsert = cb
+        return () => {}
+      })
+
+      const { container } = render(<ChatPanel gameId={null} />)
+      await screen.findByText('hello there')
+
+      const list = container.querySelector('.overflow-y-auto') as HTMLElement
+      mockScrollMetrics(list, { scrollTop: 400, scrollHeight: 1000, clientHeight: 100 })
+      fireEvent.scroll(list)
+      expect(list.scrollTop).toBe(400)
+
+      chatApi.getChatDisplayNames.mockResolvedValue({ carol: 'Carol' })
+      onInsert?.(makeMessage(2, 'carol', 'incoming while scrolled up'))
+      await screen.findByText('incoming while scrolled up')
+
+      expect(list.scrollTop).toBe(400)
+    })
+
+    it('loads an older page on scrolling near the top and keeps the viewport anchored', async () => {
+      mockAuth.session = makeSession('alice')
+      const initialMessages = Array.from({ length: 50 }, (_, i) => makeMessage(i + 51, 'bob', `msg ${i + 51}`))
+      chatApi.listChatMessages.mockResolvedValue(initialMessages)
+      const older = [makeMessage(49, 'bob', 'older one'), makeMessage(50, 'bob', 'older two')]
+
+      const { container } = render(<ChatPanel gameId={null} />)
+      await screen.findByText('msg 100')
+
+      const list = container.querySelector('.overflow-y-auto') as HTMLElement
+      const metrics = mockScrollMetrics(list, { scrollTop: 5, scrollHeight: 1000, clientHeight: 100 })
+      chatApi.listOlderChatMessages.mockImplementation(async () => {
+        metrics.setScrollHeight(1040)
+        return older
+      })
+
+      fireEvent.scroll(list)
+
+      await screen.findByText('older one')
+      expect(chatApi.listOlderChatMessages).toHaveBeenCalledWith(null, 51)
+      expect(list.scrollTop).toBe(40)
+    })
+
+    it('stops requesting older pages once a short page signals there is nothing left', async () => {
+      mockAuth.session = makeSession('alice')
+      const initialMessages = Array.from({ length: 50 }, (_, i) => makeMessage(i + 51, 'bob', `msg ${i + 51}`))
+      chatApi.listChatMessages.mockResolvedValue(initialMessages)
+      chatApi.listOlderChatMessages.mockResolvedValue([makeMessage(50, 'bob', 'the very first message')])
+
+      const { container } = render(<ChatPanel gameId={null} />)
+      await screen.findByText('msg 100')
+
+      const list = container.querySelector('.overflow-y-auto') as HTMLElement
+      mockScrollMetrics(list, { scrollTop: 5, scrollHeight: 1000, clientHeight: 100 })
+
+      fireEvent.scroll(list)
+      await screen.findByText('the very first message')
+      expect(chatApi.listOlderChatMessages).toHaveBeenCalledTimes(1)
+
+      fireEvent.scroll(list)
+      await waitFor(() => expect(chatApi.listOlderChatMessages).toHaveBeenCalledTimes(1))
     })
   })
 })

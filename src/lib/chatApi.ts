@@ -7,8 +7,13 @@
 import { supabase } from './supabase'
 import type { ChatMessageRow, ChatReadStatusRow } from './dbTypes'
 
-/** No older-history paging yet — CHAT_PLAN.md doesn't ask for it. This is "enough to see the recent conversation on load." */
-const CHAT_PAGE_SIZE = 50
+/**
+ * Page size for both the initial load and each older-history page (issue
+ * #587, CHAT_PLAN.md §16) — "enough to see the recent conversation on load,"
+ * and reused as the older-page size so `ChatPanel.tsx` can tell whether a
+ * page came back short (fewer than this many rows) and stop asking for more.
+ */
+export const CHAT_PAGE_SIZE = 50
 
 /** Unread badge text (1-9, "9+" beyond) — CHAT_PLAN.md §13. Shared by ChatPanel's own heading and GamePage's external toggle button (§14) so both format a count identically. */
 export function formatUnreadBadge(count: number): string {
@@ -54,6 +59,20 @@ export function isChatEnabled(): Promise<boolean> {
  */
 export async function listChatMessages(gameId: string | null): Promise<ChatMessageRow[]> {
   let query = supabase.from('chat_messages').select('*').order('created_at', { ascending: false }).limit(CHAT_PAGE_SIZE)
+  query = gameId === null ? query.is('game_id', null) : query.eq('game_id', gameId)
+  const { data, error } = await query
+  if (error) throw error
+  return (data ?? []).slice().reverse()
+}
+
+/**
+ * One older page, strictly before `beforeId` (the oldest message currently
+ * loaded), oldest-first, same shape and cap as `listChatMessages` (issue
+ * #587, CHAT_PLAN.md §16). Same RLS scoping — a signed-out caller or a
+ * disabled kill switch just gets `[]`.
+ */
+export async function listOlderChatMessages(gameId: string | null, beforeId: number): Promise<ChatMessageRow[]> {
+  let query = supabase.from('chat_messages').select('*').lt('id', beforeId).order('created_at', { ascending: false }).limit(CHAT_PAGE_SIZE)
   query = gameId === null ? query.is('game_id', null) : query.eq('game_id', gameId)
   const { data, error } = await query
   if (error) throw error
