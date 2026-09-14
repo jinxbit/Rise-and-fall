@@ -1,20 +1,35 @@
 // Chat, phase 2 (issue #564, CHAT_PLAN.md §6), phase 3 (issue #565,
 // §6/§11.3), the unread indicator (issue #579, CHAT_PLAN.md §13, in-game
-// chat only), its position/size (issue #580, §14) and name coloring (issue
-// #581, §15). One shared component for both surfaces: site-wide (`gameId:
+// chat only), its position/size (issue #580, §14), name coloring (issue
+// #581, §15) and its typewriter look + older-history paging (issue #587,
+// §16). One shared component for both surfaces: site-wide (`gameId:
 // null`, wired into HomePage.tsx, permanently expanded via the
 // `compact`/`open` defaults) and in-game (a real `gameId`, wired into
 // GamePage.tsx, `canPost` plus a controlled `open` + `onUnreadCountChange`
 // so GamePage's own header button drives visibility).
 
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type UIEvent } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import { useDisplayName } from '../hooks/useDisplayName'
 import { hashDisplayNameToColor } from '../lib/chatColors'
-import { formatUnreadBadge, getChatDisplayNames, getChatReadStatus, isChatEnabled, listChatMessages, markChatRead, postChatMessage, subscribeToChatMessages } from '../lib/chatApi'
+import {
+  CHAT_PAGE_SIZE,
+  formatUnreadBadge,
+  getChatDisplayNames,
+  getChatReadStatus,
+  isChatEnabled,
+  listChatMessages,
+  listOlderChatMessages,
+  markChatRead,
+  postChatMessage,
+  subscribeToChatMessages,
+} from '../lib/chatApi'
 import type { ChatMessageRow, PlayerRow } from '../lib/dbTypes'
 import { toAppError, type AppError } from '../lib/errors'
 import { ErrorBanner } from './ErrorBanner'
+
+/** Scrolled within this many pixels of the top triggers an older-history fetch; of the bottom counts as "still following the conversation" for the auto-scroll-to-bottom below (issue #587, CHAT_PLAN.md §16). */
+const SCROLL_EDGE_THRESHOLD_PX = 40
 
 /** How long a locally-advanced read cursor waits before it's written to `chat_read_status`, absent an earlier flush (collapse, tab hidden/blurred, unmount) — CHAT_PLAN.md §13's "debounce writes ... every few seconds while open, not on every message." */
 const MARK_READ_DEBOUNCE_MS = 3000
@@ -108,6 +123,30 @@ export function ChatPanel({ gameId, players, compact = false, canPost = true, op
   const collapsed = controlled ? !open : internalCollapsed
   const listRef = useRef<HTMLDivElement>(null)
 
+  // Older-history paging (issue #587, CHAT_PLAN.md §16) — `listChatMessages`
+  // only ever loads the most recent CHAT_PAGE_SIZE rows; scrolling to the top
+  // of the list fetches the page before whatever's currently oldest.
+  // `hasOlder` starts optimistic (true) and flips false as soon as a page —
+  // the initial one or an older one — comes back shorter than a full page,
+  // meaning there's nothing left before it.
+  const [hasOlder, setHasOlder] = useState(true)
+  const [loadingOlder, setLoadingOlder] = useState(false)
+  // Guards against a burst of scroll events firing `loadOlderMessages`
+  // several times before the `loadingOlder` state update from the first call
+  // has committed — a plain state read in the handler would still see `false`
+  // for all of them.
+  const loadingOlderRef = useRef(false)
+  // Set just before an older page is spliced into `messages`, to the list's
+  // scrollHeight at that moment; the layout effect below reads it to hold the
+  // viewport steady on the same messages instead of snapping to the bottom.
+  const prevScrollHeightRef = useRef<number | null>(null)
+  // Whether the viewer was already within SCROLL_EDGE_THRESHOLD_PX of the
+  // bottom before this render's messages changed — only then does a newly
+  // arrived message auto-scroll the view, the same "don't yank someone back
+  // down while they're reading history" rule most chat UIs use. Starts true
+  // so the very first load lands scrolled to the newest message.
+  const nearBottomRef = useRef(true)
+
   // Unread tracking (CHAT_PLAN.md §13) — in-game chat only (`gameId` set).
   // The site-wide channel (`gameId: null`) never fetches or writes a read
   // cursor and never shows a badge or divider; every effect below is a
@@ -170,11 +209,14 @@ export function ChatPanel({ gameId, players, compact = false, canPost = true, op
     if (!enabled || !userId) return
     const uid = userId
     let cancelled = false
+    setHasOlder(true)
+    nearBottomRef.current = true
     async function load() {
       try {
         const [rows, readStatus] = await Promise.all([listChatMessages(gameId), gameId === null ? Promise.resolve(null) : getChatReadStatus(gameId, uid)])
         if (cancelled) return
         setMessages(rows)
+        setHasOlder(rows.length >= CHAT_PAGE_SIZE)
         const fetchedNames = await getChatDisplayNames(rows.map((row) => row.sender_id))
         if (!cancelled) setNames((prev) => ({ ...prev, ...fetchedNames }))
 
@@ -287,19 +329,64 @@ export function ChatPanel({ gameId, players, compact = false, canPost = true, op
     })
   }, [enabled, userId, gameId])
 
-  useEffect(() => {
-    if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight
+  // Keeps the message list usable while scrolled up reading history (issue
+  // #587): an older page spliced onto the front holds the viewport on the
+  // same messages (restored from the pre-splice scrollHeight recorded by
+  // `loadOlderMessages` below) instead of jumping; anything else — the
+  // initial load, a new message arriving — only snaps to the bottom if the
+  // viewer was already there, so it never yanks someone back down mid-scroll.
+  useLayoutEffect(() => {
+    const el = listRef.current
+    if (!el) return
+    if (prevScrollHeightRef.current !== null) {
+      el.scrollTop = el.scrollHeight - prevScrollHeightRef.current
+      prevScrollHeightRef.current = null
+      return
+    }
+    if (nearBottomRef.current) el.scrollTop = el.scrollHeight
   }, [messages])
+
+  function handleListScroll(e: UIEvent<HTMLDivElement>) {
+    const el = e.currentTarget
+    nearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < SCROLL_EDGE_THRESHOLD_PX
+    if (el.scrollTop < SCROLL_EDGE_THRESHOLD_PX) void loadOlderMessages()
+  }
+
+  async function loadOlderMessages() {
+    if (!messages || messages.length === 0 || loadingOlderRef.current || !hasOlder) return
+    const oldestId = messages[0].id
+    loadingOlderRef.current = true
+    setLoadingOlder(true)
+    prevScrollHeightRef.current = listRef.current ? listRef.current.scrollHeight : null
+    try {
+      const older = await listOlderChatMessages(gameId, oldestId)
+      if (older.length < CHAT_PAGE_SIZE) setHasOlder(false)
+      if (older.length > 0) {
+        setMessages((prev) => [...older, ...(prev ?? [])])
+        const fetchedNames = await getChatDisplayNames(older.map((row) => row.sender_id))
+        setNames((prev) => ({ ...prev, ...fetchedNames }))
+      } else {
+        prevScrollHeightRef.current = null
+      }
+    } catch (err) {
+      prevScrollHeightRef.current = null
+      setError(toAppError(err, 'Failed to load older messages'))
+    } finally {
+      loadingOlderRef.current = false
+      setLoadingOlder(false)
+    }
+  }
 
   // Unread badge (numeric, capped at "9+" per CHAT_PLAN.md §13) — how many
   // loaded messages, excluding the viewer's own (issue #586: a message you
   // wrote yourself is never "new" to you), are newer than the live read
-  // cursor. Messages beyond CHAT_PAGE_SIZE aren't loaded at all (chatApi.ts's
-  // listChatMessages has no older-history paging yet), but that only matters
-  // once the true count already exceeds the "9+" cap, so it never
-  // under-displays. `lastReadId` stays null forever for site-wide chat
-  // (gameId === null, see the load effect above), so this is always 0 there
-  // and the badge never renders.
+  // cursor. Unread messages are always among the most recent ones, which the
+  // initial `listChatMessages` load already covers regardless of whether
+  // older history has since been paged in (issue #587, CHAT_PLAN.md §16) —
+  // paging only ever prepends messages older than anything already loaded, so
+  // it can't add to this count. `lastReadId` stays null forever for
+  // site-wide chat (gameId === null, see the load effect above), so this is
+  // always 0 there and the badge never renders.
   const unreadCount = messages === null || lastReadId === null ? 0 : messages.filter((message) => message.sender_id !== userId && message.id > lastReadId).length
 
   // Bubbles the count to a caller controlling `open` externally (issue #580)
@@ -364,7 +451,7 @@ export function ChatPanel({ gameId, players, compact = false, canPost = true, op
       : -1
 
   return (
-    <section className="flex flex-col gap-2 rounded-md border border-neutral-800 bg-neutral-900 p-3">
+    <section className="font-typewriter flex flex-col gap-2 rounded-md border border-neutral-800 bg-neutral-900 p-3">
       <div className="flex items-center justify-between">
         <h2 className="flex items-center gap-2 text-sm font-medium text-neutral-300">
           Chat
@@ -388,7 +475,8 @@ export function ChatPanel({ gameId, players, compact = false, canPost = true, op
       {!collapsed && (
         <>
           {error && <ErrorBanner message={error.message} details={error.details} onDismiss={() => setError(null)} />}
-          <div ref={listRef} className="flex max-h-48 flex-col gap-1 overflow-y-auto text-sm">
+          <div ref={listRef} onScroll={handleListScroll} className="flex max-h-48 flex-col gap-1 overflow-y-auto text-xs">
+            {loadingOlder && <p className="text-center text-neutral-500">Loading older messages…</p>}
             {messages === null && <p className="text-neutral-500">Loading chat…</p>}
             {messages !== null && messages.length === 0 && <p className="text-neutral-500">No messages yet.</p>}
             {messages?.map((message, index) => (
@@ -416,12 +504,12 @@ export function ChatPanel({ gameId, players, compact = false, canPost = true, op
                 onChange={(e) => setDraft(e.target.value)}
                 placeholder="Message"
                 maxLength={2000}
-                className="flex-1 rounded-md border border-neutral-700 bg-neutral-950 px-3 py-1.5 text-sm"
+                className="flex-1 rounded-md border border-neutral-700 bg-neutral-950 px-3 py-1.5 text-xs"
               />
               <button
                 type="submit"
                 disabled={sending || draft.trim().length === 0}
-                className="rounded-md border border-neutral-700 px-3 py-1.5 text-sm font-medium hover:border-neutral-500 disabled:opacity-50"
+                className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium hover:border-neutral-500 disabled:opacity-50"
               >
                 Send
               </button>

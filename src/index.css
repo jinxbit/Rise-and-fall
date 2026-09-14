@@ -1,5 +1,13 @@
 @import 'tailwindcss';
 
+@theme {
+  /* Chat's "typewriter" look (issue #587) — a web-safe stack, no third-party
+     font file/CDN to keep in line with CLAUDE.md's "all copy/artwork is
+     original" posture. Courier New is the actual typewriter face; the rest
+     are its closest cross-platform fallbacks. */
+  --font-typewriter: 'Courier New', Courier, 'Liberation Mono', monospace;
+}
+
 :root {
   color-scheme: dark;
 }
