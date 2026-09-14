@@ -344,8 +344,18 @@ describe('ChatPanel', () => {
       onInsert?.(makeMessage(2, 'bob', 'arrived while open'))
 
       await screen.findByText('arrived while open')
-      expect(screen.queryByLabelText(/unread message/)).not.toBeInTheDocument()
-      expect(screen.queryByRole('separator')).not.toBeInTheDocument()
+      // `waitFor`, not a bare assertion: appending the message and advancing
+      // the read cursor past it are two separate commits. The message lands
+      // first (this is the commit `findByText` above resolves on), and the
+      // cursor-advance effect clears the badge in the commit after — so
+      // asserting the instant the text appears was a coin flip on whether
+      // that second commit had been flushed yet, and flaked at roughly 1 run
+      // in 5. What matters is where the panel settles, not what one
+      // intermediate render held.
+      await waitFor(() => {
+        expect(screen.queryByLabelText(/unread message/)).not.toBeInTheDocument()
+        expect(screen.queryByRole('separator')).not.toBeInTheDocument()
+      })
     })
 
     it('never tracks or shows unread state for site-wide chat', async () => {
