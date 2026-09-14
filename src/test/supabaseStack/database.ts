@@ -210,14 +210,14 @@ export class Database {
       }
 
       // 0032_chat_read_status.sql: a user's own read cursor, one row per
-      // (user, channel). Readable/writable only by its own user_id; insert
-      // is additionally gated on chat_enabled() and (for a game channel)
-      // the same read-audience chat_messages itself uses — there's no point
-      // letting a client create a read cursor for a chat channel it
-      // couldn't read messages from anyway. Update isn't chat_enabled()-
-      // gated (matching the migration): advancing an existing cursor after
-      // the switch flips off is harmless, since nothing reads chat_messages
-      // with it off anyway.
+      // (user, game) — in-game chat only, never the site-wide channel.
+      // Readable/writable only by its own user_id; insert is additionally
+      // gated on chat_enabled() and the same read-audience chat_messages
+      // itself uses for that game — there's no point letting a client
+      // create a read cursor for a game's chat it couldn't read messages
+      // from anyway. Update isn't chat_enabled()-gated (matching the
+      // migration): advancing an existing cursor after the switch flips off
+      // is harmless, since nothing reads chat_messages with it off anyway.
       case 'chat_read_status': {
         if (row.user_id !== uid) return false
         if (command === 'select') return true
@@ -306,16 +306,12 @@ export class Database {
           throw new DatabaseError(400, '23514', 'new row for relation "chat_messages" violates check constraint "chat_messages_body_check"')
         }
       }
-      // 0032_chat_read_status.sql's two partial unique indexes, collapsed
-      // into one check here: at most one row per (user_id, game_id), with
-      // `game_id is null` (site-wide) treated as its own key rather than
-      // "distinct from every other null" the way a plain SQL unique
-      // constraint would. chatApi.ts's markChatRead is written to update an
-      // existing row rather than insert a second one in the normal case; this
-      // only fires if two writers race past that check at once.
+      // 0032_chat_read_status.sql's unique(user_id, game_id) index: at most
+      // one row per (user, game). chatApi.ts's markChatRead is written to
+      // update an existing row rather than insert a second one in the normal
+      // case; this only fires if two writers race past that check at once.
       if (table === 'chat_read_status') {
-        const gameId = row.game_id as string | null
-        const clash = this.rows.chat_read_status.some((existing) => existing.user_id === row.user_id && (existing.game_id as string | null) === gameId)
+        const clash = this.rows.chat_read_status.some((existing) => existing.user_id === row.user_id && existing.game_id === row.game_id)
         if (clash) {
           throw new DatabaseError(409, '23505', 'duplicate key value violates unique constraint "chat_read_status_game_uidx"')
         }
@@ -402,7 +398,7 @@ export class Database {
       case 'chat_messages':
         return { id: this.nextChatMessageId++, game_id: null, created_at: now }
       case 'chat_read_status':
-        return { id: globalThis.crypto.randomUUID(), game_id: null, last_read_id: 0, updated_at: now }
+        return { id: globalThis.crypto.randomUUID(), last_read_id: 0, updated_at: now }
       default:
         return {}
     }

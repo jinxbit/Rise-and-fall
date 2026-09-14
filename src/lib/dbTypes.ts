@@ -316,15 +316,15 @@ export interface ChatMessageRow {
 }
 
 /**
- * How far one user has read one chat surface (0032_chat_read_status.sql,
+ * How far one user has read one game's chat (0032_chat_read_status.sql,
  * CHAT_PLAN.md §13) — a cursor into `chat_messages.id`, not a timestamp.
- * `game_id` null = site-wide, matching `ChatMessageRow`. One row per (user,
- * channel); RLS restricts every row to its own `user_id`.
+ * In-game chat only; the site-wide channel has no read cursor. One row per
+ * (user, game); RLS restricts every row to its own `user_id`.
  */
 export interface ChatReadStatusRow {
   id: string
   user_id: string
-  game_id: string | null
+  game_id: string
   last_read_id: number
   updated_at: string
 }

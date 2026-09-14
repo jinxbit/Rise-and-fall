@@ -153,13 +153,13 @@ describe('ChatPanel', () => {
     expect(chatApi.postChatMessage).not.toHaveBeenCalled()
   })
 
-  describe('unread indicator (issue #579, CHAT_PLAN.md §13)', () => {
+  describe('unread indicator (issue #579, CHAT_PLAN.md §13) — in-game chat only', () => {
     it('shows an unread badge for messages newer than the persisted read cursor', async () => {
       mockAuth.session = makeSession('alice')
       chatApi.listChatMessages.mockResolvedValue([makeMessage(1, 'bob', 'first'), makeMessage(2, 'bob', 'second'), makeMessage(3, 'bob', 'third')])
-      chatApi.getChatReadStatus.mockResolvedValue({ id: 'r1', user_id: 'alice', game_id: null, last_read_id: 1, updated_at: new Date(0).toISOString() })
+      chatApi.getChatReadStatus.mockResolvedValue({ id: 'r1', user_id: 'alice', game_id: 'game-1', last_read_id: 1, updated_at: new Date(0).toISOString() })
 
-      render(<ChatPanel gameId={null} />)
+      render(<ChatPanel gameId="game-1" />)
 
       expect(await screen.findByLabelText('2 unread messages')).toHaveTextContent('2')
     })
@@ -167,9 +167,9 @@ describe('ChatPanel', () => {
     it('caps the badge at "9+"', async () => {
       mockAuth.session = makeSession('alice')
       chatApi.listChatMessages.mockResolvedValue(Array.from({ length: 12 }, (_, i) => makeMessage(i + 1, 'bob', `msg ${i + 1}`)))
-      chatApi.getChatReadStatus.mockResolvedValue({ id: 'r1', user_id: 'alice', game_id: null, last_read_id: 0, updated_at: new Date(0).toISOString() })
+      chatApi.getChatReadStatus.mockResolvedValue({ id: 'r1', user_id: 'alice', game_id: 'game-1', last_read_id: 0, updated_at: new Date(0).toISOString() })
 
-      render(<ChatPanel gameId={null} />)
+      render(<ChatPanel gameId="game-1" />)
 
       expect(await screen.findByLabelText('12 unread messages')).toHaveTextContent('9+')
     })
@@ -189,14 +189,14 @@ describe('ChatPanel', () => {
       vi.useFakeTimers({ shouldAdvanceTime: true })
       mockAuth.session = makeSession('alice')
       chatApi.listChatMessages.mockResolvedValue([makeMessage(1, 'bob', 'hi')])
-      chatApi.getChatReadStatus.mockResolvedValue({ id: 'r1', user_id: 'alice', game_id: null, last_read_id: 0, updated_at: new Date(0).toISOString() })
+      chatApi.getChatReadStatus.mockResolvedValue({ id: 'r1', user_id: 'alice', game_id: 'game-1', last_read_id: 0, updated_at: new Date(0).toISOString() })
 
-      render(<ChatPanel gameId={null} />)
+      render(<ChatPanel gameId="game-1" />)
       await waitFor(() => expect(screen.getByLabelText('1 unread message')).toBeInTheDocument())
 
       expect(chatApi.markChatRead).not.toHaveBeenCalled()
       await vi.advanceTimersByTimeAsync(3000)
-      expect(chatApi.markChatRead).toHaveBeenCalledWith(null, 'alice', 1)
+      expect(chatApi.markChatRead).toHaveBeenCalledWith('game-1', 'alice', 1)
     })
 
     it('does not advance the read cursor while collapsed', async () => {
@@ -215,9 +215,9 @@ describe('ChatPanel', () => {
     it('shows a "new messages" divider at the position of the old read cursor', async () => {
       mockAuth.session = makeSession('alice')
       chatApi.listChatMessages.mockResolvedValue([makeMessage(1, 'bob', 'seen already'), makeMessage(2, 'bob', 'brand new')])
-      chatApi.getChatReadStatus.mockResolvedValue({ id: 'r1', user_id: 'alice', game_id: null, last_read_id: 1, updated_at: new Date(0).toISOString() })
+      chatApi.getChatReadStatus.mockResolvedValue({ id: 'r1', user_id: 'alice', game_id: 'game-1', last_read_id: 1, updated_at: new Date(0).toISOString() })
 
-      const { container } = render(<ChatPanel gameId={null} />)
+      const { container } = render(<ChatPanel gameId="game-1" />)
       await screen.findByText('brand new')
 
       expect(screen.getByRole('separator')).toBeInTheDocument()
@@ -225,6 +225,21 @@ describe('ChatPanel', () => {
       const text = container.textContent ?? ''
       expect(text.indexOf('seen already')).toBeLessThan(text.indexOf('New messages'))
       expect(text.indexOf('New messages')).toBeLessThan(text.indexOf('brand new'))
+    })
+
+    it('never tracks or shows unread state for site-wide chat', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      mockAuth.session = makeSession('alice')
+      chatApi.listChatMessages.mockResolvedValue([makeMessage(1, 'bob', 'first'), makeMessage(2, 'bob', 'second')])
+
+      render(<ChatPanel gameId={null} />)
+      await screen.findByText('second')
+
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(chatApi.getChatReadStatus).not.toHaveBeenCalled()
+      expect(chatApi.markChatRead).not.toHaveBeenCalled()
+      expect(screen.queryByLabelText(/unread message/)).not.toBeInTheDocument()
+      expect(screen.queryByRole('separator')).not.toBeInTheDocument()
     })
   })
 })

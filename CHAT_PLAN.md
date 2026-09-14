@@ -460,10 +460,19 @@ later work, not part of the initial delivery.
 
 ## 13. Unread indicator (issue #579)
 
-Persisted per (user, channel) read cursor, so an unread badge is correct
-across both a live session and async (return-hours-or-days-later) play —
-that persistence requirement is why this isn't just component state, unlike
+Persisted per (user, game) read cursor, so an unread badge is correct across
+both a live session and async (return-hours-or-days-later) play — that
+persistence requirement is why this isn't just component state, unlike
 `collapsed`/`compact` (§6) which genuinely can be.
+
+**In-game chat only.** Unlike `chat_messages`, this feature does not extend
+to the site-wide channel on `HomePage.tsx` — there's no natural "done reading
+the lobby" moment the way there is for one game's chat, and a global unread
+badge next to a chat that's just ambient background chatter isn't something
+players asked for. `ChatPanel.tsx` fetches and writes a read cursor, and
+shows the badge/divider, only when it's rendered with a real `gameId`; the
+`gameId: null` (site-wide) instance never calls `getChatReadStatus`/
+`markChatRead` at all.
 
 ### Data model
 
@@ -471,7 +480,7 @@ that persistence requirement is why this isn't just component state, unlike
 create table public.chat_read_status (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users (id) on delete cascade,
-  game_id uuid references public.games (id) on delete cascade, -- null = site-wide, same split as chat_messages
+  game_id uuid not null references public.games (id) on delete cascade,
   last_read_id bigint not null default 0,
   updated_at timestamptz not null default now()
 );
@@ -482,16 +491,13 @@ create table public.chat_read_status (
   skew to worry about, and it stays correct across a deleted message in the
   middle of the range without recounting anything, since ids are monotonic
   even with gaps.
-- One row per (user, channel). `game_id`'s nullability for the site-wide
-  channel rules out a plain `unique (user_id, game_id)` constraint —
-  Postgres treats two NULLs as distinct for uniqueness, so that alone would
-  let a user accumulate multiple site-wide rows instead of updating one.
-  `0032_chat_read_status.sql` uses two partial unique indexes instead, one
-  per surface.
+- One row per (user, game), enforced by a plain `unique (user_id, game_id)`
+  index (`0032_chat_read_status.sql`) — `game_id` is never null here, unlike
+  `chat_messages`, so there's no partial-index wrinkle to work around.
 - RLS: a user may only see or write their own `user_id`, and only insert a
-  row for a channel `chat_messages`' own "read" policies would let them read
-  in the first place (§3) — gated end-to-end by `chat_enabled()` too, same
-  "not just hidden in the UI" posture as the rest of this feature (§4).
+  row for a game `chat_messages`' own "read game chat" policy would let them
+  read in the first place (§3) — gated end-to-end by `chat_enabled()` too,
+  same "not just hidden in the UI" posture as the rest of this feature (§4).
 
 ### Why update-then-insert, not `.upsert()`
 
@@ -527,32 +533,31 @@ least as far along) when nothing matched. Two reasons, not one:
   collapse, on the tab losing visibility/focus, or on unmount — the issue's
   "on chat close, on blur, or every few seconds while open, not on every
   message."
-- **New player / first-ever open of a channel:** rather than special-casing
-  seat-join, `ChatPanel.tsx` seeds the cursor the first time it loads a
-  channel with no existing `chat_read_status` row, setting it to whatever
-  the latest message id already was — not 0. This covers a brand-new
-  site-wide chatter identically to a player freshly seated in a game with
-  existing history, without adding anything to the join/seat code path
-  (`gameApi.ts`), and is stricter than "at join time" in one respect: it
-  also protects the very first time anyone opens a channel at all from
-  seeing its entire backlog marked unread.
+- **New player / first-ever open of a game's chat:** rather than
+  special-casing seat-join, `ChatPanel.tsx` seeds the cursor the first time
+  it loads a game with no existing `chat_read_status` row, setting it to
+  whatever the latest message id already was — not 0. This covers a player
+  freshly seated in a game with existing history without adding anything to
+  the join/seat code path (`gameApi.ts`), and is stricter than "at join
+  time" in one respect: it also protects the very first time anyone opens a
+  game's chat at all from seeing its entire backlog marked unread.
 
 ### UI
 
 - A numeric badge (1–9, "9+" beyond) next to the "Chat" heading inside
   `ChatPanel.tsx` — shown whether the panel is expanded or collapsed, since
-  the heading row itself is never hidden (§6).
+  the heading row itself is never hidden (§6). In-game chat only; the
+  site-wide instance never has a nonzero unread count to show one for.
 - A "new messages" divider inside the message list, positioned at whatever
   the cursor was when the component *mounted* (frozen — it doesn't chase the
   live cursor as the user reads further within the same mount), the same
-  "resets only on remount" posture `collapsed` already has.
-- **No aggregate badge across surfaces.** The issue's spec assumes a single
-  shared chat toggle ("badge on chat icon/tab ... aggregate badge on the
-  main toggle"), which this app doesn't have: site-wide chat lives on
-  `HomePage.tsx` and in-game chat is a separate panel per game on
-  `GamePage.tsx` (§6), with no shared header/toggle either page could put a
-  combined count on. Each `ChatPanel` instance tracks and displays its own
-  channel's unread count independently instead.
+  "resets only on remount" posture `collapsed` already has. Also in-game
+  only, for the same reason.
+- **No aggregate badge across games.** A player with several games open in
+  other tabs sees each `ChatPanel` track and display its own game's unread
+  count independently — there's no shared header across games to put a
+  combined count on, and the issue's spec assumed a single shared chat
+  toggle this app doesn't have.
 
 ### Edge cases
 
