@@ -1,23 +1,21 @@
 // Chat, phase 2 (issue #564, CHAT_PLAN.md §6), phase 3 (issue #565,
-// §6/§11.3) and the unread indicator (issue #579, CHAT_PLAN.md §13, in-game
-// chat only). One shared component for both surfaces: site-wide
-// (`gameId: null`, wired into HomePage.tsx) and in-game (a real `gameId`,
-// wired into GamePage.tsx, `compact` + `canPost`).
+// §6/§11.3), the unread indicator (issue #579, CHAT_PLAN.md §13, in-game
+// chat only) and its position/size (issue #580, §14). One shared component
+// for both surfaces: site-wide (`gameId: null`, wired into HomePage.tsx,
+// permanently expanded via the `compact`/`open` defaults) and in-game (a
+// real `gameId`, wired into GamePage.tsx, `canPost` plus a controlled `open`
+// + `onUnreadCountChange` so GamePage's own header button drives visibility).
 
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import { useDisplayName } from '../hooks/useDisplayName'
-import { getChatDisplayNames, getChatReadStatus, isChatEnabled, listChatMessages, markChatRead, postChatMessage, subscribeToChatMessages } from '../lib/chatApi'
+import { formatUnreadBadge, getChatDisplayNames, getChatReadStatus, isChatEnabled, listChatMessages, markChatRead, postChatMessage, subscribeToChatMessages } from '../lib/chatApi'
 import type { ChatMessageRow } from '../lib/dbTypes'
 import { toAppError, type AppError } from '../lib/errors'
 import { ErrorBanner } from './ErrorBanner'
 
 /** How long a locally-advanced read cursor waits before it's written to `chat_read_status`, absent an earlier flush (collapse, tab hidden/blurred, unmount) — CHAT_PLAN.md §13's "debounce writes ... every few seconds while open, not on every message." */
 const MARK_READ_DEBOUNCE_MS = 3000
-
-function formatUnreadBadge(count: number): string {
-  return count > 9 ? '9+' : String(count)
-}
 
 /** Page Visibility API + focus check (CHAT_PLAN.md §13) — "open and visible" gates whether newly-seen messages advance the read cursor at all. */
 function isPageVisible(): boolean {
@@ -54,6 +52,27 @@ interface ChatPanelProps {
    * chat, where posting only ever requires a session.
    */
   canPost?: boolean
+  /**
+   * Externally-controlled visibility (issue #580) — when passed, this
+   * replaces `compact`'s own internal collapsed state entirely: the panel
+   * hides its own heading/badge/Show-Hide toggle and instead renders nothing
+   * at all while `open` is false, on the assumption the caller renders its
+   * own toggle button (with its own badge, fed by `onUnreadCountChange`)
+   * somewhere else in the page. The component stays mounted regardless, so
+   * its Realtime subscription and unread-cursor tracking keep running while
+   * hidden — same "collapsed but still live" behavior `compact` already had,
+   * just with the chrome moved out. Undefined (the default) keeps the
+   * original self-contained `compact` toggle for the site-wide caller that
+   * doesn't pass it.
+   */
+  open?: boolean
+  /**
+   * Fires whenever the unread count changes (issue #580) — lets a caller
+   * that supplies `open` show a matching badge on its own external toggle
+   * button. Never called for site-wide chat, which never has an unread
+   * count (§13).
+   */
+  onUnreadCountChange?: (count: number) => void
 }
 
 /**
@@ -63,7 +82,7 @@ interface ChatPanelProps {
  * (§2, "out of scope"). Manages its own auth/kill-switch state internally so
  * a caller only ever has to pass `gameId`.
  */
-export function ChatPanel({ gameId, compact = false, canPost = true }: ChatPanelProps) {
+export function ChatPanel({ gameId, compact = false, canPost = true, open, onUnreadCountChange }: ChatPanelProps) {
   const { session } = useAuth()
   const userId = session?.user.id ?? null
   const { displayName: ownDisplayName } = useDisplayName(session?.user ?? null)
@@ -74,7 +93,9 @@ export function ChatPanel({ gameId, compact = false, canPost = true }: ChatPanel
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<AppError | null>(null)
-  const [collapsed, setCollapsed] = useState(compact)
+  const [internalCollapsed, setInternalCollapsed] = useState(compact)
+  const controlled = open !== undefined
+  const collapsed = controlled ? !open : internalCollapsed
   const listRef = useRef<HTMLDivElement>(null)
 
   // Unread tracking (CHAT_PLAN.md §13) — in-game chat only (`gameId` set).
@@ -225,7 +246,29 @@ export function ChatPanel({ gameId, compact = false, canPost = true }: ChatPanel
     if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight
   }, [messages])
 
+  // Unread badge (numeric, capped at "9+" per CHAT_PLAN.md §13) — how many
+  // loaded messages are newer than the live read cursor. Messages beyond
+  // CHAT_PAGE_SIZE aren't loaded at all (chatApi.ts's listChatMessages has
+  // no older-history paging yet), but that only matters once the true count
+  // already exceeds the "9+" cap, so it never under-displays. `lastReadId`
+  // stays null forever for site-wide chat (gameId === null, see the load
+  // effect above), so this is always 0 there and the badge never renders.
+  const unreadCount = messages === null || lastReadId === null ? 0 : messages.filter((message) => message.id > lastReadId).length
+
+  // Bubbles the count to a caller controlling `open` externally (issue #580)
+  // so it can badge its own toggle button — computed above, not gated behind
+  // the `enabled`/`session` early return below, so hooks stay unconditional.
+  const onUnreadCountChangeRef = useRef(onUnreadCountChange)
+  onUnreadCountChangeRef.current = onUnreadCountChange
+  useEffect(() => {
+    onUnreadCountChangeRef.current?.(unreadCount)
+  }, [unreadCount])
+
   if (!enabled || !session || !userId) return null
+  // Externally-controlled and told to hide (issue #580) — stay mounted (the
+  // effects above keep tracking messages/unread state) but render nothing;
+  // the caller's own toggle button is the only visible chat affordance.
+  if (controlled && !open) return null
   const uid = userId
 
   function nameFor(senderId: string): string {
@@ -249,14 +292,6 @@ export function ChatPanel({ gameId, compact = false, canPost = true }: ChatPanel
     }
   }
 
-  // Unread badge (numeric, capped at "9+" per CHAT_PLAN.md §13) — how many
-  // loaded messages are newer than the live read cursor. Messages beyond
-  // CHAT_PAGE_SIZE aren't loaded at all (chatApi.ts's listChatMessages has
-  // no older-history paging yet), but that only matters once the true count
-  // already exceeds the "9+" cap, so it never under-displays. `lastReadId`
-  // stays null forever for site-wide chat (gameId === null, see the load
-  // effect above), so this is always 0 there and the badge never renders.
-  const unreadCount = messages === null || lastReadId === null ? 0 : messages.filter((message) => message.id > lastReadId).length
   // "New messages" divider position — the first loaded message newer than
   // the cursor as it stood when this component mounted (readBoundaryId),
   // not the live one, so the divider stays put while the user reads rather
@@ -274,10 +309,10 @@ export function ChatPanel({ gameId, compact = false, canPost = true }: ChatPanel
             </span>
           )}
         </h2>
-        {compact && (
+        {!controlled && compact && (
           <button
             type="button"
-            onClick={() => setCollapsed((c) => !c)}
+            onClick={() => setInternalCollapsed((c) => !c)}
             aria-expanded={!collapsed}
             className="text-xs font-medium text-neutral-400 hover:text-neutral-200"
           >
