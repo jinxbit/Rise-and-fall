@@ -5227,3 +5227,32 @@ of unit was updated in the same commit. Added a regression test
 (`HexBoard.test.tsx`) asserting the wrapper class carries `svh` and not
 plain `vh`, for both the default and `expanded` cases. No engine or schema
 change.
+
+## 108. Two "new message" indication bugs in the in-game chat unread tracker (issue #586)
+
+`ChatPanel.tsx`'s "New messages" divider (CHAT_PLAN.md §13) snapshotted its
+boundary (`readBoundaryId`) exactly once — at the panel's first data load —
+and never refreshed it afterward. Since issue #580, `GamePage.tsx` keeps
+`ChatPanel` mounted across every open/close cycle of its own header toggle
+instead of unmounting it, so that one-time snapshot went stale the moment the
+panel was closed and reopened even once. Two symptoms followed from the same
+root cause:
+
+1. A message the viewer sent themselves, while the panel stayed open, always
+   had an id newer than that frozen boundary, so it rendered below "New
+   messages" — the viewer's own message shown back to them as new.
+2. A message from anyone else that arrived while the panel was open and
+   visible landed after the same frozen boundary for the same reason, even
+   though the viewer was watching it stream in live.
+
+Fixed both in `ChatPanel.tsx`: the badge and divider now exclude the
+viewer's own messages outright (a message can never be new to its own
+sender), and the divider's boundary is now bracketed by a pair of ids
+(`readBoundaryId`, `readBoundaryTopId`) re-snapshotted on every
+closed/hidden → open+visible transition, not just the component's first
+mount — `readBoundaryTopId` caps the divider at whatever was already loaded
+when that transition happened, so anything appended afterward, while the
+session is still open, is never retroactively flagged new. `CHAT_PLAN.md`
+§13 updated to describe the new snapshot rule. Two regression tests added to
+`ChatPanel.test.tsx` covering both symptoms directly. No engine or schema
+change — this is UI-local state, same as the rest of §13.

@@ -280,6 +280,49 @@ describe('ChatPanel', () => {
       expect(text.indexOf('New messages')).toBeLessThan(text.indexOf('brand new'))
     })
 
+    it('never flags the viewer\'s own message as new, even sent while the panel stays open (issue #586)', async () => {
+      mockAuth.session = makeSession('alice')
+      chatApi.listChatMessages.mockResolvedValue([])
+      chatApi.getChatReadStatus.mockResolvedValue(null)
+      let onInsert: ((message: ChatMessageRow) => void) | undefined
+      chatApi.subscribeToChatMessages.mockImplementation((_gameId: string | null, cb: (message: ChatMessageRow) => void) => {
+        onInsert = cb
+        return () => {}
+      })
+
+      render(<ChatPanel gameId="game-1" />)
+      await waitFor(() => expect(chatApi.subscribeToChatMessages).toHaveBeenCalled())
+
+      onInsert?.(makeMessage(1, 'alice', 'my own message'))
+
+      await screen.findByText('my own message')
+      expect(screen.queryByLabelText(/unread message/)).not.toBeInTheDocument()
+      expect(screen.queryByRole('separator')).not.toBeInTheDocument()
+    })
+
+    it('does not flag a message from another player as new when it arrives while the panel is already expanded (issue #586)', async () => {
+      mockAuth.session = makeSession('alice')
+      chatApi.listChatMessages.mockResolvedValue([makeMessage(1, 'bob', 'seen already')])
+      chatApi.getChatReadStatus.mockResolvedValue({ id: 'r1', user_id: 'alice', game_id: 'game-1', last_read_id: 1, updated_at: new Date(0).toISOString() })
+      let onInsert: ((message: ChatMessageRow) => void) | undefined
+      chatApi.subscribeToChatMessages.mockImplementation((_gameId: string | null, cb: (message: ChatMessageRow) => void) => {
+        onInsert = cb
+        return () => {}
+      })
+
+      render(<ChatPanel gameId="game-1" />)
+      await waitFor(() => expect(chatApi.subscribeToChatMessages).toHaveBeenCalled())
+      // No backlog — the panel opened fully caught up.
+      expect(screen.queryByLabelText(/unread message/)).not.toBeInTheDocument()
+      expect(screen.queryByRole('separator')).not.toBeInTheDocument()
+
+      onInsert?.(makeMessage(2, 'bob', 'arrived while open'))
+
+      await screen.findByText('arrived while open')
+      expect(screen.queryByLabelText(/unread message/)).not.toBeInTheDocument()
+      expect(screen.queryByRole('separator')).not.toBeInTheDocument()
+    })
+
     it('never tracks or shows unread state for site-wide chat', async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true })
       mockAuth.session = makeSession('alice')
