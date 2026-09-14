@@ -607,3 +607,30 @@ pinned above the whole page.
 - No `chat_read_status`/RLS/schema change — this is a pure UI relayout on
   top of §13's existing unread-tracking data flow, just re-plumbed to expose
   the count to an external toggle instead of an internal one.
+
+## 15. Sender name colors (issue #581)
+
+Two different color sources, one per surface, both computed entirely
+client-side — no schema/RLS change:
+
+- **In-game chat** colors a sender's name with their seat's
+  `PlayerRow.color` (the same per-seat color `RoundView.tsx`'s
+  `PlayerColorName`/`LogPlayerName` already use for the log and score rows).
+  `GamePage.tsx` now passes its already-loaded `players` list into
+  `<ChatPanel>` as a new `players` prop; `ChatPanel` looks up
+  `players.find((p) => p.user_id === message.sender_id)?.color` — matching
+  on `user_id`, not `id`, since `chat_messages.sender_id` is `auth.uid()`
+  while `PlayerRow.id`/the engine's own player ids are the `players` row id
+  (see `gameGenesis.ts`). A sender not found in the list (in practice
+  shouldn't happen — only seated players can post in-game, §2/§10.1) falls
+  back to the panel's default `text-neutral-300`.
+- **Site-wide chat** has no seat or stored color to look up, and the issue
+  asks for a color that's "persistent" without adding one: `chatColors.ts`'s
+  `hashDisplayNameToColor()` hashes the sender's display name (FNV-1a) to a
+  hue, fixed saturation/lightness, so the same name always renders the same
+  color on every client with nothing written or synced. `ChatPanel` omits
+  the `players` prop for this surface (`gameId: null`), which is what
+  selects this path.
+
+Both paths live entirely in `ChatPanel.tsx`'s new `colorFor()` — no other
+file changed.

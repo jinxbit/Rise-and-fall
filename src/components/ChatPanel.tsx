@@ -1,16 +1,18 @@
 // Chat, phase 2 (issue #564, CHAT_PLAN.md §6), phase 3 (issue #565,
 // §6/§11.3), the unread indicator (issue #579, CHAT_PLAN.md §13, in-game
-// chat only) and its position/size (issue #580, §14). One shared component
-// for both surfaces: site-wide (`gameId: null`, wired into HomePage.tsx,
-// permanently expanded via the `compact`/`open` defaults) and in-game (a
-// real `gameId`, wired into GamePage.tsx, `canPost` plus a controlled `open`
-// + `onUnreadCountChange` so GamePage's own header button drives visibility).
+// chat only), its position/size (issue #580, §14) and name coloring (issue
+// #581, §15). One shared component for both surfaces: site-wide (`gameId:
+// null`, wired into HomePage.tsx, permanently expanded via the
+// `compact`/`open` defaults) and in-game (a real `gameId`, wired into
+// GamePage.tsx, `canPost` plus a controlled `open` + `onUnreadCountChange`
+// so GamePage's own header button drives visibility).
 
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import { useDisplayName } from '../hooks/useDisplayName'
+import { hashDisplayNameToColor } from '../lib/chatColors'
 import { formatUnreadBadge, getChatDisplayNames, getChatReadStatus, isChatEnabled, listChatMessages, markChatRead, postChatMessage, subscribeToChatMessages } from '../lib/chatApi'
-import type { ChatMessageRow } from '../lib/dbTypes'
+import type { ChatMessageRow, PlayerRow } from '../lib/dbTypes'
 import { toAppError, type AppError } from '../lib/errors'
 import { ErrorBanner } from './ErrorBanner'
 
@@ -29,6 +31,14 @@ interface ChatPanelProps {
    * chat never gets a badge or divider.
    */
   gameId: string | null
+  /**
+   * This game's seated players (issue #581, CHAT_PLAN.md §15) — used only to
+   * color a sender's name with their seat's `PlayerRow.color`, the same
+   * lookup RoundView.tsx's PlayerColorName/LogPlayerName already use.
+   * Omitted for site-wide chat (`gameId: null`), which has no seats and
+   * colors names by a hash of the display name instead (chatColors.ts).
+   */
+  players?: PlayerRow[]
   /**
    * Starts collapsed (list + composer hidden behind a Show/Hide toggle) and
    * shows that toggle at all — issue #565: a chat panel pinned above the
@@ -82,7 +92,7 @@ interface ChatPanelProps {
  * (§2, "out of scope"). Manages its own auth/kill-switch state internally so
  * a caller only ever has to pass `gameId`.
  */
-export function ChatPanel({ gameId, compact = false, canPost = true, open, onUnreadCountChange }: ChatPanelProps) {
+export function ChatPanel({ gameId, players, compact = false, canPost = true, open, onUnreadCountChange }: ChatPanelProps) {
   const { session } = useAuth()
   const userId = session?.user.id ?? null
   const { displayName: ownDisplayName } = useDisplayName(session?.user ?? null)
@@ -276,6 +286,17 @@ export function ChatPanel({ gameId, compact = false, canPost = true, open, onUnr
     return names[senderId] ?? 'Player'
   }
 
+  /**
+   * In-game: the sender's own seat color (`chat_messages.sender_id` is
+   * `auth.uid()`, matched against `PlayerRow.user_id`, not `PlayerRow.id` —
+   * see CHAT_PLAN.md §15). Site-wide: a deterministic hash of their display
+   * name (chatColors.ts) since there's no seat/color to look up there.
+   */
+  function colorFor(senderId: string): string | undefined {
+    if (gameId !== null) return players?.find((p) => p.user_id === senderId)?.color
+    return hashDisplayNameToColor(nameFor(senderId))
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     const body = draft.trim()
@@ -336,7 +357,9 @@ export function ChatPanel({ gameId, compact = false, canPost = true, open, onUnr
                   </div>
                 )}
                 <p>
-                  <span className="font-medium text-neutral-300">{nameFor(message.sender_id)}:</span>{' '}
+                  <span className="font-medium text-neutral-300" style={{ color: colorFor(message.sender_id) }}>
+                    {nameFor(message.sender_id)}:
+                  </span>{' '}
                   <span className="text-neutral-200">{message.body}</span>
                 </p>
               </div>

@@ -1860,7 +1860,7 @@ export function GamePage() {
         </div>
       </header>
 
-      <ChatPanel gameId={game.id} canPost={!!ownSeat} open={chatOpen} onUnreadCountChange={setChatUnreadCount} />
+      <ChatPanel gameId={game.id} players={players} canPost={!!ownSeat} open={chatOpen} onUnreadCountChange={setChatUnreadCount} />
 
       {isReviewingHistory && (
         <div

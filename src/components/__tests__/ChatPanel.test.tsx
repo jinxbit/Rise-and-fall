@@ -7,7 +7,8 @@
 import type { Session } from '@supabase/supabase-js'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ChatMessageRow } from '../../lib/dbTypes'
+import { hashDisplayNameToColor } from '../../lib/chatColors'
+import type { ChatMessageRow, PlayerRow } from '../../lib/dbTypes'
 import { ChatPanel } from '../ChatPanel'
 
 const mockAuth = vi.hoisted(() => ({ session: null as Session | null }))
@@ -37,6 +38,21 @@ function makeSession(userId: string): Session {
 
 function makeMessage(id: number, senderId: string, body: string): ChatMessageRow {
   return { id, game_id: null, sender_id: senderId, body, created_at: new Date(id).toISOString() }
+}
+
+function makePlayer(userId: string, color: string): PlayerRow {
+  return {
+    id: `player-${userId}`,
+    game_id: 'game-1',
+    user_id: userId,
+    display_name: userId,
+    avatar_url: null,
+    seat_index: 0,
+    color,
+    is_active: true,
+    joined_at: new Date(0).toISOString(),
+    ready_for_version: 0,
+  }
 }
 
 describe('ChatPanel', () => {
@@ -277,6 +293,47 @@ describe('ChatPanel', () => {
       expect(chatApi.markChatRead).not.toHaveBeenCalled()
       expect(screen.queryByLabelText(/unread message/)).not.toBeInTheDocument()
       expect(screen.queryByRole('separator')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('sender name colors (issue #581, CHAT_PLAN.md §15)', () => {
+    it('colors an in-game sender name with their PlayerRow.color, matched on user_id', async () => {
+      mockAuth.session = makeSession('alice')
+      chatApi.listChatMessages.mockResolvedValue([makeMessage(1, 'bob', 'hello there')])
+      chatApi.getChatDisplayNames.mockResolvedValue({ bob: 'Bob' })
+      const players = [makePlayer('alice', '#111111'), makePlayer('bob', '#3b82f6')]
+
+      render(<ChatPanel gameId="game-1" players={players} open={true} />)
+
+      const name = await screen.findByText('Bob:')
+      expect(name).toHaveStyle({ color: 'rgb(59, 130, 246)' })
+    })
+
+    it('falls back to the default text color for an in-game sender missing from players', async () => {
+      mockAuth.session = makeSession('alice')
+      chatApi.listChatMessages.mockResolvedValue([makeMessage(1, 'bob', 'hello there')])
+      chatApi.getChatDisplayNames.mockResolvedValue({ bob: 'Bob' })
+
+      render(<ChatPanel gameId="game-1" players={[makePlayer('alice', '#111111')]} open={true} />)
+
+      const name = await screen.findByText('Bob:')
+      expect(name.style.color).toBe('')
+    })
+
+    it('colors a site-wide sender name by a deterministic hash of their display name', async () => {
+      mockAuth.session = makeSession('alice')
+      chatApi.listChatMessages.mockResolvedValue([makeMessage(1, 'bob', 'hello there')])
+      chatApi.getChatDisplayNames.mockResolvedValue({ bob: 'Bob' })
+
+      render(<ChatPanel gameId={null} />)
+
+      const name = await screen.findByText('Bob:')
+      // jsdom normalizes an inline `hsl()` style to `rgb()` on read, so compare
+      // against another element assigned the same hsl() string rather than the
+      // raw hsl() text.
+      const probe = document.createElement('span')
+      probe.style.color = hashDisplayNameToColor('Bob')
+      expect(name.style.color).toBe(probe.style.color)
     })
   })
 })
