@@ -5256,3 +5256,51 @@ session is still open, is never retroactively flagged new. `CHAT_PLAN.md`
 §13 updated to describe the new snapshot rule. Two regression tests added to
 `ChatPanel.test.tsx` covering both symptoms directly. No engine or schema
 change — this is UI-local state, same as the rest of §13.
+
+## 109. The chat unread test was flaky, and it had already turned `main` red (follow-up to #108)
+
+Entry 108's second regression test — "does not flag a message from another
+player as new when it arrives while the panel is already expanded" — failed
+about one run in five. It is not a rare failure anyone had to hunt for: it
+turned `main` red on the very merge that introduced it (CI run 792), passed
+on the next merge by luck, and then failed on an unrelated PR, where it
+stalled the issue queue behind a chat bug that had nothing to do with that
+PR's change.
+
+The component is correct. The test asserted one commit too early.
+Appending a realtime message and advancing the read cursor past it are two
+separate React commits: `setMessages` lands the message (the commit
+`findByText('arrived while open')` resolves on), and the cursor-advance
+effect — which runs *after* that commit, since it is a `useEffect` — clears
+the badge in the commit after. Asserting the instant the text appeared was
+therefore a race against React flushing that second render, which it usually
+won and sometimes lost.
+
+Confirmed by instrumenting the component rather than guessing: in a failing
+run the trace shows the initial load fully settled (`setMessages([1])`,
+`setLastReadId(1)`, `setReadStatusLoaded(true)`) *before* the realtime
+insert, the advance effect then running with `msgs: [1,2]` and every guard
+satisfied — and no advance logged, because the `setLastReadId` updater had
+not been invoked yet when the assertion ran and failed. Nothing about the
+load ordering, `pageVisible` or `document.hasFocus()` was involved, which is
+where this would otherwise have been looked for first.
+
+Fixed by asserting where the panel *settles* rather than what one
+intermediate render held: the two assertions moved inside a `waitFor`. That
+still catches the regression it was written for — a badge that appears and
+stays would retry to timeout — it just no longer depends on which side of a
+commit boundary the assertion happens to land. 25 consecutive runs of the
+single test pass, against a ~1-in-5 failure rate before (so the odds of that
+being luck are about 1 in 250).
+
+Left alone deliberately: the sibling own-message test has the same shape but
+cannot flake, since `unreadCount` filters the viewer's own messages out
+permanently rather than one commit later.
+
+One real, cosmetic finding not fixed here, because it belongs to #108's code
+rather than its test: that second commit is a genuine one-frame flash of the
+unread badge in a real browser, since `useEffect` runs after paint. Making
+the cursor-advance effect a `useLayoutEffect` would remove it. Not bundled
+into a test fix.
+
+Test-only change. `npm run lint`, `npm run test` and `npm run build` pass.
