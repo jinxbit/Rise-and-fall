@@ -437,6 +437,9 @@ other.
 5. **(Future) Reporting** (§8) — needs open question §10.3 answered first.
 6. **(Future) 30-day retention job** (§9) — needs open question §10.4
    answered first.
+7. **Unread indicator (issue #579, done).** `chat_read_status` table + RLS,
+   `chatApi.ts`'s `getChatReadStatus`/`markChatRead`, `ChatPanel.tsx`'s badge
+   and "new messages" divider (§13). Depended only on 1–3, not on 4–6.
 
 Phases 4–6 are intentionally not started until jinxbit confirms scope/timing
 on this document, per the issue's own "Future" heading treating them as
@@ -454,3 +457,117 @@ later work, not part of the initial delivery.
   UI components with no engine logic behind them.
 - No engine tests are needed anywhere in this feature — by design (§1), it
   never touches `src/engine/`.
+
+## 13. Unread indicator (issue #579)
+
+Persisted per (user, game) read cursor, so an unread badge is correct across
+both a live session and async (return-hours-or-days-later) play — that
+persistence requirement is why this isn't just component state, unlike
+`collapsed`/`compact` (§6) which genuinely can be.
+
+**In-game chat only.** Unlike `chat_messages`, this feature does not extend
+to the site-wide channel on `HomePage.tsx` — there's no natural "done reading
+the lobby" moment the way there is for one game's chat, and a global unread
+badge next to a chat that's just ambient background chatter isn't something
+players asked for. `ChatPanel.tsx` fetches and writes a read cursor, and
+shows the badge/divider, only when it's rendered with a real `gameId`; the
+`gameId: null` (site-wide) instance never calls `getChatReadStatus`/
+`markChatRead` at all.
+
+### Data model
+
+```sql
+create table public.chat_read_status (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  game_id uuid not null references public.games (id) on delete cascade,
+  last_read_id bigint not null default 0,
+  updated_at timestamptz not null default now()
+);
+```
+
+- `last_read_id` is a cursor into `chat_messages.id` (the existing
+  `generated always as identity` bigint, §3), not a timestamp — no clock
+  skew to worry about, and it stays correct across a deleted message in the
+  middle of the range without recounting anything, since ids are monotonic
+  even with gaps.
+- One row per (user, game), enforced by a plain `unique (user_id, game_id)`
+  index (`0032_chat_read_status.sql`) — `game_id` is never null here, unlike
+  `chat_messages`, so there's no partial-index wrinkle to work around.
+- RLS: a user may only see or write their own `user_id`, and only insert a
+  row for a game `chat_messages`' own "read game chat" policy would let them
+  read in the first place (§3) — gated end-to-end by `chat_enabled()` too,
+  same "not just hidden in the UI" posture as the rest of this feature (§4).
+
+### Why update-then-insert, not `.upsert()`
+
+The issue's own spec describes this as `on conflict (user_id, channel_id) do
+update`. `chatApi.ts`'s `markChatRead` instead does a conditional `UPDATE ...
+WHERE last_read_id < :lastReadId`, and only falls back to `INSERT` (swallowing
+a resulting 23505 — the WHERE clause already proved the existing cursor is at
+least as far along) when nothing matched. Two reasons, not one:
+
+- It has to never move the cursor backwards — two tabs on the same channel,
+  writing at different points in the same debounce window, must not let the
+  behind one clobber the ahead one. A raw `ON CONFLICT ... DO UPDATE` with no
+  `WHERE` guard would happily overwrite with a smaller value.
+- The production-simulating test stack (`src/test/supabaseStack/`,
+  `CLAUDE.md`'s Testing section) doesn't model PostgREST's `ON CONFLICT`
+  merge semantics at all — `.upsert()` calls exist elsewhere in this codebase
+  (`gameApi.ts`) but none of them are exercised against that stack today.
+  Modeling real upsert merge semantics there, correctly, was a bigger and
+  riskier change than this feature needed; update-then-insert needs nothing
+  new from the double beyond the table itself, and behaves identically
+  against real Postgres.
+
+### Updating read state
+
+- The cursor only advances while `ChatPanel.tsx` is both expanded
+  (`!collapsed`) and the tab is visible/focused (Page Visibility API +
+  `document.hasFocus()`) — matching the issue's "open and visible" rule
+  exactly. A closed or backgrounded panel keeps receiving new messages over
+  the existing Realtime subscription (§5) so the badge still counts up
+  locally; it just doesn't touch the DB until the panel is actually looked
+  at.
+- Writes are debounced 3s from the last local advance, and flushed early on
+  collapse, on the tab losing visibility/focus, or on unmount — the issue's
+  "on chat close, on blur, or every few seconds while open, not on every
+  message."
+- **New player / first-ever open of a game's chat:** rather than
+  special-casing seat-join, `ChatPanel.tsx` seeds the cursor the first time
+  it loads a game with no existing `chat_read_status` row, setting it to
+  whatever the latest message id already was — not 0. This covers a player
+  freshly seated in a game with existing history without adding anything to
+  the join/seat code path (`gameApi.ts`), and is stricter than "at join
+  time" in one respect: it also protects the very first time anyone opens a
+  game's chat at all from seeing its entire backlog marked unread.
+
+### UI
+
+- A numeric badge (1–9, "9+" beyond) next to the "Chat" heading inside
+  `ChatPanel.tsx` — shown whether the panel is expanded or collapsed, since
+  the heading row itself is never hidden (§6). In-game chat only; the
+  site-wide instance never has a nonzero unread count to show one for.
+- A "new messages" divider inside the message list, positioned at whatever
+  the cursor was when the component *mounted* (frozen — it doesn't chase the
+  live cursor as the user reads further within the same mount), the same
+  "resets only on remount" posture `collapsed` already has. Also in-game
+  only, for the same reason.
+- **No aggregate badge across games.** A player with several games open in
+  other tabs sees each `ChatPanel` track and display its own game's unread
+  count independently — there's no shared header across games to put a
+  combined count on, and the issue's spec assumed a single shared chat
+  toggle this app doesn't have.
+
+### Edge cases
+
+- **Message deleted:** not reachable today — `chat_messages` has no delete
+  policy (§3) — but the id-comparison design (`id > last_read_id`, not a
+  `count(*)` over a contiguous range) is already robust to a gap in the id
+  sequence if that ever changes.
+- **Unread count beyond the loaded window:** `chatApi.ts`'s
+  `listChatMessages` only ever loads the most recent `CHAT_PAGE_SIZE` (50)
+  messages — there's no older-history paging (§3's own doc comment). The
+  badge counts unread among only those loaded, which under-counts a true
+  backlog larger than 50, but never under-*displays*: once the loaded count
+  already hits the "9+" cap the true count doesn't change what's shown.

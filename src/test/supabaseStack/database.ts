@@ -19,8 +19,8 @@ import type { StoredGameState } from '../../lib/gameStateCompression.ts'
 
 export type Row = Record<string, unknown>
 
-/** Only the tables the game write path touches, plus chat (0031_chat_messages.sql) — anything else is a loud 404 from ./postgrestServer.ts. */
-export type TableName = 'profiles' | 'games' | 'players' | 'game_state' | 'game_state_meta' | 'app_config' | 'chat_messages'
+/** Only the tables the game write path touches, plus chat (0031_chat_messages.sql, 0032_chat_read_status.sql) — anything else is a loud 404 from ./postgrestServer.ts. */
+export type TableName = 'profiles' | 'games' | 'players' | 'game_state' | 'game_state_meta' | 'app_config' | 'chat_messages' | 'chat_read_status'
 
 /**
  * Who a request runs as. `service_role` bypasses RLS entirely (Supabase's
@@ -87,6 +87,7 @@ const PRIMARY_KEY: Record<TableName, string> = {
   game_state_meta: 'game_id',
   app_config: 'id',
   chat_messages: 'id',
+  chat_read_status: 'id',
 }
 
 export type SqlCommand = 'select' | 'insert' | 'update' | 'delete'
@@ -102,6 +103,7 @@ export class Database {
     // stack starts post-migration, same as a real project would.
     app_config: [{ id: true, chat_enabled: false }],
     chat_messages: [],
+    chat_read_status: [],
   }
 
   /** `generated always as identity` (0031_chat_messages.sql) — the next chat_messages.id. */
@@ -199,18 +201,40 @@ export class Database {
       case 'chat_messages': {
         const gameId = row.game_id as string | null
         if (!this.chatEnabled()) return false
-        if (command === 'select') {
-          if (gameId === null) return true
-          const game = this.game(gameId)
-          return this.isSeated(uid, gameId) || game?.visibility === 'public'
-        }
+        if (command === 'select') return this.canReadChatChannel(uid, gameId)
         if (command === 'insert') {
           if (row.sender_id !== uid) return false
           return gameId === null || this.isSeated(uid, gameId)
         }
         return false
       }
+
+      // 0032_chat_read_status.sql: a user's own read cursor, one row per
+      // (user, game) — in-game chat only, never the site-wide channel.
+      // Readable/writable only by its own user_id; insert is additionally
+      // gated on chat_enabled() and the same read-audience chat_messages
+      // itself uses for that game — there's no point letting a client
+      // create a read cursor for a game's chat it couldn't read messages
+      // from anyway. Update isn't chat_enabled()-gated (matching the
+      // migration): advancing an existing cursor after the switch flips off
+      // is harmless, since nothing reads chat_messages with it off anyway.
+      case 'chat_read_status': {
+        if (row.user_id !== uid) return false
+        if (command === 'select') return true
+        if (command === 'update') return true
+        if (command === 'insert') {
+          return this.chatEnabled() && this.canReadChatChannel(uid, row.game_id as string | null)
+        }
+        return false
+      }
     }
+  }
+
+  /** Shared by `chat_messages`' "read" policies and `chat_read_status`' insert policy — same audience, same rule. */
+  private canReadChatChannel(userId: string, gameId: string | null): boolean {
+    if (gameId === null) return true
+    const game = this.game(gameId)
+    return this.isSeated(userId, gameId) || game?.visibility === 'public'
   }
 
   private isSeated(userId: string, gameId: string): boolean {
@@ -282,6 +306,16 @@ export class Database {
           throw new DatabaseError(400, '23514', 'new row for relation "chat_messages" violates check constraint "chat_messages_body_check"')
         }
       }
+      // 0032_chat_read_status.sql's unique(user_id, game_id) index: at most
+      // one row per (user, game). chatApi.ts's markChatRead is written to
+      // update an existing row rather than insert a second one in the normal
+      // case; this only fires if two writers race past that check at once.
+      if (table === 'chat_read_status') {
+        const clash = this.rows.chat_read_status.some((existing) => existing.user_id === row.user_id && existing.game_id === row.game_id)
+        if (clash) {
+          throw new DatabaseError(409, '23505', 'duplicate key value violates unique constraint "chat_read_status_game_uidx"')
+        }
+      }
       // A row RLS rejects is `new row violates row-level security policy`, a
       // 42501 — not a silent no-op the way a filtered-out UPDATE is.
       if (!this.visible(actor, table, 'insert', row)) {
@@ -336,7 +370,7 @@ export class Database {
    * ../productionSmoke/) would look like it worked while leaving orphans.
    */
   private cascadeFromGame(gameId: string): void {
-    for (const table of ['players', 'game_state', 'game_state_meta', 'chat_messages'] as const) {
+    for (const table of ['players', 'game_state', 'game_state_meta', 'chat_messages', 'chat_read_status'] as const) {
       this.rows[table] = this.rows[table].filter((row) => row.game_id !== gameId)
     }
   }
@@ -363,6 +397,8 @@ export class Database {
         return { display_name: null, is_admin: false }
       case 'chat_messages':
         return { id: this.nextChatMessageId++, game_id: null, created_at: now }
+      case 'chat_read_status':
+        return { id: globalThis.crypto.randomUUID(), last_read_id: 0, updated_at: now }
       default:
         return {}
     }

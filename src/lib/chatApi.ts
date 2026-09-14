@@ -5,7 +5,7 @@
 // Never touches src/engine/: chat is not a game rule (CHAT_PLAN.md §1).
 
 import { supabase } from './supabase'
-import type { ChatMessageRow } from './dbTypes'
+import type { ChatMessageRow, ChatReadStatusRow } from './dbTypes'
 
 /** No older-history paging yet — CHAT_PLAN.md doesn't ask for it. This is "enough to see the recent conversation on load." */
 const CHAT_PAGE_SIZE = 50
@@ -79,6 +79,50 @@ export function subscribeToChatMessages(gameId: string | null, onInsert: (messag
   return () => {
     supabase.removeChannel(channel)
   }
+}
+
+/**
+ * The caller's own read cursor for one game's chat (0032_chat_read_status.sql,
+ * CHAT_PLAN.md §13), or null if they have never had one recorded (a player
+ * who just joined a game with existing chat history). In-game chat only —
+ * there is no cursor for the site-wide channel. RLS already scopes this to
+ * the caller's own row.
+ */
+export async function getChatReadStatus(gameId: string, userId: string): Promise<ChatReadStatusRow | null> {
+  const { data, error } = await supabase.from('chat_read_status').select('*').eq('user_id', userId).eq('game_id', gameId).maybeSingle()
+  if (error) throw error
+  return data
+}
+
+/**
+ * Advances the caller's read cursor for one game's chat to `lastReadId` —
+ * never backwards, so a slow write from an earlier point in the session
+ * can't undo a later one (two tabs open on the same game, say). Tries an
+ * UPDATE first, conditioned on the existing cursor being behind
+ * `lastReadId`; if nothing matched, either no row exists yet (first-ever
+ * open of this game's chat — see `ChatPanel.tsx`'s join-time seeding,
+ * CHAT_PLAN.md §13's "new player" edge case) or the row is already caught
+ * up, so an INSERT is attempted and a resulting unique-violation (23505) is
+ * swallowed rather than retried — the WHERE clause above already proved the
+ * existing cursor is at least as far along. This update-then-insert shape,
+ * rather than a single `.upsert()`, is deliberate: the in-process test stack
+ * (src/test/supabaseStack/httpServer.ts) doesn't model PostgREST's
+ * `ON CONFLICT` merge semantics, and this reads the same against real
+ * Postgres either way.
+ */
+export async function markChatRead(gameId: string, userId: string, lastReadId: number): Promise<void> {
+  const { data: updated, error: updateError } = await supabase
+    .from('chat_read_status')
+    .update({ last_read_id: lastReadId, updated_at: new Date().toISOString() })
+    .eq('user_id', userId)
+    .eq('game_id', gameId)
+    .lt('last_read_id', lastReadId)
+    .select('id')
+  if (updateError) throw updateError
+  if (updated && updated.length > 0) return
+
+  const { error: insertError } = await supabase.from('chat_read_status').insert({ user_id: userId, game_id: gameId, last_read_id: lastReadId })
+  if (insertError && insertError.code !== '23505') throw insertError
 }
 
 /**

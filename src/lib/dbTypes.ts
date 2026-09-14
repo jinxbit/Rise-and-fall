@@ -315,6 +315,20 @@ export interface ChatMessageRow {
   created_at: string
 }
 
+/**
+ * How far one user has read one game's chat (0032_chat_read_status.sql,
+ * CHAT_PLAN.md §13) — a cursor into `chat_messages.id`, not a timestamp.
+ * In-game chat only; the site-wide channel has no read cursor. One row per
+ * (user, game); RLS restricts every row to its own `user_id`.
+ */
+export interface ChatReadStatusRow {
+  id: string
+  user_id: string
+  game_id: string
+  last_read_id: number
+  updated_at: string
+}
+
 /** Per-account settings — see supabase/migrations/0005_discord_webhooks.sql. */
 export interface ProfileRow {
   user_id: string
