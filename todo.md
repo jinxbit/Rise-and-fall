@@ -5379,3 +5379,38 @@ by the panel. Three display-only fixes, all in `ChatPanel.tsx`
 
 No schema, RLS, or data change — `created_at` already existed. `npm run
 lint`, `npm run test` and `npm run build` pass.
+
+## 112. Smoke's Realtime check kept starting right after the heavy-write file (issue #598)
+
+A third recurrence of #570/#573's exact "no Realtime payload arrived within
+60s" failure in `hiddenInformationWire.smoke.ts` — but this time neither
+previously-fixed cause applied. The Actions API for the failing run
+(34952631084) shows no `Deploy Supabase` run anywhere near it (ruling out
+#570's deploy/migration-collision theory), and the failing run's own log
+shows `productionSmoke.smoke.ts` running to completion *before*
+`hiddenInformationWire.smoke.ts` even starts (confirming #573's
+`fileParallelism: false` fix is in place and working, ruling out that
+theory too).
+
+What #573's fix never addressed: which file runs first. Vitest's
+`BaseSequencer`, with no prior-run cache to consult (a fresh checkout every
+time), falls back to sorting by file size — larger first — and
+`productionSmoke.smoke.ts` is a few hundred bytes bigger than
+`hiddenInformationWire.smoke.ts`, confirmed locally with `vitest list` vs.
+`vitest run` showing opposite orders. So every single smoke run, not just
+occasionally, starts `hiddenInformationWire.smoke.ts`'s Realtime
+subscription immediately downstream of `productionSmoke.smoke.ts` having
+just pushed ~460 actions' worth of writes (plus its own room teardown
+deletes) through the same project's one Realtime WAL decoder — exactly the
+condition under which a decoder backlog could delay delivery of a brand
+new subscription's first event past a 60s window, on an otherwise-healthy
+deployment.
+
+Fix: `vitest.smoke.config.ts` now sets `sequence.sequencer` to a
+`BaseSequencer` subclass that sorts files by `moduleId` (plain alphabetical)
+instead of by size, so `hiddenInformationWire.smoke.ts` runs first, against
+a project with no smoke-run traffic of its own yet. Confirmed locally that
+this flips the run order. This doesn't prove every future recurrence
+impossible — Realtime can still lag for reasons outside this repo's
+control — but it removes the one deterministic, self-inflicted risk factor
+this run's evidence pointed at. No app, engine, or schema change.
