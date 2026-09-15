@@ -48,7 +48,13 @@ decision holds the queue on purpose, which is what the `in-progress` label on
 a stalled issue means — but an `in-progress` issue with no branch and no open
 PR after 90 minutes is treated as a start that never happened and is
 requeued, so a run that dies before Claude begins cannot hold the queue
-forever. The issue is closed by `automerge.yml` when its PR
+forever. A PR that exists but is *stuck* — red CI, or a conflict with `main` —
+was the other way the queue stalled indefinitely, since that stale check
+ignores anything with an open PR and `automerge.yml` only ever acts on a
+**successful** CI run. The hourly sweep now comments `@claude` on such a PR
+(a comment being what starts `claude.yml`), once per head commit and at most
+three times, then stands down on the PR saying a human is needed rather than
+spending runs on it — `todo.md` #110. The issue is closed by `automerge.yml` when its PR
 merges — not by the PR body's `Closes #N`, which comes from a `push`-triggered
 workflow and so can be written by a stale copy of itself on an older branch. Both that workflow and `smoke.yml`'s
 failure reporting need the `AUTOMATION_TOKEN` secret, because GitHub does not
