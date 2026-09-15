@@ -5359,3 +5359,23 @@ Not covered, and worth knowing: an issue whose branch exists but whose PR
 was never opened (a `claude-branch-pr.yml` failure) is still treated as in
 flight forever, since `startedWork()` accepts a bare branch. Nothing has hit
 that yet, and the remedy differs — open the PR, not nudge one.
+
+## 111. Chat messages had no timestamp, no date separator, and a name that didn't stand out (issue #594)
+
+`ChatPanel.tsx` rendered every message as plain `Name: body` with no time
+information at all — `chat_messages.created_at` was fetched but never used
+by the panel. Three display-only fixes, all in `ChatPanel.tsx`
+(`CHAT_PLAN.md` §18):
+
+- A `[HH:MM]` timestamp before each message, minute-resolution and
+  local-time like the game log's own timestamps (`RoundView.tsx`'s
+  `formatLogTimestamp`).
+- A date line on its own row whenever the calendar date changes, the same
+  "once per day" idea the log's date separators already use — chat renders
+  oldest-first, so this is just comparing a message's date against the one
+  before it rather than that panel's reversed-walk state.
+- The sender's name switched from `font-medium` to `font-bold` so it stands
+  out from the message body.
+
+No schema, RLS, or data change — `created_at` already existed. `npm run
+lint`, `npm run test` and `npm run build` pass.
