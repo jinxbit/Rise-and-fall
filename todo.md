@@ -5256,3 +5256,106 @@ session is still open, is never retroactively flagged new. `CHAT_PLAN.md`
 §13 updated to describe the new snapshot rule. Two regression tests added to
 `ChatPanel.test.tsx` covering both symptoms directly. No engine or schema
 change — this is UI-local state, same as the rest of §13.
+
+## 109. The chat unread test was flaky, and it had already turned `main` red (follow-up to #108)
+
+Entry 108's second regression test — "does not flag a message from another
+player as new when it arrives while the panel is already expanded" — failed
+about one run in five. It is not a rare failure anyone had to hunt for: it
+turned `main` red on the very merge that introduced it (CI run 792), passed
+on the next merge by luck, and then failed on an unrelated PR, where it
+stalled the issue queue behind a chat bug that had nothing to do with that
+PR's change.
+
+The component is correct. The test asserted one commit too early.
+Appending a realtime message and advancing the read cursor past it are two
+separate React commits: `setMessages` lands the message (the commit
+`findByText('arrived while open')` resolves on), and the cursor-advance
+effect — which runs *after* that commit, since it is a `useEffect` — clears
+the badge in the commit after. Asserting the instant the text appeared was
+therefore a race against React flushing that second render, which it usually
+won and sometimes lost.
+
+Confirmed by instrumenting the component rather than guessing: in a failing
+run the trace shows the initial load fully settled (`setMessages([1])`,
+`setLastReadId(1)`, `setReadStatusLoaded(true)`) *before* the realtime
+insert, the advance effect then running with `msgs: [1,2]` and every guard
+satisfied — and no advance logged, because the `setLastReadId` updater had
+not been invoked yet when the assertion ran and failed. Nothing about the
+load ordering, `pageVisible` or `document.hasFocus()` was involved, which is
+where this would otherwise have been looked for first.
+
+Fixed by asserting where the panel *settles* rather than what one
+intermediate render held: the two assertions moved inside a `waitFor`. That
+still catches the regression it was written for — a badge that appears and
+stays would retry to timeout — it just no longer depends on which side of a
+commit boundary the assertion happens to land. 25 consecutive runs of the
+single test pass, against a ~1-in-5 failure rate before (so the odds of that
+being luck are about 1 in 250).
+
+Left alone deliberately: the sibling own-message test has the same shape but
+cannot flake, since `unreadCount` filters the viewer's own messages out
+permanently rather than one commit later.
+
+One real, cosmetic finding not fixed here, because it belongs to #108's code
+rather than its test: that second commit is a genuine one-frame flash of the
+unread badge in a real browser, since `useEffect` runs after paint. Making
+the cursor-advance effect a `useLayoutEffect` would remove it. Not bundled
+into a test fix.
+
+Test-only change. `npm run lint`, `npm run test` and `npm run build` pass.
+
+## 110. A stuck PR held the issue queue forever (follow-up to #109)
+
+Entry 109 fixed the flaky test. This fixes the reason a flaky test could
+stall the whole issue queue for a day before anyone noticed.
+
+`claude-queue.yml` runs one issue at a time, and an issue counts as in
+flight while it carries `in-progress`. The recovery it already had covers a
+start that never happened — no branch, no open PR, 90 minutes — and that
+check deliberately excludes anything with an open PR, because a real run is
+slow and restarting a live one produces exactly the duplicate branches
+`MAX_IN_FLIGHT` exists to prevent.
+
+That leaves a hole precisely where the work is furthest along. Once a PR is
+open and its CI goes red, nobody is coming back for it:
+
+- the `claude.yml` run that pushed the branch ended at the push, and nothing
+  re-invokes it — `claude.yml` starts only on an `@claude` mention;
+- `automerge.yml` runs on a **successful** CI `workflow_run`, so a red one
+  reaches it as nothing at all;
+- the stale-start recovery skips it, because a PR exists.
+
+So the issue stays `in-progress`, the queue holds behind it, and the only
+signal is a red check on a PR nobody is watching. PR #591 sat that way
+behind a chat test failure that had nothing to do with its own change.
+
+The sweep now unsticks it. For each in-flight issue with an open PR whose CI
+has a failing check or whose head conflicts with `main`, it comments
+`@claude` on the PR — a comment being the only thing that starts
+`claude.yml` — naming what is failing and why it matters (that PR holds the
+queue). Bounded twice, because unattended automation that posts comments
+must be:
+
+- **once per head commit.** The marker comment carries the head SHA, so a
+  fix that lands and fails again gets a fresh look, while a commit that is
+  still stuck is not re-poked every hour.
+- **three times in total.** After that it posts one stand-down comment on
+  the PR — fix it, close it, or drop `in-progress` from the issue to let the
+  queue move on — and warns in the run log. Repeat sweeps then stay silent.
+
+It also holds off on a PR touched in the last 20 minutes, since that is work
+in progress with CI possibly still running, and ignores drafts and a
+`mergeable` that GitHub has not finished computing (null is unknown, not a
+conflict).
+
+Verified by extracting the function and driving it against a stubbed GitHub
+client — 13 cases covering red CI, green CI, conflict-only, unknown
+mergeability, draft, closed, just-touched, already-nudged-this-SHA,
+nudged-a-previous-SHA, the three-nudge cap, and the stand-down being posted
+exactly once. Workflow YAML and the embedded script both parse.
+
+Not covered, and worth knowing: an issue whose branch exists but whose PR
+was never opened (a `claude-branch-pr.yml` failure) is still treated as in
+flight forever, since `startedWork()` accepts a bare branch. Nothing has hit
+that yet, and the remedy differs — open the PR, not nudge one.
