@@ -1,12 +1,13 @@
 // Chat, phase 2 (issue #564, CHAT_PLAN.md §6), phase 3 (issue #565,
 // §6/§11.3), the unread indicator (issue #579, CHAT_PLAN.md §13, in-game
 // chat only), its position/size (issue #580, §14), name coloring (issue
-// #581, §15) and its typewriter look + older-history paging (issue #587,
-// §16). One shared component for both surfaces: site-wide (`gameId:
-// null`, wired into HomePage.tsx, permanently expanded via the
-// `compact`/`open` defaults) and in-game (a real `gameId`, wired into
-// GamePage.tsx, `canPost` plus a controlled `open` + `onUnreadCountChange`
-// so GamePage's own header button drives visibility).
+// #581, §15), its typewriter look + older-history paging (issue #587,
+// §16) and the content text size increase (issue #593, §17). One shared
+// component for both surfaces: site-wide (`gameId: null`, wired into
+// HomePage.tsx, permanently expanded via the `compact`/`open` defaults)
+// and in-game (a real `gameId`, wired into GamePage.tsx, `canPost` plus a
+// controlled `open` + `onUnreadCountChange` so GamePage's own header
+// button drives visibility).
 
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type UIEvent } from 'react'
 import { useAuth } from '../hooks/useAuth'
@@ -475,7 +476,7 @@ export function ChatPanel({ gameId, players, compact = false, canPost = true, op
       {!collapsed && (
         <>
           {error && <ErrorBanner message={error.message} details={error.details} onDismiss={() => setError(null)} />}
-          <div ref={listRef} onScroll={handleListScroll} className="flex max-h-48 flex-col gap-1 overflow-y-auto text-xs">
+          <div ref={listRef} onScroll={handleListScroll} className="flex max-h-48 flex-col gap-1 overflow-y-auto text-sm">
             {loadingOlder && <p className="text-center text-neutral-500">Loading older messages…</p>}
             {messages === null && <p className="text-neutral-500">Loading chat…</p>}
             {messages !== null && messages.length === 0 && <p className="text-neutral-500">No messages yet.</p>}
@@ -504,12 +505,12 @@ export function ChatPanel({ gameId, players, compact = false, canPost = true, op
                 onChange={(e) => setDraft(e.target.value)}
                 placeholder="Message"
                 maxLength={2000}
-                className="flex-1 rounded-md border border-neutral-700 bg-neutral-950 px-3 py-1.5 text-xs"
+                className="flex-1 rounded-md border border-neutral-700 bg-neutral-950 px-3 py-1.5 text-sm"
               />
               <button
                 type="submit"
                 disabled={sending || draft.trim().length === 0}
-                className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs font-medium hover:border-neutral-500 disabled:opacity-50"
+                className="rounded-md border border-neutral-700 px-3 py-1.5 text-sm font-medium hover:border-neutral-500 disabled:opacity-50"
               >
                 Send
               </button>

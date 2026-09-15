@@ -416,14 +416,23 @@ describe('ChatPanel', () => {
   })
 
   describe('typewriter look and older-history paging (issue #587, CHAT_PLAN.md §16)', () => {
-    it('renders the panel in a smaller, typewriter-styled font', async () => {
+    it('renders the panel in a typewriter-styled font', async () => {
       mockAuth.session = makeSession('alice')
 
       const { container } = render(<ChatPanel gameId={null} />)
 
       await screen.findByPlaceholderText('Message')
       expect(container.querySelector('section')).toHaveClass('font-typewriter')
-      expect(container.querySelector('.overflow-y-auto')).toHaveClass('text-xs')
+    })
+
+    it('renders chat content at a readable text size (issue #593, CHAT_PLAN.md §17)', async () => {
+      mockAuth.session = makeSession('alice')
+
+      const { container } = render(<ChatPanel gameId={null} />)
+
+      await screen.findByPlaceholderText('Message')
+      expect(container.querySelector('.overflow-y-auto')).toHaveClass('text-sm')
+      expect(screen.getByPlaceholderText('Message')).toHaveClass('text-sm')
     })
 
     it('does not snap back to the bottom when a message arrives while scrolled away from it', async () => {

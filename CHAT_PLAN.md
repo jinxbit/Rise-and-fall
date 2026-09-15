@@ -709,3 +709,12 @@ Four requests, all UI/data-layer only — no RLS or schema change:
   divider — paging only ever prepends messages *older* than anything already
   loaded, so it can't affect what's newest (§13's unread/divider math looks
   only at the newest end).
+
+## 17. Chat text size increase (issue #593)
+
+§16's `text-xs` for the message list and composer read as too small in
+practice. `ChatPanel.tsx` raises both back to `text-sm` — the size they were
+before §16, and the same size already used for the heading. The typewriter
+font (`font-typewriter`) and everything else from §16 (scrolling, paging,
+the smaller `text-xs` used for the unread badge, Show/Hide toggle, and "new
+messages" divider, which are chrome rather than chat content) are unchanged.
