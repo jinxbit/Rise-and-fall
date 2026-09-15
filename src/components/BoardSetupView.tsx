@@ -265,11 +265,12 @@ function UnitPlacementPanel(props: {
     kind: u.kind,
   }))
 
-  const ghostCells: GhostCell[] = selectedKind
-    ? Object.values(state.board.tiles)
-        .filter((tile) => isLegalStartingUnitPlacement(state.board, state.units, selectedKind, tile.coord))
-        .map((tile) => ({ coord: tile.coord, legal: true }))
-    : []
+  const ghostCells: GhostCell[] =
+    isMyTurn && selectedKind
+      ? Object.values(state.board.tiles)
+          .filter((tile) => isLegalStartingUnitPlacement(state.board, state.units, selectedKind, tile.coord))
+          .map((tile) => ({ coord: tile.coord, legal: true }))
+      : []
 
   function handleHexClick(coord: Coordinate) {
     if (!isMyTurn || !selectedKind) return
