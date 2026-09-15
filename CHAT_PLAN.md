@@ -718,3 +718,31 @@ before §16, and the same size already used for the heading. The typewriter
 font (`font-typewriter`) and everything else from §16 (scrolling, paging,
 the smaller `text-xs` used for the unread badge, Show/Hide toggle, and "new
 messages" divider, which are chrome rather than chat content) are unchanged.
+
+## 18. Per-message timestamps, date separators, and bold names (issue #594)
+
+Three display-only asks, all in `ChatPanel.tsx`; no schema/RLS/data change —
+`chat_messages.created_at` already existed and was simply unused by the
+panel.
+
+- **`[HH:MM]` timestamp per message.** `formatChatTimestamp()` mirrors
+  `RoundView.tsx`'s game-log `formatLogTimestamp()`: minute resolution (a
+  chat has no use for seconds), local time, empty string for an
+  unparseable/missing timestamp so nothing renders rather than "Invalid
+  Date". Rendered as `[HH:MM] ` immediately before the sender's name.
+- **Date separators on their own line when the date changes**, "like in the
+  log" — the same idea as that panel's `formatLogDate`/`LogPanel` date
+  headers, reusing its "once per calendar day, not per line" rule. Chat
+  messages render oldest-first (unlike the log, which walks newest-first
+  over a reversed array and so tracks "the last date seen" across the
+  loop), so the check here is simply whether a message's calendar date
+  differs from the *previous* message's — no separate walking state needed.
+  The very first message always shows its date for the same reason the
+  log's oldest entry does: there is no earlier date for it to match.
+- **Bold sender name.** The name span's class changed from `font-medium` to
+  `font-bold`; everything else about it (per-seat/hashed color from §15,
+  the trailing colon) is unchanged.
+
+No test-visible change to unread tracking, the "new messages" divider, or
+paging (§13/§16) — the date separator is purely an extra line inserted
+before a message's existing `<p>`, computed from `created_at` alone.

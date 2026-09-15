@@ -5,7 +5,7 @@
 // nothing in src/engine/ for this feature to touch.
 
 import type { Session } from '@supabase/supabase-js'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { hashDisplayNameToColor } from '../../lib/chatColors'
 import type { ChatMessageRow, PlayerRow } from '../../lib/dbTypes'
@@ -60,8 +60,8 @@ function makeSession(userId: string): Session {
   return { user: { id: userId } } as Session
 }
 
-function makeMessage(id: number, senderId: string, body: string): ChatMessageRow {
-  return { id, game_id: null, sender_id: senderId, body, created_at: new Date(id).toISOString() }
+function makeMessage(id: number, senderId: string, body: string, createdAt?: string): ChatMessageRow {
+  return { id, game_id: null, sender_id: senderId, body, created_at: createdAt ?? new Date(id).toISOString() }
 }
 
 function makePlayer(userId: string, color: string): PlayerRow {
@@ -124,6 +124,50 @@ describe('ChatPanel', () => {
 
     expect(await screen.findByText('hello there')).toBeInTheDocument()
     expect(screen.getByText('Bob:')).toBeInTheDocument()
+  })
+
+  describe('timestamps, date separators, and bold names (issue #594, CHAT_PLAN.md §18)', () => {
+    it('shows a minute-resolution [HH:MM] timestamp before each message', async () => {
+      mockAuth.session = makeSession('alice')
+      chatApi.listChatMessages.mockResolvedValue([makeMessage(1, 'bob', 'hello there', '2026-08-28T14:32:00.000Z')])
+      chatApi.getChatDisplayNames.mockResolvedValue({ bob: 'Bob' })
+
+      render(<ChatPanel gameId={null} />)
+
+      const line = (await screen.findByText('hello there')).closest('p')!
+      expect(within(line).getByText(/^\[\d{1,2}:\d{2}(\s?[AP]M)?\]\s*$/)).toBeTruthy()
+    })
+
+    it('renders the sender name in bold', async () => {
+      mockAuth.session = makeSession('alice')
+      chatApi.listChatMessages.mockResolvedValue([makeMessage(1, 'bob', 'hello there')])
+      chatApi.getChatDisplayNames.mockResolvedValue({ bob: 'Bob' })
+
+      render(<ChatPanel gameId={null} />)
+
+      expect(await screen.findByText('Bob:')).toHaveClass('font-bold')
+    })
+
+    it('shows the date as its own line whenever it changes, not repeated on every message', async () => {
+      mockAuth.session = makeSession('alice')
+      const day1a = '2026-08-27T09:00:00.000Z'
+      const day1b = '2026-08-27T14:32:00.000Z'
+      const day2 = '2026-08-28T10:15:00.000Z'
+      const dateOf = (timestamp: string) => new Date(timestamp).toLocaleDateString([], { dateStyle: 'medium' })
+      if (dateOf(day1a) === dateOf(day2)) throw new Error('test fixture timestamps must fall on different local calendar days')
+      chatApi.listChatMessages.mockResolvedValue([
+        makeMessage(1, 'bob', 'first today', day1a),
+        makeMessage(2, 'bob', 'second today', day1b),
+        makeMessage(3, 'bob', 'next day', day2),
+      ])
+      chatApi.getChatDisplayNames.mockResolvedValue({ bob: 'Bob' })
+
+      render(<ChatPanel gameId={null} />)
+
+      await screen.findByText('next day')
+      expect(screen.getAllByText(dateOf(day1a))).toHaveLength(1)
+      expect(screen.getAllByText(dateOf(day2))).toHaveLength(1)
+    })
   })
 
   it('submits a message', async () => {

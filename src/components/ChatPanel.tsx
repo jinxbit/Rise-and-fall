@@ -2,7 +2,8 @@
 // §6/§11.3), the unread indicator (issue #579, CHAT_PLAN.md §13, in-game
 // chat only), its position/size (issue #580, §14), name coloring (issue
 // #581, §15), its typewriter look + older-history paging (issue #587,
-// §16) and the content text size increase (issue #593, §17). One shared
+// §16), the content text size increase (issue #593, §17) and per-message
+// timestamps/date separators/bold names (issue #594, §18). One shared
 // component for both surfaces: site-wide (`gameId: null`, wired into
 // HomePage.tsx, permanently expanded via the `compact`/`open` defaults)
 // and in-game (a real `gameId`, wired into GamePage.tsx, `canPost` plus a
@@ -31,6 +32,26 @@ import { ErrorBanner } from './ErrorBanner'
 
 /** Scrolled within this many pixels of the top triggers an older-history fetch; of the bottom counts as "still following the conversation" for the auto-scroll-to-bottom below (issue #587, CHAT_PLAN.md §16). */
 const SCROLL_EDGE_THRESHOLD_PX = 40
+
+/** Minute-resolution local time (issue #594, CHAT_PLAN.md §18) — same "no seconds, nothing rather than Invalid Date" rule as RoundView.tsx's game-log formatLogTimestamp. */
+function formatChatTimestamp(timestamp: string): string {
+  const date = new Date(timestamp)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
+/**
+ * Calendar date for the chat's date separators (issue #594, CHAT_PLAN.md
+ * §18) — same "once per day, not per line" idea as RoundView.tsx's
+ * formatLogDate/LogPanel, except chat messages render oldest-first, so
+ * showing a date header is just "does this message's date differ from the
+ * previous one's" rather than that panel's reversed walk.
+ */
+function formatChatDate(timestamp: string): string {
+  const date = new Date(timestamp)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleDateString([], { dateStyle: 'medium' })
+}
 
 /** How long a locally-advanced read cursor waits before it's written to `chat_read_status`, absent an earlier flush (collapse, tab hidden/blurred, unmount) — CHAT_PLAN.md §13's "debounce writes ... every few seconds while open, not on every message." */
 const MARK_READ_DEBOUNCE_MS = 3000
@@ -480,23 +501,31 @@ export function ChatPanel({ gameId, players, compact = false, canPost = true, op
             {loadingOlder && <p className="text-center text-neutral-500">Loading older messages…</p>}
             {messages === null && <p className="text-neutral-500">Loading chat…</p>}
             {messages !== null && messages.length === 0 && <p className="text-neutral-500">No messages yet.</p>}
-            {messages?.map((message, index) => (
-              <div key={message.id}>
-                {index === dividerIndex && (
-                  <div className="my-1 flex items-center gap-2 text-xs text-sky-500" role="separator">
-                    <span className="h-px flex-1 bg-sky-800" />
-                    New messages
-                    <span className="h-px flex-1 bg-sky-800" />
-                  </div>
-                )}
-                <p>
-                  <span className="font-medium text-neutral-300" style={{ color: colorFor(message.sender_id) }}>
-                    {nameFor(message.sender_id)}:
-                  </span>{' '}
-                  <span className="text-neutral-200">{message.body}</span>
-                </p>
-              </div>
-            ))}
+            {messages?.map((message, index) => {
+              const time = formatChatTimestamp(message.created_at)
+              const date = formatChatDate(message.created_at)
+              const prevDate = index > 0 ? formatChatDate(messages[index - 1].created_at) : ''
+              const showDate = date !== '' && date !== prevDate
+              return (
+                <div key={message.id}>
+                  {showDate && <p className="font-medium text-neutral-400">{date}</p>}
+                  {index === dividerIndex && (
+                    <div className="my-1 flex items-center gap-2 text-xs text-sky-500" role="separator">
+                      <span className="h-px flex-1 bg-sky-800" />
+                      New messages
+                      <span className="h-px flex-1 bg-sky-800" />
+                    </div>
+                  )}
+                  <p>
+                    {time && <span className="text-neutral-600">[{time}] </span>}
+                    <span className="font-bold text-neutral-300" style={{ color: colorFor(message.sender_id) }}>
+                      {nameFor(message.sender_id)}:
+                    </span>{' '}
+                    <span className="text-neutral-200">{message.body}</span>
+                  </p>
+                </div>
+              )
+            })}
           </div>
           {canPost ? (
             <form onSubmit={(e) => void handleSubmit(e)} className="flex gap-2">
