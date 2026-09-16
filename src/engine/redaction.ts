@@ -1,4 +1,4 @@
-import type { Action, ChooseCardAction, LoggedAction, MoveToDeclineAction, RetractDeclineAction } from './actions.ts'
+import type { Action, ChooseCardAction, LoggedAction, MoveToDeclineAction, PurchaseCardAction, RetractDeclineAction } from './actions.ts'
 import { resolveHistory } from './historyFold.ts'
 import type { GameEvent, GameState, Player } from './types.ts'
 
@@ -12,9 +12,20 @@ export type RedactedChoice = { chosen: false } | { chosen: true; cardId: string 
 
 export type RedactedPlayer = Omit<Player, 'declineCardIds'> & {
   /**
-   * Same array, same length/order as Player.declineCardIds — entries added
-   * during the current, still-unresolved decline phase by someone other
-   * than the viewer are replaced with `null` (see redactStateForPlayer).
+   * Same array as Player.declineCardIds, with two kinds of edits, both from
+   * redactStateForPlayer: entries added during the current, still-unresolved
+   * decline phase by someone other than the viewer are replaced with `null`
+   * (dropping the length/order guarantee this field used to have — a card
+   * bought back from decline this same phase, see below, is appended rather
+   * than replaced in place, since there's no original slot to put it back
+   * in). A card someone other than the viewer has bought back from decline
+   * during the current, still-unresolved purchase phase is added back here
+   * (with its real id — decline piles are always public, per
+   * HIDDEN_INFORMATION_PLAN.md §2, so which cards are in one isn't the
+   * secret; only *that this one just left* is, the same "secret is the pick,
+   * not the pile" shape CHOOSE_CARD already has against a fully-public
+   * hand), and is filtered out of that player's `handCardIds` below so it
+   * doesn't also, contradictorily, show up as newly arrived there.
    */
   declineCardIds: (string | null)[]
 }
@@ -29,16 +40,20 @@ export type RedactedPlayer = Omit<Player, 'declineCardIds'> & {
  * again — retracting a card that's still masked in an earlier MOVE_TO_DECLINE
  * entry would otherwise let the *retraction's own* payload reveal what the
  * addition didn't (issue #505) — so it's masked under the identical
- * condition. Every other action type passes through with its real payload
- * unchanged — this is not a general Action-redaction mechanism, just these
- * three fields.
+ * condition. A PURCHASE_CARD entry gets the same treatment while the
+ * simultaneous purchase phase it belongs to is still unresolved (issue
+ * #600) — the same "which card, not whether one moved" secret CHOOSE_CARD/
+ * MOVE_TO_DECLINE already keep. Every other action type passes through with
+ * its real payload unchanged — this is not a general Action-redaction
+ * mechanism, just these four fields.
  */
 export type RedactedLoggedAction = Omit<LoggedAction, 'action'> & {
   action:
-    | Exclude<Action, ChooseCardAction | MoveToDeclineAction | RetractDeclineAction>
+    | Exclude<Action, ChooseCardAction | MoveToDeclineAction | RetractDeclineAction | PurchaseCardAction>
     | (Omit<ChooseCardAction, 'cardId'> & { cardId: string | null })
     | (Omit<MoveToDeclineAction, 'cardId'> & { cardId: string | null })
     | (Omit<RetractDeclineAction, 'cardId'> & { cardId?: string | null })
+    | (Omit<PurchaseCardAction, 'cardId'> & { cardId: string | null })
 }
 
 export type RedactedGameState = Omit<GameState, 'chosenCardIdByPlayerId' | 'players' | 'actionHistory'> & {
@@ -67,6 +82,18 @@ export type RedactedGameState = Omit<GameState, 'chosenCardIdByPlayerId' | 'play
  * - While `roundPhase === 'decline'`, cards another player has moved to
  *   decline *during this still-in-progress phase* are hidden; their
  *   already-public decline pile from earlier rounds is not.
+ * - While `roundPhase === 'purchase'`, a card another player has bought back
+ *   from decline *during this still-in-progress phase* still shows as if it
+ *   were in decline (issue #600). The purchase phase became simultaneous in
+ *   issue #553 ("the same shape as selectCards/decline") but was
+ *   deliberately left unmasked at the time on the reasoning that a player's
+ *   decline pile was already public either way (todo.md #97) — true of the
+ *   pile's *contents*, but once the phase is simultaneous, *which* card a
+ *   still-pending player just bought back is exactly the same secret
+ *   CHOOSE_CARD already keeps against a fully-public hand, and the VP a
+ *   bought-back card's units immediately start contributing again
+ *   (calculateBoardCountVP/isCardDeclined, ./victoryPoints.ts) was visibly
+ *   changing for opponents mid-phase as a result.
  *
  * Everything else (hands, discard, board, resolved decline piles,
  * resources, VP, etc.) is public per §2 and passes through unchanged.
@@ -121,14 +148,18 @@ export function redactStateForPlayer(state: GameState, viewerId: string | null):
   }
 
   const declineAdditionsThisPhaseByPlayerId = declineAdditionsThisPhase(state)
+  const purchasesThisPhaseByPlayerId = purchasesThisPhase(state)
 
   const players: RedactedPlayer[] = state.players.map((player) => {
     const secretCardIds = player.id === viewerId ? undefined : declineAdditionsThisPhaseByPlayerId.get(player.id)
+    const secretPurchaseCardId = player.id === viewerId ? undefined : purchasesThisPhaseByPlayerId.get(player.id)
+    const declineCardIds: (string | null)[] = secretCardIds
+      ? player.declineCardIds.map((cardId) => (secretCardIds.has(cardId) ? null : cardId))
+      : player.declineCardIds
     return {
       ...player,
-      declineCardIds: secretCardIds
-        ? player.declineCardIds.map((cardId) => (secretCardIds.has(cardId) ? null : cardId))
-        : player.declineCardIds,
+      declineCardIds: secretPurchaseCardId ? [...declineCardIds, secretPurchaseCardId] : declineCardIds,
+      handCardIds: secretPurchaseCardId ? player.handCardIds.filter((cardId) => cardId !== secretPurchaseCardId) : player.handCardIds,
     }
   })
 
@@ -146,6 +177,9 @@ export function redactStateForPlayer(state: GameState, viewerId: string | null):
       action.playerId !== viewerId &&
       declineAdditionsThisPhaseByPlayerId.get(action.playerId)?.has(action.cardId)
     ) {
+      return { ...entry, action: { ...action, cardId: null } }
+    }
+    if (action.type === 'PURCHASE_CARD' && action.playerId !== viewerId && purchasesThisPhaseByPlayerId.get(action.playerId) === action.cardId) {
       return { ...entry, action: { ...action, cardId: null } }
     }
     return entry
@@ -193,13 +227,17 @@ export function revealedGameStateView(state: GameState): RedactedGameState {
  *   information a reader depends on today. A future reader that wants to
  *   show "chosen, not yet revealed" during selectCards itself would need to
  *   consume `RedactedChoice` directly instead of calling this function.
- * - `players[].declineCardIds`: masked entries are kept as `null` in place
- *   (array length/order preserved) rather than filtered out — every reader
- *   (kindsInZone/sortCardIdsForDisplay in RoundView.tsx/EndGameView.tsx)
- *   already does a `cards[id]` lookup that quietly drops an unrecognized id,
- *   so a `null` here just under-counts a still-secret pile by omission
- *   rather than crashing or fabricating a value — and only for an *other*
- *   player's pile; a viewer's own is never masked.
+ * - `players[].declineCardIds`: a this-phase decline addition is kept as
+ *   `null` in place (array length/order otherwise preserved) rather than
+ *   filtered out — every reader (kindsInZone/sortCardIdsForDisplay in
+ *   RoundView.tsx/EndGameView.tsx) already does a `cards[id]` lookup that
+ *   quietly drops an unrecognized id, so a `null` here just under-counts a
+ *   still-secret pile by omission rather than crashing or fabricating a
+ *   value. A this-phase purchase (buy-back) is the mirror image — the real
+ *   id is *appended* rather than replacing a slot in place, since there's no
+ *   original position to restore it to — so length/order is preserved for
+ *   an addition but not for a removal; either way this only ever touches an
+ *   *other* player's pile, never the viewer's own.
  *
  * `actionHistory` is truncated via unredactedPrefix rather than collapsed —
  * see that function's own doc comment for why dropping the still-secret
@@ -296,8 +334,8 @@ export function redactGameLog(events: GameEvent[], state: GameState, viewerId: s
 /**
  * The longest prefix of a (possibly redacted) actionHistory that's safe to
  * feed straight into applyAction()/replayActions() — i.e. everything before
- * the first still-masked CHOOSE_CARD/MOVE_TO_DECLINE/RETRACT_DECLINE entry
- * that's actually still *in effect* (see RedactedGameState's own doc
+ * the first still-masked CHOOSE_CARD/MOVE_TO_DECLINE/RETRACT_DECLINE/
+ * PURCHASE_CARD entry that's actually still *in effect* (see RedactedGameState's own doc
  * comment: a masked entry's `cardId: null` isn't a legal action payload, and
  * replayActions throws outright on one it tries to replay). In practice a
  * masked RETRACT_DECLINE always has an earlier, also-masked MOVE_TO_DECLINE
@@ -341,10 +379,11 @@ export function redactGameLog(events: GameEvent[], state: GameState, viewerId: s
  * isMaskedRedactionEntry/isRetractionOfMaskedChoice there) precisely so this
  * function can keep going past them instead of truncating the entire rest
  * of the game's log the moment any player so much as reconsiders a pick.
- * MOVE_TO_DECLINE/RETRACT_DECLINE don't get the same treatment: a masked
- * RETRACT_DECLINE is itself always masked too (see this comment's opening
- * paragraph), so it can't close anything the way an always-visible
- * RETRACT_CHOICE can.
+ * MOVE_TO_DECLINE/RETRACT_DECLINE/PURCHASE_CARD don't get the same
+ * treatment: a masked RETRACT_DECLINE is itself always masked too (see this
+ * comment's opening paragraph), and there's no way to retract a PURCHASE_CARD
+ * at all, so neither can ever be closed the way an always-visible
+ * RETRACT_CHOICE closes a masked CHOOSE_CARD.
  */
 export function unredactedPrefix(actionHistory: RedactedLoggedAction[]): LoggedAction[] {
   // resolveHistory/walkHistory (historyFold.ts) only ever inspect
@@ -358,7 +397,8 @@ export function unredactedPrefix(actionHistory: RedactedLoggedAction[]): LoggedA
   // Tracks, per player, the index of their most recent still-open masked
   // CHOOSE_CARD (cleared by a later RETRACT_CHOICE from the same player) —
   // see this function's doc comment. Whatever's left open once the scan
-  // ends is unsafe exactly like a masked MOVE_TO_DECLINE/RETRACT_DECLINE.
+  // ends is unsafe exactly like a masked MOVE_TO_DECLINE/RETRACT_DECLINE/
+  // PURCHASE_CARD.
   const openMaskedChoiceIndexByPlayerId = new Map<string, number>()
   let firstUnsafeIndex = -1
   const markUnsafe = (index: number) => {
@@ -371,7 +411,10 @@ export function unredactedPrefix(actionHistory: RedactedLoggedAction[]): LoggedA
       openMaskedChoiceIndexByPlayerId.set(action.playerId, index)
     } else if (action.type === 'RETRACT_CHOICE') {
       openMaskedChoiceIndexByPlayerId.delete(action.playerId)
-    } else if ((action.type === 'MOVE_TO_DECLINE' || action.type === 'RETRACT_DECLINE') && action.cardId === null) {
+    } else if (
+      (action.type === 'MOVE_TO_DECLINE' || action.type === 'RETRACT_DECLINE' || action.type === 'PURCHASE_CARD') &&
+      action.cardId === null
+    ) {
       markUnsafe(index)
     }
   })
@@ -407,6 +450,30 @@ function declineAdditionsThisPhase(state: GameState): Map<string, Set<string>> {
     const cardIds = byPlayerId.get(action.playerId) ?? new Set<string>()
     cardIds.add(action.cardId)
     byPlayerId.set(action.playerId, cardIds)
+  }
+  return byPlayerId
+}
+
+/**
+ * Decline's own counterpart above, for the purchase (buy-back) phase
+ * (issue #600): each player buys back at most one card per phase
+ * (`applyPurchaseCard`, ./applyAction.ts drops them from `pendingPlayerIds`
+ * entirely on their first purchase, unlike decline's repeat-per-achievement
+ * owing), so this is a plain `Map<playerId, cardId>` rather than
+ * declineAdditionsThisPhase's `Map<playerId, Set<cardId>>`. Same
+ * `turn === state.turn` scoping and the same reasoning for why that alone
+ * is enough (a round has at most one purchase phase, and it resolves in the
+ * same dispatch that empties `pendingPlayerIds` — see beginPurchasePhase/
+ * applyPurchaseCard/applyPassPurchase, ./round.ts and ./applyAction.ts —
+ * so `roundPhase === 'purchase'` never lingers after that already happened).
+ */
+function purchasesThisPhase(state: GameState): Map<string, string> {
+  const byPlayerId = new Map<string, string>()
+  if (state.roundPhase !== 'purchase') return byPlayerId
+
+  for (const { action, turn } of state.actionHistory) {
+    if (turn !== state.turn || action.type !== 'PURCHASE_CARD') continue
+    byPlayerId.set(action.playerId, action.cardId)
   }
   return byPlayerId
 }

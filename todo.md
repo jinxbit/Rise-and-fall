@@ -5414,3 +5414,48 @@ this flips the run order. This doesn't prove every future recurrence
 impossible — Realtime can still lag for reasons outside this repo's
 control — but it removes the one deterministic, self-inflicted risk factor
 this run's evidence pointed at. No app, engine, or schema change.
+
+## 113. A player's score changed on a still-in-progress buy-back, visible to every opponent (issue #600)
+
+Reported: the player-info panel's score updates when cards are chosen —
+suspected to be a hidden-information leak, with a "probably also buyback"
+guess attached.
+
+Checked the reported case (declining a card) against a fresh engine test
+driving `redactStateForPlayer` + `calculateVPBreakdown` together — it was
+already correctly protected: a still-open decline addition is masked
+(`cardId: null`) for every other viewer, so `isCardDeclined`
+(`src/engine/victoryPoints.ts`) never sees it and their computed score for
+that player doesn't move until the phase resolves. See
+`src/engine/__tests__/redaction.test.ts`'s purchase-phase describe block —
+the `MOVE_TO_DECLINE` equivalent of its VP test passes without any code
+change.
+
+The "probably buyback" guess, though, was real: the `purchase` (buy-back)
+round phase had no hidden-information masking at all. It didn't need any
+when it was turn order (a player only ever acts on their own decline pile,
+in the open, one at a time) — but `todo.md` #97 (issue #553) made it
+simultaneous, "the same shape as `selectCards`/`decline`", and explicitly
+left redaction alone at the time, reasoning a decline pile was already
+public regardless. That reasoning covers the pile's *contents*, not *which*
+card a still-pending player just bought back out of it — once simultaneous,
+that pick is exactly the same shape of secret `CHOOSE_CARD` already keeps
+against a fully-public hand, and the moment `PURCHASE_CARD` applied, every
+opponent's own `calculateVPBreakdown` call immediately reflected the bought-
+back unit kind counting toward board-count VP again — a real score change,
+visible mid-phase, before every other pending player had decided.
+
+Fixed by extending `redactStateForPlayer`/`unredactedPrefix`
+(`src/engine/redaction.ts`) and `isMaskedRedactionEntry`
+(`src/engine/gameLog.ts`) to cover `PURCHASE_CARD` the same way
+`MOVE_TO_DECLINE` is covered — with one structural difference: since decline
+piles are always public, the redacted view re-inserts the real (not nulled)
+card id back into a still-pending purchaser's `declineCardIds` for every
+other viewer (appended, not restored in place — there's no original slot to
+put it back in) and filters that same id out of their `handCardIds`, so it
+doesn't also show up as newly arrived there. `resources.gold` is untouched —
+it was already visible to every viewer at all times regardless of phase, so
+a purchase's gold cost being visible in real time is accepted the same way a
+decline addition's hand-shrinkage already is. See `HIDDEN_INFORMATION_PLAN.md`
+§2/§10 for the full design writeup. `npm run lint`, `npm run test`, and
+`npm run build` all pass.
