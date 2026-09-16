@@ -5459,3 +5459,33 @@ a purchase's gold cost being visible in real time is accepted the same way a
 decline addition's hand-shrinkage already is. See `HIDDEN_INFORMATION_PLAN.md`
 §2/§10 for the full design writeup. `npm run lint`, `npm run test`, and
 `npm run build` all pass.
+
+## 114. Decline and buy-back buttons didn't show what choosing them would do to your score (issue #603)
+
+Both phases pick from a set of buttons (which card to move to decline,
+which card to buy back) with no indication of the VP consequence — the
+only board-count-VP-relevant fact either choice changes is whether the
+card's kind is "down" (`isCardDeclined`, `engine/victoryPoints.ts`), which
+is invisible unless a player already has the curve numbers memorized.
+
+Rather than re-deriving that curve math in the component (CLAUDE.md
+invariant 1 — `applyAction()` is the only place game rules run, and a
+preview is no exception), `RoundView.tsx`'s new `expectedScoreDelta` builds
+the actual hypothetical action (`MOVE_TO_DECLINE`/`PURCHASE_CARD` for the
+viewer, using the button's own `cardId`), runs it through `applyAction`
+against the live `state` without dispatching it, and diffs
+`calculateVPBreakdown`'s `total` for the viewer before and after. This
+comes for free with every other VP source a Tale or achievement might tie
+to gold or terrain, not just board count — e.g. a buy-back's gold cost
+lowering `goldPerVictoryPoint`-based VP shows up in the same number.
+
+Each `DeclinePanel`/`PurchasePanel` button now appends a colored
+"(+N VP)"/"(-N VP)" suffix next to the card's kind — `scoreDeltaSuffix`,
+styled emerald/red by sign, same "hide it if the answer is blank" rule
+`deltaSuffix` already uses elsewhere in this file for a zero or
+unavailable (illegal hypothetical) delta, so a candidate that doesn't move
+the score renders exactly as it did before this change. `DeclinePanel` and
+`PurchasePanel` both gained `unitContent`/`taleContent` props (Purchase
+already had `achievementContent`) purely to pass through to `applyAction` —
+neither actually reads unit or Tale content for these two action types.
+`npm run lint`, `npm run test`, and `npm run build` all pass.

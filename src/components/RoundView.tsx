@@ -11,6 +11,8 @@ import {
   legalTransformTargets,
   neededSupportCandidates,
 } from '../engine/actionTargeting'
+import type { Action } from '../engine/actions'
+import { applyAction } from '../engine/applyAction'
 import { cardIdFor, findCardZone, sortCardIdsForDisplay, UNIT_KINDS } from '../engine/cards'
 import { PLAYER_PLACEHOLDER } from '../engine/gameLog'
 import { legalMoveDestinations } from '../engine/movement'
@@ -20,6 +22,7 @@ import type { CardChoiceRecap, TurnReview, UnitReviewEvent } from '../engine/tur
 import { calculateVPBreakdown } from '../engine/victoryPoints'
 import type { VPBreakdown } from '../engine/victoryPoints'
 import type { AchievementContent } from '../engine/achievementContent'
+import { EMPTY_BOARD_GENERATION_CONTENT } from '../engine/boardGenerationContent'
 import type { TaleContent } from '../engine/taleContent'
 import { listAchievements } from '../content/resolveContent'
 import type { Card, Coordinate, GameEvent, GameState, Player, Resources, RoundPhase, Unit } from '../engine/types'
@@ -246,6 +249,43 @@ function ResourceOutcomeBadges({ outcome, className = '' }: { outcome: Partial<R
 function deltaSuffix(amount: number | undefined): string {
   if (!amount) return ''
   return ` (${amount > 0 ? '+' : ''}${amount})`
+}
+
+/**
+ * The change in `myPlayerId`'s total VP if they submitted `action` right
+ * now — for DeclinePanel/PurchasePanel to preview each candidate card's
+ * effect on score before the player commits to a choice (issue #603).
+ * Found by actually running `action` through applyAction (CLAUDE.md
+ * invariant 1 — a preview must not hand-roll what a decline/buy-back does)
+ * against `state` and diffing calculateVPBreakdown before and after; the
+ * resulting state is only used for that diff, never dispatched.
+ * MOVE_TO_DECLINE/PURCHASE_CARD (and anything they can chain into while
+ * confined to the decline/purchase phases) never read
+ * boardGenerationContent, so EMPTY_BOARD_GENERATION_CONTENT stands in for
+ * it here rather than threading one more content bundle down through
+ * RoundView just for this. `null` if the hypothetical action turns out
+ * illegal — shouldn't happen for a candidate card the panel itself offers,
+ * but a preview must never throw.
+ */
+function expectedScoreDelta(
+  state: GameState,
+  action: Action,
+  myPlayerId: string,
+  unitContent: UnitContent,
+  achievementContent: AchievementContent,
+  taleContent: TaleContent,
+): number | null {
+  const result = applyAction(state, action, unitContent, achievementContent, EMPTY_BOARD_GENERATION_CONTENT, taleContent)
+  if (!result.ok) return null
+  const before = calculateVPBreakdown(state, achievementContent, taleContent)[myPlayerId]?.total ?? 0
+  const after = calculateVPBreakdown(result.state, achievementContent, taleContent)[myPlayerId]?.total ?? 0
+  return after - before
+}
+
+/** `expectedScoreDelta`'s result rendered the same way deltaSuffix formats a resource change, e.g. " (+3 VP)" / " (-2 VP)" — blank for a zero or unavailable (null) delta, same "nothing to show" convention deltaSuffix already uses. */
+function scoreDeltaSuffix(delta: number | null): string {
+  if (!delta) return ''
+  return ` (${delta > 0 ? '+' : ''}${delta} VP)`
 }
 
 /** The unit kind each of a set of card ids corresponds to, in display order, one entry per card (so a zone with two Cities lists 'city' twice). */
@@ -1082,8 +1122,11 @@ function DeclinePanel(props: {
   myPlayerId: string | null
   onMoveToDecline: (cardId: string) => void
   confirmBeforeRevealingCards: boolean
+  unitContent: UnitContent
+  achievementContent: AchievementContent
+  taleContent: TaleContent
 }) {
-  const { state, players, myPlayerId, onMoveToDecline, confirmBeforeRevealingCards } = props
+  const { state, players, myPlayerId, onMoveToDecline, confirmBeforeRevealingCards, unitContent, achievementContent, taleContent } = props
   // My pick would be the one that empties pendingPlayerIds and resolves the
   // phase — regardless of how many cards I still owe overall, only the
   // single submission that empties the queue actually reveals anything.
@@ -1111,6 +1154,14 @@ function DeclinePanel(props: {
         {candidates.map((cardId) => {
           const card = state.cards[cardId]
           const staged = stagedCardId === cardId
+          const scoreDelta = expectedScoreDelta(
+            state,
+            { type: 'MOVE_TO_DECLINE', playerId: myPlayerId, cardId },
+            myPlayerId,
+            unitContent,
+            achievementContent,
+            taleContent,
+          )
           return (
             <button
               key={cardId}
@@ -1118,6 +1169,7 @@ function DeclinePanel(props: {
               className={`rounded-md border px-3 py-1 hover:border-red-500 ${staged ? 'border-indigo-500 bg-indigo-950/40' : 'border-red-700'}`}
             >
               {card ? capitalize(card.kind) : cardId}
+              {scoreDelta ? <span className={scoreDelta > 0 ? 'text-emerald-400' : 'text-red-400'}>{scoreDeltaSuffix(scoreDelta)}</span> : null}
             </button>
           )
         })}
@@ -1136,11 +1188,13 @@ function PurchasePanel(props: {
   state: GameState
   players: PlayerRow[]
   myPlayerId: string | null
+  unitContent: UnitContent
   achievementContent: AchievementContent
+  taleContent: TaleContent
   onPurchaseCard: (cardId: string) => void
   onPassPurchase: () => void
 }) {
-  const { state, players, myPlayerId, achievementContent, onPurchaseCard, onPassPurchase } = props
+  const { state, players, myPlayerId, unitContent, achievementContent, taleContent, onPurchaseCard, onPassPurchase } = props
   if (!myPlayerId) return null
   if (!state.pendingPlayerIds.includes(myPlayerId)) {
     const stillPending = [...new Set(state.pendingPlayerIds)]
@@ -1165,6 +1219,14 @@ function PurchasePanel(props: {
       <div className="flex flex-wrap gap-2">
         {declineCardIds.map((cardId) => {
           const card = state.cards[cardId]
+          const scoreDelta = expectedScoreDelta(
+            state,
+            { type: 'PURCHASE_CARD', playerId: myPlayerId, cardId },
+            myPlayerId,
+            unitContent,
+            achievementContent,
+            taleContent,
+          )
           return (
             <button
               key={cardId}
@@ -1173,6 +1235,7 @@ function PurchasePanel(props: {
               className="rounded-md border border-amber-500 px-3 py-1 hover:border-amber-300 disabled:opacity-40"
             >
               {card ? capitalize(card.kind) : cardId}
+              {scoreDelta ? <span className={scoreDelta > 0 ? 'text-emerald-400' : 'text-red-400'}>{scoreDeltaSuffix(scoreDelta)}</span> : null}
             </button>
           )
         })}
@@ -1765,6 +1828,9 @@ export function RoundView(props: {
           myPlayerId={myPlayerId}
           onMoveToDecline={props.onMoveToDecline}
           confirmBeforeRevealingCards={props.confirmBeforeRevealingCards ?? false}
+          unitContent={unitContent}
+          achievementContent={achievementContent}
+          taleContent={taleContent}
         />
       )}
       {!showHistory && state.roundPhase === 'purchase' && (
@@ -1772,7 +1838,9 @@ export function RoundView(props: {
           state={state}
           players={players}
           myPlayerId={myPlayerId}
+          unitContent={unitContent}
           achievementContent={achievementContent}
+          taleContent={taleContent}
           onPurchaseCard={props.onPurchaseCard}
           onPassPurchase={props.onPassPurchase}
         />

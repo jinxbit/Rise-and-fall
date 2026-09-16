@@ -1256,6 +1256,85 @@ describe('RoundView — confirm before revealing cards (issue #528)', () => {
   })
 })
 
+describe('RoundView — decline/buy-back score preview (issue #603)', () => {
+  const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
+  // Only Nomad has a board-count VP curve, and only p1's Nomad card matters
+  // here — everything else (achievements, terrain, gold) stays at its
+  // EMPTY_ACHIEVEMENT_CONTENT default so the only VP swing in play is the
+  // one this test is pinning.
+  const achievementContent = { ...EMPTY_ACHIEVEMENT_CONTENT, unitBoardCountVP: { nomad: [1, 3] } }
+  const nomadUnit = (id: string): Unit => ({
+    id,
+    ownerId: 'p1',
+    kind: 'nomad',
+    coord: { q: 0, r: 0 },
+    movement: { isMobile: true, terrains: [], canCrossCliffs: false },
+    traits: [],
+  })
+
+  function renderRoundView(state: GameState) {
+    return render(
+      <RoundView
+        state={state}
+        players={players}
+        myPlayerId="p1"
+        unitContent={EMPTY_UNIT_CONTENT}
+        achievementContent={achievementContent}
+        taleContent={EMPTY_TALE_CONTENT}
+        turnReview={null}
+        showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
+        gameLog={[]}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+  }
+
+  it("labels a decline candidate with the VP it would cost, and leaves a candidate that wouldn't change score unlabeled", () => {
+    const base = makeState()
+    // p1 has 2 Nomads on the board — curve [1, 3] scores 3 VP for a count
+    // of 2 — and Nomad/Ship both still in hand (makeState()'s default).
+    const state: GameState = { ...base, roundPhase: 'decline', pendingPlayerIds: ['p1'], units: [nomadUnit('u1'), nomadUnit('u2')] }
+    renderRoundView(state)
+
+    // Declining the Nomad card would exclude both Nomads from board-count
+    // VP (isCardDeclined, victoryPoints.ts), dropping p1 from 3 to 0.
+    expect(screen.getByRole('button', { name: /^Nomad\s*\(-3 VP\)$/ })).toBeInTheDocument()
+    // p1 has no Ship units on the board, so declining Ship changes nothing
+    // — same "blank when nothing changed" convention as deltaSuffix.
+    expect(screen.getByRole('button', { name: 'Ship' })).toBeInTheDocument()
+  })
+
+  it('labels a buy-back candidate with the VP it would gain', () => {
+    const base = makeState()
+    const p1 = {
+      ...base.players[0],
+      handCardIds: base.players[0].handCardIds.filter((id) => id !== cardIdFor('p1', 'nomad')),
+      declineCardIds: [cardIdFor('p1', 'nomad')],
+    }
+    // Same 2 Nomads on the board, but the Nomad card already sits in
+    // decline, so they're currently worth 0 board-count VP.
+    const state: GameState = {
+      ...base,
+      players: [p1, base.players[1]],
+      roundPhase: 'purchase',
+      pendingPlayerIds: ['p1'],
+      units: [nomadUnit('u1'), nomadUnit('u2')],
+    }
+    renderRoundView(state)
+
+    expect(screen.getByRole('button', { name: /^Nomad\s*\(\+3 VP\)$/ })).toBeInTheDocument()
+  })
+})
+
 describe('RoundView — "Expand board" toggle', () => {
   it('hides the full player roster and achievements panel, and brings them back', () => {
     const state = makeState()
