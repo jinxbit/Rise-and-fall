@@ -228,22 +228,31 @@ function describeCascade(before: GameState, after: GameState, achievementContent
 }
 
 /**
- * True for a CHOOSE_CARD/MOVE_TO_DECLINE/RETRACT_DECLINE entry whose real
- * `cardId` payload has been replaced with `null` by redactStateForPlayer's
- * actionHistory redaction (./redaction.ts) — still secret from this viewer.
- * unredactedPrefix (./redaction.ts) only ever lets such an entry through
- * when it's already been undone (no longer "effective" per resolveHistory,
- * ./historyFold.ts — see that function's own doc comment), so by
- * construction it's guaranteed to contribute nothing to the replayed state.
- * extendGameLog below relies on that guarantee to skip straight over one
- * instead of calling applyActionWithSteps() on a payload that was never a
- * real action to begin with — which used to fail outright (`cardId` isn't
- * in the player's hand) and, since that failure aborts the whole narration
- * loop, silently swallowed every event from that point on, including the
- * very UNDO_ACTION/REDO_ACTION entries that followed it (issue #514).
+ * True for a CHOOSE_CARD/MOVE_TO_DECLINE/RETRACT_DECLINE/PURCHASE_CARD entry
+ * whose real `cardId` payload has been replaced with `null` by
+ * redactStateForPlayer's actionHistory redaction (./redaction.ts) — still
+ * secret from this viewer. unredactedPrefix (./redaction.ts) only ever lets
+ * such an entry through when it's already been undone (no longer "effective"
+ * per resolveHistory, ./historyFold.ts — see that function's own doc
+ * comment), so by construction it's guaranteed to contribute nothing to the
+ * replayed state. extendGameLog below relies on that guarantee to skip
+ * straight over one instead of calling applyActionWithSteps() on a payload
+ * that was never a real action to begin with — which used to fail outright
+ * (`cardId` isn't in the player's hand) and, since that failure aborts the
+ * whole narration loop, silently swallowed every event from that point on,
+ * including the very UNDO_ACTION/REDO_ACTION entries that followed it
+ * (issue #514; PURCHASE_CARD added for the same reason under issue #600 —
+ * a masked one can only ever reach here already-undone, same as the other
+ * three, since it has no retraction of its own to close it first).
  */
 function isMaskedRedactionEntry(action: Action): boolean {
-  if (action.type !== 'CHOOSE_CARD' && action.type !== 'MOVE_TO_DECLINE' && action.type !== 'RETRACT_DECLINE') return false
+  if (
+    action.type !== 'CHOOSE_CARD' &&
+    action.type !== 'MOVE_TO_DECLINE' &&
+    action.type !== 'RETRACT_DECLINE' &&
+    action.type !== 'PURCHASE_CARD'
+  )
+    return false
   return (action.cardId as unknown) === null
 }
 

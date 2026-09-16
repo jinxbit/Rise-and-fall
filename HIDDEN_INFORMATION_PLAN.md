@@ -66,6 +66,18 @@ this covers scope for both halves of issue #37, not just this document:
     public like everything else (players can already see prior rounds'
     decline piles; only *this round's still-in-progress* additions are
     secret).
+  - **Added (2026-09-16, issue #600):** cards bought back from decline
+    **during the currently in-progress `purchase` phase**, before that phase
+    resolves — the decline addition's mirror image. This window didn't exist
+    when the list above was first agreed (the purchase phase was turn order
+    at the time); once `todo.md` #97/issue #553 made it simultaneous, "the
+    same shape as `selectCards`/`decline`", its own hidden-information
+    masking should have followed but was deliberately skipped on the
+    reasoning that a player's decline pile was already public either way —
+    true of the pile's *contents*, but not of *which* card a still-pending
+    player just bought back out of it, which is exactly the CHOOSE_CARD-shaped
+    secret this closes. See `redactStateForPlayer`'s doc comment
+    (`src/engine/redaction.ts`) for the mechanism.
 - **Board setup (tile/unit placement) is fully public by design** — no fog
   of war on the board itself. Out of scope.
 - **Hotseat is explicitly out of scope.** All local hotseat players share
@@ -875,6 +887,37 @@ testing.)
   phase" form this action gained for the same issue (see
   `RULE_ENFORCEMENT_PLAN.md` §10) needed no masking change at all — it
   carries no `cardId` payload, so there's nothing in it to leak.
+- **Closed (2026-09-16, issue #600): the `purchase` (buy-back) phase was
+  never masked at all, and by the time it became simultaneous that was a
+  real leak, not just an accepted gap.** Reported as "players' score changes
+  with card selection" — the VP a bought-back card's units start
+  contributing again (`calculateBoardCountVP`/`isCardDeclined`,
+  `src/engine/victoryPoints.ts`) visibly changed for every viewer the moment
+  `PURCHASE_CARD` applied, mid-phase, before every other pending player had
+  decided. (The issue's other half — decline's own addition — was checked
+  against a fresh engine test and found already correctly masked; see that
+  test, `src/engine/__tests__/redaction.test.ts`'s "keeps the bought-back
+  unit kind excluded..." case, for the equivalent decline-side assertion
+  that already passed.) `todo.md` #97 (issue #553) made this phase
+  simultaneous — "the same shape as `selectCards`/`decline`" — but explicitly
+  left redaction alone, reasoning "a player's own decline pile was already
+  public" (§2, above); that reasoning covers the pile's *contents* but not
+  *which* card a still-pending player just bought back out of it, which
+  turned out to be exactly the same shape of secret `CHOOSE_CARD` already
+  keeps against a fully-public hand. Closed by extending
+  `redactStateForPlayer`/`unredactedPrefix` (`src/engine/redaction.ts`) and
+  `isMaskedRedactionEntry` (`src/engine/gameLog.ts`) to cover `PURCHASE_CARD`
+  the same way `MOVE_TO_DECLINE` is covered, with one structural difference:
+  since decline piles are always public, the redacted view re-inserts the
+  real (not nulled) card id back into a still-pending purchaser's
+  `declineCardIds` for every other viewer — appended, not restored in place,
+  since there's no original slot to put it back in — and filters that same
+  id out of their `handCardIds` so it doesn't also show up as newly arrived
+  there. No masking change to `resources.gold`: it was already always
+  visible to every viewer regardless of phase (unlike hands/decline piles,
+  nothing in the codebase has ever masked resources), so a purchase's gold
+  cost being visible in real time is accepted the same way a decline
+  addition's hand-shrinkage already is.
 
 (See `RULE_ENFORCEMENT_PLAN.md` §10 for enforcement-specific open items:
 `RETRACT_CHOICE`/`RETRACT_DECLINE` design decisions, Edge Function

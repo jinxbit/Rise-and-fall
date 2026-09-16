@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { applyAction } from '../applyAction'
+import { EMPTY_ACHIEVEMENT_CONTENT } from '../achievementContent'
 import { createEmptyBoard } from '../board'
 import { cardIdFor, moveCard, UNIT_KINDS } from '../cards'
 import { createNewGame } from '../createGame'
@@ -8,6 +9,7 @@ import { resolveHistory } from '../historyFold'
 import { redactGameLog, redactStateForPlayer, revealedGameStateView, toClientGameState, unredactedPrefix } from '../redaction'
 import type { GameState, Unit } from '../types'
 import { applyUndoAction } from '../undoRedo'
+import { calculateVPBreakdown } from '../victoryPoints'
 
 /**
  * Same shape as round.test.ts's own fixture of the same name — an active
@@ -276,6 +278,83 @@ describe('redactStateForPlayer', () => {
     })
   })
 
+  describe('purchase (buy-back) phase (issue #600)', () => {
+    // Both players decline a card and let the decline phase resolve, so
+    // roundPhase lands on 'purchase' with both still pending (their decline
+    // isn't empty, and the default EMPTY_ACHIEVEMENT_CONTENT purchase cost
+    // table prices every buy-back at 0 gold, so skipEmptyDeclinePurchasers
+    // never drops them).
+    function reachPurchasePhase(): { state: GameState; p1Temple: string; p2Temple: string } {
+      const base = { ...makeActiveGameWithFullHands(), achievementsClaimedThisRound: 1 }
+      let state = requireOk(applyAction(base, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }))
+      state = requireOk(applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') }))
+      state = requireOk(applyAction(state, { type: 'PASS_ACTIONS', playerId: 'p1' }))
+      state = requireOk(applyAction(state, { type: 'PASS_ACTIONS', playerId: 'p2' }))
+      const p1Temple = cardIdFor('p1', 'temple')
+      const p2Temple = cardIdFor('p2', 'temple')
+      state = requireOk(applyAction(state, { type: 'MOVE_TO_DECLINE', playerId: 'p1', cardId: p1Temple }))
+      state = requireOk(applyAction(state, { type: 'MOVE_TO_DECLINE', playerId: 'p2', cardId: p2Temple }))
+      expect(state.roundPhase).toBe('purchase')
+      expect(state.pendingPlayerIds).toEqual(expect.arrayContaining(['p1', 'p2']))
+      return { state, p1Temple, p2Temple }
+    }
+
+    it("hides another player's this-phase buy-back — still shows the card as declined, and keeps it out of their visible hand — but shows it to that player and to anyone once resolved", () => {
+      const { state: base, p1Temple } = reachPurchasePhase()
+      const state = requireOk(applyAction(base, { type: 'PURCHASE_CARD', playerId: 'p1', cardId: p1Temple }))
+      expect(state.roundPhase).toBe('purchase')
+      expect(state.pendingPlayerIds).toEqual(['p2'])
+
+      const p1Real = state.players.find((p) => p.id === 'p1')!
+      expect(p1Real.declineCardIds).toEqual([])
+      expect(p1Real.handCardIds).toContain(p1Temple)
+
+      const asP2 = redactStateForPlayer(state, 'p2')
+      const p1AsSeenByP2 = asP2.players.find((p) => p.id === 'p1')!
+      // Still shown as declined — the buy-back itself is what's hidden.
+      expect(p1AsSeenByP2.declineCardIds).toEqual([p1Temple])
+      // ...and not yet visible in hand either, or it'd show up in both places at once.
+      expect(p1AsSeenByP2.handCardIds).not.toContain(p1Temple)
+
+      const asP1 = redactStateForPlayer(state, 'p1')
+      const p1AsSeenBySelf = asP1.players.find((p) => p.id === 'p1')!
+      expect(p1AsSeenBySelf.declineCardIds).toEqual([])
+      expect(p1AsSeenBySelf.handCardIds).toContain(p1Temple)
+
+      const p1LogEntry = asP2.actionHistory.find((e) => e.action.type === 'PURCHASE_CARD' && e.action.playerId === 'p1')!
+      expect(p1LogEntry.action).toMatchObject({ type: 'PURCHASE_CARD', cardId: null })
+      const p1LogEntryAsP1 = asP1.actionHistory.find((e) => e.action.type === 'PURCHASE_CARD' && e.action.playerId === 'p1')!
+      expect(p1LogEntryAsP1.action).toMatchObject({ type: 'PURCHASE_CARD', cardId: p1Temple })
+
+      // Once the whole phase resolves (p2 passes), it's public to everyone.
+      const resolved = requireOk(applyAction(state, { type: 'PASS_PURCHASE', playerId: 'p2' }))
+      expect(resolved.roundPhase).not.toBe('purchase')
+      const resolvedAsP2 = redactStateForPlayer(resolved, 'p2')
+      const p1Resolved = resolvedAsP2.players.find((p) => p.id === 'p1')!
+      expect(p1Resolved.declineCardIds).toEqual([])
+      expect(p1Resolved.handCardIds).toContain(p1Temple)
+      const resolvedLogEntry = resolvedAsP2.actionHistory.find((e) => e.action.type === 'PURCHASE_CARD' && e.action.playerId === 'p1')!
+      expect(resolvedLogEntry.action).toMatchObject({ type: 'PURCHASE_CARD', cardId: p1Temple })
+    })
+
+    it("keeps the bought-back unit kind excluded from board-count VP for every other viewer until the purchase phase resolves (issue #600's actual report)", () => {
+      const achievementContent = { ...EMPTY_ACHIEVEMENT_CONTENT, unitBoardCountVP: { temple: [10] } }
+      const { state: base, p1Temple } = reachPurchasePhase()
+      // p1's temple unit doesn't score while their temple card sits in decline.
+      expect(calculateVPBreakdown(base, achievementContent).p1.total).toBe(0)
+
+      const state = requireOk(applyAction(base, { type: 'PURCHASE_CARD', playerId: 'p1', cardId: p1Temple }))
+      // Really did resolve — p1's own view (and the raw state) already scores it again.
+      expect(calculateVPBreakdown(state, achievementContent).p1.total).toBe(10)
+      const asP1 = toClientGameState(redactStateForPlayer(state, 'p1'))
+      expect(calculateVPBreakdown(asP1, achievementContent).p1.total).toBe(10)
+
+      // But p2, still deciding, doesn't see it yet.
+      const asP2 = toClientGameState(redactStateForPlayer(state, 'p2'))
+      expect(calculateVPBreakdown(asP2, achievementContent).p1.total).toBe(0)
+    })
+  })
+
   describe('passthrough', () => {
     it('leaves hands, board, resources and everything else unchanged for any viewer', () => {
       const state = makeActiveGameWithFullHands()
@@ -533,6 +612,31 @@ describe("narrating a client's redacted actionHistory (issue #514)", () => {
     const log = buildGameLog(genesis, client.actionHistory)
     expect(log.map((e) => e.message)).toContain(`${PLAYER_PLACEHOLDER} undid the last action`)
     expect(log.some((e) => e.message.includes('chose to play'))).toBe(true)
+  })
+
+  it('narrates around a masked-and-undone PURCHASE_CARD the same way (issue #600) — no retraction exists for it, so undo is the only way one ever stops being .effective', () => {
+    const genesis = { ...makeActiveGameWithFullHands(), achievementsClaimedThisRound: 1 }
+    let state = requireOk(applyAction(genesis, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }))
+    state = requireOk(applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'city') }))
+    state = requireOk(applyAction(state, { type: 'PASS_ACTIONS', playerId: 'p1' }))
+    state = requireOk(applyAction(state, { type: 'PASS_ACTIONS', playerId: 'p2' }))
+    const p1Temple = cardIdFor('p1', 'temple')
+    state = requireOk(applyAction(state, { type: 'MOVE_TO_DECLINE', playerId: 'p1', cardId: p1Temple }))
+    state = requireOk(applyAction(state, { type: 'MOVE_TO_DECLINE', playerId: 'p2', cardId: cardIdFor('p2', 'temple') }))
+    expect(state.roundPhase).toBe('purchase')
+    const afterPurchase = requireOk(applyAction(state, { type: 'PURCHASE_CARD', playerId: 'p1', cardId: p1Temple }))
+    // p2 undoes p1's still-secret buy-back, leaving the masked PURCHASE_CARD
+    // sitting mid-array in p2's own client.actionHistory, immediately
+    // followed by a real, unmasked UNDO_ACTION — same shape issue #514
+    // fixed for CHOOSE_CARD.
+    const undone = requireOk(applyUndoAction(genesis, afterPurchase, 'p2'))
+
+    const asP2 = redactStateForPlayer(undone, 'p2')
+    const client = toClientGameState(asP2)
+    expect(client.actionHistory.map((e) => e.action.type)).toContain('UNDO_ACTION')
+
+    const log = buildGameLog(genesis, client.actionHistory)
+    expect(log.map((e) => e.message)).toContain(`${PLAYER_PLACEHOLDER} undid the last action`)
   })
 })
 
