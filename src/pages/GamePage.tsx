@@ -1566,14 +1566,17 @@ export function GamePage() {
       }}
     >
       {/*
-        Four stacked sub-rows (issue #629): 1.1 hamburger/name/next-game,
-        1.2 chat/player names, 1.3 round/bank, 1.4 undo/redo/review history.
-        PhaseBanner/BankResources used to render inside RoundView itself, only
-        while a round was active — they're exported from there (RoundView.tsx)
-        so this header row can show them whenever there's any state to read a
-        turn/bank from (board setup and review included), not just mid-round.
+        Four columns (issue #629 follow-up: the first pass at this stacked
+        them as 4 rows instead — corrected here to sit side by side in a
+        single row on a wide enough screen, wrapping onto their own lines
+        below that): 1.1 hamburger/name/next-game, 1.2 chat/player names,
+        1.3 round/bank, 1.4 undo/redo/review history. PhaseBanner/BankResources
+        used to render inside RoundView itself, only while a round was active
+        — they're exported from there (RoundView.tsx) so this header can show
+        them whenever there's any state to read a turn/bank from (board setup
+        and review included), not just mid-round.
       */}
-      <header className="flex flex-col gap-3">
+      <header className="flex flex-row flex-wrap items-start gap-x-6 gap-y-3">
         <div className="flex flex-wrap items-center gap-3">
           <div ref={menuRef} className="relative">
             <button
