@@ -254,6 +254,51 @@ export function toClientGameState(redacted: RedactedGameState): GameState {
 }
 
 /**
+ * get-game-state's incremental-fetch response payload (issue #647): the rest
+ * of a RedactedGameState, plus the actionHistory entries logged after
+ * `actionHistoryFrom` instead of the whole array — see that function's own
+ * doc comment for when it sends this instead of a plain RedactedGameState,
+ * and applyRedactedGameStateDelta below for the client-side inverse.
+ */
+export interface RedactedGameStateDelta {
+  state: Omit<RedactedGameState, 'actionHistory'>
+  actionHistoryFrom: number
+  actionHistoryAppend: RedactedLoggedAction[]
+  actionHistoryLength: number
+}
+
+/**
+ * The client-side counterpart to get-game-state's incremental fetch (issue
+ * #647): reconstructs a full RedactedGameState by splicing `delta`'s new
+ * entries onto `previousActionHistory` — the caller's already-applied
+ * GameState.actionHistory (itself the safe prefix a previous toClientGameState
+ * call already produced) — rather than a fresh network response carrying the
+ * whole array again.
+ *
+ * This is a lossless reconstruction of what a full fetch would have returned,
+ * not an approximation: `unredactedPrefix`'s cut point only ever moves later
+ * as new entries arrive (see its own doc comment), never earlier or in place,
+ * so `previousActionHistory`'s entries are guaranteed unchanged in the merged
+ * array, and running toClientGameState's own unredactedPrefix call over the
+ * merge lands on the exact same length get-game-state computed server-side.
+ *
+ * Returns `null` — rather than guessing — when `delta` doesn't verify against
+ * `previousActionHistory`: `actionHistoryFrom` not matching its length (a
+ * response for a different request than the one that produced
+ * `previousActionHistory`), or the merged array's length disagreeing with
+ * `actionHistoryLength` (any other inconsistency). Cheap insurance against a
+ * stale cache, a race, or a caller bug — gameApi.ts's getGameStateRedacted
+ * falls back to an ordinary full fetch when this happens rather than trust a
+ * possibly-wrong splice.
+ */
+export function applyRedactedGameStateDelta(previousActionHistory: LoggedAction[], delta: RedactedGameStateDelta): RedactedGameState | null {
+  if (delta.actionHistoryFrom !== previousActionHistory.length) return null
+  const actionHistory: RedactedLoggedAction[] = [...previousActionHistory, ...delta.actionHistoryAppend]
+  if (actionHistory.length !== delta.actionHistoryLength) return null
+  return { ...delta.state, actionHistory }
+}
+
+/**
  * Read-side view of a narration log (see GameEvent/gameLog.ts) for a
  * specific viewer (`viewerId`, null for a non-player observer) — masks the
  * same still-secret-pick window `redactStateForPlayer` masks in
@@ -363,11 +408,15 @@ export function redactGameLog(events: GameEvent[], state: GameState, viewerId: s
  * `roundPhase`, never masked, already tell a viewer "N players still
  * deciding" independent of this).
  *
- * The only caller today is gameApi.ts's toClientGameState — the client-side
+ * The original caller is gameApi.ts's toClientGameState — the client-side
  * collapse of a RedactedGameState response back into a plain GameState the
  * rest of the app (gameLog.ts, turnReview.ts, scoreHistory.ts, unitValue.ts,
  * historyFold.ts — none of which know anything about redaction) can keep
- * consuming completely unmodified.
+ * consuming completely unmodified. get-game-state/index.ts also calls this
+ * directly now (issue #647), server-side, to find where the current safe
+ * prefix ends when answering a `sinceActionIndex` request — the exact same
+ * cut point toClientGameState would land on, just computed once on the
+ * server instead of implicitly assumed by the client's splice.
  *
  * One more exception on top of the UNDO/REDO one above (issue #527): a
  * masked CHOOSE_CARD closed by that same player's own later RETRACT_CHOICE

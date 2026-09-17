@@ -25,7 +25,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import type { Action } from '../../engine/actions.ts'
 import { applyAction } from '../../engine/applyAction.ts'
 import { applyRedoAction, applyUndoAction } from '../../engine/undoRedo.ts'
-import { toClientGameState, type RedactedGameState } from '../../engine/redaction.ts'
+import { toClientGameState, type RedactedGameState, type RedactedGameStateDelta } from '../../engine/redaction.ts'
 import type { GameState } from '../../engine/types.ts'
 import type { GameRow, PlayerRow } from '../../lib/dbTypes.ts'
 import { decompressGameStateFromStorage, type StoredGameState } from '../../lib/gameStateCompression.ts'
@@ -41,13 +41,23 @@ export type { GameStateRow, ProfileRow }
 export type EnforcedCallResult = ({ ok: true; state: GameState; version: number } | { ok: false; error: string }) & { status: number }
 
 /**
- * get-game-state's response shape — always RedactedGameState-shaped
+ * get-game-state's full-response shape — always RedactedGameState-shaped
  * (revealedGameStateView wraps even the "nothing's actually masked" cases:
  * admin, hotseat, or a game that hasn't opted into
  * GameSettings.hiddenInformationEnabled — see get-game-state/index.ts), so
- * callers never need to sniff which shape came back.
+ * callers never need to sniff which shape came back. Returned whenever the
+ * caller doesn't send `sinceActionIndex`, or sends one the function can't
+ * honor — see GameStateDeltaReadResult below for the other shape.
  */
 export type GameStateReadResult = ({ ok: true; state: RedactedGameState; version: number } | { ok: false; error: string }) & { status: number }
+
+/**
+ * get-game-state's incremental-fetch response shape (issue #647) — returned
+ * instead of GameStateReadResult when the request's `sinceActionIndex` is a
+ * valid index into the current safe actionHistory prefix. Mirrors gameApi.ts's
+ * getGameStateRedacted, the only real caller of this shape.
+ */
+export type GameStateDeltaReadResult = (({ ok: true; version: number } & RedactedGameStateDelta) | { ok: false; error: string }) & { status: number }
 
 /** start-game's response shape — no state/version to redact, unlike every other Edge Function here (see supabase/functions/start-game/index.ts). */
 export type StartGameCallResult = ({ ok: true } | { ok: false; error: string }) & { status: number }
@@ -82,8 +92,20 @@ export interface ProductionStack {
   seedStartedGame(options: { game: GameRow; players: PlayerRow[]; genesis: GameState; admins?: string[] }): Promise<void>
   /** gameApi.ts's getGameState, as `userId` — decompressed, RLS-gated, null if the row isn't readable or doesn't exist. This is the raw, unredacted direct-table read every game still uses unless it's both ruleEnforcementEnabled and hiddenInformationEnabled (see usesRedactedReads, GamePage.tsx), in which case gameApi.ts calls getGameStateRedacted (below) instead. Since 0028_hidden_information_rls_lockdown.sql (issue #488), a hiddenInformationEnabled game's row is RLS-invisible through this path entirely — seated player and stranger alike get `null`, same as a missing row — because that's exactly the game type get-game-state exists to replace this call for; an admin still sees it (0024_admin_read_all_game_state.sql). */
   readGameState(userId: string, gameId: string): Promise<{ state: GameState; version: number } | null>
-  /** Calls the real get-game-state Edge Function as `userId` — gameApi.ts's getGameStateRedacted, the read path HIDDEN_INFORMATION_PLAN.md §8 phase 8 wired in. */
-  getGameState(userId: string, gameId: string): Promise<GameStateReadResult>
+  /**
+   * Calls the real get-game-state Edge Function as `userId` — gameApi.ts's
+   * getGameStateRedacted, the read path HIDDEN_INFORMATION_PLAN.md §8 phase 8
+   * wired in. `sinceActionIndex`, when given, is sent the same way
+   * getGameStateRedacted sends it (issue #647): a valid index gets back
+   * GameStateDeltaReadResult; an omitted or out-of-range one falls back to
+   * GameStateReadResult, same as a real client would see. A test that passes
+   * `sinceActionIndex` and needs the delta fields narrows via
+   * `'actionHistoryAppend' in result`, the same way gameApi.ts does; every
+   * other call site (most of this suite) never sees that shape in practice
+   * since it never sends `sinceActionIndex`, but still narrows the union with
+   * a one-line assertion for TypeScript's sake — see getGameState.test.ts.
+   */
+  getGameState(userId: string, gameId: string, sinceActionIndex?: number): Promise<GameStateReadResult | GameStateDeltaReadResult>
   /** Submits `action` to the real apply-action Edge Function as `userId`, the way gameApi.ts's applyActionEnforced does. */
   applyAction(userId: string, gameId: string, action: Action): Promise<EnforcedCallResult>
   undoAction(userId: string, gameId: string): Promise<EnforcedCallResult>
@@ -355,7 +377,12 @@ export async function createProductionStack(): Promise<ProductionStack> {
       return { state: await decompressGameStateFromStorage(data.state as StoredGameState), version: data.version as number }
     },
 
-    getGameState: (userId, gameId) => invoke<{ ok: true; state: RedactedGameState; version: number }>('get-game-state', userId, { gameId }),
+    getGameState: (userId, gameId, sinceActionIndex) =>
+      invoke<{ ok: true; state: RedactedGameState; version: number } | ({ ok: true; version: number } & RedactedGameStateDelta)>(
+        'get-game-state',
+        userId,
+        sinceActionIndex === undefined ? { gameId } : { gameId, sinceActionIndex },
+      ),
     applyAction: (userId, gameId, action) => invokeEnforced('apply-action', userId, { gameId, action }),
     undoAction: (userId, gameId) => invokeEnforced('undo-action', userId, { gameId }),
     redoAction: (userId, gameId) => invokeEnforced('redo-action', userId, { gameId }),

@@ -12,7 +12,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { buildGameLogFrom } from '../../engine/gameLog.ts'
-import { toClientGameState } from '../../engine/redaction.ts'
+import { applyRedactedGameStateDelta, toClientGameState } from '../../engine/redaction.ts'
 import { buildGenesisState } from '../../lib/gameGenesis.ts'
 import type { GameRow, GameSettings, PlayerRow } from '../../lib/dbTypes.ts'
 import { createProductionStack, type ProductionStack } from '../supabaseStack/index.ts'
@@ -207,6 +207,7 @@ describe('get-game-state Edge Function', () => {
 
     const asOwner = await stack.getGameState(ALICE, GAME_ID)
     if (!asOwner.ok) throw new Error(asOwner.error)
+    if ('actionHistoryAppend' in asOwner) throw new Error('expected a full response — no sinceActionIndex was sent')
     const client = toClientGameState(asOwner.state)
 
     // Bob's still-secret pick simply isn't in the truncated actionHistory
@@ -231,5 +232,89 @@ describe('get-game-state Edge Function', () => {
     const asOwner = await stack.getGameState(ALICE, GAME_ID)
     if (!asOwner.ok) throw new Error(asOwner.error)
     expect(asOwner.state.chosenCardIdByPlayerId['seat-bob']).toEqual({ chosen: true, cardId: bobCard })
+  })
+
+  describe('incremental actionHistory (sinceActionIndex, issue #647)', () => {
+    it("answers with just the entries logged since the caller's own cached prefix, splicing back to the same GameState a full fetch would give", async () => {
+      const setup = await reachSelectCardsPhase()
+      const baseline = await stack.getGameState(ALICE, GAME_ID)
+      if (!baseline.ok) throw new Error(baseline.error)
+      if ('actionHistoryAppend' in baseline) throw new Error('expected a full response — no sinceActionIndex was sent')
+      const baselineClient = toClientGameState(baseline.state)
+
+      const aliceCard = setup.players.find((p) => p.id === 'seat-alice')!.handCardIds[0]
+      const bobCard = setup.players.find((p) => p.id === 'seat-bob')!.handCardIds[0]
+      const first = await stack.applyAction(ALICE, GAME_ID, { type: 'CHOOSE_CARD', playerId: 'seat-alice', cardId: aliceCard })
+      if (!first.ok) throw new Error(first.error)
+      const second = await stack.applyAction(BOB, GAME_ID, { type: 'CHOOSE_CARD', playerId: 'seat-bob', cardId: bobCard })
+      if (!second.ok) throw new Error(second.error)
+
+      const delta = await stack.getGameState(ALICE, GAME_ID, baselineClient.actionHistory.length)
+      if (!delta.ok) throw new Error(delta.error)
+      if (!('actionHistoryAppend' in delta)) throw new Error('expected an incremental response')
+      expect(delta.actionHistoryFrom).toBe(baselineClient.actionHistory.length)
+      expect(delta.actionHistoryAppend.map((e) => e.action.type)).toEqual(['CHOOSE_CARD', 'CHOOSE_CARD'])
+
+      const merged = applyRedactedGameStateDelta(baselineClient.actionHistory, delta)
+      expect(merged).not.toBeNull()
+
+      const fullFetch = await stack.getGameState(ALICE, GAME_ID)
+      if (!fullFetch.ok) throw new Error(fullFetch.error)
+      if ('actionHistoryAppend' in fullFetch) throw new Error('expected a full response — no sinceActionIndex was sent')
+      expect(toClientGameState(merged!)).toEqual(toClientGameState(fullFetch.state))
+    })
+
+    it('falls back to a full response, unchanged, when sinceActionIndex is out of range', async () => {
+      const setup = await reachSelectCardsPhase()
+      const bobCard = setup.players.find((p) => p.id === 'seat-bob')!.handCardIds[0]
+      const chose = await stack.applyAction(BOB, GAME_ID, { type: 'CHOOSE_CARD', playerId: 'seat-bob', cardId: bobCard })
+      if (!chose.ok) throw new Error(chose.error)
+
+      const fullFetch = await stack.getGameState(ALICE, GAME_ID)
+      if (!fullFetch.ok) throw new Error(fullFetch.error)
+      if ('actionHistoryAppend' in fullFetch) throw new Error('expected a full response — no sinceActionIndex was sent')
+
+      // Absurdly far ahead of anything this game could actually have logged.
+      const outOfRange = await stack.getGameState(ALICE, GAME_ID, 999999)
+      if (!outOfRange.ok) throw new Error(outOfRange.error)
+      expect('actionHistoryAppend' in outOfRange).toBe(false)
+      if ('actionHistoryAppend' in outOfRange) throw new Error('unreachable')
+      expect(outOfRange.state).toEqual(fullFetch.state)
+    })
+
+    it("serves a hidden-information game's newly-safe entries once a phase resolves, for a caller asking from its own already-truncated prefix", async () => {
+      const setup = await reachSelectCardsPhase()
+      const bobCard = setup.players.find((p) => p.id === 'seat-bob')!.handCardIds[0]
+      const chose = await stack.applyAction(BOB, GAME_ID, { type: 'CHOOSE_CARD', playerId: 'seat-bob', cardId: bobCard })
+      if (!chose.ok) throw new Error(chose.error)
+
+      // Alice's own client-side state right now has Bob's still-secret pick
+      // truncated out of actionHistory entirely (unredactedPrefix) — this is
+      // the prefix length a real client would send as sinceActionIndex.
+      const beforeResolve = await stack.getGameState(ALICE, GAME_ID)
+      if (!beforeResolve.ok) throw new Error(beforeResolve.error)
+      if ('actionHistoryAppend' in beforeResolve) throw new Error('expected a full response — no sinceActionIndex was sent')
+      const beforeResolveClient = toClientGameState(beforeResolve.state)
+
+      const aliceCard = setup.players.find((p) => p.id === 'seat-alice')!.handCardIds[0]
+      const resolved = await stack.applyAction(ALICE, GAME_ID, { type: 'CHOOSE_CARD', playerId: 'seat-alice', cardId: aliceCard })
+      if (!resolved.ok) throw new Error(resolved.error)
+      expect(resolved.state.roundPhase).toBe('actions')
+
+      const delta = await stack.getGameState(ALICE, GAME_ID, beforeResolveClient.actionHistory.length)
+      if (!delta.ok) throw new Error(delta.error)
+      if (!('actionHistoryAppend' in delta)) throw new Error('expected an incremental response')
+      // Bob's pick (now safe to show) and Alice's own new pick both arrive
+      // in this one append, in the order they were actually logged.
+      expect(delta.actionHistoryAppend).toHaveLength(2)
+      expect(delta.actionHistoryAppend.every((e) => e.action.type === 'CHOOSE_CARD' && typeof e.action.cardId === 'string')).toBe(true)
+
+      const merged = applyRedactedGameStateDelta(beforeResolveClient.actionHistory, delta)
+      expect(merged).not.toBeNull()
+      const fullFetch = await stack.getGameState(ALICE, GAME_ID)
+      if (!fullFetch.ok) throw new Error(fullFetch.error)
+      if ('actionHistoryAppend' in fullFetch) throw new Error('expected a full response — no sinceActionIndex was sent')
+      expect(toClientGameState(merged!)).toEqual(toClientGameState(fullFetch.state))
+    })
   })
 })
