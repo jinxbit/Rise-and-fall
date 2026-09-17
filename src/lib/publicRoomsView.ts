@@ -4,7 +4,7 @@
 // from listMyGames, so grouping/status classification can be unit tested
 // without a real Supabase project.
 
-import type { GameRow, PlayerRow } from './dbTypes'
+import type { GameRow, PlayerListRow } from './dbTypes'
 import { isMyTurnFor, latestUpdatedAt, pendingActorIdsFor, type GameStateSummary } from './gameCardView'
 
 /**
@@ -19,7 +19,7 @@ import { isMyTurnFor, latestUpdatedAt, pendingActorIdsFor, type GameStateSummary
  */
 export interface PublicRoomEntry {
   game: GameRow
-  players: PlayerRow[]
+  players: PlayerListRow[]
   stateSummary: GameStateSummary | null
   /** game_state_meta.updated_at (null alongside stateSummary while still in the lobby) — see gameCardView.ts's latestUpdatedAt. */
   gameStateUpdatedAt: string | null

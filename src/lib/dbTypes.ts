@@ -226,6 +226,20 @@ export interface PlayerRow {
   ready_for_version: number
 }
 
+/**
+ * The columns every game-listing screen actually needs (MyGamesPage.tsx,
+ * PublicRoomsPage.tsx, HomePage.tsx, AdminRoomsPage.tsx, via
+ * MyGameEntry.players/PublicRoomEntry.players): `display_name` and
+ * `seat_index` for GameOverviewCard's player list, `user_id` for
+ * myPlayerIds/isMine/isMyTurn (gameApi.ts/myGamesView.ts/publicRoomsView.ts).
+ * `avatar_url`/`color`/`is_active`/`joined_at`/`ready_for_version` are only
+ * read once a specific game is open, off `listPlayers(gameId)`'s full rows
+ * (LobbyPage.tsx/GamePage.tsx) — dropping them from the listing queries is
+ * issue #622's bandwidth fix, the `players` analogue of gameApi.ts's
+ * `GAME_LIST_COLUMNS` (issue #620).
+ */
+export type PlayerListRow = Pick<PlayerRow, 'id' | 'game_id' | 'user_id' | 'display_name' | 'seat_index'>
+
 export interface GameStateRow {
   game_id: string
   state: EngineGameState

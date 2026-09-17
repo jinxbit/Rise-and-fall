@@ -5617,3 +5617,30 @@ exactly this. `mapBuildStyleLabel` now checks `mapPoolMapId` instead of
 `mapPoolBoard`, and `dbTypes.ts`'s `GameSettings` comment on `mapPoolMapId`
 now documents this second use.
 `npm run lint`, `npm run test`, and `npm run build` all pass.
+
+## 120. Bandwidth reduction: room-list `players` query fetched every column for every seat (issue #622)
+
+The same three room-list queries #119 already trimmed on the `games` side
+(`gameApi.ts`'s `listMyGames`/`listPublicRooms`/`listAllRooms`) also each
+ran a `players.select()` — every column, for every seat of every listed
+game — even though the listing views only ever render a player's `id` and
+`display_name` (`GameOverviewCard.tsx`) and only ever read `game_id`,
+`user_id`, and `seat_index` off the rows themselves (grouping, sorting,
+`myPlayerIds`/`isMine`/`isMyTurn`). `avatar_url`, `color`, `is_active`,
+`joined_at`, and `ready_for_version` were going out unread on every list
+refresh, for every seat of every game on screen — the bandwidth this issue
+reported.
+
+New `PlayerListRow` (`dbTypes.ts`) is a `Pick<PlayerRow, 'id' | 'game_id' |
+'user_id' | 'display_name' | 'seat_index'>` — the `players` analogue of
+issue #620's `GAME_LIST_COLUMNS`. `gameApi.ts`'s new `PLAYER_LIST_COLUMNS`
+selects exactly those five columns for the two `in('game_id', gameIds)`
+listing queries; `listMyGames`'s own-seats lookup (previously a full-row
+`select()` used only to read `game_id`) now selects just `game_id`.
+`MyGameEntry.players`/`PublicRoomEntry.players`/`GameOverviewCard`'s
+`players` prop are now typed `PlayerListRow[]` instead of `PlayerRow[]` so
+the missing columns are a type error at any future read site, not a silent
+`undefined`. A single game's full roster (`listPlayers(gameId)`, used by
+`LobbyPage.tsx`/`GamePage.tsx` for seating, colors, avatars, and ready
+status) is untouched and keeps a plain `select()`.
+`npm run lint`, `npm run test`, and `npm run build` all pass.

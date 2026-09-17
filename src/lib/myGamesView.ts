@@ -3,7 +3,7 @@
 // import time, same reason as seatIndex.ts) so turn/finished classification
 // and sorting can be unit tested without a real project config.
 
-import type { GameRow, PlayerRow } from './dbTypes'
+import type { GameRow, PlayerListRow } from './dbTypes'
 import { isMyTurnFor, latestUpdatedAt, pendingActorIdsFor, type GameStateSummary } from './gameCardView'
 
 export { describeGamePhase, formatUpdatedAt, latestUpdatedAt } from './gameCardView'
@@ -20,7 +20,7 @@ export { describeGamePhase, formatUpdatedAt, latestUpdatedAt } from './gameCardV
  */
 export interface MyGameEntry {
   game: GameRow
-  players: PlayerRow[]
+  players: PlayerListRow[]
   stateSummary: GameStateSummary | null
   /** game_state_meta.updated_at (null alongside stateSummary while still in the lobby) — see gameCardView.ts's latestUpdatedAt. */
   gameStateUpdatedAt: string | null

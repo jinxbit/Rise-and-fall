@@ -6,7 +6,15 @@ import { pickRandomMapFromPool } from './mapPoolApi'
 import { canStartGame } from './roomReadiness'
 import { nextSeatIndex } from './seatIndex'
 import { remapGameSettingsPlayerIds, remapGameStatePlayerIds } from './duplicateGameState'
-import type { GameRow, GameSettings, GameStateMetaRow, PlayerRow, ProfilePreferences, PushSubscriptionRow } from './dbTypes'
+import type {
+  GameRow,
+  GameSettings,
+  GameStateMetaRow,
+  PlayerListRow,
+  PlayerRow,
+  ProfilePreferences,
+  PushSubscriptionRow,
+} from './dbTypes'
 import type { MyGameEntry } from './myGamesView'
 import type { PublicRoomEntry } from './publicRoomsView'
 import type { UnitPlateColorOverrides } from './unitColors'
@@ -375,6 +383,18 @@ const GAME_LIST_COLUMNS =
   'id, room_code, name, play_mode, status, min_players, max_players, created_by, created_at, updated_at, config_version, visibility, settings:games_settings_for_listing'
 
 /**
+ * Every `players` column a listing screen's player chips need (see
+ * PlayerListRow in dbTypes.ts) — `id, game_id, user_id, display_name,
+ * seat_index`. Dropping `avatar_url`/`color`/`is_active`/`joined_at`/
+ * `ready_for_version` here is issue #622: those five columns were going out
+ * for every seat of every game on screen (My games/Public Rooms/Home/Admin
+ * Rooms) despite nothing in the listing views reading them. A single game's
+ * full roster (LobbyPage.tsx/GamePage.tsx, via listPlayers below) still
+ * needs every column and keeps plain `select()`.
+ */
+const PLAYER_LIST_COLUMNS = 'id, game_id, user_id, display_name, seat_index'
+
+/**
  * Every game the given user is seated in — for the "My games" screen
  * (MyGamesPage.tsx). Includes each game's cheap GameStateSummary (issue
  * #441 — see fetchGameStateSummaries/gameCardView.ts's GameStateSummary) so
@@ -391,10 +411,12 @@ const GAME_LIST_COLUMNS =
  * games out of this list (see nextGameNeedingInput).
  */
 export async function listMyGames(userId: string, excludeGameId?: string): Promise<MyGameEntry[]> {
-  const { data: myRows, error: myRowsError } = await supabase.from('players').select().eq('user_id', userId)
+  const { data: myRows, error: myRowsError } = await supabase.from('players').select('game_id').eq('user_id', userId)
   if (myRowsError) throw myRowsError
 
-  const gameIds = [...new Set((myRows as PlayerRow[]).map((p) => p.game_id))].filter((id) => id !== excludeGameId)
+  const gameIds = [...new Set((myRows as Pick<PlayerRow, 'game_id'>[]).map((p) => p.game_id))].filter(
+    (id) => id !== excludeGameId,
+  )
   if (gameIds.length === 0) return []
 
   const [
@@ -403,14 +425,14 @@ export async function listMyGames(userId: string, excludeGameId?: string): Promi
     { summaryByGame, updatedAtByGame },
   ] = await Promise.all([
     supabase.from('games').select(GAME_LIST_COLUMNS).in('id', gameIds),
-    supabase.from('players').select().in('game_id', gameIds),
+    supabase.from('players').select(PLAYER_LIST_COLUMNS).in('game_id', gameIds),
     fetchGameStateSummaries(gameIds),
   ])
   if (gamesError) throw gamesError
   if (allPlayersError) throw allPlayersError
 
-  const playersByGame = new Map<string, PlayerRow[]>()
-  for (const p of allPlayers as PlayerRow[]) {
+  const playersByGame = new Map<string, PlayerListRow[]>()
+  for (const p of allPlayers as PlayerListRow[]) {
     const list = playersByGame.get(p.game_id) ?? []
     list.push(p)
     playersByGame.set(p.game_id, list)
@@ -487,13 +509,13 @@ async function roomEntriesForGames(gameRows: GameRow[]): Promise<PublicRoomEntry
     { data: allPlayers, error: allPlayersError },
     { summaryByGame, updatedAtByGame },
   ] = await Promise.all([
-    supabase.from('players').select().in('game_id', gameIds),
+    supabase.from('players').select(PLAYER_LIST_COLUMNS).in('game_id', gameIds),
     fetchGameStateSummaries(gameIds),
   ])
   if (allPlayersError) throw allPlayersError
 
-  const playersByGame = new Map<string, PlayerRow[]>()
-  for (const p of allPlayers as PlayerRow[]) {
+  const playersByGame = new Map<string, PlayerListRow[]>()
+  for (const p of allPlayers as PlayerListRow[]) {
     const list = playersByGame.get(p.game_id) ?? []
     list.push(p)
     playersByGame.set(p.game_id, list)
