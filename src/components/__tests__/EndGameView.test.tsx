@@ -350,11 +350,33 @@ describe('EndGameView', () => {
         achievementContent={content}
         taleContent={EMPTY_TALE_CONTENT}
         scoreHistory={[
-          { turn: 0, totalByPlayerId: { p1: 0, p2: 0 } },
-          { turn: 1, totalByPlayerId: { p1: 6, p2: 0 } },
+          { turn: 0, totalByPlayerId: { p1: 0, p2: 0 }, goldByPlayerId: { p1: 0, p2: 0 } },
+          { turn: 1, totalByPlayerId: { p1: 6, p2: 0 }, goldByPlayerId: { p1: 4, p2: 0 } },
         ]}
       />,
     )
     expect(screen.getByText('Total score over time')).toBeInTheDocument()
+  })
+
+  it('renders the "Gold over time" chart once scoreHistory has at least two points, and omits it otherwise', () => {
+    const state = makeState()
+    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
+
+    const { rerender } = render(<EndGameView state={state} players={players} achievementContent={content} taleContent={EMPTY_TALE_CONTENT} />)
+    expect(screen.queryByText('Gold over time')).not.toBeInTheDocument()
+
+    rerender(
+      <EndGameView
+        state={state}
+        players={players}
+        achievementContent={content}
+        taleContent={EMPTY_TALE_CONTENT}
+        scoreHistory={[
+          { turn: 0, totalByPlayerId: { p1: 0, p2: 0 }, goldByPlayerId: { p1: 0, p2: 0 } },
+          { turn: 1, totalByPlayerId: { p1: 6, p2: 0 }, goldByPlayerId: { p1: 4, p2: 0 } },
+        ]}
+      />,
+    )
+    expect(screen.getByText('Gold over time')).toBeInTheDocument()
   })
 })

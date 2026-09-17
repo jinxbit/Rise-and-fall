@@ -16,6 +16,8 @@ export interface ScoreSnapshot {
   /** GameState.turn (the round number) at the moment this snapshot was taken. */
   turn: number
   totalByPlayerId: Record<string, number>
+  /** Each player's banked Player.resources.gold at this snapshot — for the "gold over time" line chart (EndGameView.tsx/GoldOverTimeChart.tsx), alongside the VP total already captured above. */
+  goldByPlayerId: Record<string, number>
 }
 
 export interface AchievementClaimEvent {
@@ -34,16 +36,20 @@ export interface ScoreHistoryResult {
 function snapshotOf(state: GameState, achievementContent: AchievementContent, taleContent: TaleContent): ScoreSnapshot {
   const breakdown = calculateVPBreakdown(state, achievementContent, taleContent)
   const totalByPlayerId: Record<string, number> = {}
-  for (const player of state.players) totalByPlayerId[player.id] = breakdown[player.id]?.total ?? 0
-  return { turn: state.turn, totalByPlayerId }
+  const goldByPlayerId: Record<string, number> = {}
+  for (const player of state.players) {
+    totalByPlayerId[player.id] = breakdown[player.id]?.total ?? 0
+    goldByPlayerId[player.id] = player.resources.gold
+  }
+  return { turn: state.turn, totalByPlayerId, goldByPlayerId }
 }
 
 /**
- * The "total score over time" series behind the end-of-game chart
- * (EndGameView.tsx): replays `actionHistory` from `genesis` (the same
- * event-sourcing ./replay.ts uses) and takes one VP snapshot every time a
- * round finishes (GameState.turn advancing), plus a final snapshot of
- * wherever replay actually ends up — which matters when the game completes
+ * The "total score over time" (and, per snapshot, banked gold) series behind
+ * the end-of-game charts (EndGameView.tsx): replays `actionHistory` from
+ * `genesis` (the same event-sourcing ./replay.ts uses) and takes one VP+gold
+ * snapshot every time a round finishes (GameState.turn advancing), plus a
+ * final snapshot of wherever replay actually ends up — which matters when the game completes
  * mid-round (e.g. the winning achievement is claimed before the round's
  * last player has acted), so the series doesn't silently omit the true
  * final score. Nothing here is stored: like turnReview.ts/gameLog.ts, it's
