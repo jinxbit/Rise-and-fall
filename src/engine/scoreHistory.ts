@@ -18,6 +18,8 @@ export interface ScoreSnapshot {
   totalByPlayerId: Record<string, number>
   /** Each player's banked Player.resources.gold at this snapshot — for the "gold over time" line chart (EndGameView.tsx/GoldOverTimeChart.tsx), alongside the VP total already captured above. */
   goldByPlayerId: Record<string, number>
+  /** Each player's terrain-control VP (VPBreakdown.terrainControl) at this snapshot — for the "terrain score over time" line chart (EndGameView.tsx/TerrainScoreOverTimeChart.tsx), alongside the VP total already captured above. */
+  terrainVPByPlayerId: Record<string, number>
 }
 
 export interface AchievementClaimEvent {
@@ -37,18 +39,21 @@ function snapshotOf(state: GameState, achievementContent: AchievementContent, ta
   const breakdown = calculateVPBreakdown(state, achievementContent, taleContent)
   const totalByPlayerId: Record<string, number> = {}
   const goldByPlayerId: Record<string, number> = {}
+  const terrainVPByPlayerId: Record<string, number> = {}
   for (const player of state.players) {
     totalByPlayerId[player.id] = breakdown[player.id]?.total ?? 0
     goldByPlayerId[player.id] = player.resources.gold
+    terrainVPByPlayerId[player.id] = breakdown[player.id]?.terrainControl ?? 0
   }
-  return { turn: state.turn, totalByPlayerId, goldByPlayerId }
+  return { turn: state.turn, totalByPlayerId, goldByPlayerId, terrainVPByPlayerId }
 }
 
 /**
- * The "total score over time" (and, per snapshot, banked gold) series behind
- * the end-of-game charts (EndGameView.tsx): replays `actionHistory` from
- * `genesis` (the same event-sourcing ./replay.ts uses) and takes one VP+gold
- * snapshot every time a round finishes (GameState.turn advancing), plus a
+ * The "total score over time" (and, per snapshot, banked gold and terrain
+ * VP) series behind the end-of-game charts (EndGameView.tsx): replays
+ * `actionHistory` from `genesis` (the same event-sourcing ./replay.ts uses)
+ * and takes one VP+gold+terrain snapshot every time a round finishes
+ * (GameState.turn advancing), plus a
  * final snapshot of wherever replay actually ends up — which matters when the game completes
  * mid-round (e.g. the winning achievement is claimed before the round's
  * last player has acted), so the series doesn't silently omit the true
