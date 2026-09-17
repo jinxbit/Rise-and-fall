@@ -1,6 +1,9 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
+import { toBlob } from 'html-to-image'
 import { EndGameView } from '../EndGameView'
+
+vi.mock('html-to-image', () => ({ toBlob: vi.fn() }))
 import { EMPTY_ACHIEVEMENT_CONTENT } from '../../engine/achievementContent'
 import type { AchievementContent } from '../../engine/achievementContent'
 import { createEmptyBoard } from '../../engine/board'
@@ -113,29 +116,31 @@ describe('EndGameView', () => {
     expect(screen.getByText('Winner:', { exact: false })).toBeInTheDocument()
   })
 
-  it('copies a BoardGameGeek-friendly play summary, ranked with scores and the winner marked', async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined)
-    Object.assign(navigator, { clipboard: { writeText } })
+  it('copies a screenshot of the victory screen to the clipboard', async () => {
+    const blob = new Blob(['fake-png'], { type: 'image/png' })
+    vi.mocked(toBlob).mockResolvedValue(blob)
+    const write = vi.fn().mockResolvedValue(undefined)
+    Object.assign(navigator, { clipboard: { write } })
+    vi.stubGlobal(
+      'ClipboardItem',
+      class {
+        items: Record<string, Blob>
+        constructor(items: Record<string, Blob>) {
+          this.items = items
+        }
+      },
+    )
 
-    const state = { ...makeState(), actionHistory: [{ action: { type: 'PASS_ACTIONS', playerId: 'p1' }, turn: 5, timestamp: '2026-03-05T12:00:00.000Z' }] } as GameState
+    const state = makeState()
     const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
 
     render(<EndGameView state={state} players={players} achievementContent={content} taleContent={EMPTY_TALE_CONTENT} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Copy for BoardGameGeek' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Copy screenshot' }))
 
-    expect(writeText).toHaveBeenCalledWith(
-      [
-        'Rise & Fall — play log for BoardGameGeek',
-        'Date: 2026-03-05',
-        '',
-        'Players:',
-        '1st. Alice — 6 pts (Winner)',
-        '2nd. Bob — 0 pts',
-        '',
-        'Log this play at https://boardgamegeek.com/boardgame/275912/rise-and-fall',
-      ].join('\n'),
-    )
     expect(await screen.findByRole('button', { name: 'Copied!' })).toBeInTheDocument()
+    expect(write).toHaveBeenCalledWith([expect.objectContaining({ items: { 'image/png': blob } })])
+
+    vi.unstubAllGlobals()
   })
 
   it('shows a single "Breakdown" fallback row when nobody scored anything', () => {

@@ -5675,3 +5675,33 @@ shrink-to-fit classes (and the right `svh` value for both the default and
 `expanded` cases), alongside the existing #107 regression test for the
 wrapper's own `svh` (still present, for the below-`sm` case).
 `npm run lint`, `npm run test`, and `npm run build` all pass.
+
+## 122. Victory screen: swap "Copy for BoardGameGeek" for "Copy screenshot" (issue #630)
+
+#116's "Copy for BoardGameGeek" button copied a plain-text play summary.
+Issue #630 asked to drop it in favor of a button that copies an actual image
+of the victory screen, so players can share/paste the whole thing (final
+board, charts, breakdown table and all) directly, rather than retyping
+scores into BGG's form.
+
+`EndGameView.tsx` lost `BOARD_GAME_GEEK_URL`, `boardGameGeekPlaySummary()`,
+and `handleCopyBggExport`. In their place, the outer wrapper `<div>` now
+carries a `ref` (`screenRef`), and the new `handleCopyScreenshot()` rasters
+that whole subtree to a PNG `Blob` via `html-to-image`'s `toBlob()` (new
+dependency — no existing screenshot capability in this codebase, and every
+child in the tree is plain HTML/CSS/SVG, which that library handles without
+a `<canvas>` round-trip) and writes it to the clipboard as an
+`image/png` `ClipboardItem`. `backgroundColor: '#0a0a0a'` matches
+`App.tsx`'s page background so the flattened PNG isn't transparent where the
+victory panel's own background is translucent (`bg-amber-500/10`);
+`pixelRatio: 2` for a crisper paste on high-DPI screens. Same "Copied!" flip
+and silent-catch-on-failure pattern as the button it replaces (clipboard
+image writes need a secure context and aren't supported everywhere, e.g.
+Firefox before 2023 or older Safari — nothing useful to surface to the
+player if it fails).
+
+`EndGameView.test.tsx` mocks `html-to-image`'s `toBlob` and stubs a minimal
+`ClipboardItem` (not provided by jsdom) rather than exercising the real
+rasterization, mirroring how the old test mocked `navigator.clipboard`
+directly.
+`npm run lint`, `npm run test`, and `npm run build` all pass.
