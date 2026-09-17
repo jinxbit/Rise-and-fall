@@ -5705,3 +5705,53 @@ player if it fails).
 rasterization, mirroring how the old test mocked `navigator.clipboard`
 directly.
 `npm run lint`, `npm run test`, and `npm run build` all pass.
+
+## 123. Chat: suggest (and add) defenses from DOS and exploitation (issue #605)
+
+Issue #605 asked for a mechanism, or set of mechanisms, against three chat
+abuse scenarios: too many messages, exceptionally large messages, and
+strings crafted to cause harm — with "it is ok to disable chat all across
+the app if there is an issue" as an explicit acceptable fallback.
+
+Auditing the existing chat implementation (`CHAT_PLAN.md`) against all
+three found two already closed by the original design and one open gap:
+
+- Oversized messages were already rejected server-side by
+  `chat_messages`' own `check (char_length(body) between 1 and 2000)`
+  (`0031_chat_messages.sql`).
+- Harmful strings were already structurally inert: `ChatPanel.tsx` renders
+  a message's `body` as a plain JSX text child, never
+  `dangerouslySetInnerHTML`, so React escapes it — there is no stored-XSS
+  path, and chat has no markup/rich-text interpretation to exploit in the
+  first place.
+- Flooding had no defense at all: nothing stopped a script from posting
+  directly through the REST API in a tight loop.
+
+New migration `0034_chat_rate_limit.sql` closes the gap with a `before
+insert` trigger on `chat_messages` that rejects a sender's insert once
+they already have 10+ messages (site-wide and every game combined, so
+switching channels can't dodge it) in the trailing 10 seconds, backed by a
+new `(sender_id, created_at)` index. A trigger rather than a client-side
+throttle, matching this repo's own reasoning for the kill switch
+(`CHAT_PLAN.md` §4) — a client-only gate is a UX guarantee, not a security
+one, since a modified client can call the REST API directly. A trigger
+rather than folding the check into the "post chat" RLS policy so a
+rejection surfaces a plain, readable message (via `toAppError`/
+`ErrorBanner`) instead of RLS's generic row-level-security error, the same
+reasoning behind this repo's existing status-transition triggers
+(`0008_room_lifecycle.sql`, `0029_start_game_edge_function.sql`).
+
+The threshold (10 messages / 10 seconds) is a proposed default, flagged
+for pushback during review like every other default in `CHAT_PLAN.md`, not
+a tuned value from real usage.
+
+`src/test/supabaseStack/database.ts`'s `chat_messages` insert path gained
+the equivalent check (that stack hand-transcribes migrations rather than
+running real SQL, same as its existing `char_length(body)` check), and
+`chatMessages.test.ts` gained three tests: the 11th message in the window
+is rejected across surfaces, another sender's messages don't count against
+the limit, and messages older than the window don't count. `CHAT_PLAN.md`
+gained a new §19 documenting all three defenses (mirroring the "Proposed
+defaults (flag for pushback during review)" pattern §2 already uses) as
+the source-of-truth record of this decision.
+`npm run lint`, `npm run test`, and `npm run build` all pass.
