@@ -444,6 +444,14 @@ other.
 9. **Typewriter look and older-history paging (issue #587, done).** Smaller
    text, a monospace "typewriter" font, a scroll-position fix, and
    `chatApi.ts`'s `listOlderChatMessages` (§16). Depended only on 1–3.
+10. **Lobby chat (issue #650, done).** `LobbyPage.tsx` now wires up
+    `ChatPanel.tsx` too, with the same `chatOpen`/`chatUnreadCount`/
+    `chatEnabled` header-toggle pattern as `GamePage.tsx` (§14) and
+    `canPost` gated on `isSeated`. No schema or RLS change: this is the same
+    `chat_messages` row keyed on the same `game.id` a room already has from
+    creation, so a room's chat starts the moment the room exists and its
+    history carries straight over once Start Game flips the room to
+    `GamePage.tsx`. Depended only on 3, 7 and 8.
 
 Phases 4–6 are intentionally not started until jinxbit confirms scope/timing
 on this document, per the issue's own "Future" heading treating them as
