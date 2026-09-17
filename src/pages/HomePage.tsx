@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { ChatPanel } from '../components/ChatPanel'
 import { DiscordSignIn } from '../components/DiscordSignIn'
@@ -57,6 +57,28 @@ export function HomePage() {
   const [notStartedPage, setNotStartedPage] = useState(0)
   const [inProgressPage, setInProgressPage] = useState(0)
   const [finishedPage, setFinishedPage] = useState(0)
+
+  // The header's hamburger menu (issue #625) — holds the links that used to
+  // sit directly in the header (Public rooms, Map builder, and the two
+  // admin-only links), the same click-outside/Escape pattern as GamePage's.
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!menuOpen) return
+    function handlePointerDown(event: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) setMenuOpen(false)
+    }
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') setMenuOpen(false)
+    }
+    document.addEventListener('mousedown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [menuOpen])
 
   useEffect(() => {
     if (!session) return
@@ -159,133 +181,178 @@ export function HomePage() {
   const finishedPageItems = paginate(finished, finishedPage, PAGE_SIZE)
 
   return (
-    <div className="mx-auto flex max-w-lg flex-col gap-8 p-8">
+    <div className="mx-auto flex w-full max-w-lg flex-col gap-8 p-8 xl:max-w-[100rem]">
       <header className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Rise &amp; Fall</h1>
-        <div className="flex items-center gap-3 text-sm text-neutral-400">
-          {isAdmin && (
-            <Link to="/admin/rooms" className="underline hover:text-neutral-200">
-              All rooms
-            </Link>
-          )}
-          <Link to="/public" className="underline hover:text-neutral-200">
-            Public rooms
-          </Link>
-          <Link to="/map-builder" className="underline hover:text-neutral-200">
-            Map builder
-          </Link>
-          {isAdmin && (
-            <Link to="/admin/maps" className="underline hover:text-neutral-200">
-              Saved maps
-            </Link>
-          )}
-          <Link to="/profile" className="flex flex-col items-center gap-1 hover:text-neutral-200">
-            {avatarUrl && <img src={avatarUrl} alt="" className="h-8 w-8 rounded-full" />}
-            <span>{displayName}</span>
-          </Link>
+        <div className="flex items-center gap-3">
+          <div ref={menuRef} className="relative">
+            <button
+              type="button"
+              onClick={() => setMenuOpen((v) => !v)}
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              title="Menu"
+              className="rounded-md border border-neutral-700 p-2 hover:border-neutral-500"
+            >
+              <svg viewBox="0 0 20 20" className="h-5 w-5 fill-current" aria-hidden="true">
+                <rect x="2" y="4" width="16" height="2" rx="1" />
+                <rect x="2" y="9" width="16" height="2" rx="1" />
+                <rect x="2" y="14" width="16" height="2" rx="1" />
+              </svg>
+            </button>
+            {menuOpen && (
+              <div
+                role="menu"
+                className="absolute left-0 top-full z-10 mt-2 flex w-48 flex-col overflow-hidden rounded-md border border-neutral-700 bg-neutral-900 py-1 text-sm shadow-lg"
+              >
+                {isAdmin && (
+                  <Link
+                    to="/admin/rooms"
+                    role="menuitem"
+                    onClick={() => setMenuOpen(false)}
+                    className="px-3 py-2 text-left hover:bg-neutral-800"
+                  >
+                    All rooms
+                  </Link>
+                )}
+                <Link to="/public" role="menuitem" onClick={() => setMenuOpen(false)} className="px-3 py-2 text-left hover:bg-neutral-800">
+                  Public rooms
+                </Link>
+                <Link
+                  to="/map-builder"
+                  role="menuitem"
+                  onClick={() => setMenuOpen(false)}
+                  className="px-3 py-2 text-left hover:bg-neutral-800"
+                >
+                  Map builder
+                </Link>
+                {isAdmin && (
+                  <Link
+                    to="/admin/maps"
+                    role="menuitem"
+                    onClick={() => setMenuOpen(false)}
+                    className="px-3 py-2 text-left hover:bg-neutral-800"
+                  >
+                    Saved maps
+                  </Link>
+                )}
+              </div>
+            )}
+          </div>
+          <h1 className="text-2xl font-semibold">Rise &amp; Fall</h1>
         </div>
+        <Link to="/profile" className="flex flex-col items-center gap-1 text-sm text-neutral-400 hover:text-neutral-200">
+          {avatarUrl && <img src={avatarUrl} alt="" className="h-8 w-8 rounded-full" />}
+          <span>{displayName}</span>
+        </Link>
       </header>
-
-      <DiscordCommunityBanner />
-      <SupportBanner />
 
       {error && <ErrorBanner message={error.message} details={error.details} onDismiss={() => setError(null)} />}
       {loadError && <ErrorBanner message={loadError.message} details={loadError.details} onDismiss={() => setLoadError(null)} />}
 
-      <ChatPanel gameId={null} />
-
-      <section className="flex flex-col gap-3">
-        <Link
-          to="/create"
-          className="rounded-md bg-indigo-600 px-4 py-2 text-center font-medium text-white hover:bg-indigo-500"
-        >
-          Create a game
-        </Link>
-        <div className="flex gap-2">
-          <input
-            value={roomCodeInput}
-            onChange={(e) => setRoomCodeInput(e.target.value.toUpperCase())}
-            placeholder="Room code"
-            maxLength={5}
-            className="flex-1 rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 uppercase tracking-widest"
-          />
-          <button
-            disabled={busy || roomCodeInput.trim().length === 0}
-            onClick={() => void handleJoin()}
-            className="rounded-md border border-neutral-700 px-4 py-2 font-medium hover:border-neutral-500 disabled:opacity-50"
-          >
-            Join
-          </button>
-        </div>
-      </section>
-
       {roomEntries === null && !loadError && <div className="text-neutral-400">Loading your games…</div>}
 
-      {roomEntries !== null && (
+      {/* Wide screens (issue #625) lay the sections out as columns —
+          announcements/banner/chat, create+your games, rooms not started,
+          games in progress, finished games — instead of stacking everything
+          in the narrow single-column layout used below `xl`. */}
+      <div className="flex flex-col gap-8 xl:grid xl:grid-cols-5 xl:items-start xl:gap-6">
+        <section className="flex flex-col gap-4">
+          <DiscordCommunityBanner />
+          <SupportBanner />
+          <ChatPanel gameId={null} />
+        </section>
+
         <section className="flex flex-col gap-3">
-          <h2 className="font-medium text-neutral-200">Your games in progress</h2>
-          {myGamesInProgress.length === 0 ? (
-            <p className="text-sm text-neutral-500">No games in progress.</p>
-          ) : (
+          <Link
+            to="/create"
+            className="rounded-md bg-indigo-600 px-4 py-2 text-center font-medium text-white hover:bg-indigo-500"
+          >
+            Create a game
+          </Link>
+          <div className="flex gap-2">
+            <input
+              value={roomCodeInput}
+              onChange={(e) => setRoomCodeInput(e.target.value.toUpperCase())}
+              placeholder="Room code"
+              maxLength={5}
+              className="flex-1 rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 uppercase tracking-widest"
+            />
+            <button
+              disabled={busy || roomCodeInput.trim().length === 0}
+              onClick={() => void handleJoin()}
+              className="rounded-md border border-neutral-700 px-4 py-2 font-medium hover:border-neutral-500 disabled:opacity-50"
+            >
+              Join
+            </button>
+          </div>
+
+          {roomEntries !== null && (
+            <div className="flex flex-col gap-3">
+              <h2 className="font-medium text-neutral-200">Your games in progress</h2>
+              {myGamesInProgress.length === 0 ? (
+                <p className="text-sm text-neutral-500">No games in progress.</p>
+              ) : (
+                <ul className="flex flex-col gap-2">
+                  {myGamesPageItems.map((entry) => (
+                    <RoomRow key={entry.game.id} entry={entry} userId={user.id} onOpen={() => navigate(gamePath(entry))} />
+                  ))}
+                </ul>
+              )}
+              <Pagination page={myGamesPage} pageSize={PAGE_SIZE} total={myGamesInProgress.length} onChange={setMyGamesPage} />
+            </div>
+          )}
+        </section>
+
+        {roomEntries !== null && (
+          <section className="flex flex-col gap-3">
+            <h2 className="font-medium text-neutral-200">Rooms not started</h2>
+            {notStartedRooms.length === 0 ? (
+              <p className="text-sm text-neutral-500">No rooms waiting to start right now.</p>
+            ) : (
+              <ul className="flex flex-col gap-2">
+                {notStartedPageItems.map((entry) => (
+                  <RoomRow
+                    key={entry.game.id}
+                    entry={entry}
+                    userId={user.id}
+                    action={isMine(entry, user.id) ? undefined : 'Join'}
+                    onOpen={() => navigate(`/lobby/${entry.game.room_code}`)}
+                  />
+                ))}
+              </ul>
+            )}
+            <Pagination page={notStartedPage} pageSize={PAGE_SIZE} total={notStartedRooms.length} onChange={setNotStartedPage} />
+          </section>
+        )}
+
+        {roomEntries !== null && (
+          <section className="flex flex-col gap-3">
+            <h2 className="font-medium text-neutral-200">Games in progress</h2>
+            {otherGamesInProgress.length === 0 ? (
+              <p className="text-sm text-neutral-500">No games in progress right now.</p>
+            ) : (
+              <ul className="flex flex-col gap-2">
+                {inProgressPageItems.map((entry) => (
+                  <RoomRow key={entry.game.id} entry={entry} userId={user.id} action="Watch" onOpen={() => navigate(`/game/${entry.game.room_code}`)} />
+                ))}
+              </ul>
+            )}
+            <Pagination page={inProgressPage} pageSize={PAGE_SIZE} total={otherGamesInProgress.length} onChange={setInProgressPage} />
+          </section>
+        )}
+
+        {roomEntries !== null && finished.length > 0 && (
+          <section className="flex flex-col gap-3">
+            <h2 className="font-medium text-neutral-200">Finished games</h2>
             <ul className="flex flex-col gap-2">
-              {myGamesPageItems.map((entry) => (
-                <RoomRow key={entry.game.id} entry={entry} userId={user.id} onOpen={() => navigate(gamePath(entry))} />
+              {finishedPageItems.map((entry) => (
+                <RoomRow key={entry.game.id} entry={entry} userId={user.id} action="View" onOpen={() => navigate(`/game/${entry.game.room_code}`)} />
               ))}
             </ul>
-          )}
-          <Pagination page={myGamesPage} pageSize={PAGE_SIZE} total={myGamesInProgress.length} onChange={setMyGamesPage} />
-        </section>
-      )}
-
-      {roomEntries !== null && (
-        <section className="flex flex-col gap-3">
-          <h2 className="font-medium text-neutral-200">Rooms not started</h2>
-          {notStartedRooms.length === 0 ? (
-            <p className="text-sm text-neutral-500">No rooms waiting to start right now.</p>
-          ) : (
-            <ul className="flex flex-col gap-2">
-              {notStartedPageItems.map((entry) => (
-                <RoomRow
-                  key={entry.game.id}
-                  entry={entry}
-                  userId={user.id}
-                  action={isMine(entry, user.id) ? undefined : 'Join'}
-                  onOpen={() => navigate(`/lobby/${entry.game.room_code}`)}
-                />
-              ))}
-            </ul>
-          )}
-          <Pagination page={notStartedPage} pageSize={PAGE_SIZE} total={notStartedRooms.length} onChange={setNotStartedPage} />
-        </section>
-      )}
-
-      {roomEntries !== null && (
-        <section className="flex flex-col gap-3">
-          <h2 className="font-medium text-neutral-200">Games in progress</h2>
-          {otherGamesInProgress.length === 0 ? (
-            <p className="text-sm text-neutral-500">No games in progress right now.</p>
-          ) : (
-            <ul className="flex flex-col gap-2">
-              {inProgressPageItems.map((entry) => (
-                <RoomRow key={entry.game.id} entry={entry} userId={user.id} action="Watch" onOpen={() => navigate(`/game/${entry.game.room_code}`)} />
-              ))}
-            </ul>
-          )}
-          <Pagination page={inProgressPage} pageSize={PAGE_SIZE} total={otherGamesInProgress.length} onChange={setInProgressPage} />
-        </section>
-      )}
-
-      {roomEntries !== null && finished.length > 0 && (
-        <section className="flex flex-col gap-3">
-          <h2 className="font-medium text-neutral-200">Finished games</h2>
-          <ul className="flex flex-col gap-2">
-            {finishedPageItems.map((entry) => (
-              <RoomRow key={entry.game.id} entry={entry} userId={user.id} action="View" onOpen={() => navigate(`/game/${entry.game.room_code}`)} />
-            ))}
-          </ul>
-          <Pagination page={finishedPage} pageSize={PAGE_SIZE} total={finished.length} onChange={setFinishedPage} />
-        </section>
-      )}
+            <Pagination page={finishedPage} pageSize={PAGE_SIZE} total={finished.length} onChange={setFinishedPage} />
+          </section>
+        )}
+      </div>
     </div>
   )
 }
