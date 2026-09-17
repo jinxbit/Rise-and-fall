@@ -39,5 +39,15 @@ describe('hidden-information wire check (issue #480)', () => {
       // subscription would have to have silently failed to connect.
       expect(report.realtimePayloadsObserved ?? 0).toBeGreaterThan(0)
     }
-  }, 300_000)
+  // 900_000, matching vitest.smoke.config.ts's own testTimeout and
+  // productionSmoke.smoke.ts's explicit value (issue #652): reaching a fresh
+  // `decline` phase (playToFreshPhase, ./hiddenInformationWire.ts) takes
+  // ~200 actions of Temple-mastery setup, each replayed as its own HTTPS
+  // round trip to the deployed Edge Functions — nearly as many as a whole
+  // recorded game, and far more than `selectCards`'s ~10. The old 300_000
+  // timed this test out mid-`decline` on Preview (run 35253040767); the log
+  // shows `selectCards` had already finished and the two `.smoke.ts` files
+  // were still running one after another as intended (issues #573/#598), so
+  // this was the `decline` setup's own size, not file contention.
+  }, 900_000)
 })
