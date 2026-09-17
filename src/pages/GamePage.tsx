@@ -157,6 +157,12 @@ export function GamePage() {
    * of order. Reset to `null` whenever the game-id effect below
    * (re-)subscribes, since a version number is only ever comparable within
    * the same game's `game_state` row.
+   *
+   * Also handed to subscribeToGameState as `getAppliedVersion` (issue #646):
+   * the realtime `game_state_meta` event that follows this client's own
+   * write already carries a version this ref has just been set to, so the
+   * subscription can skip its refetch entirely instead of re-downloading
+   * state it already has.
    */
   const latestVersionRef = useRef<number | null>(null)
 
@@ -453,7 +459,7 @@ export function GamePage() {
       if (!cancelled && snapshot) applyGameStateSnapshot(snapshot)
     })()
 
-    const unsubscribeGameState = subscribeToGameState(gameId, applyGameStateSnapshot, redacted)
+    const unsubscribeGameState = subscribeToGameState(gameId, applyGameStateSnapshot, redacted, () => latestVersionRef.current)
     const unsubscribePlayers = subscribeToPlayers(gameId, () => {
       void listPlayers(gameId).then(setPlayers)
     })

@@ -5824,3 +5824,48 @@ to 900px produced no frame of horizontal document overflow.
 
 `npm run lint`, `npm run test` (75 files / 1325 tests) and `npm run build`
 all pass.
+
+## 125. Bandwidth: skip the game-state refetch when the realtime event already carries a version we've applied (issue #646)
+
+`gameApi.ts`'s `subscribeToGameState` subscribed to `postgres_changes` on
+`game_state_meta` and discarded the payload outright, always paying for a
+fresh `fetchState()` HTTP round trip. `GamePage.tsx`'s
+`applyGameStateSnapshot` already discards that fetch's result if its
+`version` isn't newer than what's showing — so the common case (a player's
+own move applies the Edge Function's response locally, then the
+`game_state_sync_meta` trigger's own update to `game_state_meta` echoes
+back over that same client's subscription) paid for a full fetch just to
+throw it away.
+
+`game_state_meta`'s row already carries the new `version` in the realtime
+payload itself (`0025_game_state_meta.sql`), so `subscribeToGameState` now
+takes an optional fourth `getAppliedVersion: () => number | null` and skips
+`fetchState` entirely when the payload's version is `<=` whatever it
+returns — the exact same comparison `applyGameStateSnapshot` uses, so this
+can never skip a fetch that guard would have accepted. `GamePage.tsx` passes
+`() => latestVersionRef.current`, the same ref `applyGameStateSnapshot`
+already keeps up to date and already resets to `null` on resubscribe.
+`useRefetchOnVisible`'s two callers and the initial-load fetch don't go
+through this parameter at all — recovering from a *missed* event is their
+whole point, so they keep fetching unconditionally, unchanged. Both write
+paths are covered without special-casing: a client-trusted write's
+`writeWithRetry` already calls `applyGameStateSnapshot` with the freshly
+written version before the trigger's realtime echo can arrive, so the skip
+applies there the same way it does for the enforced Edge Function paths.
+
+`src/test/supabaseStack/` doesn't model Realtime itself (only Postgres and
+the Deno runtime are doubles — see `database.ts`'s own doc comment), so
+there's no live websocket to fire a real event over in a plain Node test
+run. `src/lib/__tests__/subscribeToGameState.test.ts` instead stubs
+`supabase.channel()` to capture the `postgres_changes` handler
+`subscribeToGameState` registers and fires it directly with a synthetic
+`{ new: { version } }` payload — everything downstream (the version
+comparison, the conditional `fetchState()` call, and that fetch's real HTTP
+round trip through the stack) is the real `gameApi.ts` code, unmodified.
+Covers: a submitter's own applied version skips the refetch; a second
+client with no applied version still refetches on the same event; omitting
+`getAppliedVersion` always refetches, matching the pre-#646 behavior
+`useRefetchOnVisible`/the initial load still rely on.
+
+`npm run lint`, `npm run test` (76 files / 1328 tests) and `npm run build`
+all pass.

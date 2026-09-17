@@ -1031,15 +1031,40 @@ export async function redoActionEnforced(gameId: string): Promise<GameEnforcemen
  * instead of getGameState — pass true for a game with both
  * ruleEnforcementEnabled and hiddenInformationEnabled on (GamePage.tsx),
  * same condition as every other read-path choice in this file.
+ *
+ * `getAppliedVersion`, when given, is consulted before paying for that HTTP
+ * round trip: `game_state_meta`'s row (kept in sync with `game_state` by the
+ * same trigger that projects it, `0025_game_state_meta.sql`) carries the new
+ * `version` in the realtime payload itself, so if it's `<=` whatever the
+ * caller already has applied — same comparison GamePage.tsx's
+ * applyGameStateSnapshot uses, so this can never skip a fetch that guard
+ * would have accepted — the fetch can only come back with what's already
+ * showing and is skipped outright (issue #646). This is the common case
+ * right after this client's own write: it already applied the result
+ * locally, then the trigger's own `game_state_meta` update echoes back over
+ * the socket. Any other client on the same game still has a lower applied
+ * version and still fetches. Omit `getAppliedVersion` (as the two
+ * unconditional-refetch callers in GamePage.tsx do — initial load and
+ * `useRefetchOnVisible`, whose entire point is recovering from events this
+ * subscription missed) to always fetch, same as before this parameter
+ * existed.
  */
-export function subscribeToGameState(gameId: string, onChange: (snapshot: GameStateSnapshot) => void, redacted = false): () => void {
+export function subscribeToGameState(
+  gameId: string,
+  onChange: (snapshot: GameStateSnapshot) => void,
+  redacted = false,
+  getAppliedVersion?: () => number | null,
+): () => void {
   const fetchState = redacted ? getGameStateRedacted : getGameState
   const channel = supabase
     .channel(`game_state:${gameId}`)
     .on(
       'postgres_changes',
       { event: '*', schema: 'public', table: 'game_state_meta', filter: `game_id=eq.${gameId}` },
-      () => {
+      (payload) => {
+        const newVersion = (payload.new as Partial<GameStateMetaRow>).version
+        const appliedVersion = getAppliedVersion?.() ?? null
+        if (appliedVersion !== null && typeof newVersion === 'number' && newVersion <= appliedVersion) return
         void fetchState(gameId).then((snapshot) => {
           if (snapshot) onChange(snapshot)
         })
