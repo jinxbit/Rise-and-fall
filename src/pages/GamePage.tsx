@@ -1572,45 +1572,17 @@ export function GamePage() {
         that. `items-center` (not `items-start`) so the round/bank column —
         just a couple of text lines, shorter than its siblings' buttons —
         sits vertically centered against the row instead of pinned to the
-        top and looking like it floats slightly above it):
+        top and looking like it floats slightly above it. The last column
+        carries `ml-auto` to push it flush right whenever it shares a line
+        with the others, and left-aligned on its own line once it wraps):
         1.1 hamburger/name/next-game, 1.2 chat/player names, 1.3 round/bank,
-        1.4 undo/redo/review history. PhaseBanner/BankResources used to render
-        inside RoundView itself, only while a round was active — they're
-        exported from there (RoundView.tsx) so this header can show them
-        whenever there's any state to read a turn/bank from (board setup and
-        review included), not just mid-round.
-
-        issue #640's first two attempts left this row's own wrap to the
-        browser's native `flex-wrap` line-packing, which breaks by leftover
-        space per line rather than by these four logical groups: on a narrow
-        (phone-width) screen, 1.3+1.4's wrapper is only as wide as its own
-        stacked buttons (~130px), which is often *narrower* than whatever
-        sliver 1.2 (chat/players) left on its line — so the browser packed it
-        onto that line instead of wrapping it below, floating undo/redo/review
-        to the right of the player-name row instead of onto their own
-        full-width row (reported against production after both prior fixes:
-        neither `flex-1`→`flex-auto` nor the `@container` split on 1.3+1.4
-        touches *this* decision, since both only affect what happens once the
-        wrapper is already alone on a line). Fixed by taking that decision out
-        of native wrapping: an inner `@container`-queried wrapper around all
-        three groups switches the *whole header* between a plain column stack
-        (each group full-width, in DOM order, so 1.3+1.4 always lands on its
-        own row below 1.1 and 1.2) below `@2xl`, and the previous row+wrap
-        behavior at `@2xl` and up. That removes the leftover-space case
-        entirely instead of tuning around it a second time.
-
-        1.3 and 1.4 still share their own nested `@container` wrapper (issue
-        #640) independent of the switch above, because "which one wraps above
-        the other" needs to invert depending on direction: on a wide-enough
-        container undo/redo/review sits flush right of round/bank (as it did
-        before #640, via that wrapper's `@xl:flex-row-reverse`), but once the
-        two don't fit together, undo/redo/review must move *above* round/bank,
-        left-aligned — see the comment on that wrapper below for how
-        row-reverse plus DOM order gets both out of one set of classes
-        without a JS breakpoint check.
+        1.4 undo/redo/review history (right-aligned). PhaseBanner/BankResources
+        used to render inside RoundView itself, only while a round was active
+        — they're exported from there (RoundView.tsx) so this header can show
+        them whenever there's any state to read a turn/bank from (board setup
+        and review included), not just mid-round.
       */}
-      <header className="@container">
-      <div className="flex flex-col items-start gap-3 @2xl:flex-row @2xl:flex-wrap @2xl:items-center @2xl:gap-x-6 @2xl:gap-y-3">
+      <header className="flex flex-row flex-wrap items-center gap-x-6 gap-y-3">
         <div className="flex flex-wrap items-center gap-3">
           <div ref={menuRef} className="relative">
             <button
@@ -1882,89 +1854,58 @@ export function GamePage() {
             ))}
           </ul>
         </div>
-        {/*
-          1.3 (bank) and 1.4 (undo/redo/review) share a `@container` wrapper
-          so their relative order can flip independently of the outer row's
-          own wrap (issue #640): row-reverse puts the *first* DOM child (undo/
-          redo/review) at the container's right edge and the second (bank) at
-          its left whenever the pair fits side by side (`@xl`), same as
-          before; below that width they fall back to the plain (non-reversed)
-          column order, which is exactly DOM order — undo/redo/review first
-          (top), bank second (below it) — and `items-start` left-aligns them.
-          A plain viewport media query would react to the wrong width once
-          columns 1.1/1.2 wrap onto their own line and hand this pair the
-          full row; `@container` measures this wrapper's own allotted width
-          instead.
-
-          This wrapper claims that width with `flex-auto` (`flex: 1 1 auto`),
-          not `flex-1` (`flex: 1 1 0%`) — issue #640's first landing used
-          `flex-1`, which gives the header's own line-wrapping a ~0
-          hypothetical size to work with regardless of this wrapper's actual
-          content, wrong in the same direction as the leftover-space bug the
-          outer `@2xl` switch (above, on the header) now forecloses below
-          that breakpoint. Above `@2xl`, where this wrapper can still share a
-          native-wrap line with 1.1/1.2 the way it always could, `flex-auto`
-          is what makes that residual wrap decision key off this wrapper's
-          real content width instead of nothing. `flex-grow: 1` (shared by
-          both) still lets it fill the remaining line width either way.
-        */}
-        <div className="flex flex-auto @container">
-          <div className="flex w-full flex-col items-start gap-2 @xl:flex-row-reverse @xl:items-center @xl:justify-between">
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                disabled={undoing || isReviewingHistory || !gameState || !historyPointer.canUndo || undoBlockedByRevealLock}
-                onClick={() => void handleUndo()}
-                title={
-                  undoBlockedByRevealLock
-                    ? "Undoing this would reopen a card pick that's already been revealed — only the room owner or an admin, with room admin mode on, may do that."
-                    : 'Undo the last action — any player can do this, at any time, even after the game has ended. If you still have your own unrevealed card pick standing, this changes only your pick.'
-                }
-                className="rounded-md border border-neutral-700 px-3 py-1 text-sm hover:border-neutral-500 disabled:opacity-50"
-              >
-                {undoing ? 'Undoing…' : 'Undo'}
-              </button>
-              <button
-                type="button"
-                disabled={redoing || isReviewingHistory || !historyPointer.canRedo}
-                onClick={() => void handleRedo()}
-                title="Redo the last undone action."
-                className="rounded-md border border-neutral-700 px-3 py-1 text-sm hover:border-neutral-500 disabled:opacity-50"
-              >
-                {redoing ? 'Redoing…' : 'Redo'}
-              </button>
-              <button
-                type="button"
-                disabled={!gameState || reviewMaxIndex === 0}
-                onClick={() => {
-                  if (isReviewingHistory) {
-                    setReviewIndex(null)
-                    return
-                  }
-                  setHistoryStepMode('turn')
-                  setReviewIndex(defaultTurnHistoryIndex)
-                }}
-                title={
-                  me
-                    ? "Step through the game's history — turn by turn or action by action, switchable once open — starting right after your own last turn so you can review what every opponent did since. Unlike Undo, this never touches the live game."
-                    : "Step through the game's history — turn by turn or action by action, switchable once open. Unlike Undo, this never touches the live game."
-                }
-                className={`rounded-md border px-3 py-1 text-sm hover:border-neutral-500 disabled:opacity-50 ${
-                  isReviewingHistory ? 'border-amber-500 text-amber-400' : 'border-neutral-700'
-                }`}
-              >
-                {isReviewingHistory ? 'Exit review' : 'Review history'}
-              </button>
-            </div>
-            {displayState && (
-              <div className="flex flex-wrap items-center gap-4">
-                <PhaseBanner state={displayState} />
-                <BankResources state={displayState} />
-              </div>
-            )}
+        {displayState && (
+          <div className="flex flex-wrap items-center gap-4">
+            <PhaseBanner state={displayState} />
+            <BankResources state={displayState} />
           </div>
+        )}
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            disabled={undoing || isReviewingHistory || !gameState || !historyPointer.canUndo || undoBlockedByRevealLock}
+            onClick={() => void handleUndo()}
+            title={
+              undoBlockedByRevealLock
+                ? "Undoing this would reopen a card pick that's already been revealed — only the room owner or an admin, with room admin mode on, may do that."
+                : 'Undo the last action — any player can do this, at any time, even after the game has ended. If you still have your own unrevealed card pick standing, this changes only your pick.'
+            }
+            className="rounded-md border border-neutral-700 px-3 py-1 text-sm hover:border-neutral-500 disabled:opacity-50"
+          >
+            {undoing ? 'Undoing…' : 'Undo'}
+          </button>
+          <button
+            type="button"
+            disabled={redoing || isReviewingHistory || !historyPointer.canRedo}
+            onClick={() => void handleRedo()}
+            title="Redo the last undone action."
+            className="rounded-md border border-neutral-700 px-3 py-1 text-sm hover:border-neutral-500 disabled:opacity-50"
+          >
+            {redoing ? 'Redoing…' : 'Redo'}
+          </button>
+          <button
+            type="button"
+            disabled={!gameState || reviewMaxIndex === 0}
+            onClick={() => {
+              if (isReviewingHistory) {
+                setReviewIndex(null)
+                return
+              }
+              setHistoryStepMode('turn')
+              setReviewIndex(defaultTurnHistoryIndex)
+            }}
+            title={
+              me
+                ? "Step through the game's history — turn by turn or action by action, switchable once open — starting right after your own last turn so you can review what every opponent did since. Unlike Undo, this never touches the live game."
+                : "Step through the game's history — turn by turn or action by action, switchable once open. Unlike Undo, this never touches the live game."
+            }
+            className={`rounded-md border px-3 py-1 text-sm hover:border-neutral-500 disabled:opacity-50 ${
+              isReviewingHistory ? 'border-amber-500 text-amber-400' : 'border-neutral-700'
+            }`}
+          >
+            {isReviewingHistory ? 'Exit review' : 'Review history'}
+          </button>
         </div>
-      </div>
       </header>
 
       <ChatPanel gameId={game.id} players={players} canPost={!!ownSeat} open={chatOpen} onUnreadCountChange={setChatUnreadCount} />
