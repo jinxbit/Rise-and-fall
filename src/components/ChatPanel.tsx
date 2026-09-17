@@ -2,11 +2,13 @@
 // §6/§11.3), the unread indicator (issue #579, CHAT_PLAN.md §13, in-game
 // chat only), its position/size (issue #580, §14), name coloring (issue
 // #581, §15), its typewriter look + older-history paging (issue #587,
-// §16), the content text size increase (issue #593, §17) and per-message
-// timestamps/date separators/bold names (issue #594, §18). One shared
-// component for both surfaces: site-wide (`gameId: null`, wired into
-// HomePage.tsx, permanently expanded via the `compact`/`open` defaults)
-// and in-game (a real `gameId`, wired into GamePage.tsx, `canPost` plus a
+// §16), the content text size increase (issue #593, §17), per-message
+// timestamps/date separators/bold names (issue #594, §18), and the removal
+// of the panel's own heading/badge (issue #631, §14 — that chrome was
+// redundant with GamePage's own external toggle button and unnecessary
+// for site-wide chat). One shared component for both surfaces: site-wide
+// (`gameId: null`, wired into HomePage.tsx, permanently expanded) and
+// in-game (a real `gameId`, wired into GamePage.tsx, `canPost` plus a
 // controlled `open` + `onUnreadCountChange` so GamePage's own header
 // button drives visibility).
 
@@ -16,7 +18,6 @@ import { useDisplayName } from '../hooks/useDisplayName'
 import { hashDisplayNameToColor } from '../lib/chatColors'
 import {
   CHAT_PAGE_SIZE,
-  formatUnreadBadge,
   getChatDisplayNames,
   getChatReadStatus,
   isChatEnabled,
@@ -77,20 +78,6 @@ interface ChatPanelProps {
    */
   players?: PlayerRow[]
   /**
-   * Starts collapsed (list + composer hidden behind a Show/Hide toggle) and
-   * shows that toggle at all — issue #565: a chat panel pinned above the
-   * board would otherwise push the board below the fold on a phone, the same
-   * problem the mobile pass already solved for GamePage's history bar
-   * (`isReviewingHistory`/`reviewIndex`, `todo.md` #69) by keeping it as
-   * ordinary page-local state rather than inventing persistence — this
-   * follows the same approach: `collapsed` lives only in this component's
-   * state for as long as it's mounted, reset on remount like every other
-   * page-local UI toggle in this codebase. Site-wide chat (HomePage.tsx)
-   * omits this prop and is never collapsible. The Realtime subscription and
-   * message list stay live while collapsed; only the JSX is hidden.
-   */
-  compact?: boolean
-  /**
    * Whether the signed-in viewer may post here at all — false for a
    * signed-in non-seated visitor to a `visibility: 'public'` game
    * (CHAT_PLAN.md §10.1, enforced server-side by the "post chat" RLS
@@ -100,17 +87,13 @@ interface ChatPanelProps {
    */
   canPost?: boolean
   /**
-   * Externally-controlled visibility (issue #580) — when passed, this
-   * replaces `compact`'s own internal collapsed state entirely: the panel
-   * hides its own heading/badge/Show-Hide toggle and instead renders nothing
-   * at all while `open` is false, on the assumption the caller renders its
-   * own toggle button (with its own badge, fed by `onUnreadCountChange`)
-   * somewhere else in the page. The component stays mounted regardless, so
-   * its Realtime subscription and unread-cursor tracking keep running while
-   * hidden — same "collapsed but still live" behavior `compact` already had,
-   * just with the chrome moved out. Undefined (the default) keeps the
-   * original self-contained `compact` toggle for the site-wide caller that
-   * doesn't pass it.
+   * Externally-controlled visibility (issue #580) — when passed, the panel
+   * renders nothing at all while `open` is false, on the assumption the
+   * caller renders its own toggle button (with its own badge, fed by
+   * `onUnreadCountChange`) somewhere else in the page. The component stays
+   * mounted regardless, so its Realtime subscription and unread-cursor
+   * tracking keep running while hidden. Undefined (the default) keeps the
+   * panel permanently expanded, as site-wide chat (HomePage.tsx) does.
    */
   open?: boolean
   /**
@@ -129,7 +112,7 @@ interface ChatPanelProps {
  * (§2, "out of scope"). Manages its own auth/kill-switch state internally so
  * a caller only ever has to pass `gameId`.
  */
-export function ChatPanel({ gameId, players, compact = false, canPost = true, open, onUnreadCountChange }: ChatPanelProps) {
+export function ChatPanel({ gameId, players, canPost = true, open, onUnreadCountChange }: ChatPanelProps) {
   const { session } = useAuth()
   const userId = session?.user.id ?? null
   const { displayName: ownDisplayName } = useDisplayName(session?.user ?? null)
@@ -140,9 +123,8 @@ export function ChatPanel({ gameId, players, compact = false, canPost = true, op
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<AppError | null>(null)
-  const [internalCollapsed, setInternalCollapsed] = useState(compact)
   const controlled = open !== undefined
-  const collapsed = controlled ? !open : internalCollapsed
+  const collapsed = controlled ? !open : false
   const listRef = useRef<HTMLDivElement>(null)
 
   // Older-history paging (issue #587, CHAT_PLAN.md §16) — `listChatMessages`
@@ -399,16 +381,16 @@ export function ChatPanel({ gameId, players, compact = false, canPost = true, op
     }
   }
 
-  // Unread badge (numeric, capped at "9+" per CHAT_PLAN.md §13) — how many
-  // loaded messages, excluding the viewer's own (issue #586: a message you
-  // wrote yourself is never "new" to you), are newer than the live read
-  // cursor. Unread messages are always among the most recent ones, which the
-  // initial `listChatMessages` load already covers regardless of whether
-  // older history has since been paged in (issue #587, CHAT_PLAN.md §16) —
-  // paging only ever prepends messages older than anything already loaded, so
-  // it can't add to this count. `lastReadId` stays null forever for
-  // site-wide chat (gameId === null, see the load effect above), so this is
-  // always 0 there and the badge never renders.
+  // Unread count (numeric, capped at "9+" per CHAT_PLAN.md §13 via
+  // `onUnreadCountChangeRef` below) — how many loaded messages, excluding
+  // the viewer's own (issue #586: a message you wrote yourself is never
+  // "new" to you), are newer than the live read cursor. Unread messages are
+  // always among the most recent ones, which the initial `listChatMessages`
+  // load already covers regardless of whether older history has since been
+  // paged in (issue #587, CHAT_PLAN.md §16) — paging only ever prepends
+  // messages older than anything already loaded, so it can't add to this
+  // count. `lastReadId` stays null forever for site-wide chat (gameId ===
+  // null, see the load effect above), so this is always 0 there.
   const unreadCount = messages === null || lastReadId === null ? 0 : messages.filter((message) => message.sender_id !== userId && message.id > lastReadId).length
 
   // Bubbles the count to a caller controlling `open` externally (issue #580)
@@ -474,80 +456,56 @@ export function ChatPanel({ gameId, players, compact = false, canPost = true, op
 
   return (
     <section className="font-typewriter flex flex-col gap-2 rounded-md border border-neutral-800 bg-neutral-900 p-3">
-      <div className="flex items-center justify-between">
-        <h2 className="flex items-center gap-2 text-sm font-medium text-neutral-300">
-          Chat
-          {unreadCount > 0 && (
-            <span className="rounded-full bg-sky-600 px-1.5 py-0.5 text-xs font-semibold leading-none text-white" aria-label={`${unreadCount} unread message${unreadCount === 1 ? '' : 's'}`}>
-              {formatUnreadBadge(unreadCount)}
-            </span>
-          )}
-        </h2>
-        {!controlled && compact && (
-          <button
-            type="button"
-            onClick={() => setInternalCollapsed((c) => !c)}
-            aria-expanded={!collapsed}
-            className="text-xs font-medium text-neutral-400 hover:text-neutral-200"
-          >
-            {collapsed ? 'Show chat' : 'Hide chat'}
-          </button>
-        )}
-      </div>
-      {!collapsed && (
-        <>
-          {error && <ErrorBanner message={error.message} details={error.details} onDismiss={() => setError(null)} />}
-          <div ref={listRef} onScroll={handleListScroll} className="flex max-h-48 flex-col gap-1 overflow-y-auto text-sm">
-            {loadingOlder && <p className="text-center text-neutral-500">Loading older messages…</p>}
-            {messages === null && <p className="text-neutral-500">Loading chat…</p>}
-            {messages !== null && messages.length === 0 && <p className="text-neutral-500">No messages yet.</p>}
-            {messages?.map((message, index) => {
-              const time = formatChatTimestamp(message.created_at)
-              const date = formatChatDate(message.created_at)
-              const prevDate = index > 0 ? formatChatDate(messages[index - 1].created_at) : ''
-              const showDate = date !== '' && date !== prevDate
-              return (
-                <div key={message.id}>
-                  {showDate && <p className="font-medium text-neutral-400">{date}</p>}
-                  {index === dividerIndex && (
-                    <div className="my-1 flex items-center gap-2 text-xs text-sky-500" role="separator">
-                      <span className="h-px flex-1 bg-sky-800" />
-                      New messages
-                      <span className="h-px flex-1 bg-sky-800" />
-                    </div>
-                  )}
-                  <p>
-                    {time && <span className="text-neutral-600">[{time}] </span>}
-                    <span className="font-bold text-neutral-300" style={{ color: colorFor(message.sender_id) }}>
-                      {nameFor(message.sender_id)}:
-                    </span>{' '}
-                    <span className="text-neutral-200">{message.body}</span>
-                  </p>
+      {error && <ErrorBanner message={error.message} details={error.details} onDismiss={() => setError(null)} />}
+      <div ref={listRef} onScroll={handleListScroll} className="flex max-h-48 flex-col gap-1 overflow-y-auto text-sm">
+        {loadingOlder && <p className="text-center text-neutral-500">Loading older messages…</p>}
+        {messages === null && <p className="text-neutral-500">Loading chat…</p>}
+        {messages !== null && messages.length === 0 && <p className="text-neutral-500">No messages yet.</p>}
+        {messages?.map((message, index) => {
+          const time = formatChatTimestamp(message.created_at)
+          const date = formatChatDate(message.created_at)
+          const prevDate = index > 0 ? formatChatDate(messages[index - 1].created_at) : ''
+          const showDate = date !== '' && date !== prevDate
+          return (
+            <div key={message.id}>
+              {showDate && <p className="font-medium text-neutral-400">{date}</p>}
+              {index === dividerIndex && (
+                <div className="my-1 flex items-center gap-2 text-xs text-sky-500" role="separator">
+                  <span className="h-px flex-1 bg-sky-800" />
+                  New messages
+                  <span className="h-px flex-1 bg-sky-800" />
                 </div>
-              )
-            })}
-          </div>
-          {canPost ? (
-            <form onSubmit={(e) => void handleSubmit(e)} className="flex gap-2">
-              <input
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                placeholder="Message"
-                maxLength={2000}
-                className="flex-1 rounded-md border border-neutral-700 bg-neutral-950 px-3 py-1.5 text-sm"
-              />
-              <button
-                type="submit"
-                disabled={sending || draft.trim().length === 0}
-                className="rounded-md border border-neutral-700 px-3 py-1.5 text-sm font-medium hover:border-neutral-500 disabled:opacity-50"
-              >
-                Send
-              </button>
-            </form>
-          ) : (
-            <p className="text-xs text-neutral-500">Only seated players can post in this game's chat.</p>
-          )}
-        </>
+              )}
+              <p>
+                {time && <span className="text-neutral-600">[{time}] </span>}
+                <span className="font-bold text-neutral-300" style={{ color: colorFor(message.sender_id) }}>
+                  {nameFor(message.sender_id)}:
+                </span>{' '}
+                <span className="text-neutral-200">{message.body}</span>
+              </p>
+            </div>
+          )
+        })}
+      </div>
+      {canPost ? (
+        <form onSubmit={(e) => void handleSubmit(e)} className="flex gap-2">
+          <input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="Message"
+            maxLength={2000}
+            className="flex-1 rounded-md border border-neutral-700 bg-neutral-950 px-3 py-1.5 text-sm"
+          />
+          <button
+            type="submit"
+            disabled={sending || draft.trim().length === 0}
+            className="rounded-md border border-neutral-700 px-3 py-1.5 text-sm font-medium hover:border-neutral-500 disabled:opacity-50"
+          >
+            Send
+          </button>
+        </form>
+      ) : (
+        <p className="text-xs text-neutral-500">Only seated players can post in this game's chat.</p>
       )}
     </section>
   )

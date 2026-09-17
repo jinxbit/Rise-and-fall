@@ -200,32 +200,13 @@ describe('ChatPanel', () => {
     expect(await screen.findByText('incoming')).toBeInTheDocument()
   })
 
-  it('starts collapsed in compact mode and expands on toggle', async () => {
-    mockAuth.session = makeSession('alice')
-    chatApi.listChatMessages.mockResolvedValue([makeMessage(1, 'bob', 'hello there')])
-    chatApi.getChatDisplayNames.mockResolvedValue({ bob: 'Bob' })
-
-    render(<ChatPanel gameId="game-1" compact />)
-
-    await waitFor(() => expect(chatApi.isChatEnabled).toHaveBeenCalled())
-    expect(screen.queryByPlaceholderText('Message')).not.toBeInTheDocument()
-    expect(screen.queryByText('hello there')).not.toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Show chat' }))
-
-    expect(await screen.findByText('hello there')).toBeInTheDocument()
-    expect(screen.getByPlaceholderText('Message')).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Hide chat' }))
-    expect(screen.queryByPlaceholderText('Message')).not.toBeInTheDocument()
-  })
-
-  it('is expanded by default (no compact prop) and has no toggle', async () => {
+  it('renders expanded by default, with no heading and no toggle button (issue #631)', async () => {
     mockAuth.session = makeSession('alice')
 
     render(<ChatPanel gameId={null} />)
 
     expect(await screen.findByPlaceholderText('Message')).toBeInTheDocument()
+    expect(screen.queryByText('Chat')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /show chat|hide chat/i })).not.toBeInTheDocument()
   })
 
@@ -276,35 +257,38 @@ describe('ChatPanel', () => {
   })
 
   describe('unread indicator (issue #579, CHAT_PLAN.md §13) — in-game chat only', () => {
-    it('shows an unread badge for messages newer than the persisted read cursor', async () => {
+    it('reports an unread count for messages newer than the persisted read cursor via onUnreadCountChange', async () => {
       mockAuth.session = makeSession('alice')
       chatApi.listChatMessages.mockResolvedValue([makeMessage(1, 'bob', 'first'), makeMessage(2, 'bob', 'second'), makeMessage(3, 'bob', 'third')])
       chatApi.getChatReadStatus.mockResolvedValue({ id: 'r1', user_id: 'alice', game_id: 'game-1', last_read_id: 1, updated_at: new Date(0).toISOString() })
+      const onUnreadCountChange = vi.fn()
 
-      render(<ChatPanel gameId="game-1" />)
+      render(<ChatPanel gameId="game-1" onUnreadCountChange={onUnreadCountChange} />)
 
-      expect(await screen.findByLabelText('2 unread messages')).toHaveTextContent('2')
+      await waitFor(() => expect(onUnreadCountChange).toHaveBeenCalledWith(2))
     })
 
-    it('caps the badge at "9+"', async () => {
+    it('reports the true count (uncapped) via onUnreadCountChange — capping at "9+" is the caller\'s own badge formatting', async () => {
       mockAuth.session = makeSession('alice')
       chatApi.listChatMessages.mockResolvedValue(Array.from({ length: 12 }, (_, i) => makeMessage(i + 1, 'bob', `msg ${i + 1}`)))
       chatApi.getChatReadStatus.mockResolvedValue({ id: 'r1', user_id: 'alice', game_id: 'game-1', last_read_id: 0, updated_at: new Date(0).toISOString() })
+      const onUnreadCountChange = vi.fn()
 
-      render(<ChatPanel gameId="game-1" />)
+      render(<ChatPanel gameId="game-1" onUnreadCountChange={onUnreadCountChange} />)
 
-      expect(await screen.findByLabelText('12 unread messages')).toHaveTextContent('9+')
+      await waitFor(() => expect(onUnreadCountChange).toHaveBeenCalledWith(12))
     })
 
     it('seeds the read cursor at the latest existing message on first-ever open, instead of marking the whole history unread', async () => {
       mockAuth.session = makeSession('alice')
       chatApi.listChatMessages.mockResolvedValue([makeMessage(1, 'bob', 'old'), makeMessage(2, 'bob', 'older still')])
       chatApi.getChatReadStatus.mockResolvedValue(null)
+      const onUnreadCountChange = vi.fn()
 
-      render(<ChatPanel gameId="game-1" />)
+      render(<ChatPanel gameId="game-1" onUnreadCountChange={onUnreadCountChange} />)
 
       await waitFor(() => expect(chatApi.markChatRead).toHaveBeenCalledWith('game-1', 'alice', 2))
-      expect(screen.queryByLabelText(/unread message/)).not.toBeInTheDocument()
+      expect(onUnreadCountChange).toHaveBeenLastCalledWith(0)
     })
 
     it('advances and debounces a write of the read cursor while open and visible', async () => {
@@ -312,22 +296,23 @@ describe('ChatPanel', () => {
       mockAuth.session = makeSession('alice')
       chatApi.listChatMessages.mockResolvedValue([makeMessage(1, 'bob', 'hi')])
       chatApi.getChatReadStatus.mockResolvedValue({ id: 'r1', user_id: 'alice', game_id: 'game-1', last_read_id: 0, updated_at: new Date(0).toISOString() })
+      const onUnreadCountChange = vi.fn()
 
-      render(<ChatPanel gameId="game-1" />)
-      await waitFor(() => expect(screen.getByLabelText('1 unread message')).toBeInTheDocument())
+      render(<ChatPanel gameId="game-1" onUnreadCountChange={onUnreadCountChange} />)
+      await waitFor(() => expect(onUnreadCountChange).toHaveBeenCalledWith(1))
 
       expect(chatApi.markChatRead).not.toHaveBeenCalled()
       await vi.advanceTimersByTimeAsync(3000)
       expect(chatApi.markChatRead).toHaveBeenCalledWith('game-1', 'alice', 1)
     })
 
-    it('does not advance the read cursor while collapsed', async () => {
+    it('does not advance the read cursor while closed (open=false)', async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true })
       mockAuth.session = makeSession('alice')
       chatApi.listChatMessages.mockResolvedValue([makeMessage(1, 'bob', 'hi')])
       chatApi.getChatReadStatus.mockResolvedValue({ id: 'r1', user_id: 'alice', game_id: 'game-1', last_read_id: 0, updated_at: new Date(0).toISOString() })
 
-      render(<ChatPanel gameId="game-1" compact />)
+      render(<ChatPanel gameId="game-1" open={false} />)
       await waitFor(() => expect(chatApi.getChatReadStatus).toHaveBeenCalled())
 
       await vi.advanceTimersByTimeAsync(5000)
@@ -358,14 +343,15 @@ describe('ChatPanel', () => {
         onInsert = cb
         return () => {}
       })
+      const onUnreadCountChange = vi.fn()
 
-      render(<ChatPanel gameId="game-1" />)
+      render(<ChatPanel gameId="game-1" onUnreadCountChange={onUnreadCountChange} />)
       await waitFor(() => expect(chatApi.subscribeToChatMessages).toHaveBeenCalled())
 
       onInsert?.(makeMessage(1, 'alice', 'my own message'))
 
       await screen.findByText('my own message')
-      expect(screen.queryByLabelText(/unread message/)).not.toBeInTheDocument()
+      expect(onUnreadCountChange).toHaveBeenLastCalledWith(0)
       expect(screen.queryByRole('separator')).not.toBeInTheDocument()
     })
 
@@ -378,11 +364,12 @@ describe('ChatPanel', () => {
         onInsert = cb
         return () => {}
       })
+      const onUnreadCountChange = vi.fn()
 
-      render(<ChatPanel gameId="game-1" />)
+      render(<ChatPanel gameId="game-1" onUnreadCountChange={onUnreadCountChange} />)
       await waitFor(() => expect(chatApi.subscribeToChatMessages).toHaveBeenCalled())
       // No backlog — the panel opened fully caught up.
-      expect(screen.queryByLabelText(/unread message/)).not.toBeInTheDocument()
+      expect(onUnreadCountChange).toHaveBeenLastCalledWith(0)
       expect(screen.queryByRole('separator')).not.toBeInTheDocument()
 
       onInsert?.(makeMessage(2, 'bob', 'arrived while open'))
@@ -391,13 +378,13 @@ describe('ChatPanel', () => {
       // `waitFor`, not a bare assertion: appending the message and advancing
       // the read cursor past it are two separate commits. The message lands
       // first (this is the commit `findByText` above resolves on), and the
-      // cursor-advance effect clears the badge in the commit after — so
+      // cursor-advance effect clears the count in the commit after — so
       // asserting the instant the text appears was a coin flip on whether
       // that second commit had been flushed yet, and flaked at roughly 1 run
       // in 5. What matters is where the panel settles, not what one
       // intermediate render held.
       await waitFor(() => {
-        expect(screen.queryByLabelText(/unread message/)).not.toBeInTheDocument()
+        expect(onUnreadCountChange).toHaveBeenLastCalledWith(0)
         expect(screen.queryByRole('separator')).not.toBeInTheDocument()
       })
     })
@@ -406,14 +393,15 @@ describe('ChatPanel', () => {
       vi.useFakeTimers({ shouldAdvanceTime: true })
       mockAuth.session = makeSession('alice')
       chatApi.listChatMessages.mockResolvedValue([makeMessage(1, 'bob', 'first'), makeMessage(2, 'bob', 'second')])
+      const onUnreadCountChange = vi.fn()
 
-      render(<ChatPanel gameId={null} />)
+      render(<ChatPanel gameId={null} onUnreadCountChange={onUnreadCountChange} />)
       await screen.findByText('second')
 
       await vi.advanceTimersByTimeAsync(5000)
       expect(chatApi.getChatReadStatus).not.toHaveBeenCalled()
       expect(chatApi.markChatRead).not.toHaveBeenCalled()
-      expect(screen.queryByLabelText(/unread message/)).not.toBeInTheDocument()
+      expect(onUnreadCountChange).toHaveBeenLastCalledWith(0)
       expect(screen.queryByRole('separator')).not.toBeInTheDocument()
     })
   })
