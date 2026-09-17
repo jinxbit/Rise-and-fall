@@ -160,7 +160,12 @@ function mapBuildStyleLabel(settings: GameSettings): string {
   if (settings.mapTemplateId) {
     return listMapTemplates().find((t) => t.id === settings.mapTemplateId)?.name ?? settings.mapTemplateId
   }
-  if (settings.mapPoolBoard) return 'Random saved map'
+  // mapPoolMapId (set alongside mapPoolBoard everywhere it's written) rather
+  // than mapPoolBoard itself, since listing queries null mapPoolBoard out
+  // DB-side to avoid re-downloading its embedded Board (issue #620,
+  // gameApi.ts's GAME_LIST_COLUMNS) — mapPoolMapId is "for display only"
+  // already (dbTypes.ts's GameSettings comment), which is exactly this case.
+  if (settings.mapPoolMapId) return 'Random saved map'
   if (settings.mapPoolRandomAtStart) return 'Random saved map (picked at start)'
   if (settings.soloBuildMap) {
     return `Interactive (built alone by ${settings.soloBuilderSelection === 'random' ? 'a random player' : 'the host'})`

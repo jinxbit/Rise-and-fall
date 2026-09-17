@@ -358,20 +358,21 @@ async function fetchGameStateSummaries(
  * #444/#446): every one of these list views renders its games through
  * GameOverviewCard's `buildGameCardSummary` (gameCardView.ts), which reads
  * `settings.activeTaleIds` unconditionally and the map-mode fields
- * (`mapTemplateId`/`mapPoolBoard`/etc, via `mapBuildStyleLabel`) pre-game —
+ * (`mapTemplateId`/`mapPoolMapId`/etc, via `mapBuildStyleLabel`) pre-game —
  * dropping `settings` from the query crashed every listing screen with
  * `undefined is not an object (evaluating 'e.settings.activeTaleIds')`.
  * `settings.mapPoolBoard` does embed a full `Board` (one Tile per hex — see
- * GameSettings' doc comment in dbTypes.ts), tens of KB per map-pool game, so
- * this does re-download it on every list refresh; trimming that back down
- * requires a narrower fetch (e.g. a DB-side projection that excludes just
- * `mapPoolBoard`) that still leaves every field these cards actually read
- * intact, not blanket-dropping the column. Single-room reads
- * (getGameByRoomCode et al.) still need the full row and keep using plain
- * `select()`.
+ * GameSettings' doc comment in dbTypes.ts), tens of KB per map-pool game,
+ * that no listing card actually reads (issue #620) — the `games_settings_for_listing`
+ * computed column (`0033_games_settings_for_listing.sql`) nulls it out
+ * DB-side so it's never sent for these queries, while every other field
+ * these cards do read (including `mapPoolMapId`, the same board's id, used
+ * as `mapBuildStyleLabel`'s truthiness check instead) stays intact.
+ * Single-room reads (getGameByRoomCode et al.) still need the real
+ * `mapPoolBoard` and keep using plain `select()`.
  */
 const GAME_LIST_COLUMNS =
-  'id, room_code, name, play_mode, status, min_players, max_players, created_by, created_at, updated_at, config_version, visibility, settings'
+  'id, room_code, name, play_mode, status, min_players, max_players, created_by, created_at, updated_at, config_version, visibility, settings:games_settings_for_listing'
 
 /**
  * Every game the given user is seated in — for the "My games" screen
