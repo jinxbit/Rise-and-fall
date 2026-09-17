@@ -1566,17 +1566,23 @@ export function GamePage() {
       }}
     >
       {/*
-        Four columns (issue #629 follow-up: the first pass at this stacked
-        them as 4 rows instead — corrected here to sit side by side in a
-        single row on a wide enough screen, wrapping onto their own lines
-        below that): 1.1 hamburger/name/next-game, 1.2 chat/player names,
-        1.3 round/bank, 1.4 undo/redo/review history. PhaseBanner/BankResources
+        Four columns (issue #629 follow-ups: the first pass at this stacked
+        them as 4 rows instead — corrected to sit side by side in a single
+        row on a wide enough screen, wrapping onto their own lines below
+        that. `items-center` (not `items-start`) so the round/bank column —
+        just a couple of text lines, shorter than its siblings' buttons —
+        sits vertically centered against the row instead of pinned to the
+        top and looking like it floats slightly above it. The last column
+        carries `ml-auto` to push it flush right whenever it shares a line
+        with the others, and left-aligned on its own line once it wraps):
+        1.1 hamburger/name/next-game, 1.2 chat/player names, 1.3 round/bank,
+        1.4 undo/redo/review history (right-aligned). PhaseBanner/BankResources
         used to render inside RoundView itself, only while a round was active
         — they're exported from there (RoundView.tsx) so this header can show
         them whenever there's any state to read a turn/bank from (board setup
         and review included), not just mid-round.
       */}
-      <header className="flex flex-row flex-wrap items-start gap-x-6 gap-y-3">
+      <header className="flex flex-row flex-wrap items-center gap-x-6 gap-y-3">
         <div className="flex flex-wrap items-center gap-3">
           <div ref={menuRef} className="relative">
             <button
@@ -1854,7 +1860,7 @@ export function GamePage() {
             <BankResources state={displayState} />
           </div>
         )}
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="ml-auto flex flex-wrap items-center gap-2">
           <button
             type="button"
             disabled={undoing || isReviewingHistory || !gameState || !historyPointer.canUndo || undoBlockedByRevealLock}
