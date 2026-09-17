@@ -1580,17 +1580,37 @@ export function GamePage() {
         whenever there's any state to read a turn/bank from (board setup and
         review included), not just mid-round.
 
-        1.3 and 1.4 share a `@container` wrapper (issue #640) rather than
-        being independent columns of this outer row, because "which one
-        wraps above the other" needs to invert depending on direction: on a
-        wide-enough container undo/redo/review sits flush right of round/bank
-        (as it did before #640, via that wrapper's `@xl:flex-row-reverse`),
-        but once the two don't fit together, undo/redo/review must move
-        *above* round/bank, left-aligned — see the comment on that wrapper
-        below for how row-reverse plus DOM order gets both out of one set of
-        classes without a JS breakpoint check.
+        issue #640's first two attempts left this row's own wrap to the
+        browser's native `flex-wrap` line-packing, which breaks by leftover
+        space per line rather than by these four logical groups: on a narrow
+        (phone-width) screen, 1.3+1.4's wrapper is only as wide as its own
+        stacked buttons (~130px), which is often *narrower* than whatever
+        sliver 1.2 (chat/players) left on its line — so the browser packed it
+        onto that line instead of wrapping it below, floating undo/redo/review
+        to the right of the player-name row instead of onto their own
+        full-width row (reported against production after both prior fixes:
+        neither `flex-1`→`flex-auto` nor the `@container` split on 1.3+1.4
+        touches *this* decision, since both only affect what happens once the
+        wrapper is already alone on a line). Fixed by taking that decision out
+        of native wrapping: an inner `@container`-queried wrapper around all
+        three groups switches the *whole header* between a plain column stack
+        (each group full-width, in DOM order, so 1.3+1.4 always lands on its
+        own row below 1.1 and 1.2) below `@2xl`, and the previous row+wrap
+        behavior at `@2xl` and up. That removes the leftover-space case
+        entirely instead of tuning around it a second time.
+
+        1.3 and 1.4 still share their own nested `@container` wrapper (issue
+        #640) independent of the switch above, because "which one wraps above
+        the other" needs to invert depending on direction: on a wide-enough
+        container undo/redo/review sits flush right of round/bank (as it did
+        before #640, via that wrapper's `@xl:flex-row-reverse`), but once the
+        two don't fit together, undo/redo/review must move *above* round/bank,
+        left-aligned — see the comment on that wrapper below for how
+        row-reverse plus DOM order gets both out of one set of classes
+        without a JS breakpoint check.
       */}
-      <header className="flex flex-row flex-wrap items-center gap-x-6 gap-y-3">
+      <header className="@container">
+      <div className="flex flex-col items-start gap-3 @2xl:flex-row @2xl:flex-wrap @2xl:items-center @2xl:gap-x-6 @2xl:gap-y-3">
         <div className="flex flex-wrap items-center gap-3">
           <div ref={menuRef} className="relative">
             <button
@@ -1878,18 +1898,14 @@ export function GamePage() {
 
           This wrapper claims that width with `flex-auto` (`flex: 1 1 auto`),
           not `flex-1` (`flex: 1 1 0%`) — issue #640's first landing used
-          `flex-1` and it looked broken in production: a `flex-basis: 0%`
-          item's *hypothetical* size for the outer header's line-wrapping
-          decision is ~0 regardless of content, so the header judged this
-          wrapper as needing almost no room and kept packing it onto
-          whatever line 1.2 (chat/players) landed on — even a sliver of
-          leftover width next to 1.2 counted as "fits" — instead of wrapping
-          it below onto its own full-width line. `flex-auto`'s `auto` basis
-          makes that hypothetical size the wrapper's actual (unwrapped)
-          content width, so the header now only keeps it beside 1.1/1.2 when
-          there is genuinely enough room for all of it, and otherwise wraps
-          it onto its own line, which is what then lets the `@xl` check above
-          see this wrapper's true allotted width. `flex-grow: 1` (shared by
+          `flex-1`, which gives the header's own line-wrapping a ~0
+          hypothetical size to work with regardless of this wrapper's actual
+          content, wrong in the same direction as the leftover-space bug the
+          outer `@2xl` switch (above, on the header) now forecloses below
+          that breakpoint. Above `@2xl`, where this wrapper can still share a
+          native-wrap line with 1.1/1.2 the way it always could, `flex-auto`
+          is what makes that residual wrap decision key off this wrapper's
+          real content width instead of nothing. `flex-grow: 1` (shared by
           both) still lets it fill the remaining line width either way.
         */}
         <div className="flex flex-auto @container">
@@ -1948,6 +1964,7 @@ export function GamePage() {
             )}
           </div>
         </div>
+      </div>
       </header>
 
       <ChatPanel gameId={game.id} players={players} canPost={!!ownSeat} open={chatOpen} onUnreadCountChange={setChatUnreadCount} />
