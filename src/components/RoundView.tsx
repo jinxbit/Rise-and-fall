@@ -151,12 +151,13 @@ type ActionUiMode =
   | { kind: 'targeting'; unitId: string; actionId: string; cheat?: boolean }
   | { kind: 'supporting'; unitId: string; actionId: string; target?: Coordinate; selectedSupportUnitIds: string[] }
 
-function PhaseBanner({ state }: { state: GameState }) {
+/** Exported for GamePage's header (issue #629's "Round + Bank" row) — RoundView itself no longer renders this, since the header now shows it whenever any state is loaded, not just while a round is active. */
+export function PhaseBanner({ state }: { state: GameState }) {
   return <p className="text-sm text-neutral-400">Round {state.turn}</p>
 }
 
-/** How much of each resource is left in the shared bank for players to draw from — see GameState.resourceBank. */
-function BankResources({ state }: { state: GameState }) {
+/** How much of each resource is left in the shared bank for players to draw from — see GameState.resourceBank. Exported for GamePage's header, see PhaseBanner's comment above. */
+export function BankResources({ state }: { state: GameState }) {
   return (
     <p className="flex items-center gap-2 text-sm text-neutral-400" title="Resources remaining in the shared bank">
       Bank:
@@ -1792,10 +1793,6 @@ export function RoundView(props: {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center gap-4">
-        <PhaseBanner state={state} />
-        <BankResources state={state} />
-      </div>
       {/* Turn status panels ("Waiting for X…") re-render as other players act in real time; their
           height changes shift everything below them. Hidden while reviewing history so that view
           stays still instead of jumping around underneath the player. */}
