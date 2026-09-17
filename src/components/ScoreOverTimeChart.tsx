@@ -18,9 +18,13 @@ const MARKER_OFFSET = 4
  * the same identity color already used everywhere else on this screen —
  * not a separately-invented chart palette), a legend since there's always
  * more than one series, and a `<title>` per point for a native hover
- * tooltip with the exact value. The Y axis ceiling is always derived from
- * the highest total actually reached in the game (via niceMax), so it never
- * wastes space scaling to some larger fixed maximum.
+ * tooltip with the exact value. The Y axis ceiling defaults to the highest
+ * total actually reached in the game (via niceMax), so it never wastes space
+ * scaling to some larger fixed maximum — but a caller plotting more than one
+ * "over time" chart side by side (EndGameView.tsx, alongside
+ * GoldOverTimeChart/TerrainScoreOverTimeChart) can pass `maxValue` to force
+ * a shared ceiling across all of them, so their scales are directly
+ * comparable (issue #618).
  */
 export function ScoreOverTimeChart({
   history,
@@ -28,6 +32,7 @@ export function ScoreOverTimeChart({
   playerIds,
   achievementClaims = [],
   achievementName,
+  maxValue,
 }: {
   history: ScoreSnapshot[]
   players: PlayerRow[]
@@ -36,10 +41,12 @@ export function ScoreOverTimeChart({
   achievementClaims?: AchievementClaimEvent[]
   /** Resolves an achievementId to its display name for the marker's hover tooltip — required whenever `achievementClaims` is non-empty. */
   achievementName?: (achievementId: string) => string
+  /** Overrides the Y axis ceiling (see doc comment above) — omit to derive it from this chart's own series. */
+  maxValue?: number
 }) {
   if (history.length < 2) return null
 
-  const maxTotal = niceMax(Math.max(1, ...history.flatMap((snapshot) => playerIds.map((id) => snapshot.totalByPlayerId[id] ?? 0))))
+  const maxTotal = maxValue ?? niceMax(Math.max(1, ...history.flatMap((snapshot) => playerIds.map((id) => snapshot.totalByPlayerId[id] ?? 0))))
   const xFor = (index: number) => MARGIN.left + (history.length === 1 ? PLOT_WIDTH / 2 : (index / (history.length - 1)) * PLOT_WIDTH)
   const yFor = (value: number) => MARGIN.top + PLOT_HEIGHT - (value / maxTotal) * PLOT_HEIGHT
   const xForTurn = (turn: number) => {

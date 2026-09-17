@@ -10,6 +10,7 @@ import { calculateVPBreakdown, calculateVPDetail } from '../engine/victoryPoints
 import type { VPDetail } from '../engine/victoryPoints'
 import type { GameState, Player } from '../engine/types'
 import type { PlayerRow } from '../lib/dbTypes'
+import { niceMax } from './chartScale'
 import { GoldOverTimeChart } from './GoldOverTimeChart'
 import { HexBoard } from './HexBoard'
 import type { UnitMarker } from './HexBoard'
@@ -280,6 +281,22 @@ export function EndGameView({
   const categories = scoredCategories(breakdownByPlayerId, activeIds)
   const breakdownGroups = breakdownGroupsFor(detailByPlayerId, activeIds)
 
+  // Shared y-axis ceiling for the three "over time" line charts below (issue
+  // #618): computed once, across all three metrics, so scale is directly
+  // comparable chart-to-chart rather than each chart picking its own
+  // tightest-fitting ceiling.
+  const overTimeMax =
+    scoreHistory && scoreHistory.length > 1
+      ? niceMax(
+          Math.max(
+            1,
+            ...scoreHistory.flatMap((snapshot) =>
+              rankedIds.flatMap((id) => [snapshot.totalByPlayerId[id] ?? 0, snapshot.goldByPlayerId[id] ?? 0, snapshot.terrainVPByPlayerId[id] ?? 0]),
+            ),
+          ),
+        )
+      : undefined
+
   async function handleCopyBggExport() {
     const playedOn = (state.actionHistory.at(-1)?.timestamp ?? new Date().toISOString()).slice(0, 10)
     const summary = boardGameGeekPlaySummary(ranked, players, ranks, (id) => detailByPlayerId[id]?.total ?? 0, winnerIds, playedOn)
@@ -356,6 +373,11 @@ export function EndGameView({
         </ol>
       </div>
 
+      <div>
+        <p className="mb-2 text-sm font-medium text-neutral-200">Final board</p>
+        <HexBoard board={state.board} units={boardUnits} territoryControl={territoryControl} />
+      </div>
+
       {categories.length > 0 && (
         <div className="flex flex-col gap-3" data-testid="score-categories">
           <p className="text-sm font-medium text-neutral-200">Score categories</p>
@@ -420,12 +442,19 @@ export function EndGameView({
       )}
 
       {scoreHistory && scoreHistory.length > 1 && (
-        <ScoreOverTimeChart history={scoreHistory} players={players} playerIds={rankedIds} achievementClaims={achievementClaims ?? []} achievementName={achievementName} />
+        <ScoreOverTimeChart
+          history={scoreHistory}
+          players={players}
+          playerIds={rankedIds}
+          achievementClaims={achievementClaims ?? []}
+          achievementName={achievementName}
+          maxValue={overTimeMax}
+        />
       )}
 
-      {scoreHistory && scoreHistory.length > 1 && <GoldOverTimeChart history={scoreHistory} players={players} playerIds={rankedIds} />}
+      {scoreHistory && scoreHistory.length > 1 && <GoldOverTimeChart history={scoreHistory} players={players} playerIds={rankedIds} maxValue={overTimeMax} />}
 
-      {scoreHistory && scoreHistory.length > 1 && <TerrainScoreOverTimeChart history={scoreHistory} players={players} playerIds={rankedIds} />}
+      {scoreHistory && scoreHistory.length > 1 && <TerrainScoreOverTimeChart history={scoreHistory} players={players} playerIds={rankedIds} maxValue={overTimeMax} />}
 
       {unitValueDetail && (
         <div className="flex flex-col gap-3" data-testid="unit-value">
@@ -611,11 +640,6 @@ export function EndGameView({
             </tbody>
           </table>
         </div>
-      </div>
-
-      <div>
-        <p className="mb-2 text-sm font-medium text-neutral-200">Final board</p>
-        <HexBoard board={state.board} units={boardUnits} territoryControl={territoryControl} />
       </div>
     </div>
   )

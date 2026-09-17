@@ -5555,3 +5555,30 @@ instead. `EndGameView.tsx` renders it right after the gold chart, gated on
 the same `scoreHistory.length > 1` condition, off the same `scoreHistory`
 prop — no new prop or data plumbing needed in `GamePage.tsx`.
 `npm run lint`, `npm run test`, and `npm run build` all pass.
+
+## 118. Victory screen: final map placement and shared line-chart scale (issue #618)
+
+Two small layout/readability fixes to the end-of-game screen, both
+requested together in issue #618.
+
+`EndGameView.tsx`'s "Final board" (the hex map with final territory
+control) used to render last, after the score breakdown table. Moved it up
+to right after "Final score" and before "Score categories" — the map is
+now the first thing a player sees after the ranked result, rather than
+something they have to scroll past every other table and chart to reach.
+
+The three "over time" line charts (`ScoreOverTimeChart.tsx`,
+`GoldOverTimeChart.tsx` from #115, `TerrainScoreOverTimeChart.tsx` from
+#117) each picked their own Y axis ceiling via `niceMax` on their own
+series, so a player's line could look "tall" on one chart and "short" on
+another purely from the three metrics' different natural ranges, not from
+anything about how the game actually played out. All three now accept an
+optional `maxValue` prop that overrides their own `niceMax` derivation when
+given; `EndGameView.tsx` computes one ceiling — `niceMax` over every
+player's total score, gold, and terrain VP across every snapshot — and
+passes it to all three, so a viewer comparing the three charts side by
+side is comparing the same scale, not three independently-fitted ones.
+`maxValue` is optional and each chart still falls back to deriving its own
+ceiling when omitted, so nothing else calling these components (tests
+included) needed to change.
+`npm run lint`, `npm run test`, and `npm run build` all pass.

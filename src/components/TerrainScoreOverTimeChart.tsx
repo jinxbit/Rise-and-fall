@@ -19,12 +19,27 @@ const PLOT_HEIGHT = HEIGHT - MARGIN.top - MARGIN.bottom
  * existing seat color, a legend, a `<title>` per point for a hover tooltip),
  * kept as its own component rather than a generalized one, matching this
  * codebase's existing convention of one component per chart (see
- * GoldOverTimeChart.tsx's own doc comment for why).
+ * GoldOverTimeChart.tsx's own doc comment for why). The Y axis ceiling
+ * defaults to this chart's own highest value (niceMax), but a caller
+ * plotting it alongside the other "over time" charts (EndGameView.tsx) can
+ * pass `maxValue` to force a shared ceiling across all of them, so their
+ * scales are directly comparable (issue #618).
  */
-export function TerrainScoreOverTimeChart({ history, players, playerIds }: { history: ScoreSnapshot[]; players: PlayerRow[]; playerIds: string[] }) {
+export function TerrainScoreOverTimeChart({
+  history,
+  players,
+  playerIds,
+  maxValue,
+}: {
+  history: ScoreSnapshot[]
+  players: PlayerRow[]
+  playerIds: string[]
+  /** Overrides the Y axis ceiling (see doc comment above) — omit to derive it from this chart's own series. */
+  maxValue?: number
+}) {
   if (history.length < 2) return null
 
-  const maxTerrainVP = niceMax(Math.max(1, ...history.flatMap((snapshot) => playerIds.map((id) => snapshot.terrainVPByPlayerId[id] ?? 0))))
+  const maxTerrainVP = maxValue ?? niceMax(Math.max(1, ...history.flatMap((snapshot) => playerIds.map((id) => snapshot.terrainVPByPlayerId[id] ?? 0))))
   const xFor = (index: number) => MARGIN.left + (history.length === 1 ? PLOT_WIDTH / 2 : (index / (history.length - 1)) * PLOT_WIDTH)
   const yFor = (value: number) => MARGIN.top + PLOT_HEIGHT - (value / maxTerrainVP) * PLOT_HEIGHT
 
