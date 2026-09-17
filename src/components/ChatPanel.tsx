@@ -3,14 +3,17 @@
 // chat only), its position/size (issue #580, §14), name coloring (issue
 // #581, §15), its typewriter look + older-history paging (issue #587,
 // §16), the content text size increase (issue #593, §17), per-message
-// timestamps/date separators/bold names (issue #594, §18), and the removal
+// timestamps/date separators/bold names (issue #594, §18), the removal
 // of the panel's own heading/badge (issue #631, §14 — that chrome was
 // redundant with GamePage's own external toggle button and unnecessary
-// for site-wide chat). One shared component for both surfaces: site-wide
-// (`gameId: null`, wired into HomePage.tsx, permanently expanded) and
-// in-game (a real `gameId`, wired into GamePage.tsx, `canPost` plus a
-// controlled `open` + `onUnreadCountChange` so GamePage's own header
-// button drives visibility).
+// for site-wide chat), and extending the same in-game surface to the
+// pre-start lobby screen (issue #650, §11.10). One shared component for
+// both surfaces: site-wide (`gameId: null`, wired into HomePage.tsx,
+// permanently expanded) and in-game (a real `gameId`, wired into both
+// LobbyPage.tsx and GamePage.tsx — the same `gameId` and message history
+// carry over from one to the other since a room's chat starts before its
+// game does — `canPost` plus a controlled `open` + `onUnreadCountChange`
+// so each page's own header button drives visibility).
 
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type UIEvent } from 'react'
 import { useAuth } from '../hooks/useAuth'

@@ -3,11 +3,13 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useDisplayName } from '../hooks/useDisplayName'
 import { useIsAdmin } from '../hooks/useIsAdmin'
+import { ChatPanel } from '../components/ChatPanel'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { GameLengthSelector } from '../components/GameLengthSelector'
 import { MapModeSelector, type MapMode, type MapPoolChoice } from '../components/MapModeSelector'
 import { TaleSelector } from '../components/TaleSelector'
 import { listMapTemplates, listTales } from '../content/resolveContent'
+import { formatUnreadBadge, isChatEnabled } from '../lib/chatApi'
 import { setPendingRedirect } from '../lib/pendingRedirect'
 import {
   addLocalPlayer,
@@ -42,6 +44,29 @@ export function LobbyPage() {
   const [busy, setBusy] = useState(false)
   const [newPlayerName, setNewPlayerName] = useState('')
   const [linkCopied, setLinkCopied] = useState(false)
+
+  // Same in-game chat (CHAT_PLAN.md), the same gameId, shown a screen
+  // earlier (issue #650) — a room's chat starts the moment the room exists
+  // rather than only once the game leaves the lobby, and keeps its history
+  // once GamePage takes over after Start Game. Mirrors GamePage.tsx's own
+  // chatOpen/chatUnreadCount/chatEnabled trio and header toggle button
+  // exactly, so the badge/kill-switch behavior is identical on both screens.
+  const [chatOpen, setChatOpen] = useState(false)
+  const [chatUnreadCount, setChatUnreadCount] = useState(0)
+  const [chatEnabled, setChatEnabled] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    isChatEnabled()
+      .then((value) => {
+        if (!cancelled) setChatEnabled(value)
+      })
+      .catch(() => {
+        if (!cancelled) setChatEnabled(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const [configOpen, setConfigOpen] = useState(false)
   const [draftSettings, setDraftSettings] = useState<GameSettings | null>(null)
@@ -380,13 +405,36 @@ export function LobbyPage() {
             <Link to="/" className="text-sm underline hover:text-neutral-200">
               Home
             </Link>
-            <button
-              type="button"
-              onClick={() => void handleCopyRoomLink()}
-              className="rounded-md border border-neutral-700 px-3 py-2 text-sm font-medium text-neutral-300 hover:border-indigo-400 hover:text-indigo-300"
-            >
-              {linkCopied ? 'Link copied!' : 'Copy room link'}
-            </button>
+            <div className="flex items-center gap-2">
+              {chatEnabled && (
+                <button
+                  type="button"
+                  onClick={() => setChatOpen((v) => !v)}
+                  aria-expanded={chatOpen}
+                  title={chatOpen ? 'Hide chat' : 'Show chat'}
+                  className="relative rounded-md border border-neutral-700 p-2 hover:border-neutral-500"
+                >
+                  <svg viewBox="0 0 20 20" className="h-5 w-5 fill-current" aria-hidden="true">
+                    <path d="M3 4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h1.5v3.25a.75.75 0 0 0 1.28.53L9.31 14H17a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H3Z" />
+                  </svg>
+                  {chatUnreadCount > 0 && (
+                    <span
+                      className="absolute -right-1 -top-1 rounded-full bg-sky-600 px-1.5 py-0.5 text-xs font-semibold leading-none text-white"
+                      aria-label={`${chatUnreadCount} unread message${chatUnreadCount === 1 ? '' : 's'}`}
+                    >
+                      {formatUnreadBadge(chatUnreadCount)}
+                    </span>
+                  )}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => void handleCopyRoomLink()}
+                className="rounded-md border border-neutral-700 px-3 py-2 text-sm font-medium text-neutral-300 hover:border-indigo-400 hover:text-indigo-300"
+              >
+                {linkCopied ? 'Link copied!' : 'Copy room link'}
+              </button>
+            </div>
           </div>
         </div>
         <div className="flex flex-col gap-1">
@@ -434,6 +482,8 @@ export function LobbyPage() {
           )}
         </div>
       </header>
+
+      <ChatPanel gameId={game.id} players={players} canPost={isSeated} open={chatOpen} onUnreadCountChange={setChatUnreadCount} />
 
       {error && <ErrorBanner message={error.message} details={error.details} onDismiss={() => setError(null)} />}
 
