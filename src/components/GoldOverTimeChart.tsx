@@ -19,12 +19,27 @@ const PLOT_HEIGHT = HEIGHT - MARGIN.top - MARGIN.bottom
  * seat color, a legend, a `<title>` per point for a hover tooltip), kept as
  * its own component rather than a generalized one since this codebase
  * consistently favors a dedicated component per chart over a shared
- * abstraction (see ScoreCategoryChart.tsx vs SpendingChart.tsx).
+ * abstraction (see ScoreCategoryChart.tsx vs SpendingChart.tsx). The Y axis
+ * ceiling defaults to this chart's own highest value (niceMax), but a caller
+ * plotting it alongside the other "over time" charts (EndGameView.tsx) can
+ * pass `maxValue` to force a shared ceiling across all of them, so their
+ * scales are directly comparable (issue #618).
  */
-export function GoldOverTimeChart({ history, players, playerIds }: { history: ScoreSnapshot[]; players: PlayerRow[]; playerIds: string[] }) {
+export function GoldOverTimeChart({
+  history,
+  players,
+  playerIds,
+  maxValue,
+}: {
+  history: ScoreSnapshot[]
+  players: PlayerRow[]
+  playerIds: string[]
+  /** Overrides the Y axis ceiling (see doc comment above) — omit to derive it from this chart's own series. */
+  maxValue?: number
+}) {
   if (history.length < 2) return null
 
-  const maxGold = niceMax(Math.max(1, ...history.flatMap((snapshot) => playerIds.map((id) => snapshot.goldByPlayerId[id] ?? 0))))
+  const maxGold = maxValue ?? niceMax(Math.max(1, ...history.flatMap((snapshot) => playerIds.map((id) => snapshot.goldByPlayerId[id] ?? 0))))
   const xFor = (index: number) => MARGIN.left + (history.length === 1 ? PLOT_WIDTH / 2 : (index / (history.length - 1)) * PLOT_WIDTH)
   const yFor = (value: number) => MARGIN.top + PLOT_HEIGHT - (value / maxGold) * PLOT_HEIGHT
 
