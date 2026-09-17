@@ -222,6 +222,7 @@ describe('undo-action leaves the Redo button usable for a viewer whose actionHis
     // (GamePage.tsx's historyPointer.canRedo).
     const bobRead = await stack.getGameState(BOB, GAME_ID)
     if (!bobRead.ok) throw new Error(bobRead.error)
+    if ('actionHistoryAppend' in bobRead) throw new Error('expected a full response — no sinceActionIndex was sent')
     const bobClient = toClientGameState(bobRead.state)
     expect(resolveHistory(bobClient.actionHistory).canRedo).toBe(true)
   })

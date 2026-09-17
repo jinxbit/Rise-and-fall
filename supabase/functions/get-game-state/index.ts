@@ -47,12 +47,57 @@
 // caller that does hit both branches, rather than making them sniff which
 // shape came back.
 //
-// Request body: `{ gameId: string }` — a read, so no action payload.
-import { redactStateForPlayer, revealedGameStateView } from '../../../src/engine/redaction.ts'
+// Request body: `{ gameId: string, sinceActionIndex?: number }` — a read, so
+// no action payload; `sinceActionIndex` is the bandwidth optimization below.
+//
+// Incremental actionHistory (issue #647): `actionHistory` is 60-70% of a raw
+// GameState's bytes (see the issue for measurements), yet a client that
+// already has a prefix of it only ever needs the handful of entries logged
+// since its last fetch — every submitted action is exactly one new
+// `actionHistory` entry (CLAUDE.md invariant 4), and per `unredactedPrefix`'s
+// own doc comment (redaction.ts) the safe-to-show prefix a client ends up
+// with only ever grows, never rewrites in place. So a client that already
+// holds `N` entries can name that in `sinceActionIndex` and get back just the
+// entries after it, rather than the whole array again — `respondWithState`
+// below does this by reusing `unredactedPrefix` (unmodified, same function
+// `toClientGameState` runs client-side) to find the current safe-prefix
+// length and slicing from there.
+//
+// A `sinceActionIndex` that isn't within `[0, safePrefixLength]` (including
+// "not present at all") falls back to today's full response byte-for-byte —
+// this makes the feature strictly per-request: gameApi.ts's
+// getGameStateRedacted only sends it once it has a previous state to splice
+// onto, and any inconsistency (a stale cache, a different game, a client
+// bug) just costs one extra full response rather than a wrong splice.
+import { redactStateForPlayer, revealedGameStateView, unredactedPrefix, type RedactedGameState, type RedactedGameStateDelta } from '../../../src/engine/redaction.ts'
 import { canReadGameState, corsHeaders, getCallerUserId, jsonResponse, loadGameContext, serviceRoleClient } from '../_shared/gameEnforcement.ts'
 
 interface GetGameStateRequest {
   gameId: string
+  sinceActionIndex?: number
+}
+
+/**
+ * Builds this function's response for a given (already redacted-or-not)
+ * state view — see the module doc comment above for why `sinceActionIndex`
+ * only ever changes the response when it's a valid index into the current
+ * safe actionHistory prefix, and falls back to the full `view` otherwise.
+ */
+function respondWithState(view: RedactedGameState, version: number, sinceActionIndex: number | undefined) {
+  if (typeof sinceActionIndex === 'number' && Number.isInteger(sinceActionIndex) && sinceActionIndex >= 0) {
+    const safePrefixLength = unredactedPrefix(view.actionHistory).length
+    if (sinceActionIndex <= safePrefixLength) {
+      const { actionHistory, ...stateWithoutHistory } = view
+      const delta: RedactedGameStateDelta = {
+        state: stateWithoutHistory,
+        actionHistoryFrom: sinceActionIndex,
+        actionHistoryAppend: actionHistory.slice(sinceActionIndex, safePrefixLength),
+        actionHistoryLength: safePrefixLength,
+      }
+      return jsonResponse(200, { ok: true, ...delta, version })
+    }
+  }
+  return jsonResponse(200, { ok: true, state: view, version })
 }
 
 Deno.serve(async (req) => {
@@ -67,7 +112,7 @@ Deno.serve(async (req) => {
   } catch {
     return jsonResponse(400, { ok: false, error: 'Invalid JSON body.' })
   }
-  const { gameId } = body
+  const { gameId, sinceActionIndex } = body
   if (!gameId) return jsonResponse(400, { ok: false, error: 'Request body must be { gameId }.' })
 
   const supabase = serviceRoleClient()
@@ -94,10 +139,10 @@ Deno.serve(async (req) => {
   const shouldRedact = ctx.gameState.state.hiddenInformationEnabled && ctx.game.play_mode !== 'hotseat'
 
   if (ctx.isAdmin || !shouldRedact) {
-    return jsonResponse(200, { ok: true, state: revealedGameStateView(ctx.gameState.state), version: ctx.gameState.version })
+    return respondWithState(revealedGameStateView(ctx.gameState.state), ctx.gameState.version, sinceActionIndex)
   }
 
   const callerPlayerId = ctx.players.find((p) => p.user_id === callerUserId)?.id ?? null
   const state = redactStateForPlayer(ctx.gameState.state, callerPlayerId)
-  return jsonResponse(200, { ok: true, state, version: ctx.gameState.version })
+  return respondWithState(state, ctx.gameState.version, sinceActionIndex)
 })

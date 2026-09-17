@@ -101,9 +101,14 @@ function usesRedactedReads(game: GameRow): boolean {
   return game.settings.ruleEnforcementEnabled && game.settings.hiddenInformationEnabled
 }
 
-/** Picks getGameState vs getGameStateRedacted per usesRedactedReads above. */
-function fetchGameState(game: GameRow): Promise<GameStateSnapshot | null> {
-  return usesRedactedReads(game) ? getGameStateRedacted(game.id) : getGameState(game.id)
+/**
+ * Picks getGameState vs getGameStateRedacted per usesRedactedReads above.
+ * `previous`, when given, is forwarded to getGameStateRedacted as the state
+ * to splice its incremental actionHistory response onto (issue #647) —
+ * ignored for a non-redacted game, which has no equivalent parameter.
+ */
+function fetchGameState(game: GameRow, previous?: EngineGameState | null): Promise<GameStateSnapshot | null> {
+  return usesRedactedReads(game) ? getGameStateRedacted(game.id, previous) : getGameState(game.id)
 }
 
 /**
@@ -165,6 +170,17 @@ export function GamePage() {
    * state it already has.
    */
   const latestVersionRef = useRef<number | null>(null)
+  /**
+   * The last-applied `GameState` itself, mirroring `latestVersionRef` for the
+   * same reason: the game-id effect below subscribes once per room and
+   * closes over whatever `gameState` was at that render, so a ref is what
+   * lets its realtime callback always see the latest value. Handed to
+   * subscribeToGameState as `getAppliedState` (issue #647) so a redacted
+   * game's per-move refetch can ask the `get-game-state` Edge Function for
+   * just the actionHistory entries logged since this state, instead of the
+   * whole array again.
+   */
+  const latestGameStateRef = useRef<EngineGameState | null>(null)
 
   /**
    * Applies a freshly fetched state/version pair, discarding it if it's no
@@ -185,6 +201,7 @@ export function GamePage() {
   function applyGameStateSnapshot(snapshot: GameStateSnapshot) {
     if (latestVersionRef.current !== null && snapshot.version <= latestVersionRef.current) return
     latestVersionRef.current = snapshot.version
+    latestGameStateRef.current = snapshot.state
     setGameState(snapshot.state)
     setVersion(snapshot.version)
   }
@@ -437,7 +454,7 @@ export function GamePage() {
     void getGameByRoomCode(roomCode).then((fresh) => {
       if (fresh) setGame(fresh)
     })
-    void fetchGameState(game).then((snapshot) => {
+    void fetchGameState(game, latestGameStateRef.current).then((snapshot) => {
       if (snapshot) applyGameStateSnapshot(snapshot)
     })
     void listPlayers(game.id).then(setPlayers)
@@ -451,15 +468,18 @@ export function GamePage() {
     // A version number is only comparable within the same game's game_state
     // row — starting fresh here (rather than carrying over whatever the
     // previous game left behind) is what lets applyGameStateSnapshot's guard
-    // accept this game's very first, low-numbered snapshot.
+    // accept this game's very first, low-numbered snapshot. Same reasoning
+    // for latestGameStateRef: a previous room's actionHistory is not a valid
+    // prefix to splice this one's incremental fetches onto.
     latestVersionRef.current = null
+    latestGameStateRef.current = null
 
     void (async () => {
       const snapshot = await fetchGameState(game)
       if (!cancelled && snapshot) applyGameStateSnapshot(snapshot)
     })()
 
-    const unsubscribeGameState = subscribeToGameState(gameId, applyGameStateSnapshot, redacted, () => latestVersionRef.current)
+    const unsubscribeGameState = subscribeToGameState(gameId, applyGameStateSnapshot, redacted, () => latestVersionRef.current, () => latestGameStateRef.current)
     const unsubscribePlayers = subscribeToPlayers(gameId, () => {
       void listPlayers(gameId).then(setPlayers)
     })

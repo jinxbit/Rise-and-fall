@@ -690,6 +690,27 @@ to hidden information (6) are omitted here.
    `hiddenInformationEnabled ?? false` default is unchanged; only the UI's
    default moved from a checkbox to a hardcoded value. New games only, same
    as the original decision above.
+
+   **Update (2026-09-17, issue #647): `get-game-state` answers incrementally
+   instead of shipping the whole log on every move.** `actionHistory` is
+   60-70% of a raw `GameState`'s bytes, and every fetch through this
+   function — full-shaped or not — sent every entry, even though a client
+   that already holds a prefix of it only ever needs what's been logged
+   since. The request body gained an optional `sinceActionIndex`; when it's
+   a valid index into the *current* safe prefix (computed by reusing
+   `unredactedPrefix` server-side, unmodified — the same cut point
+   `toClientGameState` already lands on client-side), the response is
+   `{ state (actionHistory omitted), actionHistoryFrom, actionHistoryAppend,
+   actionHistoryLength, version }` instead of the full array; an omitted or
+   out-of-range index falls back to today's response byte-for-byte, so this
+   needed no coordinated rollout. `redaction.ts`'s new
+   `applyRedactedGameStateDelta` is the pure client-side splice-and-verify
+   `gameApi.ts`'s `getGameStateRedacted` calls to reconstruct the full
+   `RedactedGameState`, falling back to a plain full re-fetch on any
+   mismatch. See `todo.md` #126 for the full writeup, including why this is
+   sound for exactly the same two reasons phase 8 above already established
+   (append-only history, truncation-not-rewrite) rather than needing any new
+   reveal bookkeeping.
 9. **End-to-end verification against a real Supabase project — closed
    (2026-09-09, issue #480).** The "this sandbox has no live project"
    limitation this section used to record is gone: a pre-production

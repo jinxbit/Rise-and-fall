@@ -5869,3 +5869,62 @@ client with no applied version still refetches on the same event; omitting
 
 `npm run lint`, `npm run test` (76 files / 1328 tests) and `npm run build`
 all pass.
+
+## 126. Bandwidth: send actionHistory incrementally instead of re-downloading the whole log on every move (issue #647)
+
+`actionHistory` is 60-70% of a full `GameState`'s raw bytes, and every
+`getGameStateRedacted` fetch — including the one #646 still triggers on
+every single move — sent the whole array, even though a client that already
+holds a prefix of it only ever needs the handful of entries logged since its
+last fetch. Two properties made this safe without any reveal bookkeeping:
+`actionHistory` is strictly append-only including undo (`resolveHistory`
+folds `UNDO_ACTION`/`REDO_ACTION` in rather than splicing), and
+`toClientGameState`'s `unredactedPrefix` call only ever *truncates* a
+still-secret tail rather than shipping a masked entry that later gets
+rewritten in place — so a client's own `actionHistory` is always a clean
+prefix `[0, k)` of the true log, and `k` only grows.
+
+`get-game-state`'s request body gained an optional `sinceActionIndex`.
+`respondWithState` (the Edge Function) reuses `unredactedPrefix` — unmodified,
+the exact function `toClientGameState` already ran client-side — to find the
+current safe-prefix length, and when `sinceActionIndex` is a valid index into
+it (`0` to that length, inclusive), responds with `{ state (actionHistory
+omitted), actionHistoryFrom, actionHistoryAppend, actionHistoryLength,
+version }` instead of the full array. Omitting `sinceActionIndex`, or sending
+one outside that range, falls back to today's full response byte-for-byte —
+no coordinated rollout needed, same posture as the `__gz` read path.
+
+The client-side splice-and-verify is a new pure function,
+`applyRedactedGameStateDelta` (`redaction.ts`, next to `toClientGameState` and
+`unredactedPrefix` it composes with): appends `actionHistoryAppend` onto the
+caller's own `previousActionHistory`, and returns `null` — rather than
+guessing — if `actionHistoryFrom` doesn't match that array's length or the
+merged length disagrees with `actionHistoryLength`. `gameApi.ts`'s
+`getGameStateRedacted` takes an optional `previous: GameState`, sends
+`previous.actionHistory.length` as `sinceActionIndex`, and falls back to a
+plain full re-fetch (recursing with no `previous`) whenever the delta doesn't
+verify. `subscribeToGameState` — the per-move hot path #646 already
+optimized once — gained a fifth `getAppliedState: () => GameState | null`
+parameter so it can pass the last-applied state through the same way it
+already passes `getAppliedVersion`; `GamePage.tsx` tracks this in a new
+`latestGameStateRef` alongside the existing `latestVersionRef`, reset to
+`null` on resubscribe for the same reason (a different room's `actionHistory`
+isn't a valid prefix to splice onto). The initial per-room load deliberately
+omits `previous` — always a full fetch, since there's nothing yet to verify a
+prefix against.
+
+Covered by `src/engine/__tests__/redaction.test.ts` (pure,
+`applyRedactedGameStateDelta` against a hand-built delta: reproduces the
+exact state a full fetch would across a phase resolution that un-masks a
+previously-secret pick, including the "nothing new in the safe prefix yet"
+case; falls back to `null` on a mismatched `actionHistoryFrom` or
+`actionHistoryLength`) and `src/test/__tests__/getGameState.test.ts` (against
+the real Edge Function via the production-simulating stack: an incremental
+fetch matches a full one byte-for-byte after collapsing; an out-of-range
+`sinceActionIndex` falls back to an unchanged full response; a hidden-
+information game's newly-safe entries arrive correctly once a caller asks
+again from its own already-truncated prefix after a selectCards phase
+resolves).
+
+`npm run lint`, `npm run test` (76 files / 1334 tests) and `npm run build`
+all pass.

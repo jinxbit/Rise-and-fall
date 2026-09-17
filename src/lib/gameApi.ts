@@ -22,7 +22,7 @@ import { resolveConfirmBeforeRevealingCards } from './cardRevealConfirmation'
 import { resolveUnitReserveDisplayMode, type UnitReserveDisplayMode } from './unitReserveDisplay'
 import type { Board, GameState as EngineGameState, GameStatus, PlayMode, RoundPhase } from '../engine/types'
 import type { Action } from '../engine/actions'
-import { toClientGameState, type RedactedGameState } from '../engine/redaction'
+import { applyRedactedGameStateDelta, toClientGameState, type RedactedGameState, type RedactedGameStateDelta } from '../engine/redaction'
 
 /**
  * Reads a user's Discord webhook URL (supabase/migrations/0005_discord_webhooks.sql).
@@ -903,13 +903,35 @@ export async function getGameState(gameId: string): Promise<GameStateSnapshot | 
  * both "no game_state row yet" (404) and any other non-2xx response, mirroring
  * getGameState's own "no row" contract rather than surfacing transient errors
  * differently from that path.
+ *
+ * `previous`, when given, is a state this caller already applied (GamePage.tsx
+ * threads through the last `gameState` it rendered) — its `actionHistory.length`
+ * is sent as `sinceActionIndex`, and get-game-state/index.ts responds with just
+ * the entries logged since then instead of the whole array (issue #647: that
+ * array is 60-70% of a full GameState's bytes, and every move only ever adds
+ * one entry to it — see the issue for measurements). `applyRedactedGameStateDelta`
+ * (redaction.ts) does the actual splice-and-verify against `previous.actionHistory`
+ * and is the pure, testable half of this; a `null` from it (a stale/foreign
+ * `previous`, or any other inconsistency) falls back to an ordinary full fetch
+ * rather than risk assembling a wrong `actionHistory`.
  */
-export async function getGameStateRedacted(gameId: string): Promise<GameStateSnapshot | null> {
-  const { data, error } = await supabase.functions.invoke('get-game-state', { body: { gameId } })
+export async function getGameStateRedacted(gameId: string, previous?: EngineGameState | null): Promise<GameStateSnapshot | null> {
+  const sinceActionIndex = previous ? previous.actionHistory.length : undefined
+  const { data, error } = await supabase.functions.invoke('get-game-state', {
+    body: sinceActionIndex === undefined ? { gameId } : { gameId, sinceActionIndex },
+  })
   if (error) return null
-  const result = data as { ok: true; state: RedactedGameState; version: number } | { ok: false; error: string }
+  const result = data as
+    | { ok: true; state: RedactedGameState; version: number }
+    | ({ ok: true; version: number } & RedactedGameStateDelta)
+    | { ok: false; error: string }
   if (!result.ok) return null
-  return { state: toClientGameState(result.state), version: result.version }
+  if (!('actionHistoryAppend' in result)) {
+    return { state: toClientGameState(result.state), version: result.version }
+  }
+  const merged = applyRedactedGameStateDelta(previous!.actionHistory, result)
+  if (!merged) return getGameStateRedacted(gameId)
+  return { state: toClientGameState(merged), version: result.version }
 }
 
 /**
@@ -1048,14 +1070,23 @@ export async function redoActionEnforced(gameId: string): Promise<GameEnforcemen
  * `useRefetchOnVisible`, whose entire point is recovering from events this
  * subscription missed) to always fetch, same as before this parameter
  * existed.
+ *
+ * `getAppliedState`, when given and `redacted` is true, is handed to
+ * getGameStateRedacted as its `previous` — the per-move refetch this
+ * subscription drives is exactly the hot path issue #647's incremental
+ * actionHistory targets, so the same last-applied state
+ * `getAppliedVersion` reads the version off of is reused here to also avoid
+ * re-downloading the whole log on every move. Ignored when `redacted` is
+ * false: getGameState has no equivalent parameter.
  */
 export function subscribeToGameState(
   gameId: string,
   onChange: (snapshot: GameStateSnapshot) => void,
   redacted = false,
   getAppliedVersion?: () => number | null,
+  getAppliedState?: () => EngineGameState | null,
 ): () => void {
-  const fetchState = redacted ? getGameStateRedacted : getGameState
+  const fetchState = () => (redacted ? getGameStateRedacted(gameId, getAppliedState?.()) : getGameState(gameId))
   const channel = supabase
     .channel(`game_state:${gameId}`)
     .on(
@@ -1065,7 +1096,7 @@ export function subscribeToGameState(
         const newVersion = (payload.new as Partial<GameStateMetaRow>).version
         const appliedVersion = getAppliedVersion?.() ?? null
         if (appliedVersion !== null && typeof newVersion === 'number' && newVersion <= appliedVersion) return
-        void fetchState(gameId).then((snapshot) => {
+        void fetchState().then((snapshot) => {
           if (snapshot) onChange(snapshot)
         })
       },
