@@ -4,7 +4,7 @@ import { BoardSetupView } from '../components/BoardSetupView'
 import { ChatPanel } from '../components/ChatPanel'
 import { EndGameView } from '../components/EndGameView'
 import { ErrorBanner } from '../components/ErrorBanner'
-import { RoundView } from '../components/RoundView'
+import { BankResources, PhaseBanner, RoundView } from '../components/RoundView'
 import {
   listMapTemplates,
   listTales,
@@ -1565,7 +1565,15 @@ export function GamePage() {
         setReviewIndex(null)
       }}
     >
-      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      {/*
+        Four stacked sub-rows (issue #629): 1.1 hamburger/name/next-game,
+        1.2 chat/player names, 1.3 round/bank, 1.4 undo/redo/review history.
+        PhaseBanner/BankResources used to render inside RoundView itself, only
+        while a round was active — they're exported from there (RoundView.tsx)
+        so this header row can show them whenever there's any state to read a
+        turn/bank from (board setup and review included), not just mid-round.
+      */}
+      <header className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center gap-3">
           <div ref={menuRef} className="relative">
             <button
@@ -1805,6 +1813,8 @@ export function GamePage() {
           >
             Next game
           </button>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
           {chatEnabled && (
             <button
               type="button"
@@ -1835,6 +1845,12 @@ export function GamePage() {
             ))}
           </ul>
         </div>
+        {displayState && (
+          <div className="flex flex-wrap items-center gap-4">
+            <PhaseBanner state={displayState} />
+            <BankResources state={displayState} />
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
