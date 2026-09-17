@@ -1,0 +1,85 @@
+name: Seed a finished game into pre-production
+
+# Puts one real, finished game into the Preview Supabase project and leaves it
+# there, so "go and test it" costs a click rather than fifteen minutes of
+# setting a game up (DELIVERY_PIPELINE_PLAN.md §6 step 3).
+#
+# PRE-PRODUCTION ONLY, and not by convention — the environment is hard-coded
+# to `Preview` with no input to change it, and the guard below refuses to run
+# if that environment's project ref turns out to be production's. Every other
+# workflow here takes an environment because it has a legitimate reason to
+# reach production; this one creates rows nobody cleans up and accounts nobody
+# owns, which is fine in a disposable project and is litter in a real one.
+#
+# What it leaves behind, on purpose: one `[seed] …` PUBLIC room (so it appears
+# on the Public Rooms screen and can be found), finished, plus the throwaway
+# accounts that played it. Those accounts must outlive the room —
+# `players.user_id` references `auth.users` with no cascade — so deleting them
+# is not a cleanup, it is breakage. Delete the room first if you want it gone.
+
+on:
+  workflow_dispatch:
+    inputs:
+      fixture:
+        description: 'Which recorded game to seed'
+        type: choice
+        options:
+          - three-player-red-runaway
+          - red-beats-blue-async
+        default: three-player-red-runaway
+
+concurrency:
+  # Two seeds at once would race over nothing in particular, but serialising
+  # keeps the "what did I just create" answer unambiguous.
+  group: seed-preview
+  cancel-in-progress: false
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    environment: Preview
+    permissions:
+      contents: read
+    env:
+      SMOKE_SUPABASE_URL: ${{ secrets.SMOKE_SUPABASE_URL || format('https://{0}.supabase.co', secrets.SUPABASE_PROJECT_ID) }}
+      SMOKE_SUPABASE_ANON_KEY: ${{ secrets.SMOKE_SUPABASE_ANON_KEY }}
+      SMOKE_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SMOKE_SUPABASE_SERVICE_ROLE_KEY }}
+      SEED_FIXTURE: ${{ github.event.inputs.fixture }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # The same guard deploy-supabase.yml and smoke.yml carry, and the reason
+      # it matters more here: those two clean up after themselves or only read.
+      # This one deliberately does not, so pointing it at production would mean
+      # a permanent fake game and permanent fake accounts in the live database.
+      - name: Refuse to seed anything but pre-production
+        env:
+          PRODUCTION_PROJECT_ID: ${{ vars.PRODUCTION_SUPABASE_PROJECT_ID }}
+        run: |
+          missing=()
+          [ -n "$SMOKE_SUPABASE_URL" ] || missing+=("SMOKE_SUPABASE_URL or SUPABASE_PROJECT_ID")
+          [ -n "$SMOKE_SUPABASE_ANON_KEY" ] || missing+=("SMOKE_SUPABASE_ANON_KEY")
+          [ -n "$SMOKE_SUPABASE_SERVICE_ROLE_KEY" ] || missing+=("SMOKE_SUPABASE_SERVICE_ROLE_KEY")
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Missing secrets for the Preview environment: ${missing[*]}."
+            exit 1
+          fi
+          if [ -z "$PRODUCTION_PROJECT_ID" ]; then
+            echo "::error::Repository variable PRODUCTION_SUPABASE_PROJECT_ID is not set, so the guard that keeps this away from production cannot work."
+            exit 1
+          fi
+          if [ "$SMOKE_SUPABASE_URL" = "https://${PRODUCTION_PROJECT_ID}.supabase.co" ]; then
+            echo "::error::The Preview environment resolved to the PRODUCTION project ('$PRODUCTION_PROJECT_ID'). This workflow leaves rows behind permanently. Refusing."
+            exit 1
+          fi
+          echo "Seeding into $SMOKE_SUPABASE_URL"
+
+      - name: Seed the game
+        run: npm run seed:preview

@@ -11,7 +11,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:smoke": "vitest run --config vitest.smoke.config.ts",
-    "generate:pwa-icons": "node scripts/generate-pwa-icons.mjs"
+    "generate:pwa-icons": "node scripts/generate-pwa-icons.mjs",
+    "seed:preview": "vitest run --config vitest.seed.config.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.2",

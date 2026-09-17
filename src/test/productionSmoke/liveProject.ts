@@ -76,9 +76,26 @@ export interface LiveRoom extends ReplayTarget {
   teardown(): Promise<void>
 }
 
+/**
+ * How a room differs from the smoke test's own. Defaults reproduce exactly
+ * what this file did before the options existed, so the smoke path is
+ * unchanged by their presence.
+ */
+export interface LiveRoomOptions {
+  /**
+   * `private` (the default) keeps a room off the Public Rooms screen, which is
+   * one of this file's isolation rules. The preview seeder overrides it to
+   * `public` on purpose: a seeded game nobody can find is no use for manual
+   * testing (../previewSeed/seedFinishedGame.ts).
+   */
+  visibility?: 'private' | 'public'
+  /** Prefixes `games.name`, so a room's origin is legible in a room list. */
+  namePrefix?: string
+}
+
 /** A short, room-name-safe label — `games.name` is capped at 60 chars by 0012_room_name.sql. */
-function roomName(fixtureName: string): string {
-  return `[smoke] ${fixtureName}`.slice(0, 60)
+function roomName(fixtureName: string, prefix: string): string {
+  return `${prefix} ${fixtureName}`.slice(0, 60)
 }
 
 function randomPassword(): string {
@@ -150,7 +167,8 @@ async function invokeStartGame(client: SupabaseClient, gameId: string): Promise<
  * game. A failure part-way through tears down whatever was created before
  * rethrowing, so a broken run doesn't leave a room behind.
  */
-export async function provisionLiveRoom(config: LiveProjectConfig, fixture: ProductionGameFixture): Promise<LiveRoom> {
+export async function provisionLiveRoom(config: LiveProjectConfig, fixture: ProductionGameFixture, options: LiveRoomOptions = {}): Promise<LiveRoom> {
+  const { visibility = 'private', namePrefix = '[smoke]' } = options
   const admin = createClient(config.url, config.serviceRoleKey, { auth: { persistSession: false, autoRefreshToken: false } })
   const createdUserIds: string[] = []
   let gameId: string | null = null
@@ -199,13 +217,13 @@ export async function provisionLiveRoom(config: LiveProjectConfig, fixture: Prod
       .from('games')
       .insert({
         room_code: `S${globalThis.crypto.randomUUID().replace(/-/g, '').slice(0, 6).toUpperCase()}`,
-        name: roomName(fixture.name),
+        name: roomName(fixture.name, namePrefix),
         play_mode: 'live',
         created_by: ownerUserId,
         min_players: fixture.finalState.players.length,
         max_players: fixture.finalState.players.length,
         settings: { ...fixture.game.settings, ruleEnforcementEnabled: true },
-        visibility: 'private',
+        visibility,
       })
       .select()
       .single()
