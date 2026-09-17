@@ -5489,3 +5489,28 @@ the score renders exactly as it did before this change. `DeclinePanel` and
 already had `achievementContent`) purely to pass through to `applyAction` —
 neither actually reads unit or Tale content for these two action types.
 `npm run lint`, `npm run test`, and `npm run build` all pass.
+
+## 115. Victory screen had no gold-over-time line graph (issue #612)
+
+The end-of-game screen already had a "Total score over time" line chart
+(`ScoreOverTimeChart.tsx`) built on `calculateScoreHistory`
+(`src/engine/scoreHistory.ts`), which replays `actionHistory` from genesis
+once and takes a VP snapshot at every round boundary (plus a final one for
+a mid-round finish). That replay already walks through every player's
+`resources.gold` at each of those same moments, so gold-over-time didn't
+need its own replay — just capturing it alongside the existing VP total in
+the same `ScoreSnapshot`.
+
+`ScoreSnapshot` gained a `goldByPlayerId` field, populated in `snapshotOf`
+next to `totalByPlayerId`. The new `GoldOverTimeChart.tsx` mirrors
+`ScoreOverTimeChart.tsx`'s plain-SVG line-chart conventions (per-player seat
+color, a legend, hover `<title>`s, an `sr-only` table fallback) but reads
+`goldByPlayerId` instead and drops the achievement-claim marker overlay,
+which is specific to VP; kept as its own component rather than
+generalizing the two, matching this codebase's existing convention of one
+component per chart (`ScoreCategoryChart.tsx` vs `SpendingChart.tsx`).
+`EndGameView.tsx` renders it right after the score chart, gated on the same
+`scoreHistory.length > 1` condition, off the same `scoreHistory` prop — no
+new prop or data plumbing needed in `GamePage.tsx`.
+`npm run lint`, `npm run test`, and `npm run build` all pass.
+`npm run lint`, `npm run test`, and `npm run build` all pass.

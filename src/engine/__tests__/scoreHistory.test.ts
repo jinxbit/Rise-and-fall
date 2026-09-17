@@ -69,7 +69,7 @@ function playOutRound(state: GameState, kind: string): GameState {
 }
 
 describe('calculateScoreHistory', () => {
-  it('takes one snapshot at genesis, plus one per round boundary, tracking each player total VP', () => {
+  it('takes one snapshot at genesis, plus one per round boundary, tracking each player total VP and banked gold', () => {
     const genesis = makeActiveGame()
     expect(genesis.turn).toBe(0)
 
@@ -81,9 +81,10 @@ describe('calculateScoreHistory', () => {
     const { snapshots } = calculateScoreHistory(genesis, afterRound2.actionHistory, testUnitContent, achievementContent)
 
     expect(snapshots.map((snapshot) => snapshot.turn)).toEqual([0, 1, 2])
-    // No gold-producing action content in this test, so totals stay 0 at every round — the point here is the number and ordering of snapshots, not nonzero scoring (that's victoryPoints.test.ts's job).
+    // No gold-producing action content in this test, so totals and gold stay 0 at every round — the point here is the number and ordering of snapshots, not nonzero scoring (that's victoryPoints.test.ts's job).
     for (const snapshot of snapshots) {
       expect(snapshot.totalByPlayerId).toEqual({ p1: 0, p2: 0 })
+      expect(snapshot.goldByPlayerId).toEqual({ p1: 0, p2: 0 })
     }
   })
 
@@ -161,5 +162,32 @@ describe('calculateScoreHistory', () => {
 
     const { achievementClaims } = calculateScoreHistory(genesis, finalState.actionHistory, contentWithActions, claimAchievementContent)
     expect(achievementClaims).toEqual([{ turn: 0, achievementId: 'city-mastery', playerId: 'p1' }])
+  })
+
+  it("captures each player's banked gold at the round-boundary snapshot after a gold-producing action, not just at genesis", () => {
+    const templeActions: UnitAction[] = [{ id: 'generate-income', name: 'Generate Income', description: '', effect: { actionType: 'income', goldByTerrain: { plain: 3 } } }]
+    const contentWithActions: UnitContent = { ...testUnitContent, actionsByKind: { temple: templeActions } }
+
+    const genesis = makeActiveGame()
+    const templeUnit = genesis.units.find((u) => u.ownerId === 'p1' && u.kind === 'temple')
+    if (!templeUnit) throw new Error('temple unit missing from makeActiveGame fixture')
+    const genesisWithPlainTemple = { ...genesis, board: setTile(genesis.board, templeUnit.coord, 'plain'), resourceBank: { gold: 100, wood: 100, stone: 100 } }
+
+    let result = applyAction(genesisWithPlainTemple, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'temple') }, contentWithActions, achievementContent)
+    if (!result.ok) throw new Error(result.error)
+    result = applyAction(result.state, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'temple') }, contentWithActions, achievementContent)
+    if (!result.ok) throw new Error(result.error)
+    // p1 has exactly one acting unit for the 'temple' card (its lone Temple), so resolving that
+    // action already finishes p1's turn (everyUnitActed, applyResolveUnitAction) — no separate PASS_ACTIONS needed.
+    result = applyAction(result.state, { type: 'RESOLVE_UNIT_ACTION', playerId: 'p1', unitActions: [{ unitId: templeUnit.id, actionId: 'generate-income' }] }, contentWithActions, achievementContent)
+    if (!result.ok) throw new Error(result.error)
+    result = applyAction(result.state, { type: 'PASS_ACTIONS', playerId: 'p2' }, contentWithActions, achievementContent)
+    if (!result.ok) throw new Error(result.error)
+    expect(result.state.turn).toBe(1)
+
+    const { snapshots } = calculateScoreHistory(genesisWithPlainTemple, result.state.actionHistory, contentWithActions, achievementContent)
+    expect(snapshots.map((snapshot) => snapshot.turn)).toEqual([0, 1])
+    expect(snapshots[0].goldByPlayerId).toEqual({ p1: 0, p2: 0 })
+    expect(snapshots[1].goldByPlayerId).toEqual({ p1: 3, p2: 0 })
   })
 })

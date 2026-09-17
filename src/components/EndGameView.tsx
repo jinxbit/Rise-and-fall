@@ -10,6 +10,7 @@ import { calculateVPBreakdown, calculateVPDetail } from '../engine/victoryPoints
 import type { VPDetail } from '../engine/victoryPoints'
 import type { GameState } from '../engine/types'
 import type { PlayerRow } from '../lib/dbTypes'
+import { GoldOverTimeChart } from './GoldOverTimeChart'
 import { HexBoard } from './HexBoard'
 import type { UnitMarker } from './HexBoard'
 import { ScoreCategoryChart } from './ScoreCategoryChart'
@@ -232,7 +233,7 @@ export function EndGameView({
   players: PlayerRow[]
   achievementContent: AchievementContent
   taleContent: TaleContent
-  /** The "total score over time" series (./engine/scoreHistory.ts), for the line chart below. Undefined/null (a caller that hasn't derived it, e.g. this component's own tests) simply skips that chart. */
+  /** The "total score over time" series (./engine/scoreHistory.ts), for the score and gold-over-time line charts below. Undefined/null (a caller that hasn't derived it, e.g. this component's own tests) simply skips both charts. */
   scoreHistory?: ScoreSnapshot[] | null
   /** Which round each achievement was claimed in (./engine/scoreHistory.ts), for the score chart's per-round claim markers. Undefined/empty simply omits the markers. */
   achievementClaims?: AchievementClaimEvent[] | null
@@ -375,6 +376,8 @@ export function EndGameView({
       {scoreHistory && scoreHistory.length > 1 && (
         <ScoreOverTimeChart history={scoreHistory} players={players} playerIds={rankedIds} achievementClaims={achievementClaims ?? []} achievementName={achievementName} />
       )}
+
+      {scoreHistory && scoreHistory.length > 1 && <GoldOverTimeChart history={scoreHistory} players={players} playerIds={rankedIds} />}
 
       {unitValueDetail && (
         <div className="flex flex-col gap-3" data-testid="unit-value">
