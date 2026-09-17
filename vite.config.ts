@@ -53,8 +53,12 @@ export default defineConfig({
       registerType: 'autoUpdate',
       devOptions: { enabled: false },
       manifest: {
-        name: 'Rise & Fall',
-        short_name: 'Rise & Fall',
+        // "Web" distinguishes this installed PWA from the official digital
+        // implementation the app links out to (see SupportBanner.tsx) —
+        // otherwise two installed apps both show as bare "Rise & Fall"
+        // (issue #633).
+        name: 'Rise & Fall Web',
+        short_name: 'Rise & Fall Web',
         description: 'A turn-based strategy game of empires rising and falling.',
         start_url: '/',
         display: 'standalone',
