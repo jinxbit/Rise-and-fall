@@ -172,6 +172,25 @@ describe('HexBoard — default on-screen fit', () => {
       expect(wrapper.className).not.toMatch(/(?<!s)vh/)
     },
   )
+
+  it(
+    'shrinks to fit both width and height at the `sm` breakpoint and up, instead of always filling full width ' +
+      '(issue #623: "on a non mobile device, the map is displayed in a way that is too big to fit the screen, so a ' +
+      'scroll or resize are needed" — a wrapper-only height cap left the `<svg>` at full container width regardless ' +
+      "of viewport height, so a board tall relative to that width still needed the wrapper's own vertical scroll)",
+    () => {
+      const { container, rerender } = render(<HexBoard board={makeBoard()} />)
+      const svg = container.querySelector('svg')!
+      expect(svg.className.baseVal).toContain('sm:h-auto')
+      expect(svg.className.baseVal).toContain('sm:w-auto')
+      expect(svg.className.baseVal).toContain('sm:max-w-full')
+      expect(svg.className.baseVal).toContain('sm:max-h-[70svh]')
+      expect(svg.className.baseVal).toContain('sm:mx-auto')
+
+      rerender(<HexBoard board={makeBoard()} expanded />)
+      expect(svg.className.baseVal).toContain('sm:max-h-[92svh]')
+    },
+  )
 })
 
 describe('HexBoard — ghost cell placement preview', () => {

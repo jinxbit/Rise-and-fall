@@ -5644,3 +5644,34 @@ the missing columns are a type error at any future read site, not a silent
 `LobbyPage.tsx`/`GamePage.tsx` for seating, colors, avatars, and ready
 status) is untouched and keeps a plain `select()`.
 `npm run lint`, `npm run test`, and `npm run build` all pass.
+
+## 121. Game map still didn't fit the screen on non-mobile, after #107's `vh`→`svh` fix (issue #623)
+
+#107 fixed the board wrapper's height cap being computed in `vh` (too tall
+on mobile, since it's defined against the browser's largest possible
+viewport) instead of `svh`. It didn't touch the other half of that same
+wrapper's tradeoff, documented in `HexBoard.tsx`'s own comment: the cap
+lives on the wrapper `<div>`, not the `<svg>`, so the `<svg>` always
+renders at full container width and a board taller than the cap scrolls
+vertically inside the wrapper rather than shrinking. That's the right
+tradeoff on a narrow mobile screen, where width is already the scarce
+dimension — but on a spacious desktop viewport (`GamePage.tsx`'s
+`max-w-4xl`/`6xl`/`7xl` content column) it meant a board tall relative to
+that (large) full width still forced the same internal vertical scroll, or
+the player zooming the whole page out, just to see the whole map — issue
+#623's "on a non mobile device, the map is displayed in a way that is too
+big to fit the screen, so a scroll or resize are needed."
+
+`HexBoard.tsx`'s `<svg>` now carries `sm:` classes (`h-auto w-auto
+max-w-full`, plus the same `svh` max-height the wrapper already used, moved
+onto the `<svg>` itself) that let both dimensions shrink together via the
+standard CSS replaced-element sizing algorithm, centered with `sm:mx-auto`
+instead of sitting flush left. The wrapper's own cap now only applies below
+`sm` (`sm:overflow-visible sm:max-h-none`), so mobile is unaffected — same
+full-width, scroll-if-needed behavior as before. `sm` matches this
+codebase's existing "not mobile" breakpoint (e.g. `GamePage.tsx`'s header).
+`HexBoard.test.tsx` gained a test asserting the `<svg>` carries the `sm:`
+shrink-to-fit classes (and the right `svh` value for both the default and
+`expanded` cases), alongside the existing #107 regression test for the
+wrapper's own `svh` (still present, for the below-`sm` case).
+`npm run lint`, `npm run test`, and `npm run build` all pass.

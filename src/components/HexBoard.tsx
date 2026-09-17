@@ -1043,19 +1043,40 @@ export function HexBoard(props: {
   return (
     <div className="relative">
       {/*
-       * The height cap lives on this wrapper, not the `<svg>` itself. An
-       * `<svg>` sized via `width: 100%` with no explicit `height` derives its
-       * height from `viewBox`'s aspect ratio — capping *that* element's own
-       * `max-height` makes a tall/narrow board's computed height exceed the
-       * cap, which per the CSS replaced-element sizing algorithm shrinks the
-       * `<svg>`'s *width* too (to preserve the aspect ratio), leaving it
-       * narrower than its container with empty space beside it. Bug report:
-       * "on mobile, the victory screen is sometimes scaled incorrectly" (a
-       * board that was tall relative to a narrow mobile viewport's width,
-       * rendering at roughly half width with the other half blank). Capping
-       * this wrapper's height instead leaves the `<svg>` always full width —
-       * a board taller than the cap now scrolls vertically within the
-       * wrapper rather than shrinking horizontally.
+       * Below the `sm` breakpoint, the height cap lives on this wrapper, not
+       * the `<svg>` itself. An `<svg>` sized via `width: 100%` with no
+       * explicit `height` derives its height from `viewBox`'s aspect ratio —
+       * capping *that* element's own `max-height` makes a tall/narrow
+       * board's computed height exceed the cap, which per the CSS
+       * replaced-element sizing algorithm shrinks the `<svg>`'s *width* too
+       * (to preserve the aspect ratio), leaving it narrower than its
+       * container with empty space beside it. Bug report: "on mobile, the
+       * victory screen is sometimes scaled incorrectly" (a board that was
+       * tall relative to a narrow mobile viewport's width, rendering at
+       * roughly half width with the other half blank). Capping this
+       * wrapper's height instead leaves the `<svg>` always full width — a
+       * board taller than the cap now scrolls vertically within the wrapper
+       * rather than shrinking horizontally. On a narrow screen that's the
+       * right call: width is already the scarce dimension there, so it's
+       * worth keeping maxed out even at the cost of a bit of vertical
+       * scroll.
+       *
+       * At `sm` and up, width is no longer scarce — `GamePage.tsx`'s
+       * `max-w-4xl`/`6xl`/`7xl` content column leaves a wide board plenty of
+       * room to shrink into without becoming cramped, so the tradeoff flips:
+       * the `sm:` classes below move the cap back onto the `<svg>` itself
+       * (`h-auto w-auto max-w-full`, letting both dimensions shrink together
+       * instead of just height) and `sm:mx-auto` centers the
+       * narrower-than-container result. That's the same shrink-to-fit
+       * mechanism this comment warns against for narrow screens above,
+       * deliberately re-enabled here because on a spacious desktop viewport
+       * it's exactly what keeps the whole board on screen without a scroll
+       * or an out-of-band browser zoom. Bug report: "on a non mobile device,
+       * the map is displayed in a way that is too big to fit the screen, so
+       * a scroll or resize are needed" (issue #623) — the wrapper-only cap
+       * left the `<svg>` at full (large) container width regardless of
+       * viewport height, so a board tall relative to that width still forced
+       * the wrapper's own vertical scroll to see in full.
        *
        * `svh` (small viewport height), not `vh`: `vh` is defined against the
        * browser's *largest* possible viewport (address bar/chrome hidden),
@@ -1068,11 +1089,11 @@ export function HexBoard(props: {
        * `src/index.css`'s `body { min-height: 100svh }` already relies on the
        * same unit for the same reason.
        */}
-      <div className={`overflow-auto ${props.expanded ? 'max-h-[92svh]' : 'max-h-[70svh]'}`}>
+      <div className={`overflow-auto sm:overflow-visible sm:max-h-none ${props.expanded ? 'max-h-[92svh]' : 'max-h-[70svh]'}`}>
       <svg
         viewBox={`${minX} ${minY} ${maxX - minX} ${maxY - minY}`}
         style={{ overflow: 'visible' }}
-        className="block w-full rounded-md border border-neutral-800 bg-neutral-950"
+        className={`block w-full rounded-md border border-neutral-800 bg-neutral-950 sm:mx-auto sm:h-auto sm:w-auto sm:max-w-full ${props.expanded ? 'sm:max-h-[92svh]' : 'sm:max-h-[70svh]'}`}
       >
       <defs>
         {/* A region that turned neutral (see territoryControl's `striped` doc comment) renders with
