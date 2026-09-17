@@ -643,6 +643,17 @@ pinned above the whole page.
   cache `ChatPanel` reads, so this doesn't add a second network round trip)
   and only renders the header button once it resolves `true`. `<ChatPanel>`
   itself is unchanged and still gates its own contents the same way.
+- **Header removed (issue #631):** `ChatPanel.tsx`'s own heading (the "Chat"
+  label plus, in-game, an unread badge duplicating `GamePage.tsx`'s external
+  toggle button) is gone from both surfaces. This also retired `compact` and
+  its self-contained Show/Hide toggle — with the heading gone there was
+  nothing left to render that toggle in, and no page has passed `compact`
+  since this section's own relayout moved in-game chat onto `open`/
+  `onUnreadCountChange`; `HomePage.tsx`'s site-wide instance was already
+  permanently expanded and stays that way, just without the "Chat" label
+  above it. `ChatPanel` still renders nothing while its `open` prop (when
+  supplied) is false, and `onUnreadCountChange` still fires so an external
+  toggle can badge itself — only the panel's own chrome is gone.
 
 ## 15. Sender name colors (issue #581)
 
