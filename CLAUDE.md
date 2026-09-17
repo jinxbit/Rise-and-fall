@@ -22,6 +22,7 @@ npm run dev          # Vite dev server on :5173
 npm run test         # vitest run — 62 files / ~1130 tests, ~35s
 npm run test:watch   # vitest watch
 npm run test:smoke   # smoke-test a LIVE Supabase project (needs SMOKE_* env vars)
+npm run seed:preview # put one finished game into a LIVE project and LEAVE it there
 npm run lint         # oxlint (not eslint) — sub-second
 npm run build        # tsc -b (3 projects) + vite build — ~10s
 ```
@@ -245,6 +246,15 @@ one check. See `RULE_ENFORCEMENT_PLAN.md` §10 (2026-09-11 update, issue
   in-process stack. Read that folder's README before changing it — its
   isolation rules (private room, `play_mode: 'live'` so no notification can
   fire, delete the room *before* the throwaway users) are load-bearing.
+- `src/test/previewSeed/` is the same provisioning aimed the other way: it
+  replays a fixture into a live project and **deliberately leaves the finished
+  game there**, public, for manual testing (`npm run seed:preview`,
+  `.github/workflows/seed-preview.yml`, pre-production only — that workflow
+  refuses to run against production because nothing cleans up after it). Its
+  `*.seed.ts` entry point is unreachable from `npm run test` and from
+  `npm run test:smoke`: the three configs match `*.test.*`, `*.smoke.ts` and
+  `*.seed.ts` respectively, and those sets are disjoint. The seeder itself is
+  covered on every PR by `src/test/__tests__/previewSeedRunner.test.ts`.
 
 ## Code style
 
