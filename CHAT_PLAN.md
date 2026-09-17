@@ -766,3 +766,52 @@ panel.
 No test-visible change to unread tracking, the "new messages" divider, or
 paging (§13/§16) — the date separator is purely an extra line inserted
 before a message's existing `<p>`, computed from `created_at` alone.
+
+## 19. DOS/abuse defenses (issue #605)
+
+Issue #605 asked for a mechanism (or set of mechanisms) against three chat
+abuse scenarios, with "it is ok to disable chat all across the app if there
+is an issue" as an explicit fallback. Of the three, two were already covered
+by the initial design (§3, §6) with no change needed; the third had no
+defense at all until this section.
+
+1. **Oversized messages.** Already enforced, server-side, since phase 1:
+   `chat_messages.body` carries `check (char_length(body) between 1 and
+   2000)` (`0031_chat_messages.sql`, §3), and the composer's `maxLength={2000}`
+   mirrors it for immediate UI feedback. No change.
+2. **Harmful strings (e.g. injected markup/script).** Already structurally
+   closed: `ChatPanel.tsx` renders `message.body` as a plain JSX text child
+   (`{message.body}`), never `dangerouslySetInnerHTML`, so React escapes it —
+   there is no stored-XSS path through chat. This holds because chat has no
+   rich-text/markup interpretation at all (§2, "out of scope for the initial
+   phases"); if `@mention` rendering (§7) or any future markup is ever added,
+   whatever renders it must keep this same "escaped text, not raw HTML"
+   posture. Malicious *content* that isn't executable (a phishing link, abuse)
+   is a moderation problem, already covered by the reporting phase (§8), not
+   a DOS mechanism — out of scope here.
+3. **Flooding (too many messages).** No defense existed. Closed by
+   `0034_chat_rate_limit.sql`: a `before insert` trigger on `chat_messages`
+   that rejects an insert once its sender already has 10+ rows (site-wide and
+   every game combined — one counter per sender, not per channel, so
+   switching channels can't be used to dodge it) in the trailing 10 seconds,
+   backed by a new `(sender_id, created_at)` index. Deliberately a DB
+   trigger, not a client-side throttle: per §4's own reasoning for the kill
+   switch, a client-only gate is "a UX guarantee, not a security one" and
+   does nothing against a script posting straight through the REST API. Also
+   deliberately a trigger rather than folding the check into the "post chat"
+   RLS policy (§3), so a rejection surfaces as a plain, readable Postgres
+   exception message (shown verbatim by `toAppError`/`ErrorBanner`,
+   `src/lib/errors.ts`) instead of RLS's generic "new row violates row-level
+   security policy" — the same reasoning behind this repo's existing
+   status-transition triggers (`0008_room_lifecycle.sql`,
+   `0029_start_game_edge_function.sql`) over a bare check constraint.
+
+   Threshold (10 messages / 10 seconds) is a **proposed default, flagged for
+   pushback during review** like every other default in this document — not
+   a tuned value from real usage data.
+
+**The kill switch (§4) remains the backstop for anything this section
+doesn't anticipate** — per the issue's own assumption, disabling
+`chat_enabled` for the whole app (or per-project, since Preview and
+production already diverge) is always available if some other abuse pattern
+shows up that a per-message rule can't address.

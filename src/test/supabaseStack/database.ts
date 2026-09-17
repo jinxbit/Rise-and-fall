@@ -306,6 +306,21 @@ export class Database {
           throw new DatabaseError(400, '23514', 'new row for relation "chat_messages" violates check constraint "chat_messages_body_check"')
         }
       }
+      // 0034_chat_rate_limit.sql's `chat_messages_rate_limit_trigger`: a
+      // sender who already has 10+ rows in the trailing 10 seconds (site-wide
+      // and in-game combined) is rejected. Modeled here rather than left
+      // unenforced, same as the check constraint above.
+      if (table === 'chat_messages') {
+        const senderId = row.sender_id as string | undefined
+        const createdAt = row.created_at as string
+        const windowStart = new Date(createdAt).getTime() - 10_000
+        const recentCount = (this.rows.chat_messages as unknown as { sender_id: string; created_at: string }[]).filter(
+          (existing) => existing.sender_id === senderId && new Date(existing.created_at).getTime() > windowStart,
+        ).length
+        if (recentCount >= 10) {
+          throw new DatabaseError(400, 'P0001', 'You are sending messages too fast. Wait a few seconds and try again.')
+        }
+      }
       // 0032_chat_read_status.sql's unique(user_id, game_id) index: at most
       // one row per (user, game). chatApi.ts's markChatRead is written to
       // update an existing row rather than insert a second one in the normal

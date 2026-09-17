@@ -166,6 +166,42 @@ describe('chat_messages / app_config RLS + kill switch (issue #563)', () => {
       const { error: tooLongError } = await stack.clientFor(ALICE).from('chat_messages').insert({ game_id: null, sender_id: ALICE, body: 'x'.repeat(2001) })
       expect(tooLongError).not.toBeNull()
     })
+
+    // 0034_chat_rate_limit.sql (issue #605): a server-side flood defense —
+    // no client-side throttle can be relied on since a script can post
+    // directly through the REST API, the same reasoning CHAT_PLAN.md §4
+    // gives for the kill switch being DB-enforced rather than a UI hide.
+    describe('rate limit (issue #605)', () => {
+      it('rejects an 11th message from the same sender within 10 seconds, across both surfaces combined', async () => {
+        for (let i = 0; i < 5; i++) {
+          const { error } = await stack.clientFor(ALICE).from('chat_messages').insert({ game_id: null, sender_id: ALICE, body: `site ${i}` })
+          expect(error).toBeNull()
+        }
+        for (let i = 0; i < 5; i++) {
+          const { error } = await stack.clientFor(ALICE).from('chat_messages').insert({ game_id: PRIVATE_GAME_ID, sender_id: ALICE, body: `game ${i}` })
+          expect(error).toBeNull()
+        }
+        const { error: eleventhError } = await stack.clientFor(ALICE).from('chat_messages').insert({ game_id: null, sender_id: ALICE, body: 'one too many' })
+        expect(eleventhError).not.toBeNull()
+      })
+
+      it('does not count another sender’s messages against this sender’s limit', async () => {
+        for (let i = 0; i < 10; i++) {
+          const { error } = await stack.clientFor(ALICE).from('chat_messages').insert({ game_id: null, sender_id: ALICE, body: `alice ${i}` })
+          expect(error).toBeNull()
+        }
+        const { error: bobError } = await stack.clientFor(BOB).from('chat_messages').insert({ game_id: null, sender_id: BOB, body: 'bob is unaffected' })
+        expect(bobError).toBeNull()
+      })
+
+      it('does not count messages older than the 10-second window', async () => {
+        for (let i = 0; i < 10; i++) {
+          seedMessage(null, ALICE, `old ${i}`)
+        }
+        const { error } = await stack.clientFor(ALICE).from('chat_messages').insert({ game_id: null, sender_id: ALICE, body: 'still allowed' })
+        expect(error).toBeNull()
+      })
+    })
   })
 
   it('no client can update or delete app_config, even a matching row (its flag is not flippable through the API)', async () => {
