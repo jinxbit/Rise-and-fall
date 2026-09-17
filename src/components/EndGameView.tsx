@@ -17,6 +17,7 @@ import { ScoreCategoryChart } from './ScoreCategoryChart'
 import { ScoreOverTimeChart } from './ScoreOverTimeChart'
 import { scoredCategories } from './scoreCategories'
 import { SpendingChart } from './SpendingChart'
+import { TerrainScoreOverTimeChart } from './TerrainScoreOverTimeChart'
 import { UnitIcon } from './UnitIcon'
 import { UnitValueChart } from './UnitValueChart'
 
@@ -423,6 +424,8 @@ export function EndGameView({
       )}
 
       {scoreHistory && scoreHistory.length > 1 && <GoldOverTimeChart history={scoreHistory} players={players} playerIds={rankedIds} />}
+
+      {scoreHistory && scoreHistory.length > 1 && <TerrainScoreOverTimeChart history={scoreHistory} players={players} playerIds={rankedIds} />}
 
       {unitValueDetail && (
         <div className="flex flex-col gap-3" data-testid="unit-value">

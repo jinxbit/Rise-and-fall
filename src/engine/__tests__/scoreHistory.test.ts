@@ -81,10 +81,11 @@ describe('calculateScoreHistory', () => {
     const { snapshots } = calculateScoreHistory(genesis, afterRound2.actionHistory, testUnitContent, achievementContent)
 
     expect(snapshots.map((snapshot) => snapshot.turn)).toEqual([0, 1, 2])
-    // No gold-producing action content in this test, so totals and gold stay 0 at every round — the point here is the number and ordering of snapshots, not nonzero scoring (that's victoryPoints.test.ts's job).
+    // No gold-producing action content and no terrain-VP content in this test, so totals, gold and terrain VP stay 0 at every round — the point here is the number and ordering of snapshots, not nonzero scoring (that's victoryPoints.test.ts's job).
     for (const snapshot of snapshots) {
       expect(snapshot.totalByPlayerId).toEqual({ p1: 0, p2: 0 })
       expect(snapshot.goldByPlayerId).toEqual({ p1: 0, p2: 0 })
+      expect(snapshot.terrainVPByPlayerId).toEqual({ p1: 0, p2: 0 })
     }
   })
 
@@ -189,5 +190,24 @@ describe('calculateScoreHistory', () => {
     expect(snapshots.map((snapshot) => snapshot.turn)).toEqual([0, 1])
     expect(snapshots[0].goldByPlayerId).toEqual({ p1: 0, p2: 0 })
     expect(snapshots[1].goldByPlayerId).toEqual({ p1: 3, p2: 0 })
+  })
+
+  it("captures each player's terrain-control VP at every snapshot, not just the final one", () => {
+    const terrainContent: AchievementContent = { ...achievementContent, terrainVictoryPoints: { plain: 2 } }
+
+    const genesis = makeActiveGame()
+    const templeUnit = genesis.units.find((u) => u.ownerId === 'p1' && u.kind === 'temple')
+    if (!templeUnit) throw new Error('temple unit missing from makeActiveGame fixture')
+    // p1's lone Temple sits alone on the only tile the board has, so it's the sole (and so majority) owner of a size-1 'plain' region worth 2 VP.
+    const genesisWithPlainTemple = { ...genesis, board: setTile(genesis.board, templeUnit.coord, 'plain') }
+
+    const afterRound1 = playOutRound(genesisWithPlainTemple, 'city')
+    expect(afterRound1.turn).toBe(1)
+
+    const { snapshots } = calculateScoreHistory(genesisWithPlainTemple, afterRound1.actionHistory, testUnitContent, terrainContent)
+    expect(snapshots.map((snapshot) => snapshot.turn)).toEqual([0, 1])
+    for (const snapshot of snapshots) {
+      expect(snapshot.terrainVPByPlayerId).toEqual({ p1: 2, p2: 0 })
+    }
   })
 })

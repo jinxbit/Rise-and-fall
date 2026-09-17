@@ -5537,3 +5537,21 @@ timestamp, not "now": a player can open this screen long after the game
 actually ended. Copy-to-clipboard and the "Copied!" flip follow
 `ErrorBanner.tsx`'s pattern exactly.
 `npm run lint`, `npm run test`, and `npm run build` all pass.
+
+## 117. Victory screen: add terrain score over time line graph (issue #614)
+
+Same shape as #115's gold-over-time chart: `calculateScoreHistory`
+(`src/engine/scoreHistory.ts`) already replays the whole game once and
+takes a VP+gold snapshot at every round boundary, so terrain-control VP
+over time didn't need its own replay either — `ScoreSnapshot` gained a
+`terrainVPByPlayerId` field, populated in `snapshotOf` from
+`calculateVPBreakdown`'s existing `terrainControl` number alongside `total`
+and `goldByPlayerId`.
+
+The new `TerrainScoreOverTimeChart.tsx` mirrors `GoldOverTimeChart.tsx`'s
+plain-SVG line-chart conventions (per-player seat color, a legend, hover
+`<title>`s, an `sr-only` table fallback), reading `terrainVPByPlayerId`
+instead. `EndGameView.tsx` renders it right after the gold chart, gated on
+the same `scoreHistory.length > 1` condition, off the same `scoreHistory`
+prop — no new prop or data plumbing needed in `GamePage.tsx`.
+`npm run lint`, `npm run test`, and `npm run build` all pass.
