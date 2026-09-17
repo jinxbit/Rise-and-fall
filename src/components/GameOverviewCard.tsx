@@ -1,6 +1,6 @@
 import { Fragment } from 'react'
 import type { ReactNode } from 'react'
-import type { PlayerRow } from '../lib/dbTypes'
+import type { PlayerListRow } from '../lib/dbTypes'
 import type { GameCardSummary } from '../lib/gameCardView'
 
 /**
@@ -14,7 +14,7 @@ export interface GameOverviewCardProps {
   name: string
   description?: string
   phase: string
-  players: PlayerRow[]
+  players: PlayerListRow[]
   pendingPlayerIds: string[]
   isMyTurn: boolean
   isFinished: boolean
