@@ -151,12 +151,12 @@ type ActionUiMode =
   | { kind: 'targeting'; unitId: string; actionId: string; cheat?: boolean }
   | { kind: 'supporting'; unitId: string; actionId: string; target?: Coordinate; selectedSupportUnitIds: string[] }
 
-/** Exported for GamePage's header (issue #629's "Round + Bank" row) — RoundView itself no longer renders this, since the header now shows it whenever any state is loaded, not just while a round is active. */
+/** Exported for GamePage's header (issue #629's "Round + Bank" row), which shows it whenever any state is loaded rather than only mid-round. RoundView still renders it itself when GamePage asks via `showBankRow` — the narrow-header fallback (issue #640), where the header has no room for it. */
 export function PhaseBanner({ state }: { state: GameState }) {
   return <p className="text-sm text-neutral-400">Round {state.turn}</p>
 }
 
-/** How much of each resource is left in the shared bank for players to draw from — see GameState.resourceBank. Exported for GamePage's header, see PhaseBanner's comment above. */
+/** How much of each resource is left in the shared bank for players to draw from — see GameState.resourceBank. Exported for GamePage's header, and rendered here under `showBankRow` — see PhaseBanner's comment above. */
 export function BankResources({ state }: { state: GameState }) {
   return (
     <p className="flex items-center gap-2 text-sm text-neutral-400" title="Resources remaining in the shared bank">
@@ -1395,6 +1395,16 @@ export function RoundView(props: {
    */
   showHistory: boolean
   /**
+   * Whether to render the Round + Bank line at the top of this view, the way
+   * it always did before issue #629 hoisted it into GamePage's header.
+   * GamePage sets this whenever its header has fallen back to the stacked
+   * layout (issue #640 — see `headerFitsOneLine` there): in that mode the
+   * header drops round/bank entirely rather than giving it a row of its own,
+   * so it comes back here instead. Undefined (every other caller, tests
+   * included) means the header is showing it, so this view doesn't.
+   */
+  showBankRow?: boolean
+  /**
    * Whether the card-choice recap overlay (CardChoiceHistoryPanel) should
    * render right now (issue #326 follow-up) — GamePage decides this since it
    * alone knows whether "Show history" is on a review group's first turn
@@ -1497,6 +1507,7 @@ export function RoundView(props: {
     unitReserveDisplayMode,
     turnReview,
     showHistory,
+    showBankRow = false,
     showCardChoiceRecap = false,
     cardChoiceRecapPhase,
     cardChoiceRecap,
@@ -1793,6 +1804,12 @@ export function RoundView(props: {
 
   return (
     <div className="flex flex-col gap-4">
+      {showBankRow && (
+        <div className="flex flex-wrap items-center gap-4">
+          <PhaseBanner state={state} />
+          <BankResources state={state} />
+        </div>
+      )}
       {/* Turn status panels ("Waiting for X…") re-render as other players act in real time; their
           height changes shift everything below them. Hidden while reviewing history so that view
           stays still instead of jumping around underneath the player. */}

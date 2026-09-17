@@ -5755,3 +5755,72 @@ gained a new §19 documenting all three defenses (mirroring the "Proposed
 defaults (flag for pushback during review)" pattern §2 already uses) as
 the source-of-truth record of this decision.
 `npm run lint`, `npm run test`, and `npm run build` all pass.
+
+## 124. Game header: pick the layout by measuring, not by a breakpoint (issue #640)
+
+Issue #640 asked for two things on a screen too narrow to fit the header's
+bank and undo/redo side by side: undo/redo above the bank (below the player
+names), and undo/redo left-aligned. Three attempts landed and were each
+reported as still broken from the live app, and the issue was then reverted
+back to its pre-#640 state (PRs #641, #643, #644, #645) to start over.
+
+All three failed the same way. Each answered "is the screen wide enough?"
+with a fixed threshold — native `flex-wrap` line-packing, then
+`flex-1`→`flex-auto`, then an `@2xl` container query — and none was ever
+rendered in a browser, because the GitHub Action sandbox those runs used
+has no way to run the app. But whether the four header groups
+(menu/name/next-game, chat/player names, round/bank, undo/redo/review) fit
+on one line is *content* dependent: the game name's length, the player
+count, their display-name lengths and the bank's digits all move the
+threshold by hundreds of pixels. No fixed breakpoint is right for every
+game, and just past a wrong one this row didn't degrade gracefully — it
+wrapped and flex-shrank undo/redo into a ~130px column beside the player
+names, which is exactly the screenshot the issue kept reporting.
+
+New `src/hooks/useOneLineFit.ts` measures instead. It compares the header's
+own `clientWidth` against the sum of its children's widths plus the gaps
+between them, via a `ResizeObserver` and `useLayoutEffect`, and GamePage
+renders one of two layouts from the answer:
+
+- **Fits:** today's layout — all four groups on one line, round/bank third,
+  undo/redo/review pushed flush right by `ml-auto`.
+- **Doesn't fit:** the pre-#629 production layout — menu/name/next-game and
+  chat/player names flow together across as many lines as they need,
+  undo/redo/review takes its own full-width line (`w-full`) and so is
+  left-aligned, and round/bank leaves the header entirely: RoundView renders
+  it again itself, under a new `showBankRow` prop, exactly where it lived
+  before #629. (As in production, that means no bank line during board setup
+  on a narrow screen, since BoardSetupView renders instead of RoundView.)
+
+Three details make the measurement hold up, each one a way a naive version
+breaks:
+
+1. **The measured layout can't shrink.** Wide mode is `flex-nowrap` with
+   `w-max shrink-0` groups. If the row could wrap or flex-shrink, the
+   children would report their *squeezed* width, the sum would always fit,
+   and it would latch to wide mode permanently — the same class of bug as
+   #643's `flex-1` (`flex-basis: 0%`) hypothetical-size problem. It
+   overflows for a single layout pass instead, which `useLayoutEffect`
+   resolves before paint.
+2. **The threshold is latched.** Narrow mode reflows the groups, so
+   re-deriving the answer from the narrow layout says "fits", flips back,
+   wraps, and oscillates. The hook records the width wide mode needed at the
+   moment it stopped fitting and only returns to wide once the container
+   clears it by `HYSTERESIS_PX`.
+3. **A content key resets the latch**, since a width measured with two
+   players is meaningless once a sixth joins.
+
+The decision rule is a pure exported `decideOneLineFit`, unit-tested in
+`src/hooks/__tests__/useOneLineFit.test.ts`, because jsdom has no layout
+engine — every `offsetWidth`/`clientWidth` reads 0 there, so the hook
+itself can't be covered by the normal suite (it treats a zero width as "not
+measurable" and declines to decide). The rendering was verified in real
+Chromium at viewport widths from 320px to 1900px, with two-player and
+six-player rosters: wide mode puts undo/redo flush against the header's
+right edge, narrow mode puts it at the left edge on its own line with the
+bank below in RoundView's position, the wide→narrow→wide path is stable
+with no oscillation across the boundary, and a slow drag-resize from 1700px
+to 900px produced no frame of horizontal document overflow.
+
+`npm run lint`, `npm run test` (75 files / 1325 tests) and `npm run build`
+all pass.
