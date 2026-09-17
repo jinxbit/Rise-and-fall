@@ -30,8 +30,8 @@ end-of-game screen, rather than leaving the test to derive it:
 ```json
 {
   "expected": {
-    "finalScores": { "Mano": 174, "jinxbit": 138 },
-    "winners": ["Mano"]
+    "finalScores": { "Player A": 174, "Player B": 138 },
+    "winners": ["Player A"]
   }
 }
 ```
@@ -150,3 +150,11 @@ These files are committed to the repository. An export contains display names
 and auth user ids of everyone who played, plus the full game. Only add games
 whose players are fine with that, and use a sidecar's `userIdByPlayerId` to
 substitute placeholder ids if not.
+
+Display names have no sidecar override — they're baked into the gzipped
+`GameState` itself (`players[].displayName`), unlike auth ids. To anonymize
+one, decode `gameStateZipped` (`decodeGameStateExport`), rewrite
+`state.players[].displayName`, and re-encode with `gzipToBase64` before
+committing, then update the sidecar's `name`/`expected` to match — the
+checked-in fixtures use placeholders (`Player A`, `Player B`, …) rather than
+real display names for exactly this reason.
