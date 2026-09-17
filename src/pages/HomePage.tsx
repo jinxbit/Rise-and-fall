@@ -251,43 +251,23 @@ export function HomePage() {
 
       {roomEntries === null && !loadError && <div className="text-neutral-400">Loading your games…</div>}
 
-      {/* Wide screens (issue #625) lay the sections out as columns —
-          announcements/banner/chat, create+your games, rooms not started,
-          games in progress, finished games — instead of stacking everything
-          in the narrow single-column layout used below `xl`. */}
-      <div className="flex flex-col gap-8 xl:grid xl:grid-cols-5 xl:items-start xl:gap-6">
-        <section className="flex flex-col gap-4">
-          <DiscordCommunityBanner />
-          <SupportBanner />
-          <ChatPanel gameId={null} />
-        </section>
-
-        <section className="flex flex-col gap-3">
-          <Link
-            to="/create"
-            className="rounded-md bg-indigo-600 px-4 py-2 text-center font-medium text-white hover:bg-indigo-500"
-          >
-            Create a game
-          </Link>
-          <div className="flex gap-2">
-            <input
-              value={roomCodeInput}
-              onChange={(e) => setRoomCodeInput(e.target.value.toUpperCase())}
-              placeholder="Room code"
-              maxLength={5}
-              className="flex-1 rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 uppercase tracking-widest"
-            />
-            <button
-              disabled={busy || roomCodeInput.trim().length === 0}
-              onClick={() => void handleJoin()}
-              className="rounded-md border border-neutral-700 px-4 py-2 font-medium hover:border-neutral-500 disabled:opacity-50"
-            >
-              Join
-            </button>
+      {/* Wide screens (issue #625) lay the page out as two stacked grid rows
+          instead of one long single column below `xl`:
+          row 1 — banners, then chat (wide, to fit a lot of text);
+          row 2 — your games in progress, then create game + join + rooms not
+          started, then games in progress, then finished games. */}
+      <div className="flex flex-col gap-8 xl:gap-6">
+        <div className="flex flex-col gap-4 xl:grid xl:grid-cols-[1fr_2fr] xl:items-start xl:gap-6">
+          <div className="flex flex-col gap-4">
+            <DiscordCommunityBanner />
+            <SupportBanner />
           </div>
+          <ChatPanel gameId={null} />
+        </div>
 
+        <div className="flex flex-col gap-8 xl:grid xl:grid-cols-4 xl:items-start xl:gap-6">
           {roomEntries !== null && (
-            <div className="flex flex-col gap-3">
+            <section className="flex flex-col gap-3">
               <h2 className="font-medium text-neutral-200">Your games in progress</h2>
               {myGamesInProgress.length === 0 ? (
                 <p className="text-sm text-neutral-500">No games in progress.</p>
@@ -299,59 +279,84 @@ export function HomePage() {
                 </ul>
               )}
               <Pagination page={myGamesPage} pageSize={PAGE_SIZE} total={myGamesInProgress.length} onChange={setMyGamesPage} />
-            </div>
+            </section>
           )}
-        </section>
 
-        {roomEntries !== null && (
           <section className="flex flex-col gap-3">
-            <h2 className="font-medium text-neutral-200">Rooms not started</h2>
-            {notStartedRooms.length === 0 ? (
-              <p className="text-sm text-neutral-500">No rooms waiting to start right now.</p>
-            ) : (
+            <Link
+              to="/create"
+              className="rounded-md bg-indigo-600 px-4 py-2 text-center font-medium text-white hover:bg-indigo-500"
+            >
+              Create a game
+            </Link>
+            <div className="flex gap-2">
+              <input
+                value={roomCodeInput}
+                onChange={(e) => setRoomCodeInput(e.target.value.toUpperCase())}
+                placeholder="Room code"
+                maxLength={5}
+                className="flex-1 rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 uppercase tracking-widest"
+              />
+              <button
+                disabled={busy || roomCodeInput.trim().length === 0}
+                onClick={() => void handleJoin()}
+                className="rounded-md border border-neutral-700 px-4 py-2 font-medium hover:border-neutral-500 disabled:opacity-50"
+              >
+                Join
+              </button>
+            </div>
+
+            {roomEntries !== null && (
+              <div className="flex flex-col gap-3">
+                <h2 className="font-medium text-neutral-200">Rooms not started</h2>
+                {notStartedRooms.length === 0 ? (
+                  <p className="text-sm text-neutral-500">No rooms waiting to start right now.</p>
+                ) : (
+                  <ul className="flex flex-col gap-2">
+                    {notStartedPageItems.map((entry) => (
+                      <RoomRow
+                        key={entry.game.id}
+                        entry={entry}
+                        userId={user.id}
+                        action={isMine(entry, user.id) ? undefined : 'Join'}
+                        onOpen={() => navigate(`/lobby/${entry.game.room_code}`)}
+                      />
+                    ))}
+                  </ul>
+                )}
+                <Pagination page={notStartedPage} pageSize={PAGE_SIZE} total={notStartedRooms.length} onChange={setNotStartedPage} />
+              </div>
+            )}
+          </section>
+
+          {roomEntries !== null && (
+            <section className="flex flex-col gap-3">
+              <h2 className="font-medium text-neutral-200">Games in progress</h2>
+              {otherGamesInProgress.length === 0 ? (
+                <p className="text-sm text-neutral-500">No games in progress right now.</p>
+              ) : (
+                <ul className="flex flex-col gap-2">
+                  {inProgressPageItems.map((entry) => (
+                    <RoomRow key={entry.game.id} entry={entry} userId={user.id} action="Watch" onOpen={() => navigate(`/game/${entry.game.room_code}`)} />
+                  ))}
+                </ul>
+              )}
+              <Pagination page={inProgressPage} pageSize={PAGE_SIZE} total={otherGamesInProgress.length} onChange={setInProgressPage} />
+            </section>
+          )}
+
+          {roomEntries !== null && finished.length > 0 && (
+            <section className="flex flex-col gap-3">
+              <h2 className="font-medium text-neutral-200">Finished games</h2>
               <ul className="flex flex-col gap-2">
-                {notStartedPageItems.map((entry) => (
-                  <RoomRow
-                    key={entry.game.id}
-                    entry={entry}
-                    userId={user.id}
-                    action={isMine(entry, user.id) ? undefined : 'Join'}
-                    onOpen={() => navigate(`/lobby/${entry.game.room_code}`)}
-                  />
+                {finishedPageItems.map((entry) => (
+                  <RoomRow key={entry.game.id} entry={entry} userId={user.id} action="View" onOpen={() => navigate(`/game/${entry.game.room_code}`)} />
                 ))}
               </ul>
-            )}
-            <Pagination page={notStartedPage} pageSize={PAGE_SIZE} total={notStartedRooms.length} onChange={setNotStartedPage} />
-          </section>
-        )}
-
-        {roomEntries !== null && (
-          <section className="flex flex-col gap-3">
-            <h2 className="font-medium text-neutral-200">Games in progress</h2>
-            {otherGamesInProgress.length === 0 ? (
-              <p className="text-sm text-neutral-500">No games in progress right now.</p>
-            ) : (
-              <ul className="flex flex-col gap-2">
-                {inProgressPageItems.map((entry) => (
-                  <RoomRow key={entry.game.id} entry={entry} userId={user.id} action="Watch" onOpen={() => navigate(`/game/${entry.game.room_code}`)} />
-                ))}
-              </ul>
-            )}
-            <Pagination page={inProgressPage} pageSize={PAGE_SIZE} total={otherGamesInProgress.length} onChange={setInProgressPage} />
-          </section>
-        )}
-
-        {roomEntries !== null && finished.length > 0 && (
-          <section className="flex flex-col gap-3">
-            <h2 className="font-medium text-neutral-200">Finished games</h2>
-            <ul className="flex flex-col gap-2">
-              {finishedPageItems.map((entry) => (
-                <RoomRow key={entry.game.id} entry={entry} userId={user.id} action="View" onOpen={() => navigate(`/game/${entry.game.room_code}`)} />
-              ))}
-            </ul>
-            <Pagination page={finishedPage} pageSize={PAGE_SIZE} total={finished.length} onChange={setFinishedPage} />
-          </section>
-        )}
+              <Pagination page={finishedPage} pageSize={PAGE_SIZE} total={finished.length} onChange={setFinishedPage} />
+            </section>
+          )}
+        </div>
       </div>
     </div>
   )
