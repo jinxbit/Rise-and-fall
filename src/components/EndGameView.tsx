@@ -1,4 +1,4 @@
-import { Fragment, useLayoutEffect } from 'react'
+import { Fragment, useLayoutEffect, useState } from 'react'
 import { listAchievements, listTerrainTypes } from '../content/resolveContent'
 import type { AchievementContent } from '../engine/achievementContent'
 import { cardIdFor, findCardZone, sortCardIdsForDisplay } from '../engine/cards'
@@ -8,7 +8,7 @@ import type { TaleContent } from '../engine/taleContent'
 import type { SpendingBreakdown, UnitValueDetail } from '../engine/unitValue'
 import { calculateVPBreakdown, calculateVPDetail } from '../engine/victoryPoints'
 import type { VPDetail } from '../engine/victoryPoints'
-import type { GameState } from '../engine/types'
+import type { GameState, Player } from '../engine/types'
 import type { PlayerRow } from '../lib/dbTypes'
 import { GoldOverTimeChart } from './GoldOverTimeChart'
 import { HexBoard } from './HexBoard'
@@ -45,6 +45,28 @@ function terrainName(terrainId: string): string {
 /** "eliminated" or "conceded" — same removal from the game (Player.eliminated), but worth telling apart on the end-game screen (see Player.conceded's doc comment in ../engine/types). */
 function eliminationLabel(player: { conceded?: boolean }): string {
   return player.conceded ? 'conceded' : 'eliminated'
+}
+
+/** This game's own BoardGameGeek listing (also linked from ./SupportBanner.tsx) — where "Copy for BoardGameGeek" below tells players to paste the summary it copies. */
+const BOARD_GAME_GEEK_URL = 'https://boardgamegeek.com/boardgame/275912/rise-and-fall'
+
+/**
+ * Plain-text play summary for pasting into BoardGameGeek's "Log Play" form
+ * (issue #613) — one line per player, ranked, with their final score or
+ * elimination/concession result, plus the date the game actually finished
+ * (the last action's timestamp, not "now": a player may open this screen
+ * long after the game ended). There's no BGG API integration here — that
+ * would need every player's BGG credentials just to log one play — so this
+ * only saves retyping the players/scores by hand once you're on that page.
+ */
+function boardGameGeekPlaySummary(ranked: Player[], players: PlayerRow[], ranks: Map<string, number>, totalOf: (id: string) => number, winnerIds: Set<string>, playedOn: string): string {
+  const lines = ranked.map((player) => {
+    const name = players.find((p) => p.id === player.id)?.display_name ?? player.id
+    const place = ordinal(ranks.get(player.id) ?? ranked.length)
+    const result = player.eliminated ? capitalize(eliminationLabel(player)) : `${totalOf(player.id)} pts${winnerIds.has(player.id) ? ' (Winner)' : ''}`
+    return `${place}. ${name} — ${result}`
+  })
+  return ['Rise & Fall — play log for BoardGameGeek', `Date: ${playedOn}`, '', 'Players:', ...lines, '', `Log this play at ${BOARD_GAME_GEEK_URL}`].join('\n')
 }
 
 
@@ -243,6 +265,7 @@ export function EndGameView({
   spendingBreakdown?: Record<string, SpendingBreakdown> | null
 }) {
   useLayoutEffect(() => resetMobileViewportZoom(), [])
+  const [copiedBggExport, setCopiedBggExport] = useState(false)
 
   const detailByPlayerId = calculateVPDetail(state, achievementContent, taleContent)
   const breakdownByPlayerId = calculateVPBreakdown(state, achievementContent, taleContent)
@@ -255,6 +278,18 @@ export function EndGameView({
   const activeIds = rankedIds.filter((id) => !eliminatedIds.has(id))
   const categories = scoredCategories(breakdownByPlayerId, activeIds)
   const breakdownGroups = breakdownGroupsFor(detailByPlayerId, activeIds)
+
+  async function handleCopyBggExport() {
+    const playedOn = (state.actionHistory.at(-1)?.timestamp ?? new Date().toISOString()).slice(0, 10)
+    const summary = boardGameGeekPlaySummary(ranked, players, ranks, (id) => detailByPlayerId[id]?.total ?? 0, winnerIds, playedOn)
+    try {
+      await navigator.clipboard.writeText(summary)
+      setCopiedBggExport(true)
+      setTimeout(() => setCopiedBggExport(false), 1500)
+    } catch {
+      // Clipboard access can be denied or unavailable; nothing useful to do about it here.
+    }
+  }
 
   const boardUnits: UnitMarker[] = state.units.map((unit) => {
     const owner = state.players.find((p) => p.id === unit.ownerId)
@@ -278,12 +313,22 @@ export function EndGameView({
 
   return (
     <div className="flex flex-col gap-6 rounded-md border border-amber-700/50 bg-amber-500/10 p-4">
-      <div>
-        <p className="text-lg font-semibold text-amber-300">Game over</p>
-        <p className="text-sm text-amber-300/90">
-          Winner{state.winnerPlayerIds.length > 1 ? 's' : ''}:{' '}
-          {state.winnerPlayerIds.map((id) => players.find((p) => p.id === id)?.display_name ?? id).join(', ') || 'none'}
-        </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-lg font-semibold text-amber-300">Game over</p>
+          <p className="text-sm text-amber-300/90">
+            Winner{state.winnerPlayerIds.length > 1 ? 's' : ''}:{' '}
+            {state.winnerPlayerIds.map((id) => players.find((p) => p.id === id)?.display_name ?? id).join(', ') || 'none'}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void handleCopyBggExport()}
+          title={`Copy a play summary formatted for logging at ${BOARD_GAME_GEEK_URL}`}
+          className="shrink-0 rounded border border-amber-700/50 px-2 py-1 text-xs text-amber-300 hover:bg-amber-500/20"
+        >
+          {copiedBggExport ? 'Copied!' : 'Copy for BoardGameGeek'}
+        </button>
       </div>
 
       <div>

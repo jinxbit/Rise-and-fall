@@ -5514,3 +5514,26 @@ component per chart (`ScoreCategoryChart.tsx` vs `SpendingChart.tsx`).
 new prop or data plumbing needed in `GamePage.tsx`.
 `npm run lint`, `npm run test`, and `npm run build` all pass.
 `npm run lint`, `npm run test`, and `npm run build` all pass.
+
+## 116. Victory screen: allow exporting play to BoardGameGeek (issue #613)
+
+"Export to BoardGameGeek" turns out to mean two very different things: post
+a play directly via BGG's write API (needs every player's BGG login — a
+credentials/OAuth decision this issue's one-line body didn't make), or hand
+the player something they paste into BGG's own "Log Play" form by hand. Went
+with the latter — no new auth surface, no third-party credentials touching
+this app, consistent with the "copy" actions already on `GamePage.tsx`
+(`handleCopyStateExport`, `ErrorBanner.tsx`'s "Copy details").
+
+`EndGameView.tsx` gained a "Copy for BoardGameGeek" button next to the
+"Game over" heading. `boardGameGeekPlaySummary()` formats the already-ranked
+`ranked`/`ranks`/`winnerIds` (the same values driving the "Final score" list
+above it) into one line per player — final score and "(Winner)", or
+"Eliminated"/"Conceded" for anyone out of the game — under a `Date:` line
+and a link to the game's own BGG listing
+(`https://boardgamegeek.com/boardgame/275912/rise-and-fall`, already used by
+`SupportBanner.tsx`). The date is the last `actionHistory` entry's
+timestamp, not "now": a player can open this screen long after the game
+actually ended. Copy-to-clipboard and the "Copied!" flip follow
+`ErrorBanner.tsx`'s pattern exactly.
+`npm run lint`, `npm run test`, and `npm run build` all pass.
