@@ -42,7 +42,7 @@ import { useTrafficStats } from '../hooks/useTrafficStats'
 import { useConfirmBeforeRevealingCards } from '../hooks/useConfirmBeforeRevealingCards'
 import { useUnitPlateColors } from '../hooks/useUnitPlateColors'
 import { useUnitReserveDisplayMode } from '../hooks/useUnitReserveDisplayMode'
-import { formatUnreadBadge } from '../lib/chatApi'
+import { formatUnreadBadge, isChatEnabled } from '../lib/chatApi'
 import type { GameRow, PlayerRow } from '../lib/dbTypes'
 import { simpleError, toAppError, type AppError } from '../lib/errors'
 import { buildGenesisState } from '../lib/gameGenesis'
@@ -201,6 +201,27 @@ export function GamePage() {
   const [chatOpen, setChatOpen] = useState(false)
   /** Mirrors ChatPanel's live unread count (issue #580's `onUnreadCountChange`) so the header's own toggle button can show a matching badge while the panel itself renders nothing. */
   const [chatUnreadCount, setChatUnreadCount] = useState(0)
+  /**
+   * Mirrors the `chat_enabled` kill switch (CHAT_PLAN.md §4) so the header's
+   * own toggle button — unlike ChatPanel itself, which already renders
+   * nothing while disabled — can stay hidden too (issue #608: the button was
+   * shown regardless of the switch, the only visible trace of an otherwise
+   * fully-gated feature).
+   */
+  const [chatEnabled, setChatEnabled] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    isChatEnabled()
+      .then((value) => {
+        if (!cancelled) setChatEnabled(value)
+      })
+      .catch(() => {
+        if (!cancelled) setChatEnabled(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
   /** The "Reviewing history" banner (Prev/Next/slider/Back to live, etc.) — see the page-wide click-to-exit handler below. */
   const reviewBannerRef = useRef<HTMLDivElement>(null)
   const [copiedStateJson, setCopiedStateJson] = useState(false)
@@ -1784,25 +1805,27 @@ export function GamePage() {
           >
             Next game
           </button>
-          <button
-            type="button"
-            onClick={() => setChatOpen((v) => !v)}
-            aria-expanded={chatOpen}
-            title={chatOpen ? 'Hide chat' : 'Show chat'}
-            className="relative rounded-md border border-neutral-700 p-2 hover:border-neutral-500"
-          >
-            <svg viewBox="0 0 20 20" className="h-5 w-5 fill-current" aria-hidden="true">
-              <path d="M3 4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h1.5v3.25a.75.75 0 0 0 1.28.53L9.31 14H17a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H3Z" />
-            </svg>
-            {chatUnreadCount > 0 && (
-              <span
-                className="absolute -right-1 -top-1 rounded-full bg-sky-600 px-1.5 py-0.5 text-xs font-semibold leading-none text-white"
-                aria-label={`${chatUnreadCount} unread message${chatUnreadCount === 1 ? '' : 's'}`}
-              >
-                {formatUnreadBadge(chatUnreadCount)}
-              </span>
-            )}
-          </button>
+          {chatEnabled && (
+            <button
+              type="button"
+              onClick={() => setChatOpen((v) => !v)}
+              aria-expanded={chatOpen}
+              title={chatOpen ? 'Hide chat' : 'Show chat'}
+              className="relative rounded-md border border-neutral-700 p-2 hover:border-neutral-500"
+            >
+              <svg viewBox="0 0 20 20" className="h-5 w-5 fill-current" aria-hidden="true">
+                <path d="M3 4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h1.5v3.25a.75.75 0 0 0 1.28.53L9.31 14H17a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H3Z" />
+              </svg>
+              {chatUnreadCount > 0 && (
+                <span
+                  className="absolute -right-1 -top-1 rounded-full bg-sky-600 px-1.5 py-0.5 text-xs font-semibold leading-none text-white"
+                  aria-label={`${chatUnreadCount} unread message${chatUnreadCount === 1 ? '' : 's'}`}
+                >
+                  {formatUnreadBadge(chatUnreadCount)}
+                </span>
+              )}
+            </button>
+          )}
           <ul className="flex flex-wrap gap-3 text-sm text-neutral-400">
             {players.map((p) => (
               <li key={p.id} className="flex items-center gap-1">

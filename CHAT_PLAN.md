@@ -634,6 +634,15 @@ pinned above the whole page.
 - No `chat_read_status`/RLS/schema change — this is a pure UI relayout on
   top of §13's existing unread-tracking data flow, just re-plumbed to expose
   the count to an external toggle instead of an internal one.
+- **Bug, fixed (issue #608):** moving the toggle out of `ChatPanel` also
+  moved it out from behind `ChatPanel`'s own `if (!enabled || !session ||
+  !userId) return null` (§4/§6) — the button rendered even with the
+  `chat_enabled()` kill switch off (production's default), the only visible
+  trace of an otherwise fully-gated feature. `GamePage.tsx` now calls
+  `chatApi.ts`'s `isChatEnabled()` itself on mount (the same module-level
+  cache `ChatPanel` reads, so this doesn't add a second network round trip)
+  and only renders the header button once it resolves `true`. `<ChatPanel>`
+  itself is unchanged and still gates its own contents the same way.
 
 ## 15. Sender name colors (issue #581)
 
