@@ -37,6 +37,7 @@ import type { CardChoiceRecap, TurnReview } from '../engine/turnReview'
 import { currentActorId } from '../engine/turnOrder'
 import { useAuth } from '../hooks/useAuth'
 import { useIsAdmin } from '../hooks/useIsAdmin'
+import { useOneLineFit } from '../hooks/useOneLineFit'
 import { useRefetchOnVisible } from '../hooks/useRefetchOnVisible'
 import { useTrafficStats } from '../hooks/useTrafficStats'
 import { useConfirmBeforeRevealingCards } from '../hooks/useConfirmBeforeRevealingCards'
@@ -1087,6 +1088,30 @@ export function GamePage() {
   const displayState = isReviewingHistory ? reviewState : gameState
 
   /**
+   * Does the whole header row still fit on one line? Drives the two header
+   * layouts (issue #640) — see the header's own comment in the JSX below,
+   * and ../hooks/useOneLineFit.ts for why this is measured rather than
+   * keyed off a breakpoint.
+   *
+   * The content key is everything that changes how wide the four groups
+   * want to be: the game name, the roster (count + display names), whether
+   * the chat button renders at all, the round/bank text, and the review
+   * button's label, which swaps between two different widths. Transient
+   * in-flight labels ("Undoing…") are deliberately left out — they last a
+   * moment, and a slightly stale latched width only ever delays the return
+   * to the one-line layout by one measurement.
+   */
+  const headerContentKey = [
+    game?.name ?? '',
+    playersSignature,
+    chatEnabled ? 'chat' : '',
+    displayState ? `${displayState.turn}|${JSON.stringify(displayState.resourceBank)}` : '',
+    isReviewingHistory ? 'review' : '',
+  ].join('\u0000')
+  const [headerRef, headerFitsOneLine] = useOneLineFit<HTMLElement>(headerContentKey)
+  const headerGroupClass = headerFitsOneLine ? 'flex w-max shrink-0 items-center gap-3' : 'flex flex-wrap items-center gap-3'
+
+  /**
    * The "total score over time" series behind EndGameView's line chart —
    * only worth deriving once the game is actually over, and only from the
    * real (not history-review) state, so reviewing an earlier round never
@@ -1566,24 +1591,47 @@ export function GamePage() {
       }}
     >
       {/*
-        Four columns (issue #629 follow-ups: the first pass at this stacked
-        them as 4 rows instead — corrected to sit side by side in a single
-        row on a wide enough screen, wrapping onto their own lines below
-        that. `items-center` (not `items-start`) so the round/bank column —
-        just a couple of text lines, shorter than its siblings' buttons —
-        sits vertically centered against the row instead of pinned to the
-        top and looking like it floats slightly above it. The last column
-        carries `ml-auto` to push it flush right whenever it shares a line
-        with the others, and left-aligned on its own line once it wraps):
-        1.1 hamburger/name/next-game, 1.2 chat/player names, 1.3 round/bank,
-        1.4 undo/redo/review history (right-aligned). PhaseBanner/BankResources
-        used to render inside RoundView itself, only while a round was active
-        — they're exported from there (RoundView.tsx) so this header can show
-        them whenever there's any state to read a turn/bank from (board setup
-        and review included), not just mid-round.
+        Four groups (issue #629): 1.1 hamburger/name/next-game, 1.2
+        chat/player names, 1.3 round/bank, 1.4 undo/redo/review history.
+        PhaseBanner/BankResources used to render inside RoundView itself,
+        only while a round was active — they're exported from there
+        (RoundView.tsx) so this header can show them whenever there's any
+        state to read a turn/bank from (board setup and review included),
+        not just mid-round.
+
+        Two layouts, chosen by measurement rather than by a breakpoint
+        (issue #640 — `headerFitsOneLine`, ../hooks/useOneLineFit.ts, which
+        carries the full reasoning):
+
+        - Everything fits on one line: all four groups side by side,
+          round/bank third and undo/redo/review pushed flush right by
+          `ml-auto`. `flex-nowrap` with `w-max shrink-0` groups, so the row
+          can neither wrap nor squeeze a group — that is what keeps the
+          measurement honest (a shrunken group always "fits", so a
+          shrinkable row would latch to wide mode forever) and it is also
+          what this layout wants visually.
+        - It doesn't fit: the pre-#629 production layout returns.
+          Groups 1.1 and 1.2 flow together across as many lines as they
+          need, 1.4 is forced onto its own full-width line by `w-full` and
+          so is left-aligned (issue #640's two original asks), and 1.3 is
+          dropped from the header entirely — RoundView renders round/bank
+          itself again in this mode, via `showBankRow`, exactly where it
+          lived before #629.
+
+        Issue #640's first three attempts each picked the layout from a
+        fixed threshold instead (native `flex-wrap` line-packing, then
+        `flex-1`->`flex-auto`, then an `@2xl` container query). Whether the
+        four groups fit depends on the game name, the player count and
+        their display-name lengths, so no fixed threshold is right for every
+        game — and just past a wrong one this row wrapped and squeezed
+        undo/redo into a ~130px column beside the player names rather than
+        degrading gracefully. Don't reintroduce a breakpoint here.
       */}
-      <header className="flex flex-row flex-wrap items-center gap-x-6 gap-y-3">
-        <div className="flex flex-wrap items-center gap-3">
+      <header
+        ref={headerRef}
+        className={headerFitsOneLine ? 'flex flex-row flex-nowrap items-center gap-x-6' : 'flex flex-row flex-wrap items-center gap-x-6 gap-y-3'}
+      >
+        <div className={headerGroupClass}>
           <div ref={menuRef} className="relative">
             <button
               type="button"
@@ -1823,7 +1871,7 @@ export function GamePage() {
             Next game
           </button>
         </div>
-        <div className="flex flex-wrap items-center gap-3">
+        <div className={headerGroupClass}>
           {chatEnabled && (
             <button
               type="button"
@@ -1854,13 +1902,13 @@ export function GamePage() {
             ))}
           </ul>
         </div>
-        {displayState && (
-          <div className="flex flex-wrap items-center gap-4">
+        {headerFitsOneLine && displayState && (
+          <div className="flex w-max shrink-0 items-center gap-4">
             <PhaseBanner state={displayState} />
             <BankResources state={displayState} />
           </div>
         )}
-        <div className="ml-auto flex flex-wrap items-center gap-2">
+        <div className={headerFitsOneLine ? 'ml-auto flex w-max shrink-0 items-center gap-2' : 'flex w-full flex-wrap items-center gap-2'}>
           <button
             type="button"
             disabled={undoing || isReviewingHistory || !gameState || !historyPointer.canUndo || undoBlockedByRevealLock}
@@ -2184,6 +2232,7 @@ export function GamePage() {
           submitting={submitting}
           turnReview={turnHalos}
           showHistory={isReviewingHistory}
+          showBankRow={!headerFitsOneLine}
           showCardChoiceRecap={showCardChoiceRecap}
           cardChoiceRecapPhase={cardChoiceRecapPhase ?? undefined}
           cardChoiceRecap={cardChoiceRecap ?? undefined}
