@@ -1,5 +1,5 @@
-import { render, screen, within } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { fireEvent, render, screen, within } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
 import { EndGameView } from '../EndGameView'
 import { EMPTY_ACHIEVEMENT_CONTENT } from '../../engine/achievementContent'
 import type { AchievementContent } from '../../engine/achievementContent'
@@ -111,6 +111,31 @@ describe('EndGameView', () => {
     expect(aliceIndex).toBeLessThan(bobIndex)
 
     expect(screen.getByText('Winner:', { exact: false })).toBeInTheDocument()
+  })
+
+  it('copies a BoardGameGeek-friendly play summary, ranked with scores and the winner marked', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.assign(navigator, { clipboard: { writeText } })
+
+    const state = { ...makeState(), actionHistory: [{ action: { type: 'PASS_ACTIONS', playerId: 'p1' }, turn: 5, timestamp: '2026-03-05T12:00:00.000Z' }] } as GameState
+    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
+
+    render(<EndGameView state={state} players={players} achievementContent={content} taleContent={EMPTY_TALE_CONTENT} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Copy for BoardGameGeek' }))
+
+    expect(writeText).toHaveBeenCalledWith(
+      [
+        'Rise & Fall — play log for BoardGameGeek',
+        'Date: 2026-03-05',
+        '',
+        'Players:',
+        '1st. Alice — 6 pts (Winner)',
+        '2nd. Bob — 0 pts',
+        '',
+        'Log this play at https://boardgamegeek.com/boardgame/275912/rise-and-fall',
+      ].join('\n'),
+    )
+    expect(await screen.findByRole('button', { name: 'Copied!' })).toBeInTheDocument()
   })
 
   it('shows a single "Breakdown" fallback row when nobody scored anything', () => {
