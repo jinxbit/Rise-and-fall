@@ -5582,3 +5582,38 @@ side is comparing the same scale, not three independently-fitted ones.
 ceiling when omitted, so nothing else calling these components (tests
 included) needed to change.
 `npm run lint`, `npm run test`, and `npm run build` all pass.
+
+## 119. Bandwidth reduction: home screen room list re-downloaded every map-pool board (issue #620)
+
+The room-list queries behind `HomePage.tsx`/`PublicRoomsPage.tsx`/
+`MyGamesPage.tsx`/`AdminRoomsPage.tsx` (`gameApi.ts`'s `GAME_LIST_COLUMNS`,
+shared by `listAllRooms`/`listPublicRooms`/`listMyGames`) already avoided
+issue #441's actual `game_state` cost, but still fetched the full
+`games.settings` column for every listed room — including
+`settings.mapPoolBoard`, a complete `Board` (one Tile per hex) for any
+map-pool game, tens of KB re-downloaded on every list refresh even though
+no listing card reads its contents, only its *presence* (a truthiness
+check in `gameCardView.ts`'s `mapBuildStyleLabel`, for the "Random saved
+map" label). `GAME_LIST_COLUMNS`'s own doc comment already flagged this as
+a known follow-up, calling for "a DB-side projection that excludes just
+`mapPoolBoard`" without dropping the rest of `settings`.
+
+New migration `0033_games_settings_for_listing.sql` adds
+`games_settings_for_listing(games)`, a PostgREST "computed column" function
+(takes the table's row type as its sole argument, selectable as if it were
+a plain column) that returns `settings` with `mapPoolBoard` set to `null`.
+`GAME_LIST_COLUMNS` now selects `settings:games_settings_for_listing`
+instead of the plain `settings` column, aliased back to the same JSON key
+so nothing downstream needs to change shape. Single-room reads
+(`getGameByRoomCode` et al., which `LobbyPage.tsx`/`GamePage.tsx` use to
+build genesis from the real board) are untouched and keep using a plain
+`select()`.
+
+Nulling `mapPoolBoard` needed a different truthiness signal for
+`mapBuildStyleLabel`'s "Random saved map" check — `settings.mapPoolMapId`
+("which map_pool row mapPoolBoard came from, for display only", set
+alongside `mapPoolBoard` everywhere it's written) already existed for
+exactly this. `mapBuildStyleLabel` now checks `mapPoolMapId` instead of
+`mapPoolBoard`, and `dbTypes.ts`'s `GameSettings` comment on `mapPoolMapId`
+now documents this second use.
+`npm run lint`, `npm run test`, and `npm run build` all pass.

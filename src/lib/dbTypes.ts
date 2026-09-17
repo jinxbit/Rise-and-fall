@@ -31,7 +31,16 @@ export interface GameSettings {
    * mapTemplateId.
    */
   mapPoolBoard: Board | null
-  /** Which map_pool row mapPoolBoard came from, for display only — never read by buildGenesisState. */
+  /**
+   * Which map_pool row mapPoolBoard came from, for display only — never read
+   * by buildGenesisState. Set alongside mapPoolBoard everywhere it's written
+   * (CreateGamePage.tsx, LobbyPage.tsx), so it doubles as a listing-safe
+   * truthiness signal for "a map-pool board is locked in":
+   * gameApi.ts's GAME_LIST_COLUMNS nulls mapPoolBoard out for listing queries
+   * (issue #620, tens of KB of Board data no listing card reads), and
+   * gameCardView.ts's mapBuildStyleLabel checks mapPoolMapId instead so the
+   * "Random saved map" label still shows.
+   */
   mapPoolMapId: string | null
   /**
    * "Truly random" map mode (issue #166): don't lock in a `mapPoolBoard` yet —

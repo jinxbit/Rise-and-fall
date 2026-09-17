@@ -81,7 +81,15 @@ describe('buildGameCardSummary', () => {
     })
 
     it('labels a saved-pool board as a random saved map', () => {
-      const game = makeGame({}, { mapPoolBoard: createEmptyBoard('hex') })
+      const game = makeGame({}, { mapPoolBoard: createEmptyBoard('hex'), mapPoolMapId: 'map_1' })
+      expect(buildGameCardSummary(game, null).mapBuildStyle).toBe('Random saved map')
+    })
+
+    // Listing queries null mapPoolBoard out DB-side (issue #620,
+    // gameApi.ts's GAME_LIST_COLUMNS) — mapPoolMapId is the field that
+    // actually drives this label, since it's still present for a list-sourced row.
+    it('labels a saved-pool board as a random saved map from mapPoolMapId alone', () => {
+      const game = makeGame({}, { mapPoolBoard: null, mapPoolMapId: 'map_1' })
       expect(buildGameCardSummary(game, null).mapBuildStyle).toBe('Random saved map')
     })
 
