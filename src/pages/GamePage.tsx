@@ -1874,10 +1874,25 @@ export function GamePage() {
           A plain viewport media query would react to the wrong width once
           columns 1.1/1.2 wrap onto their own line and hand this pair the
           full row; `@container` measures this wrapper's own allotted width
-          instead, and `flex-1` lets it actually claim that width so the
-          query reflects it.
+          instead.
+
+          This wrapper claims that width with `flex-auto` (`flex: 1 1 auto`),
+          not `flex-1` (`flex: 1 1 0%`) — issue #640's first landing used
+          `flex-1` and it looked broken in production: a `flex-basis: 0%`
+          item's *hypothetical* size for the outer header's line-wrapping
+          decision is ~0 regardless of content, so the header judged this
+          wrapper as needing almost no room and kept packing it onto
+          whatever line 1.2 (chat/players) landed on — even a sliver of
+          leftover width next to 1.2 counted as "fits" — instead of wrapping
+          it below onto its own full-width line. `flex-auto`'s `auto` basis
+          makes that hypothetical size the wrapper's actual (unwrapped)
+          content width, so the header now only keeps it beside 1.1/1.2 when
+          there is genuinely enough room for all of it, and otherwise wraps
+          it onto its own line, which is what then lets the `@xl` check above
+          see this wrapper's true allotted width. `flex-grow: 1` (shared by
+          both) still lets it fill the remaining line width either way.
         */}
-        <div className="flex flex-1 @container">
+        <div className="flex flex-auto @container">
           <div className="flex w-full flex-col items-start gap-2 @xl:flex-row-reverse @xl:items-center @xl:justify-between">
             <div className="flex flex-wrap items-center gap-2">
               <button
