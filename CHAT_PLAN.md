@@ -870,16 +870,18 @@ asked for it directly (unlike §7, which is still gated on open question
   RLS is never in the way. The message body (up to 2000 chars,
   `chat_messages`' own check constraint) is truncated to 200 chars for the
   ping; the full text is only ever a tap away in the game itself.
-- **No new GitHub Actions workflow.** The other three notification families
-  each get a one-click "Set Up … Notifications" workflow
-  (`register-database-webhook.sh`, README's "Setting the backend up from
-  GitHub Actions"); this one does not, purely because of what could be built
-  in the PR that shipped it (no ability to touch `.github/workflows/**`) —
-  not a design decision. Backend setup is documented as manual steps in
-  README's "Chat message notifications" section, mirroring every other
-  notify-\* function's "by hand instead" fallback; a fourth workflow can be
-  added later by anyone with workflow-editing access, reusing
-  `register-database-webhook.sh` unchanged (`WEBHOOK_HOOKS="chat_messages:INSERT"`).
+- **A fourth "Set Up …" workflow, `setup-chat-notifications.yml`.** The PR
+  that shipped the rest of this section could not create it — that session's
+  GitHub App had no permission to touch `.github/workflows/**` — so it landed
+  one commit later (todo.md #129) with the manual steps documented in the
+  meantime. It follows `setup-lifecycle-notifications.yml` step for step
+  (same wrong-project guard, same generate-secret-then-register-then-probe
+  order, same soft-failing registration with a dashboard fallback in the job
+  summary), reusing `register-database-webhook.sh` unchanged with
+  `WEBHOOK_HOOKS="chat_messages:INSERT"`. It is the shortest of the four:
+  two hooks, not six. Running it is also how these two secrets are rotated.
+  The manual steps stay documented in README's "Chat message notifications"
+  section, as they are for every other notify-\* function.
 - **No test coverage inside `npm run test`**, matching every other notify-\*
   function: none of the six existing ones (turn/lifecycle ×2 channels) are
   exercised by `src/test/supabaseStack/`'s Edge Function registry either

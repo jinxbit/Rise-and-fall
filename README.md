@@ -459,9 +459,11 @@ follows the same "only async games" rule as every notification above: a live
 player already sees new messages over `chat_messages`' Realtime subscription,
 and hotseat has nobody remote to ping.
 
-**Backend setup**, once per Supabase project — there is no "Set Up Chat
-Notifications" one-click workflow for this one (yet; the other three
-families each have one under Actions → Run workflow):
+**Backend setup**, once per Supabase project — or use the **Set Up Chat
+Notifications** workflow (Actions → Run workflow), which does all of the
+below in one dispatch, the same way the other three families' setup
+workflows do; see
+[Setting the backend up from GitHub Actions](#setting-the-backend-up-from-github-actions).
 
 1. Deploy both Edge Functions and set their secrets:
    ```bash
@@ -497,20 +499,16 @@ full trigger/scope details, which apply to both functions.
 
 ## Setting the backend up from GitHub Actions
 
-Three manually-dispatched workflows do the notification backend setup above
+Four manually-dispatched workflows do the notification backend setup above
 without a terminal — useful for rotating a leaked secret from a phone, and
-the only practical way to keep six hooks consistent:
+the only practical way to keep eight hooks consistent:
 
 | Workflow | Deploys | Registers |
 | --- | --- | --- |
 | Set Up Discord Notifications | `notify-discord-turn` | `game_state`/Update |
 | Set Up Web Push Notifications | `notify-web-push` | `game_state`/Update |
 | Set Up Lifecycle Notifications | `notify-discord-lifecycle`, `notify-web-push-lifecycle` | `players`/Insert, `games`/Update, per function |
-
-Chat message notifications (above) have no workflow of their own yet —
-`notify-discord-chat`/`notify-web-push-chat` are still deploy-and-register-by-
-hand only. Adding a fourth **Set Up Chat Notifications** workflow, following
-the same shape, is future work, not something this section can do for you.
+| Set Up Chat Notifications | `notify-discord-chat`, `notify-web-push-chat` | `chat_messages`/Insert, per function |
 
 Each one asks which environment to target (Preview is pre-production, the
 project `main` deploys to; production is the live one) and refuses to run if
