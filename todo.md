@@ -5999,7 +5999,7 @@ notifications" section (deploy the two functions, register the Database
 Webhook by hand or via the existing `register-database-webhook.sh` script
 directly), mirroring every other notify-\* function's "by hand instead"
 fallback. A fourth workflow can be added later by anyone with
-workflow-editing access.
+workflow-editing access. **(Added in #129, immediately below.)**
 
 No new test coverage: like the six existing notify-\* functions, these
 aren't in `src/test/supabaseStack/edgeFunctions.ts`'s registry (webhook-
@@ -6009,3 +6009,60 @@ same existing design, verified at deploy/smoke-test time instead.
 
 `npm run lint`, `npm run test` (76 files / 1337 tests, unchanged — no new
 test-suite-reachable code) and `npm run build` all pass.
+
+
+## 129. The Set Up Chat Notifications workflow #128 couldn't add (issue #658)
+
+#128 shipped `notify-discord-chat`/`notify-web-push-chat` but not the
+workflow that configures them, because that session's GitHub App had no
+permission to write `.github/workflows/**`. That is the only reason it was
+missing, so this is the same issue finished rather than new work: the two
+functions were deploy-and-register-by-hand in the meantime, which is exactly
+the state the other three notification families were in before their setup
+workflows existed.
+
+`.github/workflows/setup-chat-notifications.yml` follows
+`setup-lifecycle-notifications.yml` step for step, since that is the other
+two-function member of the family: the same "Refuse to touch the wrong
+project" guard (the 2026-09-09 inherit-towards-production incident),
+`supabase functions deploy` for both functions, a freshly generated
+`DISCORD_CHAT_WEBHOOK_SECRET`/`PUSH_CHAT_WEBHOOK_SECRET` pair set as
+Supabase secrets, `register-database-webhook.sh` run once per function with
+`WEBHOOK_HOOKS='chat_messages:INSERT'`, then the same probe of both
+deployed functions with exactly the headers the hooks will send. As
+everywhere else in the family, registration and the probe are
+`continue-on-error` and the job summary falls back to dashboard
+instructions carrying the secrets to paste, since a failed registration
+must not leave a successful deploy looking like a failure. Running it is
+also how these two secrets get rotated.
+
+It is the shortest of the four workflows — `chat_messages` INSERT is one
+hook per function, versus the lifecycle pair's two each. The probe works
+the same way regardless: both functions check `x-webhook-secret` before
+parsing the payload and answer 200 `ignored` for a table they don't watch,
+and `notify-web-push-chat` answers 500 when VAPID keys are missing, so the
+probe's payload (`table: "__setup_probe"`) distinguishes a wrong secret and
+a missing push setup from a healthy function without touching a real game.
+
+Nothing was needed in `deploy-supabase.yml`: its "Deploy edge functions"
+step is a bare `supabase functions deploy`, which deploys every function in
+`supabase/functions/`, so both chat functions have been shipping to
+pre-production since #128 merged — what they lacked was their secrets and
+their Database Webhooks, which is precisely what this workflow supplies. No
+other workflow names a notify-\* function at all.
+
+Docs corrected in the same commit, since they documented the gap as a
+standing state: README's "Chat message notifications" now points at the
+workflow before its manual steps (which stay, as they do for every other
+notify-\* function), its GitHub Actions table gains the fourth row and says
+four workflows / eight hooks rather than three / six, and CHAT_PLAN.md
+§20's "No new GitHub Actions workflow" bullet becomes a description of the
+one that now exists.
+
+Player-facing behavior is unchanged: chat notifications are still
+off-by-default per player (**Profile → Chat message notifications**), and
+this workflow only configures the backend that makes the toggle mean
+anything.
+
+`npm run lint`, `npm run test` and `npm run build` all pass (unchanged — no
+`src/` code in this commit).
