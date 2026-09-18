@@ -154,10 +154,15 @@ if no other ruling arrives.
    makes City Income doubly valuable by handing out bidding power that
    costs its holder no VP, and a player who has to reach past their reserve
    into their gold is paying for the Zeitgeist in victory points.
-   **Still OPEN — the draw order.** Nothing yet settles what a winning bid
-   of 10 costs a player holding 6 gold and 8 reserve. **Default to
-   implement:** draw from **reserve first, then gold**; only the gold
-   portion moves to the bank, the reserve portion is simply decremented.
+   **The reserve is drawn from first** (maintainer, 2026-09-18): a winning
+   bid empties the reserve before it touches gold, and only the gold portion
+   moves to the bank — the reserve portion is simply decremented, since it
+   came from nowhere and goes nowhere. A bid of 10 from a player holding 6
+   gold and 8 reserve therefore costs 8 reserve and 2 gold, and a bid of 8
+   or less from that player costs no gold at all. Gold is thus genuinely
+   protected: a player only pays victory points for the Zeitgeist once their
+   reserve is spent out, which makes City Income the real currency of this
+   auction and makes an unspent reserve (decision 8) a wasted one.
 8. **The reserve always empties after the last Zeitgeist phase**
    (maintainer, 2026-09-18) — for every player, unconditionally, and after
    the final Purchase phase where no such Zeitgeist phase exists (rule 5.1).
@@ -381,8 +386,7 @@ The notification functions (`supabase/functions/notify-discord-turn`,
 
 ## 7. Open questions for the maintainer
 
-Beyond decision 7's draw order and decisions 9-10, which are marked OPEN
-above:
+Beyond decisions 9 and 10, which are marked OPEN above:
 
 1. **`advance` and the empty `next` slot.** After "replace the current card
    with the next card", is a new next card drawn immediately, or does the
