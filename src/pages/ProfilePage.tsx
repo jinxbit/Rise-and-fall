@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { ChatNotificationSettings } from '../components/ChatNotificationSettings'
 import { ConfirmBeforeRevealingCardsSettings } from '../components/ConfirmBeforeRevealingCardsSettings'
 import { DiscordWebhookSettings } from '../components/DiscordWebhookSettings'
 import { DisplayNameSettings } from '../components/DisplayNameSettings'
@@ -6,6 +7,7 @@ import { PushNotificationSettings } from '../components/PushNotificationSettings
 import { UnitColorSettings } from '../components/UnitColorSettings'
 import { UnitReserveDisplaySettings } from '../components/UnitReserveDisplaySettings'
 import { useAuth } from '../hooks/useAuth'
+import { useChatNotificationsEnabled } from '../hooks/useChatNotificationsEnabled'
 import { useConfirmBeforeRevealingCards } from '../hooks/useConfirmBeforeRevealingCards'
 import { useDisplayName } from '../hooks/useDisplayName'
 import { useUnitPlateColors } from '../hooks/useUnitPlateColors'
@@ -35,6 +37,11 @@ export function ProfilePage() {
     loading: confirmBeforeRevealingCardsLoading,
     setValue: setConfirmBeforeRevealingCards,
   } = useConfirmBeforeRevealingCards(session?.user ?? null)
+  const {
+    value: chatNotificationsEnabled,
+    loading: chatNotificationsEnabledLoading,
+    setValue: setChatNotificationsEnabled,
+  } = useChatNotificationsEnabled(session?.user ?? null)
 
   if (loading) return <div className="p-8 text-neutral-400">Loading…</div>
 
@@ -101,6 +108,13 @@ export function ProfilePage() {
       <DiscordWebhookSettings user={user} />
 
       <PushNotificationSettings user={user} />
+
+      <ChatNotificationSettings
+        userId={user.id}
+        value={chatNotificationsEnabled}
+        loading={chatNotificationsEnabledLoading}
+        onSaved={setChatNotificationsEnabled}
+      />
     </div>
   )
 }

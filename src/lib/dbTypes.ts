@@ -312,6 +312,14 @@ export interface ProfilePreferences {
    * src/lib/cardRevealConfirmation.ts. Absent means "use the default" (on).
    */
   confirmBeforeRevealingCards?: boolean
+  /**
+   * Whether posting a message in a game's chat should trigger this player's
+   * existing Discord webhook / Web Push notification for that game's other
+   * seated players (issue #658) — see src/lib/chatNotificationPreference.ts
+   * and supabase/functions/notify-discord-chat|notify-web-push-chat. Absent
+   * means "use the default" (off).
+   */
+  chatNotificationsEnabled?: boolean
 }
 
 /**
