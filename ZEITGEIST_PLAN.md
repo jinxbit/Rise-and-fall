@@ -143,27 +143,30 @@ if no other ruling arrives.
    lives in `GameState`; without the server-side read path there is nothing
    to redact it from. Since issue #552 every game created through the UI is
    enforced anyway, so this excludes nothing a player can actually create.
-7. **OPEN — what the auction reserve actually is.** Rules 3.1, 3.2 and 4
-   together do not determine what a winning bid of 10 costs a player holding
-   6 gold and 8 reserve. **Default to implement:** bidding capacity is
-   `gold + reserve`; a winning bid draws from **reserve first, then gold**;
-   only the gold portion moves to the bank, the reserve portion is simply
-   decremented. That reading makes rule 4 do what it appears designed to do
-   — City Income becomes doubly valuable, and reserve is bidding power that
-   does not cost its holder victory points. (Gold *is* VP at game end, at
-   `achievements.json`'s `goldPerVictoryPoint` — see
-   `calculateGoldVP`, `src/engine/victoryPoints.ts`. Bidding real gold is
-   bidding VP; that tension is the point of the mechanic and is worth
-   keeping.)
-8. **OPEN — rule 5.1 is cosmetic under decision 7's default.** An unspent
-   reserve that can never be used again affects nothing observable: it is
-   not gold, not VP, and no rule reads it outside an auction. Emptying it is
-   therefore a *display* step, faithfully implemented for the tabletop
-   cleanup it mirrors. **If unspent reserve is meant to convert into
-   something** (gold, VP, anything), that is real logic and this decision
-   changes. **Default to implement:** clear `reserveByPlayerId` at the point
-   rule 5.1 specifies, purely so the UI stops showing a number that can no
-   longer be spent.
+7. **The auction reserve is auction-only currency, and is never scored**
+   (maintainer, 2026-09-18). It is not a `Resources` holding: it never
+   touches `resourceBank`, has no `playerCap`, is spendable in a Zeitgeist
+   auction and nowhere else, and contributes nothing at scoring. Bidding
+   capacity is therefore `gold + reserve`, and the gold half of that
+   capacity *is* victory points — gold scores at `achievements.json`'s
+   `goldPerVictoryPoint` (`calculateGoldVP`, `src/engine/victoryPoints.ts`)
+   while reserve scores nothing. That asymmetry is the mechanic: rule 4
+   makes City Income doubly valuable by handing out bidding power that
+   costs its holder no VP, and a player who has to reach past their reserve
+   into their gold is paying for the Zeitgeist in victory points.
+   **Still OPEN — the draw order.** Nothing yet settles what a winning bid
+   of 10 costs a player holding 6 gold and 8 reserve. **Default to
+   implement:** draw from **reserve first, then gold**; only the gold
+   portion moves to the bank, the reserve portion is simply decremented.
+8. **The reserve always empties after the last Zeitgeist phase**
+   (maintainer, 2026-09-18) — for every player, unconditionally, and after
+   the final Purchase phase where no such Zeitgeist phase exists (rule 5.1).
+   Because the reserve is auction-only and unscored (decision 7), this
+   clearing changes nothing observable at scoring; it is implemented anyway,
+   both because it is the stated rule and because leaving a spent-out number
+   on screen would misrepresent what a player can still do. Its real effect
+   is on *play*: reserve is use-it-or-lose-it, so hoarding it past the last
+   auction is a pure loss, which is the pressure the rule is there to apply.
 9. **OPEN — nobody bids.** If every eligible player passes without a bid,
    **default to implement:** the current card stays, nothing is paid, and no
    player gets the choice. The alternative (the starting bidder takes the
@@ -378,7 +381,8 @@ The notification functions (`supabase/functions/notify-discord-turn`,
 
 ## 7. Open questions for the maintainer
 
-Beyond decisions 7-10, which are marked OPEN above:
+Beyond decision 7's draw order and decisions 9-10, which are marked OPEN
+above:
 
 1. **`advance` and the empty `next` slot.** After "replace the current card
    with the next card", is a new next card drawn immediately, or does the
@@ -389,8 +393,9 @@ Beyond decisions 7-10, which are marked OPEN above:
    only if a rule ever makes the choice unaffordable; it does not today.
    Paying first is assumed.
 3. **Eliminated players and their reserve.** `eliminatePlayer` returns a
-   player's resources to the bank; the reserve is not a bank resource.
-   Assumed simply dropped.
+   player's resources to the bank; the reserve is not a bank resource and is
+   never scored (decision 7), so it is simply dropped — nothing to return,
+   nothing to account for.
 
 ## 8. Phased roadmap
 
