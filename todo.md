@@ -5928,3 +5928,30 @@ resolves).
 
 `npm run lint`, `npm run test` (76 files / 1334 tests) and `npm run build`
 all pass.
+
+## 127. In-game button to toggle territory control on the live map (issue #656)
+
+Only way to see who controlled which region on the map used to be the "Show
+history"/"Review history" territory-control overlay (issue #281) or
+`EndGameView`'s final board — nothing showed it against the live, in-progress
+board. Added a plain on/off "Territory: off"/"Territory: on" button to
+`GamePage.tsx`'s header, right after "Review history", independent of that
+button's own 3-state `territoryControlMode` (which stays review-only).
+
+`RoundView` gained a `liveTerritoryControlOn?: boolean` prop (default
+`false`, so every existing caller and test compiles unchanged): while true
+and `showHistory` is false, its territory-control computation — previously
+gated on `showHistory && territoryControlMode === 'on'` — now also fires on
+`!showHistory && liveTerritoryControlOn`, reusing the exact same
+`calculateTerritoryControlByHex` call `EndGameView` and the review overlay
+already use. No "changes" variant for live play — there's no "previous
+state" to diff a live board against, so the toggle is deliberately binary
+rather than reusing the 3-state cycle.
+
+Covered by new cases in `src/components/__tests__/RoundView.test.tsx`'s
+"territory control overlay" describe block: the live toggle outlines
+controlled regions outside history review when on, renders nothing when off,
+and is ignored (territoryControlMode still governs) while reviewing history.
+
+`npm run lint`, `npm run test` (76 files / 1337 tests) and `npm run build`
+all pass.

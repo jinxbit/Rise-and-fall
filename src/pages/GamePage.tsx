@@ -347,6 +347,15 @@ export function GamePage() {
    */
   const [territoryControlMode, setTerritoryControlMode] = useState<'off' | 'on' | 'changes'>('changes')
   /**
+   * Live-play territory-control overlay (issue #656) — a simple on/off
+   * toggle, separate from the review banner's 3-state `territoryControlMode`
+   * above, that outlines every region the *live* board currently controls,
+   * the same way EndGameView's final board and the review 'on' mode do (see
+   * RoundView's `liveTerritoryControlOn` prop). Starts off so the board looks
+   * the same as before this issue until a player asks for it.
+   */
+  const [liveTerritoryControlOn, setLiveTerritoryControlOn] = useState(false)
+  /**
    * Hotseat pass-and-play: which seated player the shared device is
    * currently "handed to" — distinct from auth identity, since every
    * hotseat seat shares one signed-in host's user_id (see gameApi.ts's
@@ -1979,6 +1988,16 @@ export function GamePage() {
           >
             {isReviewingHistory ? 'Exit review' : 'Review history'}
           </button>
+          <button
+            type="button"
+            onClick={() => setLiveTerritoryControlOn((v) => !v)}
+            title="Outline every region a player currently controls on the map, the same way the victory screen does."
+            className={`rounded-md border px-3 py-1 text-sm hover:border-neutral-500 ${
+              liveTerritoryControlOn ? 'border-amber-500 bg-amber-500/10 text-amber-300' : 'border-neutral-700'
+            }`}
+          >
+            {liveTerritoryControlOn ? 'Territory: on' : 'Territory: off'}
+          </button>
         </div>
       </header>
 
@@ -2265,6 +2284,7 @@ export function GamePage() {
           cheatModeEnabled={isAdmin && cheatModeEnabled}
           onExitHistory={() => setReviewIndex(null)}
           territoryControlMode={territoryControlMode}
+          liveTerritoryControlOn={liveTerritoryControlOn}
           previousHistoryState={previousTerritoryState}
           gameLog={visibleGameLog}
           onChooseCard={(cardId) => {
