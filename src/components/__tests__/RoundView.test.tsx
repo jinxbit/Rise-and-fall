@@ -2693,7 +2693,13 @@ describe('RoundView — territory control overlay (issue #281)', () => {
 
   function renderTerritory(
     territoryControlMode: 'off' | 'on' | 'changes',
-    opts: { showHistory?: boolean; state?: GameState; previousHistoryState?: GameState | null; achievementContent?: typeof EMPTY_ACHIEVEMENT_CONTENT } = {},
+    opts: {
+      showHistory?: boolean
+      state?: GameState
+      previousHistoryState?: GameState | null
+      achievementContent?: typeof EMPTY_ACHIEVEMENT_CONTENT
+      liveTerritoryControlOn?: boolean
+    } = {},
   ) {
     const state = opts.state ?? makeState()
     return render(
@@ -2707,6 +2713,7 @@ describe('RoundView — territory control overlay (issue #281)', () => {
         turnReview={null}
         showHistory={opts.showHistory ?? true}
         territoryControlMode={territoryControlMode}
+        liveTerritoryControlOn={opts.liveTerritoryControlOn}
         previousHistoryState={opts.previousHistoryState ?? null}
         gameLog={[]}
         onChooseCard={() => {}}
@@ -2735,6 +2742,21 @@ describe('RoundView — territory control overlay (issue #281)', () => {
 
   it('renders no territory borders in any mode outside history review', () => {
     const { container } = renderTerritory('on', { showHistory: false, state: stateWithUnitAt('p1') })
+    expect(container.querySelectorAll('line[stroke="#ef4444"]')).toHaveLength(0)
+  })
+
+  it('renders no territory borders outside history review even with the live toggle off', () => {
+    const { container } = renderTerritory('off', { showHistory: false, liveTerritoryControlOn: false, state: stateWithUnitAt('p1') })
+    expect(container.querySelectorAll('line[stroke="#ef4444"]')).toHaveLength(0)
+  })
+
+  it('outlines every currently-controlled region outside history review when the live toggle is on (issue #656)', () => {
+    const { container } = renderTerritory('off', { showHistory: false, liveTerritoryControlOn: true, state: stateWithUnitAt('p1') })
+    expect(container.querySelectorAll('line[stroke="#ef4444"]').length).toBeGreaterThan(0)
+  })
+
+  it('ignores the live toggle while reviewing history — territoryControlMode still governs', () => {
+    const { container } = renderTerritory('off', { showHistory: true, liveTerritoryControlOn: true, state: stateWithUnitAt('p1') })
     expect(container.querySelectorAll('line[stroke="#ef4444"]')).toHaveLength(0)
   })
 

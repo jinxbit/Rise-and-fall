@@ -1452,6 +1452,16 @@ export function RoundView(props: {
    */
   territoryControlMode: 'off' | 'on' | 'changes'
   /**
+   * Live-play territory-control overlay (issue #656): while true and
+   * `showHistory` is false, outlines every region the live board currently
+   * controls, exactly like `territoryControlMode`'s 'on' mode does during
+   * review (and like EndGameView's final board) — computed straight off the
+   * live `state`, not a replayed one, so there's no "changes" variant to
+   * diff against. Defaults to false so existing callers (tests included)
+   * keep compiling unchanged.
+   */
+  liveTerritoryControlOn?: boolean
+  /**
    * The state just before the currently-reviewed point, for
    * territoryControlMode 'changes' to diff `state` against — GamePage's own
    * replay cache already holds this (same "previous state" `turnReview`
@@ -1513,6 +1523,7 @@ export function RoundView(props: {
     cardChoiceRecap,
     cheatModeEnabled = false,
     territoryControlMode,
+    liveTerritoryControlOn = false,
     previousHistoryState,
   } = props
   const [mode, setMode] = useState<ActionUiMode>({ kind: 'idle' })
@@ -1720,14 +1731,15 @@ export function RoundView(props: {
   })
   const historyArrows: HistoryArrow[] = historyByUnit ? [...historyByUnit.values()].flatMap((h) => h.moves) : []
 
-  // Territory-control overlay (issue #281) — 'off'/live play passes no
+  // Territory-control overlay (issue #281, live-play toggle issue #656) —
+  // 'off' review mode with the live toggle also off passes no
   // territoryControl at all to HexBoard (undefined, not []: see its own doc
   // comment, supplying the prop at all switches HexBoard into
-  // victory-screen-style rendering, which 'off' shouldn't trigger).
+  // victory-screen-style rendering, which neither "off" state should trigger).
   const pointsForHex = (hex: { terrain: string; regionSize: number }) => (achievementContent.terrainVictoryPoints[hex.terrain] ?? 0) * hex.regionSize
   let territoryControl: { coord: Coordinate; color: string; terrain: string; points: number }[] | undefined
   let territoryValueRange: { min: number; max: number } | undefined
-  if (showHistory && territoryControlMode === 'on') {
+  if ((showHistory && territoryControlMode === 'on') || (!showHistory && liveTerritoryControlOn)) {
     territoryControl = calculateTerritoryControlByHex(state.board, state.units, achievementContent.terrainScoresAs).map((hex) => ({
       coord: hex.coord,
       color: players.find((p) => p.id === hex.ownerId)?.color ?? '#a3a3a3',
