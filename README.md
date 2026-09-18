@@ -440,6 +440,61 @@ By hand instead, once per Supabase project:
 See `supabase/functions/notify-discord-lifecycle/index.ts`'s doc comment for
 the full trigger/dispatch details, which apply to both functions.
 
+## Chat message notifications (optional, per player, in-game chat only)
+
+Same two channels as the notifications above, but **not** the same
+per-player opt-in: a player who already pasted in a Discord webhook or
+turned on push for turn/lifecycle pings does not get pinged on every chat
+message for free. There's a second, separate toggle — **Profile → Chat
+message notifications**, off by default — because a chat can be far chattier
+than a turn cycle, and a webhook set up years ago for turn pings shouldn't
+suddenly start firing on every line of chat.
+
+Two more Edge Functions, `notify-discord-chat` and `notify-web-push-chat`,
+send this, triggered by a Database Webhook on `chat_messages` inserts. Site-
+wide chat (`game_id is null`) never notifies — there's no natural recipient
+for a message that isn't addressed to anyone in particular, same reasoning
+CHAT_PLAN.md §13 already applied to the unread indicator. In-game chat
+follows the same "only async games" rule as every notification above: a live
+player already sees new messages over `chat_messages`' Realtime subscription,
+and hotseat has nobody remote to ping.
+
+**Backend setup**, once per Supabase project — there is no "Set Up Chat
+Notifications" one-click workflow for this one (yet; the other three
+families each have one under Actions → Run workflow):
+
+1. Deploy both Edge Functions and set their secrets:
+   ```bash
+   supabase functions deploy notify-discord-chat
+   supabase secrets set DISCORD_CHAT_WEBHOOK_SECRET=$(openssl rand -hex 32)
+
+   supabase functions deploy notify-web-push-chat
+   supabase secrets set PUSH_CHAT_WEBHOOK_SECRET=$(openssl rand -hex 32)
+   ```
+   Both reuse `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` (automatic) and
+   `SITE_URL` (optional, already set above if you configured turn
+   notifications). `notify-web-push-chat` also reuses the existing
+   `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_CONTACT` secrets — same
+   subscriber pool, no new keypair.
+2. Register the Database Webhook — either **Database → Webhooks → Create a
+   new hook** in the dashboard (Table: `chat_messages`, Events: `Insert`,
+   Type: **Supabase Edge Functions**, targeting `notify-discord-chat` /
+   `notify-web-push-chat`, HTTP header `x-webhook-secret` set to the matching
+   secret from step 1), or run `scripts/supabase/register-database-webhook.sh`
+   directly the way the other setup workflows do:
+   ```bash
+   SUPABASE_PROJECT_ID=<project-ref> SUPABASE_ACCESS_TOKEN=<token> \
+   FUNCTION_NAME=notify-discord-chat WEBHOOK_SECRET=<the secret from step 1> \
+   WEBHOOK_HOOKS="chat_messages:INSERT" \
+   ./scripts/supabase/register-database-webhook.sh
+   ```
+   (and again with `FUNCTION_NAME=notify-web-push-chat` /
+   `PUSH_CHAT_WEBHOOK_SECRET`). See that script's own header comment for what
+   it does and its `WEBHOOK_DRY_RUN=1` option.
+
+See `supabase/functions/notify-discord-chat/index.ts`'s doc comment for the
+full trigger/scope details, which apply to both functions.
+
 ## Setting the backend up from GitHub Actions
 
 Three manually-dispatched workflows do the notification backend setup above
@@ -451,6 +506,11 @@ the only practical way to keep six hooks consistent:
 | Set Up Discord Notifications | `notify-discord-turn` | `game_state`/Update |
 | Set Up Web Push Notifications | `notify-web-push` | `game_state`/Update |
 | Set Up Lifecycle Notifications | `notify-discord-lifecycle`, `notify-web-push-lifecycle` | `players`/Insert, `games`/Update, per function |
+
+Chat message notifications (above) have no workflow of their own yet —
+`notify-discord-chat`/`notify-web-push-chat` are still deploy-and-register-by-
+hand only. Adding a fourth **Set Up Chat Notifications** workflow, following
+the same shape, is future work, not something this section can do for you.
 
 Each one asks which environment to target (Preview is pre-production, the
 project `main` deploys to; production is the live one) and refuses to run if

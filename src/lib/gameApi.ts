@@ -19,6 +19,7 @@ import type { MyGameEntry } from './myGamesView'
 import type { PublicRoomEntry } from './publicRoomsView'
 import type { UnitPlateColorOverrides } from './unitColors'
 import { resolveConfirmBeforeRevealingCards } from './cardRevealConfirmation'
+import { resolveChatNotificationsEnabled } from './chatNotificationPreference'
 import { resolveUnitReserveDisplayMode, type UnitReserveDisplayMode } from './unitReserveDisplay'
 import type { Board, GameState as EngineGameState, GameStatus, PlayMode, RoundPhase } from '../engine/types'
 import type { Action } from '../engine/actions'
@@ -170,6 +171,23 @@ export async function getProfileConfirmBeforeRevealingCards(userId: string): Pro
 
 export async function saveProfileConfirmBeforeRevealingCards(userId: string, value: boolean): Promise<void> {
   await saveProfilePreferences(userId, { confirmBeforeRevealingCards: value })
+}
+
+/**
+ * Reads a user's "notify me on chat messages" preference (issue #658, stored
+ * under `preferences.chatNotificationsEnabled`) — absent (including "no
+ * profile row yet") resolves to the default (off), same null-collapsing
+ * pattern as getProfileConfirmBeforeRevealingCards. Read server-side too, by
+ * the notify-discord-chat / notify-web-push-chat Edge Functions, via their
+ * service-role client.
+ */
+export async function getProfileChatNotificationsEnabled(userId: string): Promise<boolean> {
+  const preferences = await getProfilePreferences(userId)
+  return resolveChatNotificationsEnabled(preferences.chatNotificationsEnabled)
+}
+
+export async function saveProfileChatNotificationsEnabled(userId: string, value: boolean): Promise<void> {
+  await saveProfilePreferences(userId, { chatNotificationsEnabled: value })
 }
 
 /**

@@ -5955,3 +5955,57 @@ and is ignored (territoryControlMode still governs) while reviewing history.
 
 `npm run lint`, `npm run test` (76 files / 1337 tests) and `npm run build`
 all pass.
+
+## 128. Notify when a message is sent in in-game chat (issue #658)
+
+In-game chat itself was already built (through issue #650); this adds a
+Discord/Web Push ping when someone posts, plus a Profile-page toggle for it
+— see CHAT_PLAN.md §20 for the full design.
+
+Deliberately **not** folded into the existing turn/lifecycle notify-\*
+functions' one-switch-covers-everything opt-in (having a Discord webhook
+pasted in, or push turned on, at all): those events are inherently rare
+(once per turn, once per join/start/cancel/finish), but chat has no such
+rate limit, so a player who configured either channel years ago for turn
+pings should not silently start getting pinged on every line of a chat
+conversation. A new, separate, **off-by-default** preference —
+`profiles.preferences.chatNotificationsEnabled`
+(`src/lib/chatNotificationPreference.ts`) — reuses the existing
+`preferences` JSONB blob (0023_unit_reserve_display.sql) rather than a new
+column, threaded through `gameApi.ts`'s existing
+`getProfilePreferences`/`saveProfilePreferences` the same way
+`confirmBeforeRevealingCards` already is. `useChatNotificationsEnabled.ts` +
+`ChatNotificationSettings.tsx` (styled like
+`ConfirmBeforeRevealingCardsSettings.tsx`) surface it on `ProfilePage.tsx`,
+after the existing Discord/push panels.
+
+Two new Edge Functions, `notify-discord-chat` and `notify-web-push-chat`,
+near-duplicate `notify-discord-lifecycle`/`notify-web-push-lifecycle` in
+shape (same "Deno can't import the app's Vite-aliased TS sources" reason
+every notify-\* pair is a duplicate, not a shared import): triggered by a
+Database Webhook on `chat_messages` INSERT, in-game only (`game_id is
+null` — site-wide — is ignored, no natural recipient for a broadcast
+message, same reasoning §13's unread indicator already used), async games
+only (same rule every existing notify-\* function already follows — a live
+player sees the message over Realtime, hotseat has nobody remote to ping),
+recipients filtered to seated players other than the sender who both have a
+usable webhook URL/push subscription *and* the new preference set. Message
+body truncated to 200 chars for the ping.
+
+No automated **Set Up Chat Notifications** workflow exists for this one —
+this PR's GitHub App permissions can't touch `.github/workflows/**`, so
+backend setup is documented as manual steps in README's new "Chat message
+notifications" section (deploy the two functions, register the Database
+Webhook by hand or via the existing `register-database-webhook.sh` script
+directly), mirroring every other notify-\* function's "by hand instead"
+fallback. A fourth workflow can be added later by anyone with
+workflow-editing access.
+
+No new test coverage: like the six existing notify-\* functions, these
+aren't in `src/test/supabaseStack/edgeFunctions.ts`'s registry (webhook-
+triggered, not called from client code — that registry only covers the
+rule-enforcement path), so they're outside `npm run test`'s reach by the
+same existing design, verified at deploy/smoke-test time instead.
+
+`npm run lint`, `npm run test` (76 files / 1337 tests, unchanged — no new
+test-suite-reachable code) and `npm run build` all pass.
