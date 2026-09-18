@@ -284,6 +284,7 @@ one check. See `RULE_ENFORCEMENT_PLAN.md` §10 (2026-09-11 update, issue
 | `HIDDEN_INFORMATION_PLAN.md` | Redaction of simultaneous-phase secrets (`src/engine/redaction.ts`). |
 | `CHAT_PLAN.md` | Site-wide + in-game chat design (issue #466) — not yet implemented. |
 | `VARIANTS_PLAN.md` | Guilds & Tales variants — 23 Tales designed, a handful implemented. |
+| `ZEITGEIST_PLAN.md` | The Zeitgeist mode: one shared Guild card's rule change, auctioned after each Decline (design agreed, not built). |
 | `UnitActions.md` | Per-unit-action implementation checklist + resolved rules questions. |
 | `ELO_SYSTEM_PLAN.md` | Rating system design (not built). |
 | `DELIVERY_PIPELINE_PLAN.md` | How a change reaches production: the pre-production environment, branch topology, what auto-merges and what never does (design agreed, not built). |
