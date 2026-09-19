@@ -11,6 +11,7 @@ import {
   computeTradeGold,
   crossesCliff,
   findAdjacentRhombusCluster,
+  findConvertTarget,
   findMirroredPartnerUnit,
   hasAdjacentOwnUnitKind,
   hasAdjacentTerrain,
@@ -102,13 +103,8 @@ export function legalConvertTargets(state: GameState, playerId: string, unit: Un
     // default range, and effect.ignoresCliff opts a convert action out of
     // the rule entirely (e.g. Temple's Convert Enemy Unit).
     if (!effect.ignoresCliff && maxDistance <= 1 && crossesCliff(state, unit.coord, coord, content.terrainLevels)) return false
-    const target = unitsAt(state, coord).find((u) =>
-      effect.targetOwner === 'own'
-        ? u.ownerId === playerId && (!effect.requiredTargetKind || u.kind === effect.requiredTargetKind)
-        : u.ownerId !== playerId,
-    )
+    const target = findConvertTarget(state, playerId, coord, effect, content)
     if (!target) return false
-    if (effect.targetMobileOnly && !content.movementByKind[target.kind]?.isMobile) return false
     // Cost can vary by the target's own kind (e.g. Temple's Convert Enemy
     // Unit — see ConvertEffect.costByTargetKind), so affordability has to
     // be checked per candidate target, not once up front for the whole action.

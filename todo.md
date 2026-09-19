@@ -6133,3 +6133,38 @@ CHAT_PLAN.md §20, and README's "Chat message notifications" section.
 
 `npm run lint`, `npm run test` (76 files / 1337 tests, unchanged — no new
 test-suite-reachable code, same as #128/#129) and `npm run build` all pass.
+
+## 132. Temple's Convert Enemy Unit couldn't find a Merchant sharing a hex with a City (issue #674)
+
+Bug report, with a real game export attached: a Temple adjacent to a hex
+holding both an enemy City and that same enemy's Merchant (a legal board
+state — Merchant's `canEndMoveOnUnitTypes` lets it end its move on a City)
+had no legal Convert Enemy Unit target there at all, even though the
+Merchant alone should have been convertible.
+
+`legalConvertTargets` (`src/engine/actionTargeting.ts`) and `applyConvert`
+(`src/engine/unitActions.ts`) each picked the *first* unit at the target hex
+matching `targetOwner`, then separately checked `targetMobileOnly` against
+only that one pick. With two enemy-owned units on the same hex, whichever
+happened to come first in `state.units` decided the outcome — if that was
+the immobile City, the mobility check failed and the whole hex was rejected
+as illegal, even though the Merchant sharing it was a perfectly legal
+target sitting right there.
+
+Fixed by factoring the target search into one shared `findConvertTarget`
+(`unitActions.ts`, exported for `actionTargeting.ts` to reuse) that matches
+every one of the effect's criteria — ownership, `requiredTargetKind` for the
+`'own'` case, and `targetMobileOnly` — against the *same* candidate in a
+single pass, so an unrelated immobile unit sharing the hex can never shadow
+a legal mobile one. `legalConvertTargets` and `applyConvert` can't drift
+from each other's notion of "the target" as a result, same as the reasoning
+that already applied to their cliff/cost/supply-cap checks.
+
+Regression tests added at both layers: `actionTargeting.test.ts` (a
+synthetic enemy City + Merchant sharing a hex) and
+`unitActions.realContent.test.ts` (the same shape against real
+`content/units.json`, so it also pins the real Merchant's
+`canEndMoveOnUnitTypes` as the scenario's justification).
+
+`npm run lint`, `npm run test` (76 files / 1340 tests) and `npm run build`
+all pass.
