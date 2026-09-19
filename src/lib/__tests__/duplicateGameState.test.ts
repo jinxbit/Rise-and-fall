@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildGenesisState } from '../gameGenesis'
-import { remapGameSettingsPlayerIds, remapGameStatePlayerIds } from '../duplicateGameState'
+import { reconstructMapPoolBoardForImport, remapGameSettingsPlayerIds, remapGameStatePlayerIds } from '../duplicateGameState'
 import type { GameRow, GameSettings, PlayerRow } from '../dbTypes'
 
 function makeGame(overrides: Partial<GameRow> = {}, settingsOverrides: Partial<GameSettings> = {}): GameRow {
@@ -108,5 +108,51 @@ describe('remapGameSettingsPlayerIds', () => {
 
     expect(remapped.soloBuilderId).toBeNull()
     expect(remapped.soloBuilderTurnOrder).toBeNull()
+  })
+})
+
+describe('reconstructMapPoolBoardForImport', () => {
+  it('returns null for a game whose board is still being built interactively', () => {
+    const genesis = buildGenesisState(makeGame(), makePlayers())
+    expect(genesis.boardSetup?.tileTierQueue.length).toBeGreaterThan(0)
+
+    expect(reconstructMapPoolBoardForImport(genesis)).toBeNull()
+  })
+
+  it('returns null once at least one PLACE_TILE action has been logged', () => {
+    const genesis = buildGenesisState(makeGame(), makePlayers())
+    const state = {
+      ...genesis,
+      actionHistory: [{ action: { type: 'PLACE_TILE' as const, playerId: 'p1', anchor: { q: 0, r: 0 }, rotationSteps: 0 }, turn: 0, timestamp: '2026-01-01T00:00:00Z' }],
+    }
+
+    expect(reconstructMapPoolBoardForImport(state)).toBeNull()
+  })
+
+  it('reconstructs the preset board for a template-map genesis', () => {
+    const genesis = buildGenesisState(makeGame({}, { mapTemplateId: 'classic' }), makePlayers())
+    expect(genesis.boardSetup?.tileTierQueue).toEqual([])
+
+    const reconstructed = reconstructMapPoolBoardForImport(genesis)
+
+    expect(reconstructed).toEqual(genesis.board)
+
+    // Feeding it back in as mapPoolBoard rebuilds the same genesis a
+    // preset-board import needs buildGenesisState to reproduce.
+    const rebuiltGenesis = buildGenesisState(makeGame({}, { mapTemplateId: null, mapPoolBoard: reconstructed }), makePlayers())
+    expect(rebuiltGenesis.board).toEqual(genesis.board)
+    expect(rebuiltGenesis.boardSetup).toEqual(genesis.boardSetup)
+  })
+
+  it('still detects a preset board after occupantIds are stamped onto it, clearing them back out', () => {
+    const genesis = buildGenesisState(makeGame({}, { mapTemplateId: 'classic' }), makePlayers())
+    const [someCoordKey, someTile] = Object.entries(genesis.board.tiles)[0]
+    const stateWithUnit = {
+      ...genesis,
+      board: { ...genesis.board, tiles: { ...genesis.board.tiles, [someCoordKey]: { ...someTile, occupantIds: ['unit_1'] } } },
+      actionHistory: [{ action: { type: 'PLACE_UNIT' as const, playerId: 'p1', unitKind: 'city', coord: someTile.coord }, turn: 0, timestamp: '2026-01-01T00:00:00Z' }],
+    }
+
+    expect(reconstructMapPoolBoardForImport(stateWithUnit)).toEqual(genesis.board)
   })
 })

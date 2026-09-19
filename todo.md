@@ -6207,3 +6207,61 @@ admin screen alongside the export format it reads.
 
 `npm run lint`, `npm run test` (77 files / 1342 tests) and `npm run build`
 all pass.
+
+## 134. Import game export: history review showed nothing for a preset-map source game (issue #680)
+
+Bug report: importing a game export (#133) worked — the final screen showed
+correctly — but "Review history" showed nothing, and the reporter suspected
+a saved map was the cause. They were right.
+
+`GamePage.tsx`'s history review (and undo/redo) never trust the imported
+`GameState` for its board setup directly — they rebuild `genesis` via
+`buildGenesisState` (`gameGenesis.ts`) from the room's own `games.settings` +
+seated players, then replay the game's `actionHistory` against it
+(`replayActions`, `../engine/replay.ts`). That's deliberate (genesis isn't
+persisted at all — see that function's doc comment), but it means genesis
+reconstruction depends entirely on getting `games.settings`' map source
+right. `importGameExportAsHotseat` (issue #676, entry #133) seeded every new
+room's settings with "no map source" — harmless for a game whose board was
+built the normal interactive way (tile placement is fully driven by logged
+`PLACE_TILE` actions with no ambient randomness, so replaying them against a
+freshly-generated interactive genesis reproduces the same board regardless
+of settings) — but wrong for a game that started from a preset board (a map
+template or a saved map-pool board, `startGameWithPresetBoard`/
+`beginBoardSetupWithPresetBoard`): that path never logs a single `PLACE_TILE`
+action at all, going straight to starting-unit placement. With "no map
+source", the rebuilt genesis instead started an interactive tile-placement
+sub-phase that the real `actionHistory` never accounted for, so the very
+first logged action failed to replay. `extendGameLog`/`buildTurnReview`
+(`../engine/gameLog.ts`/`../engine/turnReview.ts`) both bail out the instant
+that happens, by design, leaving history/turn-review/undo all empty — while
+the final-screen view was unaffected, since it reads the stored final
+`GameState` straight from the row, no replay involved.
+
+Fix: `duplicateGameState.ts`'s new `reconstructMapPoolBoardForImport(state)`
+infers the map source from the `GameState` alone (an export carries no
+`GameSettings` to read it from) — a board built interactively always has
+either a logged `PLACE_TILE` action or a still-nonempty
+`boardSetup.tileTierQueue`; a preset board has neither. When neither is
+found, it returns the *current* board with every tile's `occupantIds`
+cleared back to `[]` as the reconstructed preset board — terrain never
+changes after board setup, only occupancy does, so that's exactly how the
+board looked at genesis. `importGameExportAsHotseat` now seeds
+`settings.mapPoolBoard` from this instead of hardcoding `null`, so
+`buildGenesisState` rebuilds the same preset-board genesis the export's
+`actionHistory` was actually recorded against.
+
+New coverage: `duplicateGameState.test.ts` unit-tests
+`reconstructMapPoolBoardForImport` directly (interactive board → `null`,
+even with one `PLACE_TILE` logged; preset-map genesis → the board back,
+round-tripped through `buildGenesisState` to confirm it reproduces an
+identical genesis; occupied tiles get their `occupantIds` cleared).
+`importGameExportAsHotseat.test.ts` adds an end-to-end case: a real
+`mapTemplateId: 'classic'` game, exported and imported, ends up with
+`settings.mapPoolBoard` equal to the source board and `mapTemplateId` still
+null (the template id itself isn't recoverable from a bare `GameState`, only
+its resolved board is — same as `duplicateGameAsHotseat`'s existing
+`mapPoolBoard`/`mapTemplateId` handling for a still-running preset game).
+
+`npm run lint`, `npm run test` (79 files / 1354 tests) and `npm run build`
+all pass.

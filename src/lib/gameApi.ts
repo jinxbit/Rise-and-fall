@@ -5,7 +5,7 @@ import { buildGenesisState, resolveMapPoolRandomAtStart, resolveSoloBuildMap } f
 import { pickRandomMapFromPool } from './mapPoolApi'
 import { canStartGame } from './roomReadiness'
 import { nextSeatIndex } from './seatIndex'
-import { remapGameSettingsPlayerIds, remapGameStatePlayerIds } from './duplicateGameState'
+import { reconstructMapPoolBoardForImport, remapGameSettingsPlayerIds, remapGameStatePlayerIds } from './duplicateGameState'
 import { decodeGameStateExport } from './gameStateExport'
 import type {
   GameRow,
@@ -698,13 +698,17 @@ export async function duplicateGameAsHotseat(params: {
  * Shares its player-remapping approach with duplicateGameAsHotseat above,
  * but there's no source GameRow/PlayerRow/GameSettings to read here — an
  * export only ever contains a bare GameState (see GameStateExportEnvelope).
- * The new room's settings are seeded with harmless defaults rather than
- * reconstructed: no map source (irrelevant once a game is past board
- * setup) and enforcement/hidden-information both off, which is required
- * for hotseat anyway (dbTypes.ts's hiddenInformationEnabled doc comment)
- * and for this plain client insert to be allowed at all by
+ * The new room's settings are mostly seeded with harmless defaults rather
+ * than reconstructed — enforcement/hidden-information both off, which is
+ * required for hotseat anyway (dbTypes.ts's hiddenInformationEnabled doc
+ * comment) and for this plain client insert to be allowed at all by
  * 0029_start_game_edge_function.sql's "seated players can insert game
- * state when enforcement is off" policy.
+ * state when enforcement is off" policy — except the map source, which
+ * buildGenesisState (gameGenesis.ts) needs to get right so it rebuilds the
+ * exact genesis the export's actionHistory was recorded against; see
+ * reconstructMapPoolBoardForImport's doc comment (duplicateGameState.ts,
+ * issue #680) for why a preset-board source can't just default to "no map
+ * source" like everything else here.
  */
 export async function importGameExportAsHotseat(params: { exportText: string; hostUserId: string }): Promise<GameRow> {
   const { gameState: sourceState } = await decodeGameStateExport(params.exportText)
@@ -716,7 +720,7 @@ export async function importGameExportAsHotseat(params: { exportText: string; ho
 
   const settings: GameSettings = {
     mapTemplateId: null,
-    mapPoolBoard: null,
+    mapPoolBoard: reconstructMapPoolBoardForImport(sourceState),
     mapPoolMapId: null,
     mapPoolRandomAtStart: false,
     soloBuildMap: false,
