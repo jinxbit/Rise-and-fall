@@ -7,7 +7,7 @@
 // without a live Supabase project — gameApi.ts's duplicateGameAsHotseat is
 // the only caller.
 
-import type { GameState } from '../engine/types'
+import type { Board, GameState } from '../engine/types'
 import type { GameSettings } from './dbTypes'
 
 /**
@@ -54,5 +54,49 @@ export function remapGameSettingsPlayerIds(settings: GameSettings, playerIdMap: 
     ...settings,
     soloBuilderId: settings.soloBuilderId ? (playerIdMap[settings.soloBuilderId] ?? settings.soloBuilderId) : settings.soloBuilderId,
     soloBuilderTurnOrder: settings.soloBuilderTurnOrder ? settings.soloBuilderTurnOrder.map((id) => playerIdMap[id] ?? id) : settings.soloBuilderTurnOrder,
+  }
+}
+
+/**
+ * Reconstructs the one piece of GameSettings that importGameExportAsHotseat
+ * (gameApi.ts, issue #676) needs to get right for a game that started from a
+ * preset board (a map template or a saved map_pool board) — everything else
+ * it seeds with harmless defaults, but the map source isn't harmless: it's
+ * what buildGenesisState (gameGenesis.ts) uses to rebuild the exact genesis
+ * the export's `actionHistory` was recorded against.
+ *
+ * An export carries no GameSettings at all (see GameStateExportEnvelope), so
+ * this infers the source from the GameState alone. A board built the normal
+ * interactive way always logs at least one PLACE_TILE action before it's
+ * done (or, if genuinely still mid-placement with none logged yet, still has
+ * a non-empty `boardSetup.tileTierQueue`) — and beginBoardSetup's tile
+ * generation is a deterministic function of turnOrder length + content, so
+ * replaying those logged choices against a freshly-generated interactive
+ * genesis reproduces the same board. A preset board never logs a PLACE_TILE
+ * action at all (beginBoardSetupWithPresetBoard skips straight to unit
+ * placement) — so seeding "no map source" there made buildGenesisState
+ * rebuild an interactive genesis instead, which expects tile placement
+ * before anything else. Replaying the real history's first action (a
+ * PLACE_UNIT, or later) against that wrong-shaped genesis then failed
+ * immediately, leaving turn review/undo empty even though the final state
+ * itself (read straight from storage, no replay involved) displayed fine
+ * (issue #680).
+ *
+ * Returns the preset board to seed as `GameSettings.mapPoolBoard`, or null
+ * if the source game built its board interactively. The preset board is
+ * derived from the *current* board, with every tile's `occupantIds` cleared
+ * back to `[]` — terrain never changes after board setup, only occupancy
+ * does, so that's exactly how the board looked at genesis, before any
+ * PLACE_UNIT/etc. action touched it.
+ */
+export function reconstructMapPoolBoardForImport(state: GameState): Board | null {
+  const builtInteractively =
+    state.actionHistory.some((entry) => entry.action.type === 'PLACE_TILE') ||
+    (state.boardSetup !== null && state.boardSetup.tileTierQueue.length > 0)
+  if (builtInteractively) return null
+
+  return {
+    shape: state.board.shape,
+    tiles: Object.fromEntries(Object.entries(state.board.tiles).map(([key, tile]) => [key, { ...tile, occupantIds: [] }])),
   }
 }

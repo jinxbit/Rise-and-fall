@@ -100,4 +100,42 @@ describe('importGameExportAsHotseat', () => {
       /Unrecognized game state export schema/,
     )
   })
+
+  it('reconstructs the map-pool board for a preset-map source game (issue #680)', async () => {
+    currentClient = stack.clientFor(ALICE)
+    const { game: sourceGame } = await createGame({
+      name: 'Source room',
+      playMode: 'live',
+      userId: ALICE,
+      displayName: 'Alice',
+      avatarUrl: null,
+      minPlayers: 2,
+      maxPlayers: 2,
+      mapTemplateId: 'classic',
+    })
+
+    currentClient = stack.clientFor(BOB)
+    const bobSeat = await joinGame({ game: sourceGame, userId: BOB, displayName: 'Bob', avatarUrl: null })
+    await markReady(bobSeat.id, sourceGame.config_version)
+
+    currentClient = stack.clientFor(ALICE)
+    await startGameFromLobby(sourceGame)
+    const sourceSnapshot = await getGameState(sourceGame.id)
+    if (!sourceSnapshot) throw new Error('expected source game state to exist')
+    // A preset-map genesis skips tile placement entirely — straight into
+    // starting-unit placement — so there is no PLACE_TILE action to find.
+    expect(sourceSnapshot.state.actionHistory.some((entry) => entry.action.type === 'PLACE_TILE')).toBe(false)
+
+    const exportText = await encodeGameStateExport(sourceSnapshot.state)
+
+    currentClient = stack.clientFor(ADMIN)
+    const importedGame = await importGameExportAsHotseat({ exportText, hostUserId: ADMIN })
+
+    // Without this, buildGenesisState would rebuild an interactive genesis
+    // for the new room, which doesn't match the exported actionHistory at
+    // all — that mismatch is what left turn review empty for a preset-map
+    // import.
+    expect(importedGame.settings.mapTemplateId).toBeNull()
+    expect(importedGame.settings.mapPoolBoard).toEqual(sourceSnapshot.state.board)
+  })
 })
