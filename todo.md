@@ -6066,3 +6066,33 @@ anything.
 
 `npm run lint`, `npm run test` and `npm run build` all pass (unchanged — no
 `src/` code in this commit).
+
+## 130. Shrink the live territory-control toggle to an icon button (issue #665)
+
+The live-play territory-control toggle added by #127
+(`GamePage.tsx`'s header, `liveTerritoryControlOn`) rendered as a
+full-width text button reading "Territory: on"/"Territory: off" — bulkier
+than the icon-sized undo/redo buttons next to it, and its state already
+had its own visual cue (the amber border/background) that made the text
+redundant.
+
+The button is now icon-only: a new `TerritoryTriangleIcon` draws three
+small hexes sharing edges as a triangle — the same mutually-adjacent-hex
+geometry as the actual board, using the same pointy-top hex math as
+`HexBoard.tsx`'s `hexPoints` (kept local to `GamePage.tsx` rather than
+exported, since it's only ever three fixed hexes at icon scale, not a
+board). The icon draws in `currentColor`, so it inherits the button's
+existing on/off text color (`text-amber-300` vs `text-neutral-400`) with no
+color logic of its own — on/off is still color-coded, just no longer
+spelled out in text. `aria-pressed`/`aria-label` were added so the state
+and action are still available to assistive tech now that there's no
+visible label; the `title` tooltip keeps its explanatory text for a mouse
+user hovering the icon.
+
+The 3-state review-history territory-control button (`TERRITORY_CONTROL_MODES`,
+off/on/changes) is unchanged — it needs a third state color-coding can't
+carry across two independent toggles' worth of ambiguity, and the issue
+asked about "the new territory button" specifically, i.e. #127's more
+recently added live toggle.
+
+`npm run lint`, `npm run test` and `npm run build` all pass.

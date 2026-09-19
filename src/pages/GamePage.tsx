@@ -133,6 +133,35 @@ const TERRITORY_CONTROL_MODES = [
   },
 ] as const
 
+/**
+ * Icon for the live territory-control toggle (issue #665): three small
+ * hexes connected as a triangle, standing in for the "Territory: on/off"
+ * text label the button used to carry. State reads from `currentColor`
+ * alone — the button's own text/border color already flips between amber
+ * (on) and neutral (off), so the icon needs no color logic of its own.
+ */
+function TerritoryTriangleIcon() {
+  const r = 4.4
+  const sqrt3 = Math.sqrt(3)
+  const centers = [
+    { x: 0, y: -r },
+    { x: -r * (sqrt3 / 2), y: r / 2 },
+    { x: r * (sqrt3 / 2), y: r / 2 },
+  ]
+  const hexPoints = (cx: number, cy: number) =>
+    Array.from({ length: 6 }, (_, i) => {
+      const angle = (Math.PI / 180) * (60 * i - 90)
+      return `${cx + r * Math.cos(angle)},${cy + r * Math.sin(angle)}`
+    }).join(' ')
+  return (
+    <svg width="16" height="16" viewBox="-9 -9 18 18" aria-hidden="true">
+      {centers.map((c, i) => (
+        <polygon key={i} points={hexPoints(c.x, c.y)} fill="currentColor" fillOpacity={0.85} stroke="currentColor" strokeWidth={0.6} />
+      ))}
+    </svg>
+  )
+}
+
 export function GamePage() {
   const { roomCode } = useParams<{ roomCode: string }>()
   const { session, loading: authLoading } = useAuth()
@@ -1991,12 +2020,18 @@ export function GamePage() {
           <button
             type="button"
             onClick={() => setLiveTerritoryControlOn((v) => !v)}
-            title="Outline every region a player currently controls on the map, the same way the victory screen does."
-            className={`rounded-md border px-3 py-1 text-sm hover:border-neutral-500 ${
-              liveTerritoryControlOn ? 'border-amber-500 bg-amber-500/10 text-amber-300' : 'border-neutral-700'
+            title={
+              liveTerritoryControlOn
+                ? 'Territory control is shown. Click to hide it.'
+                : 'Outline every region a player currently controls on the map, the same way the victory screen does.'
+            }
+            aria-pressed={liveTerritoryControlOn}
+            aria-label={liveTerritoryControlOn ? 'Hide territory control' : 'Show territory control'}
+            className={`rounded-md border p-1.5 hover:border-neutral-500 ${
+              liveTerritoryControlOn ? 'border-amber-500 bg-amber-500/10 text-amber-300' : 'border-neutral-700 text-neutral-400'
             }`}
           >
-            {liveTerritoryControlOn ? 'Territory: on' : 'Territory: off'}
+            <TerritoryTriangleIcon />
           </button>
         </div>
       </header>
