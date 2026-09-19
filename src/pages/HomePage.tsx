@@ -13,6 +13,7 @@ import { useAuth } from '../hooks/useAuth'
 import { useDisplayName } from '../hooks/useDisplayName'
 import { useIsAdmin } from '../hooks/useIsAdmin'
 import { useRefetchOnVisible } from '../hooks/useRefetchOnVisible'
+import { isGuestAuthAllowed } from '../lib/auth'
 import { getGameByRoomCode, listAllRooms } from '../lib/gameApi'
 import { buildGameCardSummary, describeGamePhase, formatFinishedAt, formatUpdatedAt, latestUpdatedAt } from '../lib/gameCardView'
 import { paginate } from '../lib/pagination'
@@ -126,7 +127,7 @@ export function HomePage() {
         <div className="flex flex-col items-center gap-3">
           <DiscordSignIn onError={setError} />
           <GoogleSignIn onError={setError} />
-          {import.meta.env.VITE_ALLOW_GUEST_AUTH === 'true' && <GuestSignIn onError={setError} />}
+          {isGuestAuthAllowed() && <GuestSignIn onError={setError} />}
         </div>
         <div className="flex w-full max-w-xs items-center gap-3 text-xs text-neutral-500">
           <div className="h-px flex-1 bg-neutral-800" />

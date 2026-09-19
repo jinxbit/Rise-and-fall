@@ -9,6 +9,10 @@
 // mistakes: see DELIVERY_PIPELINE_PLAN.md §8 on an environment deploying to
 // the wrong project because nothing said otherwise.
 //
+// `isProductionBuild()` (src/lib/environment.ts) is the shared predicate
+// behind this file's gate and also guards guest sign-in (src/lib/auth.ts) —
+// keep them using the same convention rather than each reimplementing it.
+//
 // So: `VITE_ENVIRONMENT` is set ONLY on non-production builds (Vercel's
 // Preview scope). Production leaves it unset and therefore renders nothing —
 // the safe state is the one that needs no configuration, rather than one
@@ -24,6 +28,8 @@
 // `vite.config.ts` from Vercel's `VERCEL_GIT_COMMIT_REF`/`VERCEL_GIT_COMMIT_SHA`
 // build-time env — see that file). Those are empty outside Vercel, in which
 // case the badge just omits them rather than showing something misleading.
+
+import { isProductionBuild } from '../lib/environment'
 
 export interface EnvironmentBadgeInfo {
   /** What to call this environment, e.g. "Preview". */
@@ -60,8 +66,8 @@ export function resolveEnvironmentBadge(
   gitCommitRef: string | undefined,
   gitCommitSha: string | undefined,
 ): EnvironmentBadgeInfo | null {
+  if (isProductionBuild(environment)) return null
   const label = environment?.trim() ?? ''
-  if (label.length === 0 || label.toLowerCase() === 'production') return null
   const branch = gitCommitRef?.trim() || null
   const commit = gitCommitSha?.trim() ? gitCommitSha.trim().slice(0, 7) : null
   return { label, projectRef: supabaseProjectRef(supabaseUrl), branch, commit }
