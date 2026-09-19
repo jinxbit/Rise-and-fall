@@ -745,4 +745,50 @@ describe('real content/units.json + terrain.json + resources.json', () => {
 
     expect(next.units.find((u) => u.id === 'enemy_nomad')!.ownerId).toBe('p1')
   })
+
+  it("Temple's Convert Enemy Unit finds an enemy Merchant even when it shares its hex with the enemy's own (immobile) City (issue #674)", () => {
+    // A Merchant may end its move on a City (unitContent.movementByKind.merchant.canEndMoveOnUnitTypes),
+    // so an enemy Merchant parked on its own City is a normal, legal board
+    // state — both units there are "enemy-owned" from the Temple's
+    // perspective. legalConvertTargets/applyConvert must find the mobile
+    // Merchant, not stop at whichever enemy unit happens to be first.
+    const board = setTile(setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'plain'), { q: 1, r: 0 }, 'plain')
+    const temple: Unit = { id: 'temple', ownerId: 'p1', kind: 'temple', coord: { q: 0, r: 0 }, movement: content.movementByKind.temple, traits: [] }
+    const enemyCity: Unit = { id: 'enemy_city', ownerId: 'p2', kind: 'city', coord: { q: 1, r: 0 }, movement: content.movementByKind.city, traits: [] }
+    const enemyMerchant: Unit = { id: 'enemy_merchant', ownerId: 'p2', kind: 'merchant', coord: { q: 1, r: 0 }, movement: content.movementByKind.merchant, traits: [] }
+    const state: GameState = {
+      gameId: 'g',
+      playMode: 'hotseat',
+      status: 'active',
+      turn: 1,
+      activePlayerId: null,
+      roundPhase: 'actions',
+      chosenCardIdByPlayerId: {},
+      pendingPlayerIds: [],
+      resolvedUnitIdsThisTurn: [],
+      unitsCreatedThisTurn: [],
+      turnOrder: ['p1', 'p2'],
+      board,
+      players: [makePlayer('p1', { gold: 5, wood: 0, stone: 0 }), makePlayer('p2')],
+      units: [temple, enemyCity, enemyMerchant],
+      cards: {},
+      resourceBank: { gold: 1000, wood: 1000, stone: 1000 },
+      activeTaleIds: [],
+      gameLength: Infinity,
+      hiddenInformationEnabled: false,
+      lockRevealedInformationEnabled: false,
+      winnerPlayerIds: [],
+      claimedByAchievementId: {},
+      achievementsClaimedThisRound: 0,
+      boardSetup: null,
+      idSequence: 0,
+      actionHistory: [],
+    }
+
+    const action = findAction('temple', 'convert-enemy-unit', content)
+    const next = applyUnitActionEffect(state, 'p1', 'temple', action, { [temple.id]: { q: 1, r: 0 } }, content)
+
+    expect(next.units.find((u) => u.id === 'enemy_merchant')!.ownerId).toBe('p1')
+    expect(next.units.find((u) => u.id === 'enemy_city')!.ownerId).toBe('p2') // the immobile City is never a legal target
+  })
 })

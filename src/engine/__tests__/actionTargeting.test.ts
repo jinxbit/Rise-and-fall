@@ -358,6 +358,17 @@ describe('legalConvertTargets', () => {
     expect(legalConvertTargets(state, 'p1', unit, effect, emptyContent)).toEqual([])
   })
 
+  it("still finds a mobile enemy unit sharing a hex with an immobile enemy unit (bug: an enemy City found first shadowed a legal enemy Merchant parked on it, issue #674)", () => {
+    const board = boardOf([[0, 0, 'plain'], [1, 0, 'plain']])
+    const unit = makeUnit('p1', 'temple', { q: 0, r: 0 })
+    const enemyCity = makeUnit('p2', 'city', { q: 1, r: 0 }, { isMobile: false })
+    const enemyMerchant = makeUnit('p2', 'merchant', { q: 1, r: 0 }, { isMobile: true })
+    const state = makeState({ board, units: [unit, enemyCity, enemyMerchant], players: [makePlayer('p1'), makePlayer('p2')] })
+    const content: UnitContent = { ...emptyContent, movementByKind: { city: { isMobile: false, terrains: [], canCrossCliffs: false }, merchant: { isMobile: true, terrains: [], canCrossCliffs: false } } }
+
+    expect(legalConvertTargets(state, 'p1', unit, effect, content)).toEqual([{ q: 1, r: 0 }])
+  })
+
   it('excludes an own unit', () => {
     const board = boardOf([[0, 0, 'plain'], [1, 0, 'plain']])
     const unit = makeUnit('p1', 'temple', { q: 0, r: 0 })

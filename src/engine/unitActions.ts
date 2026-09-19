@@ -566,6 +566,31 @@ function applyTransform(state: GameState, playerId: string, unit: Unit, effect: 
 }
 
 /**
+ * The single unit at `coord` that `effect` would actually act on — shared by
+ * applyConvert below and legalConvertTargets (./actionTargeting.ts) so the
+ * two can't drift. Every one of the effect's target criteria (ownership,
+ * `requiredTargetKind` for 'own', `targetMobileOnly`) must match the same
+ * candidate unit in a single pass — picking the first unit that merely
+ * matched ownership, then checking `targetMobileOnly` against only that pick,
+ * let an immobile occupant shadow a legal mobile one sharing the same hex
+ * (e.g. a Merchant that ended its move on a City, per Merchant's
+ * canEndMoveOnUnitTypes — an enemy City found first made the whole hex look
+ * illegal for Temple's Convert Enemy Unit even though the enemy Merchant on
+ * it was a legal target) — issue #674.
+ */
+export function findConvertTarget(state: GameState, playerId: string, coord: Coordinate, effect: ConvertEffect, content: UnitContent): Unit | undefined {
+  return unitsAt(state, coord).find((u) => {
+    if (effect.targetOwner === 'own') {
+      if (u.ownerId !== playerId) return false
+      if (effect.requiredTargetKind && u.kind !== effect.requiredTargetKind) return false
+    } else if (u.ownerId === playerId) {
+      return false
+    }
+    return !effect.targetMobileOnly || content.movementByKind[u.kind]?.isMobile === true
+  })
+}
+
+/**
  * Per ruling: convert can never cross a cliff either (same rule as
  * create/transform), unless the effect opts out via
  * ConvertEffect.ignoresCliff (e.g. Temple's Convert Enemy Unit converts by
@@ -585,14 +610,8 @@ function applyConvert(state: GameState, playerId: string, unit: Unit, effect: Co
   if (!isWithinDistance(state, unit.coord, targetCoord, maxDistance)) return state
   if (!effect.ignoresCliff && maxDistance <= 1 && crossesCliff(state, unit.coord, targetCoord, content.terrainLevels)) return state
 
-  const targetUnit = unitsAt(state, targetCoord).find((u) =>
-    effect.targetOwner === 'own'
-      ? u.ownerId === playerId && (!effect.requiredTargetKind || u.kind === effect.requiredTargetKind)
-      : u.ownerId !== playerId,
-  )
+  const targetUnit = findConvertTarget(state, playerId, targetCoord, effect, content)
   if (!targetUnit) return state
-
-  if (effect.targetMobileOnly && !content.movementByKind[targetUnit.kind]?.isMobile) return state
 
   const resultKind = effect.resultUnit ?? targetUnit.kind
   // See legalConvertTargets' matching comment (./actionTargeting.ts): the
