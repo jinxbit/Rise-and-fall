@@ -317,7 +317,7 @@ export interface ProfilePreferences {
    * existing Discord webhook / Web Push notification for that game's other
    * seated players (issue #658) — see src/lib/chatNotificationPreference.ts
    * and supabase/functions/notify-discord-chat|notify-web-push-chat. Absent
-   * means "use the default" (off).
+   * means "use the default" (on, issue #668).
    */
   chatNotificationsEnabled?: boolean
 }

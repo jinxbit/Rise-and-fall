@@ -841,13 +841,12 @@ asked for it directly (unlike §7, which is still gated on open question
   functions): a live player already sees a new message the instant it's
   posted over `chat_messages`' own Realtime subscription (§5), and hotseat
   has nobody remote to ping.
-- **A new, separate per-player opt-in — off by default.** Every existing
-  notification (turn, lifecycle) reuses one player-level "on" switch: having
-  a Discord webhook pasted in, or push turned on, at all. That works because
-  those events are inherently rare (once per turn, once per join/start/
-  cancel/finish). Chat has no such natural rate limit — a player who
-  configured either channel years ago for turn pings should not silently
-  start getting pinged on every line of a chat conversation. The new toggle,
+- **A new, separate per-player toggle.** Every existing notification (turn,
+  lifecycle) reuses one player-level "on" switch: having a Discord webhook
+  pasted in, or push turned on, at all. That works because those events are
+  inherently rare (once per turn, once per join/start/cancel/finish). Chat
+  has no such natural rate limit, so it needed a toggle of its own rather
+  than riding the existing switch. The new toggle,
   `profiles.preferences.chatNotificationsEnabled` (issue #658,
   `src/lib/chatNotificationPreference.ts`), reuses the existing
   `profiles.preferences` JSONB blob (0023_unit_reserve_display.sql) rather
@@ -855,7 +854,13 @@ asked for it directly (unlike §7, which is still gated on open question
   `gameApi.ts`'s `getProfilePreferences`/`saveProfilePreferences`" pattern
   `dbTypes.ts`'s `ProfilePreferences` doc comment already prescribes.
   Surfaced on the Profile page as `ChatNotificationSettings.tsx`, styled and
-  shaped exactly like `ConfirmBeforeRevealingCardsSettings.tsx`.
+  shaped exactly like `ConfirmBeforeRevealingCardsSettings.tsx`. Originally
+  shipped **off** by default — a player who configured either channel years
+  ago for turn pings should not silently start getting pinged on every line
+  of a chat conversation — but issue #668 flipped the default to **on**:
+  requiring an opt-in was hiding the feature from players who wanted it, and
+  the opt-*out* this section already describes covers the original worry
+  just as well.
 - **Two new Edge Functions**, `notify-discord-chat` and
   `notify-web-push-chat` (`supabase/functions/`), near-duplicates of
   `notify-discord-lifecycle`/`notify-web-push-lifecycle` for the same

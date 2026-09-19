@@ -6096,3 +6096,40 @@ asked about "the new territory button" specifically, i.e. #127's more
 recently added live toggle.
 
 `npm run lint`, `npm run test` and `npm run build` all pass.
+
+## 131. Chat notifications on by default (issue #668)
+
+#128 (issue #658) shipped chat's Discord/Web Push ping as **off** by
+default: those two channels already fire on every turn/lifecycle event with
+no per-event toggle, so the worry was a player who set either up years ago
+for turn pings suddenly getting one per chat message with no prior chance to
+opt out. This issue asked to flip that: requiring an opt-in was hiding the
+feature from players who wanted it, and the original worry is still covered
+— just as an opt-*out* instead, on the same Profile → Chat message
+notifications toggle.
+
+`DEFAULT_CHAT_NOTIFICATIONS_ENABLED` (`src/lib/chatNotificationPreference.ts`)
+flips from `false` to `true`. The preference is resolved from the stored
+value at read time rather than stamped onto a row at creation (unlike
+`ruleEnforcementEnabled`/`hiddenInformationEnabled`), so there is no
+old-row/new-row split to preserve — every profile that never touched the
+toggle, old or new, now resolves to "on."
+
+That resolution only happens client-side (`gameApi.ts`'s
+`getProfileChatNotificationsEnabled`, used for the Profile page toggle's
+initial value). The two Edge Functions read the stored preference directly
+against a literal, so flipping just the constant would have been cosmetic:
+`notify-discord-chat` checked `preferences?.chatNotificationsEnabled !==
+true` (send only when explicitly `true`) and `notify-web-push-chat` checked
+`=== true` the same way. Both now check for explicit `false` instead
+(`!== false` / `=== false`), so an unset preference sends, matching the new
+default, and only an explicit opt-out suppresses it.
+
+Doc comments updated in the same commit, per this repo's convention:
+`chatNotificationPreference.ts`, `gameApi.ts`, `dbTypes.ts`'s
+`ProfilePreferences.chatNotificationsEnabled`, `ChatNotificationSettings.tsx`
+(copy and doc comment), both notify-*-chat Edge Functions' header comments,
+CHAT_PLAN.md §20, and README's "Chat message notifications" section.
+
+`npm run lint`, `npm run test` (76 files / 1337 tests, unchanged — no new
+test-suite-reachable code, same as #128/#129) and `npm run build` all pass.
