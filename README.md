@@ -610,7 +610,11 @@ This requires **Authentication → Sign In / Providers → Allow anonymous
 sign-ins** to be enabled in the Supabase dashboard (off by default).
 
 Leave `VITE_ALLOW_GUEST_AUTH` unset in production — Discord sign-in is
-meant to be mandatory there; this is a testing-only escape hatch.
+meant to be mandatory there; this is a testing-only escape hatch. This isn't
+just convention: `isGuestAuthAllowed()` (`src/lib/auth.ts`) also requires a
+non-production build by the same `VITE_ENVIRONMENT` signal the environment
+badge uses (issue #677), so a shared/mis-scoped Vercel env var can't turn
+guest sign-in on in production by itself.
 
 ## Hotseat identity — how it works
 
