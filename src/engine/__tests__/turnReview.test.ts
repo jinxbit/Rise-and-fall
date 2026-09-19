@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { applyAction } from '../applyAction'
+import { EMPTY_ACHIEVEMENT_CONTENT } from '../achievementContent'
 import { createEmptyBoard, setTile } from '../board'
 import { cardIdFor, createPlayerCards, syncCardZonesWithBoard } from '../cards'
 import { createNewGame } from '../createGame'
-import { beginSelectCardsPhase } from '../round'
+import { beginDeclinePhase, beginSelectCardsPhase } from '../round'
 import { buildTurnReview, cardChoicesForRecap, findReviewWindowStart, findTurnStops, recapTurnFor, reviewPhaseGroupAt, roundPhaseForRecap, shouldShowCardChoiceRecap } from '../turnReview'
+import type { AchievementContent } from '../achievementContent'
 import type { LoggedAction } from '../actions'
 import type { Card, GameState, Player, Terrain, Unit } from '../types'
 import type { UnitAction, UnitContent } from '../unitContent'
@@ -399,6 +401,65 @@ describe('cardChoicesForRecap', () => {
 
     const recap = cardChoicesForRecap(afterP2Pass.actionHistory, statesBefore, 3, recapTurn, content)
     expect(recap.chosenCardIdByPlayerId).toEqual({ p1: p1CardId, p2: p2CardId })
+  })
+
+  it("recovers BOTH players' declined cards even when the SECOND player's own MOVE_TO_DECLINE is also the one that finishes the round — chaining straight through beginPurchasePhase/finishRound (round.ts) within that same dispatch, same as the entry-level `turn` field already accounts for (applyActionWithSteps' own doc comment) — reproduces issue #672, where only the first decliner's card showed in the overlay", () => {
+    const board = boardOf([
+      [0, 0, 'plain'],
+      [1, 0, 'plain'],
+    ])
+    const nomad: Unit = { id: 'nomad_a', ownerId: 'p1', kind: 'nomad', coord: { q: 0, r: 0 }, movement: content.movementByKind.nomad, traits: [] }
+    const city: Unit = { id: 'city_b', ownerId: 'p2', kind: 'city', coord: { q: 1, r: 0 }, movement: content.movementByKind.city, traits: [] }
+    const genesis = makeGenesis([nomad, city], board)
+
+    const p1CardA = cardIdFor('p1', 'nomad')
+    const p1CardB = cardIdFor('p1', 'city')
+    const p2CardA = cardIdFor('p2', 'city')
+    const p2CardB = cardIdFor('p2', 'nomad')
+
+    // A non-zero buyback cost neither player's 0 gold can afford means
+    // skipEmptyDeclinePurchasers (round.ts) drops both of them from the
+    // purchase phase the instant it begins, so p2's own decline — the one
+    // that empties pendingPlayerIds — chains straight through
+    // beginPurchasePhase into finishRound within that SAME MOVE_TO_DECLINE
+    // dispatch, just like a real endgame round with nothing left to buy back.
+    const achievementContent: AchievementContent = { ...EMPTY_ACHIEVEMENT_CONTENT, purchaseCostTable: [1] }
+    const declineTurn = genesis.turn
+    const declineState = beginDeclinePhase(
+      {
+        ...genesis,
+        players: genesis.players.map((p) =>
+          p.id === 'p1' ? { ...p, handCardIds: [p1CardA, p1CardB], discardCardIds: [] } : { ...p, handCardIds: [p2CardA, p2CardB], discardCardIds: [] },
+        ),
+        claimedByAchievementId: { some_achievement: 'p1' },
+      },
+      achievementContent,
+    )
+    expect(declineState.roundPhase).toBe('decline')
+    expect(declineState.pendingPlayerIds).toEqual(['p1', 'p2'])
+
+    const afterP1Result = applyAction(declineState, { type: 'MOVE_TO_DECLINE', playerId: 'p1', cardId: p1CardA }, content, achievementContent)
+    if (!afterP1Result.ok) throw new Error(afterP1Result.error)
+    const afterP1 = afterP1Result.state
+    expect(afterP1.roundPhase).toBe('decline')
+    expect(afterP1.pendingPlayerIds).toEqual(['p2'])
+
+    const afterP2Result = applyAction(afterP1, { type: 'MOVE_TO_DECLINE', playerId: 'p2', cardId: p2CardA }, content, achievementContent)
+    if (!afterP2Result.ok) throw new Error(afterP2Result.error)
+    const afterP2 = afterP2Result.state
+
+    expect(afterP2.actionHistory).toHaveLength(2)
+    // p2's decline chained straight through to the next round...
+    expect(afterP2.turn).toBe(declineTurn + 1)
+    // ...but is still logged under the round it actually resolved.
+    expect(afterP2.actionHistory[1].turn).toBe(declineTurn)
+
+    const statesBefore = [declineState, afterP1]
+    const recapTurn = recapTurnFor(afterP2.actionHistory, 2, afterP2)
+    expect(recapTurn).toBe(declineTurn)
+
+    const recap = cardChoicesForRecap(afterP2.actionHistory, statesBefore, 2, recapTurn, content, achievementContent)
+    expect(recap.declinedCardIdsByPlayerId).toEqual({ p1: [p1CardA], p2: [p2CardA] })
   })
 })
 
