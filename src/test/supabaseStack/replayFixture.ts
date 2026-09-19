@@ -70,7 +70,11 @@ export function submitLoggedEntry(stack: ReplayTarget, fixture: ProductionGameFi
 export interface ReplayOutcome {
   /** The `game_state.version` the row is on once the whole history has been submitted. */
   version: number
-  /** Indices into the fixture's raw history that had nothing left to submit — see `isStaleForcedFollowUp` below. */
+  /**
+   * Indices into the fixture's raw history that had nothing left to submit —
+   * see `isStaleForcedFollowUp` below, and `undoTargetsFoldedEntry` for the
+   * UNDO_ACTION/REDO_ACTION markers that revert one of those.
+   */
   foldedEntryIndices: number[]
 }
 
@@ -107,6 +111,37 @@ function isStaleForcedFollowUp(state: GameState, entry: LoggedEntry, fixture: Pr
 }
 
 /**
+ * Is this UNDO_ACTION/REDO_ACTION marker one that moves the pointer across an
+ * entry this replay already folded away?
+ *
+ * The forward half of the §4.2/§4.3 fold-in has an undo-side half. A game
+ * played before the fold-in logged a forced follow-up as its own entry, so
+ * walking back over it took its own Undo: production needed two, one for the
+ * follow-up and one for the action that forced it. Today those are a single
+ * entry, and `isStaleForcedFollowUp` above drops the follow-up from the
+ * replay — which leaves the second of production's two Undos with nothing of
+ * its own left to revert. Submitted anyway, it walks back over the *preceding*
+ * real action instead, silently rewinding a move the game never took back:
+ * every later action then resolves against a state production never had, and
+ * the replay fails somewhere downstream with a rejection that looks like a
+ * rules regression and isn't (`three-player-red-wins-with-undos`, whose
+ * Undo at raw entry 178 reverts a folded CHOOSE_CARD, first hit this — the
+ * replay died 21 actions later on an unrelated-looking RESOLVE_UNIT_ACTION).
+ *
+ * So an Undo whose target was folded is itself folded, and likewise a Redo
+ * that would step back onto one: the entry it belongs to already carries the
+ * follow-up, so the single remaining Undo reverts both at once, exactly as it
+ * would in a game played today. `pointer` is walkHistory's, before this
+ * marker moves it; a marker that would run past either end of the walk is
+ * folded too, since production's own pointer clamps there (`Math.max`/
+ * `Math.min` in walkHistory) and the live path would reject it outright.
+ */
+function undoTargetsFoldedEntry(entry: LoggedEntry, substantiveWasFolded: boolean[], pointer: number): boolean {
+  if (entry.action.type === 'UNDO_ACTION') return pointer === 0 || substantiveWasFolded[pointer - 1]
+  return pointer >= substantiveWasFolded.length || substantiveWasFolded[pointer]
+}
+
+/**
  * Submits every entry in order, failing with the action's position and the
  * server's own message the moment one is rejected — which is the useful half
  * of a failure here: "action 143/210, RESOLVE_UNIT_ACTION by seat-2, 400: ..."
@@ -118,8 +153,29 @@ export async function replayFixtureThroughStack(stack: ReplayTarget, fixture: Pr
   let state = fixture.genesis
   let version = 0
 
+  // Mirrors walkHistory's pointer (src/engine/historyFold.ts) over the raw
+  // history, remembering for each substantive entry whether this replay
+  // folded it — which is what `undoTargetsFoldedEntry` needs to tell a real
+  // undo from one that reverts an entry today's engine never logged.
+  const substantiveWasFolded: boolean[] = []
+  let pointer = 0
+
   for (const [index, entry] of history.entries()) {
-    if (isStaleForcedFollowUp(state, entry, fixture)) {
+    let folded: boolean
+    if (entry.action.type === 'UNDO_ACTION' || entry.action.type === 'REDO_ACTION') {
+      folded = undoTargetsFoldedEntry(entry, substantiveWasFolded, pointer)
+      if (entry.action.type === 'UNDO_ACTION') pointer = Math.max(0, pointer - 1)
+      else pointer = Math.min(substantiveWasFolded.length, pointer + 1)
+    } else if (entry.action.type === 'SET_ADMIN_MODE') {
+      // Never joins the pointer walk — see walkHistory's doc comment.
+      folded = isStaleForcedFollowUp(state, entry, fixture)
+    } else {
+      folded = isStaleForcedFollowUp(state, entry, fixture)
+      substantiveWasFolded.length = pointer // drops the un-redone tail, exactly as walkHistory does
+      substantiveWasFolded.push(folded)
+      pointer += 1
+    }
+    if (folded) {
       foldedEntryIndices.push(index)
       continue
     }

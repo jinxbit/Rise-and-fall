@@ -57,6 +57,20 @@ them dropped from the expected log — they are no-ops by construction, so
 nothing else about the game changes. `red-beats-blue-async` has 12 of them out
 of 263, `three-player-red-runaway` 18 out of 229.
 
+An Undo has the same thing happen to it. Walking back over a follow-up that
+used to be its own entry took its own Undo, so production logged two where a
+game played today logs one. Once the follow-up is skipped, the second Undo has
+nothing of its own left to revert — and submitted anyway it walks back over the
+*preceding* real action, rewinding a move the game never took back. The replay
+folds those markers away too (`undoTargetsFoldedEntry` in
+`src/test/supabaseStack/replayFixture.ts`), so the one remaining Undo reverts
+the action and its folded follow-up together, the way it would today. This is
+worth knowing because of how it fails when it goes wrong: the rewound state is
+still perfectly legal, so nothing complains until some later action resolves
+against it and gets rejected — in `three-player-red-wins-with-undos`, an Undo
+at entry 178 surfaced as a rejected `RESOLVE_UNIT_ACTION` at entry 199, which
+reads like a rules regression and isn't one.
+
 One field is likewise left out of the comparison:
 `declineSourceZoneByCardId` is checked only while a decline phase is open,
 which is the only window anything reads it (it exists so `RETRACT_DECLINE` can
