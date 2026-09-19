@@ -118,14 +118,26 @@ jobs:
           supabase functions deploy notify-discord-chat
           supabase functions deploy notify-web-push-chat
 
+      # Masked the moment they exist, the way setup-push-notifications.yml
+      # masks its VAPID private key. A step output is NOT a registered secret,
+      # so without this GitHub prints both values in full in the `env:` block
+      # it echoes for every later step that receives them — which is how the
+      # first Preview run (2026-09-19) leaked its pair into the run log.
+      # Masking covers the log stream only; the by-hand fallback in Report
+      # still needs the values, so if a future run has to print them there,
+      # treat that summary as sensitive.
       - name: Generate webhook secrets
         if: ${{ github.event.inputs.confirm == 'YES' }}
         id: secrets
         run: |
           set -euo pipefail
+          discord="$(openssl rand -hex 32)"
+          push="$(openssl rand -hex 32)"
+          echo "::add-mask::$discord"
+          echo "::add-mask::$push"
           {
-            echo "discord=$(openssl rand -hex 32)"
-            echo "push=$(openssl rand -hex 32)"
+            echo "discord=$discord"
+            echo "push=$push"
           } >> "$GITHUB_OUTPUT"
 
       - name: Set Supabase function secrets
