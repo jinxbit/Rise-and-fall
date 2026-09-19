@@ -6168,3 +6168,42 @@ synthetic enemy City + Merchant sharing a hex) and
 
 `npm run lint`, `npm run test` (76 files / 1340 tests) and `npm run build`
 all pass.
+
+## 133. Site admin can import a game export (issue #676)
+
+Feature request: let a site admin turn a pasted game state export (the
+"Copy game export" clipboard action, usually attached to a bug report) into
+a playable game, without needing direct Supabase access or the reporter's
+account. Per the issue, the imported game becomes a hot seat room.
+
+New admin screen at `/admin/import` (`AdminImportPage.tsx`, gated by
+`useIsAdmin` the same way `AdminMapsPage.tsx`/`AdminRoomsPage.tsx` are, and
+linked from the same hamburger menu as those two on `HomePage.tsx`): pastes
+the export's JSON into a textarea and creates a new room from it.
+
+The actual work is `gameApi.ts`'s `importGameExportAsHotseat` — it decodes
+the export (`decodeGameStateExport`, `gameStateExport.ts`) down to a bare
+`GameState`, then follows the same shape as the existing "Duplicate as hot
+seat" feature (`duplicateGameAsHotseat`, issue #414): fresh player ids for
+every seat, all owned by the importing admin's own account, a new `games` +
+`players` + `game_state` row inserted directly (never touching or even
+looking up whatever game the export came from). The two differ in what they
+start from — `duplicateGameAsHotseat` reads a live `GameRow`/`PlayerRow[]`
+already in this project, while an import only ever has the bare `GameState`
+an export carries, with no `GameSettings` at all. So the new room's settings
+are seeded with harmless defaults instead of copied: no map source
+(irrelevant once a game is already past board setup) and rule
+enforcement/hidden information both off — required for hotseat regardless,
+and also required for this plain client insert to be allowed at all by
+`0029_start_game_edge_function.sql`'s "seated players can insert game state
+when enforcement is off" policy.
+
+Regression test at `src/lib/__tests__/importGameExportAsHotseat.test.ts`,
+against the in-process production-simulating stack: starts a real game,
+exports its state, imports it as a different (admin) user, and checks the
+new room's `play_mode`/ownership/settings and that the source game is
+untouched. README's "Debugging: game state export" section documents the
+admin screen alongside the export format it reads.
+
+`npm run lint`, `npm run test` (77 files / 1342 tests) and `npm run build`
+all pass.
