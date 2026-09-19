@@ -310,10 +310,19 @@ export function cardChoicesForRecap(
     const result = applyActionWithSteps(statesBefore[i], logged.action, unitContent, achievementContent, boardGenerationContent, taleContent, true)
     if (!result.ok) continue
     for (const step of result.steps) {
-      if (step.action.type === 'CHOOSE_CARD' && step.after.turn === recapTurn) {
+      // `step.before.turn`, NOT `step.after.turn` — a MOVE_TO_DECLINE that
+      // happens to be the phase's last (or the round's only) card owed can
+      // itself chain straight through beginPurchasePhase/finishRound
+      // (applyAction.ts) into the *next* round within this same step's
+      // dispatch, same as applyActionWithSteps' own `loggedAction.turn`
+      // uses the pre-dispatch turn for exactly this reason (see its doc
+      // comment). Checking `after.turn` here dropped that step's decline
+      // from the recap entirely whenever it was also the one that finished
+      // the round with nobody left to purchase.
+      if (step.action.type === 'CHOOSE_CARD' && step.before.turn === recapTurn) {
         chosenCardIdByPlayerId[step.action.playerId] = step.action.cardId
       }
-      if (step.action.type === 'MOVE_TO_DECLINE' && step.after.turn === recapTurn) {
+      if (step.action.type === 'MOVE_TO_DECLINE' && step.before.turn === recapTurn) {
         const list = declinedCardIdsByPlayerId[step.action.playerId] ?? []
         list.push(step.action.cardId)
         declinedCardIdsByPlayerId[step.action.playerId] = list
