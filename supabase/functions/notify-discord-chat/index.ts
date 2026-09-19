@@ -19,11 +19,12 @@
 // player already sees new messages over `chat_messages`' own Realtime
 // subscription (CHAT_PLAN.md §5), and hotseat has nobody remote to ping.
 //
-// Unlike the turn/lifecycle pings, this is **opt-in per player** on top of
-// having a Discord webhook configured at all — `profiles.preferences.
-// chatNotificationsEnabled` (src/lib/chatNotificationPreference.ts), default
-// off, since a player who set up the webhook for turn pings would otherwise
-// start getting one per chat message with no prior chance to opt out.
+// Unlike the turn/lifecycle pings, this is gated by its own per-player
+// toggle on top of having a Discord webhook configured at all —
+// `profiles.preferences.chatNotificationsEnabled`
+// (src/lib/chatNotificationPreference.ts), default **on** as of issue #668
+// (previously off, issue #658) — so only an explicit `false` opts a player
+// out, not merely leaving the preference unset.
 //
 // `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` are provided automatically in
 // the Edge Function runtime — the service-role key is what lets this read
@@ -131,7 +132,7 @@ async function handleChatMessage(supabase: SupabaseClient, message: ChatMessageR
   await Promise.allSettled(
     recipients.map((player) => {
       const profile = profileByUserId.get(player.user_id)
-      if (!profile || profile.preferences?.chatNotificationsEnabled !== true) return Promise.resolve()
+      if (!profile || profile.preferences?.chatNotificationsEnabled === false) return Promise.resolve()
       const webhookUrl = profile.discord_webhook_url
       if (!webhookUrl || !WEBHOOK_URL_PATTERN.test(webhookUrl)) return Promise.resolve()
       return sendDiscordNotification(webhookUrl, content)

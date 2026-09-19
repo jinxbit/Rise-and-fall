@@ -1,11 +1,11 @@
 // Sends a Web Push notification when someone posts in a game's chat (issue
 // #658, CHAT_PLAN.md §20). Structurally identical to notify-discord-chat
 // (see that function's doc comment for the full trigger/scope rationale —
-// in-game only, async games only, opt-in via `profiles.preferences.
-// chatNotificationsEnabled`); deliberately a near-duplicate rather than a
-// shared import, same reason as every other push/Discord pair in this repo:
-// Deno Edge Functions can't import the app's Vite-aliased TypeScript
-// sources.
+// in-game only, async games only, gated via `profiles.preferences.
+// chatNotificationsEnabled`, default on as of issue #668); deliberately a
+// near-duplicate rather than a shared import, same reason as every other
+// push/Discord pair in this repo: Deno Edge Functions can't import the
+// app's Vite-aliased TypeScript sources.
 //
 // Trigger: the *same* Supabase Database Webhook on `chat_messages` INSERT
 // that triggers notify-discord-chat can also target this function (Database
@@ -90,7 +90,7 @@ async function handleChatMessage(supabase: SupabaseClient, message: ChatMessageR
     )
   const optedInUserIds = new Set(
     ((profiles ?? []) as { user_id: string; preferences: Record<string, unknown> | null }[])
-      .filter((p) => p.preferences?.chatNotificationsEnabled === true)
+      .filter((p) => p.preferences?.chatNotificationsEnabled !== false)
       .map((p) => p.user_id),
   )
   const optedInUserIdList = recipients.map((p) => p.user_id).filter((id) => optedInUserIds.has(id))

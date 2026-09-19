@@ -444,11 +444,11 @@ the full trigger/dispatch details, which apply to both functions.
 
 Same two channels as the notifications above, but **not** the same
 per-player opt-in: a player who already pasted in a Discord webhook or
-turned on push for turn/lifecycle pings does not get pinged on every chat
-message for free. There's a second, separate toggle — **Profile → Chat
-message notifications**, off by default — because a chat can be far chattier
-than a turn cycle, and a webhook set up years ago for turn pings shouldn't
-suddenly start firing on every line of chat.
+turned on push for turn/lifecycle pings does not automatically get pinged on
+every chat message too. There's a second, separate toggle — **Profile →
+Chat message notifications**, on by default (issue #668; originally off per
+issue #658, since a chat can be far chattier than a turn cycle) — that a
+player can turn off if turn/lifecycle pings are enough on their own.
 
 Two more Edge Functions, `notify-discord-chat` and `notify-web-push-chat`,
 send this, triggered by a Database Webhook on `chat_messages` inserts. Site-

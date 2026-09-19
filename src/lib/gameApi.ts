@@ -176,10 +176,10 @@ export async function saveProfileConfirmBeforeRevealingCards(userId: string, val
 /**
  * Reads a user's "notify me on chat messages" preference (issue #658, stored
  * under `preferences.chatNotificationsEnabled`) — absent (including "no
- * profile row yet") resolves to the default (off), same null-collapsing
- * pattern as getProfileConfirmBeforeRevealingCards. Read server-side too, by
- * the notify-discord-chat / notify-web-push-chat Edge Functions, via their
- * service-role client.
+ * profile row yet") resolves to the default (on, issue #668), same
+ * null-collapsing pattern as getProfileConfirmBeforeRevealingCards. Read
+ * server-side too, by the notify-discord-chat / notify-web-push-chat Edge
+ * Functions, via their service-role client.
  */
 export async function getProfileChatNotificationsEnabled(userId: string): Promise<boolean> {
   const preferences = await getProfilePreferences(userId)
