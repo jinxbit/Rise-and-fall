@@ -679,6 +679,18 @@ There's also a **"Show game state JSON"** toggle in the same menu that
 prints the current state as plain (uncompressed) pretty-printed JSON
 inline in the page, for quick eyeballing without decoding anything.
 
+A site admin can go the other way: the **Import game export** admin screen
+(`/admin/import`, linked from the hamburger menu) pastes one of these
+exports back in and turns it into a brand-new hot seat room the admin owns —
+useful for reproducing a reported game locally without Supabase access or
+the reporter's account. Every seat becomes a local pass-and-play player
+under the admin's own account (same conversion GamePage.tsx's own
+"Duplicate as hot seat" action does for a live game already in this
+project); the game the export came from is never read or modified. Since the export only
+carries a `GameState`, not the source game's settings, the new room always
+gets harmless defaults: no map source, and rule enforcement / hidden
+information both off (`src/lib/gameApi.ts`'s `importGameExportAsHotseat`).
+
 ## Server-side rule enforcement
 
 By default a game is *client-trusted*: each client runs the engine itself

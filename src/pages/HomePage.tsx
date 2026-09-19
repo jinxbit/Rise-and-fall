@@ -235,6 +235,16 @@ export function HomePage() {
                     Saved maps
                   </Link>
                 )}
+                {isAdmin && (
+                  <Link
+                    to="/admin/import"
+                    role="menuitem"
+                    onClick={() => setMenuOpen(false)}
+                    className="px-3 py-2 text-left hover:bg-neutral-800"
+                  >
+                    Import game export
+                  </Link>
+                )}
               </div>
             )}
           </div>

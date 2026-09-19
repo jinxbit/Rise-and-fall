@@ -6,6 +6,7 @@ import { pickRandomMapFromPool } from './mapPoolApi'
 import { canStartGame } from './roomReadiness'
 import { nextSeatIndex } from './seatIndex'
 import { remapGameSettingsPlayerIds, remapGameStatePlayerIds } from './duplicateGameState'
+import { decodeGameStateExport } from './gameStateExport'
 import type {
   GameRow,
   GameSettings,
@@ -680,6 +681,88 @@ export async function duplicateGameAsHotseat(params: {
   if (playersError) throw playersError
 
   const state = remapGameStatePlayerIds(params.sourceState, { newGameId: game.id, playerIdMap, hostUserId: params.hostUserId })
+  await insertGameState(game.id, state)
+
+  return game as GameRow
+}
+
+/**
+ * Site-admin-only "Import game export" (issue #676): takes a pasted game
+ * state export (GamePage.tsx's "Copy game export", `gameStateExport.ts`) —
+ * typically one attached to a bug report — and creates a brand-new hotseat
+ * room from it, owned by the importing admin, every seat turned into a
+ * local pass-and-play player under their own account. This lets an admin
+ * reproduce/inspect a reported game without needing direct Supabase access
+ * or the reporter's account.
+ *
+ * Shares its player-remapping approach with duplicateGameAsHotseat above,
+ * but there's no source GameRow/PlayerRow/GameSettings to read here — an
+ * export only ever contains a bare GameState (see GameStateExportEnvelope).
+ * The new room's settings are seeded with harmless defaults rather than
+ * reconstructed: no map source (irrelevant once a game is past board
+ * setup) and enforcement/hidden-information both off, which is required
+ * for hotseat anyway (dbTypes.ts's hiddenInformationEnabled doc comment)
+ * and for this plain client insert to be allowed at all by
+ * 0029_start_game_edge_function.sql's "seated players can insert game
+ * state when enforcement is off" policy.
+ */
+export async function importGameExportAsHotseat(params: { exportText: string; hostUserId: string }): Promise<GameRow> {
+  const { gameState: sourceState } = await decodeGameStateExport(params.exportText)
+
+  const playerIdMap: Record<string, string> = {}
+  for (const p of sourceState.players) {
+    playerIdMap[p.id] = crypto.randomUUID()
+  }
+
+  const settings: GameSettings = {
+    mapTemplateId: null,
+    mapPoolBoard: null,
+    mapPoolMapId: null,
+    mapPoolRandomAtStart: false,
+    soloBuildMap: false,
+    soloBuilderSelection: 'owner',
+    soloBuilderId: null,
+    soloBuilderUnitOrder: 'last',
+    soloBuilderTurnOrder: null,
+    skipHotseatPassGate: false,
+    ruleEnforcementEnabled: false,
+    hiddenInformationEnabled: false,
+    lockRevealedInformationEnabled: false,
+    activeTaleIds: sourceState.activeTaleIds,
+    gameLength: sourceState.gameLength,
+  }
+
+  const { data: game, error: gameError } = await supabase
+    .from('games')
+    .insert({
+      room_code: generateRoomCode(),
+      name: `Imported game (${new Date().toISOString().slice(0, 10)})`,
+      play_mode: 'hotseat',
+      status: 'active',
+      created_by: params.hostUserId,
+      min_players: sourceState.players.length,
+      max_players: sourceState.players.length,
+      settings,
+      visibility: 'private',
+    })
+    .select()
+    .single()
+  if (gameError) throw gameError
+
+  const { error: playersError } = await supabase.from('players').insert(
+    sourceState.players.map((p, index) => ({
+      id: playerIdMap[p.id],
+      game_id: game.id,
+      user_id: params.hostUserId,
+      display_name: p.displayName,
+      avatar_url: null,
+      seat_index: index,
+      color: p.color,
+    })),
+  )
+  if (playersError) throw playersError
+
+  const state = remapGameStatePlayerIds(sourceState, { newGameId: game.id, playerIdMap, hostUserId: params.hostUserId })
   await insertGameState(game.id, state)
 
   return game as GameRow
