@@ -6265,3 +6265,40 @@ its resolved board is — same as `duplicateGameAsHotseat`'s existing
 
 `npm run lint`, `npm run test` (79 files / 1354 tests) and `npm run build`
 all pass.
+
+## 135. In-game chat showed "Player" instead of the sender's name (issue #682)
+
+Bug report: every message in a game's chat, other than the viewer's own, was
+labeled "Player" instead of that player's actual display name.
+
+`ChatPanel.tsx`'s `nameFor()` resolved every other sender's name from
+`chatApi.ts`'s `getChatDisplayNames()`, which reads `profiles.display_name`.
+`CHAT_PLAN.md` §3 documented that lookup's known gap as "two people chatting
+site-wide without a shared game can't see each other's name" — on the
+assumption that `profiles`' RLS still let *co-players* read each other's
+row, per `0005_discord_webhooks.sql`. That assumption was stale: that
+co-player policy was dropped in `0013_discord_notify_backend.sql` once
+Discord "your turn" notifications moved server-side, years before chat
+(`0031_chat_messages.sql`) existed. `profiles` has been strictly
+own-row-readable ever since, so `getChatDisplayNames()` was resolving to
+nothing for *every* other sender, in-game included — not just strangers in
+site-wide chat as the plan assumed.
+
+Fix: `ChatPanel.tsx` already receives the game's `players` prop for seat
+color lookups (issue #581), and unlike `profiles`, `players.display_name`
+*is* readable by any signed-in user (`0001_init_schema.sql`, the same
+"players are readable by any signed-in user" policy `RoundView.tsx`'s
+`PlayerColorName`/`LogPlayerName` already rely on). `nameFor()` now checks
+`players` first for a game's chat and only falls back to
+`getChatDisplayNames()`/`profiles` when the sender isn't seated. Site-wide
+chat has no seats to fall back to, so it's unaffected by this fix and still
+shows a generic label for a stranger the viewer has never shared a game
+with — `CHAT_PLAN.md` §3/§10.5 updated to describe the actual RLS state and
+scope that remaining gap to site-wide chat only.
+
+New coverage in `ChatPanel.test.tsx`: an in-game message from a sender
+missing from `getChatDisplayNames()`'s result still renders their seat's
+`display_name`, not the generic fallback.
+
+`npm run lint`, `npm run test` (79 files / 1355 tests) and `npm run build`
+all pass.

@@ -121,15 +121,24 @@ Notes:
 - `sender_id`'s display name/avatar comes from `profiles`/`useDisplayName`
   exactly like every other player-identity lookup already in the app — no
   denormalized copy of the name onto the row. **Caveat found in phase 2
-  (issue #564):** unlike `players.display_name` (readable by any signed-in
-  user, `0001_init_schema.sql`), `profiles`' RLS
-  (`0013_discord_notify_backend.sql`) only exposes a row to its own owner or
-  a co-player sharing a game — it does not cover two people who post in
-  site-wide chat without ever having shared a game. `chatApi.ts`'s
-  `getChatDisplayNames()` still queries `profiles` exactly as specified and
-  falls back to a generic label for whichever senders that policy hides, so
-  the feature works, just with a less personal label for strangers. See open
-  question §10.5.
+  (issue #564), corrected in issue #682:** this document originally assumed
+  `profiles`' RLS still let a co-player read each other's row, the way
+  `0005_discord_webhooks.sql` first set it up. That policy was dropped in
+  `0013_discord_notify_backend.sql` once Discord notifications moved
+  server-side — years before chat existed — so `profiles` has been
+  strictly own-row-readable ever since, full stop, with no co-player
+  carve-out. `chatApi.ts`'s `getChatDisplayNames()` (backed by `profiles`)
+  was therefore resolving to nothing for *every* other sender, in-game or
+  site-wide, and `ChatPanel.tsx` fell back to a generic `'Player'` label for
+  all of them, not just strangers. In-game chat has a working fix: unlike
+  `profiles`, `players.display_name` *is* readable by any signed-in user
+  (`0001_init_schema.sql`), and `ChatPanel.tsx` already receives the game's
+  `players` prop for seat-color lookups (§15), so `nameFor()` now resolves
+  an in-game sender from `players` first and only falls back to
+  `getChatDisplayNames()`/`profiles`. Site-wide chat has no seats to fall
+  back to, so it still shows a generic label for anyone the viewer has never
+  shared a game with — see open question §10.5, now the accurate statement
+  of what's left.
 - Soft-delete (a `deleted_at` or `hidden_at` column) is deliberately **not**
   added yet — it belongs to the reporting/moderation phase (§8) and adding
   it there, gated behind that phase's own migration, avoids an unused column
@@ -397,14 +406,18 @@ genuine unknowns this document can't resolve on its own:
    phase starts.
 5. **Should a signed-in user be able to read any other signed-in user's
    `profiles.display_name`, at least for chat purposes?** Surfaced in phase 2
-   (issue #564, §3's caveat): today's RLS restricts a `profiles` row to its
-   owner or a co-player, so two people chatting site-wide without a shared
-   game can't see each other's custom name — the UI falls back to a generic
-   label instead, which works but isn't ideal. Widening it needs its own
-   migration (a plain RLS relaxation would also expose `discord_webhook_url`
-   to row visibility, since RLS is row- not column-scoped, so the real
-   options are a dedicated view or a `security definer` name-lookup
-   function, mirroring `chat_enabled()`'s own pattern) — not decided here.
+   (issue #564, §3's caveat), corrected in issue #682: today's RLS restricts
+   a `profiles` row to its owner only (no co-player carve-out at all, and
+   hasn't had one since `0013_discord_notify_backend.sql`), so two people
+   chatting site-wide without a shared game can't see each other's custom
+   name — the UI falls back to a generic label instead, which works but
+   isn't ideal. In-game chat no longer depends on this (issue #682 reads
+   `players.display_name` instead), so this question is now scoped to
+   site-wide chat only. Widening it needs its own migration (a plain RLS
+   relaxation would also expose `discord_webhook_url` to row visibility,
+   since RLS is row- not column-scoped, so the real options are a dedicated
+   view or a `security definer` name-lookup function, mirroring
+   `chat_enabled()`'s own pattern) — not decided here.
 
 ## 11. Execution plan
 

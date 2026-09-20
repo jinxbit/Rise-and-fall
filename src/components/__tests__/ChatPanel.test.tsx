@@ -64,12 +64,12 @@ function makeMessage(id: number, senderId: string, body: string, createdAt?: str
   return { id, game_id: null, sender_id: senderId, body, created_at: createdAt ?? new Date(id).toISOString() }
 }
 
-function makePlayer(userId: string, color: string): PlayerRow {
+function makePlayer(userId: string, color: string, displayName?: string): PlayerRow {
   return {
     id: `player-${userId}`,
     game_id: 'game-1',
     user_id: userId,
-    display_name: userId,
+    display_name: displayName ?? userId,
     avatar_url: null,
     seat_index: 0,
     color,
@@ -406,12 +406,28 @@ describe('ChatPanel', () => {
     })
   })
 
+  describe('in-game sender names resolve from players (issue #682)', () => {
+    it("uses the sender's seat display_name even when getChatDisplayNames/profiles has nothing for them", async () => {
+      mockAuth.session = makeSession('alice')
+      chatApi.listChatMessages.mockResolvedValue([makeMessage(1, 'bob', 'hello there')])
+      // profiles RLS only ever exposes the caller's own row (0013_discord_notify_backend.sql),
+      // so a co-player's name never resolves here — the panel must fall back to `players`.
+      chatApi.getChatDisplayNames.mockResolvedValue({})
+      const players = [makePlayer('alice', '#111111', 'Alice'), makePlayer('bob', '#3b82f6', 'Bob')]
+
+      render(<ChatPanel gameId="game-1" players={players} open={true} />)
+
+      expect(await screen.findByText('Bob:')).toBeInTheDocument()
+      expect(screen.queryByText('Player:')).not.toBeInTheDocument()
+    })
+  })
+
   describe('sender name colors (issue #581, CHAT_PLAN.md §15)', () => {
     it('colors an in-game sender name with their PlayerRow.color, matched on user_id', async () => {
       mockAuth.session = makeSession('alice')
       chatApi.listChatMessages.mockResolvedValue([makeMessage(1, 'bob', 'hello there')])
       chatApi.getChatDisplayNames.mockResolvedValue({ bob: 'Bob' })
-      const players = [makePlayer('alice', '#111111'), makePlayer('bob', '#3b82f6')]
+      const players = [makePlayer('alice', '#111111'), makePlayer('bob', '#3b82f6', 'Bob')]
 
       render(<ChatPanel gameId="game-1" players={players} open={true} />)
 
