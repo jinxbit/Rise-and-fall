@@ -404,20 +404,23 @@ genuine unknowns this document can't resolve on its own:
 4. **Cleanup job: Edge Function vs. plain SQL RPC** for §9 — low-stakes,
    pick whichever is easier to wire into a scheduled workflow when that
    phase starts.
-5. **Should a signed-in user be able to read any other signed-in user's
-   `profiles.display_name`, at least for chat purposes?** Surfaced in phase 2
-   (issue #564, §3's caveat), corrected in issue #682: today's RLS restricts
-   a `profiles` row to its owner only (no co-player carve-out at all, and
-   hasn't had one since `0013_discord_notify_backend.sql`), so two people
-   chatting site-wide without a shared game can't see each other's custom
-   name — the UI falls back to a generic label instead, which works but
-   isn't ideal. In-game chat no longer depends on this (issue #682 reads
-   `players.display_name` instead), so this question is now scoped to
-   site-wide chat only. Widening it needs its own migration (a plain RLS
-   relaxation would also expose `discord_webhook_url` to row visibility,
-   since RLS is row- not column-scoped, so the real options are a dedicated
-   view or a `security definer` name-lookup function, mirroring
-   `chat_enabled()`'s own pattern) — not decided here.
+5. ~~**Should a signed-in user be able to read any other signed-in user's
+   `profiles.display_name`, at least for chat purposes?**~~ **Resolved
+   (issue #684): yes for `display_name`, never for
+   `discord_webhook_url`.** Surfaced in phase 2 (issue #564, §3's caveat),
+   corrected in issue #682: today's RLS restricts a `profiles` row to its
+   owner only (no co-player carve-out at all, and hasn't had one since
+   `0013_discord_notify_backend.sql`), so two people chatting site-wide
+   without a shared game couldn't see each other's custom name — the UI fell
+   back to a generic label instead. In-game chat doesn't depend on this
+   (issue #682 reads `players.display_name` instead), so this only ever
+   affected site-wide chat. Shipped as a `security definer` RPC,
+   `chat_sender_display_names` (`0035_chat_sender_display_names.sql`),
+   mirroring `chat_enabled()`'s own pattern rather than a plain RLS
+   relaxation (which would also expose `discord_webhook_url`, since RLS is
+   row- not column-scoped): it returns only `(user_id, display_name)` for
+   any signed-in caller, so `chatApi.ts`'s `getChatDisplayNames` resolves a
+   sender's name whether or not the caller has ever shared a game with them.
 
 ## 11. Execution plan
 

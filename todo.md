@@ -6302,3 +6302,45 @@ missing from `getChatDisplayNames()`'s result still renders their seat's
 
 `npm run lint`, `npm run test` (79 files / 1355 tests) and `npm run build`
 all pass.
+
+## 136. Site-wide chat still showed "Player" for a sender the viewer had never shared a game with (issue #684)
+
+Follow-up to #135, which fixed *in-game* chat but explicitly left site-wide
+chat's version of the same bug for a later decision (`CHAT_PLAN.md` §10.5):
+site-wide chat has no seats to fall back to, so `ChatPanel.tsx`'s `nameFor()`
+depended entirely on `chatApi.ts`'s `getChatDisplayNames()`, which reads
+`profiles.display_name` — a table that's been strictly own-row-readable
+since `0013_discord_notify_backend.sql`. A plain RLS relaxation couldn't fix
+this on its own: RLS is row-, not column-scoped, so widening `profiles`'
+select policy to any signed-in user would also expose
+`discord_webhook_url`, letting anyone post into anyone else's Discord
+channel.
+
+Decision (issue #684): a custom display name may be visible to any
+signed-in user; the webhook URL must not be. Shipped as
+`0035_chat_sender_display_names.sql`, a `security definer` function
+mirroring `chat_enabled()`'s own pattern — `chat_sender_display_names(uuid[])`
+returns only `(user_id, display_name)`, querying `profiles` with the
+function owner's elevated privilege while callers are restricted to
+`authenticated` via an explicit `revoke`/`grant`. `chatApi.ts`'s
+`getChatDisplayNames()` now calls this via `supabase.rpc()` instead of a
+direct `.from('profiles').select(...)` — the first `supabase.rpc()` call
+anywhere in the client (every other query in the app is a plain
+`.from()`/Edge-Function call).
+
+The in-process test stack (`src/test/supabaseStack/`) had no RPC modeling at
+all before this — `httpServer.ts` routed everything under `/rest/v1/` to
+`handleRest()`, which only knows the fixed `TABLES` list. Added a
+`/rest/v1/rpc/:name` route (`handleRpc`) and a `Database.rpc()` method,
+modeling just this one function the same way `chat_enabled()` is modeled as
+a private `chatEnabled()` method rather than a real SQL call.
+
+New coverage: `chatSenderDisplayNames.test.ts`, same style as
+`chatMessages.test.ts` — a user who has never shared a game with the sender
+can still resolve their display name; the RPC's response never carries
+`discord_webhook_url` even when a webhook URL is seeded on that row; an id
+with no custom name is omitted; a signed-out caller is rejected. `CHAT_PLAN.md`
+§10.5 updated to record the decision and what shipped.
+
+`npm run lint`, `npm run test` (80 files / 1359 tests) and `npm run build`
+all pass.

@@ -280,6 +280,30 @@ export class Database {
     return Boolean((this.rows.app_config as unknown as AppConfigRow[])[0]?.chat_enabled)
   }
 
+  /**
+   * `public.chat_sender_display_names` (0035_chat_sender_display_names.sql,
+   * issue #684): a `security definer` function granted to `authenticated`
+   * only, deliberately narrower than `profiles`' own RLS — it returns
+   * `(user_id, display_name)` for any signed-in caller (not just the row's
+   * owner), and never `discord_webhook_url` no matter what's asked for,
+   * since the query itself only ever selects those two columns.
+   */
+  rpc(actor: Actor, name: string, args: Row): Row[] {
+    switch (name) {
+      case 'chat_sender_display_names': {
+        if (actor.role === 'anon') {
+          throw new DatabaseError(403, '42501', 'permission denied for function chat_sender_display_names')
+        }
+        const senderIds = new Set((args.sender_ids as string[] | undefined) ?? [])
+        return (this.rows.profiles as unknown as ProfileRow[])
+          .filter((profile) => senderIds.has(profile.user_id) && profile.display_name !== null)
+          .map((profile) => ({ user_id: profile.user_id, display_name: profile.display_name }))
+      }
+      default:
+        throw new UnsupportedQueryError(`No RPC function named "${name}" is modeled by the test stack.`)
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // The three statements PostgREST turns a request into.
   // ---------------------------------------------------------------------------

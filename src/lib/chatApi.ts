@@ -27,13 +27,15 @@ let chatEnabledCache: Promise<boolean> | null = null
  * `app_config.chat_enabled` directly rather than through a `chat_enabled()`
  * RPC call — CHAT_PLAN.md §4 explicitly allows either ("a cheap RPC call, or
  * folded into whatever the client already fetches on load"), and a plain
- * table read matches every other query in this file/gameApi.ts (no
- * `supabase.rpc()` call exists anywhere else in the client) and is directly
- * exercisable by the RLS coverage `src/test/__tests__/chatMessages.test.ts`
- * already added in phase 1. `app_config`'s own "anyone can read" policy is
- * what makes this safe to call before checking session. Cached for the page
- * load's lifetime since both chat surfaces need it and it only changes when
- * jinxbit hand-flips it in the Supabase SQL editor.
+ * table read matches every other query in this file/gameApi.ts and is
+ * directly exercisable by the RLS coverage
+ * `src/test/__tests__/chatMessages.test.ts` already added in phase 1.
+ * `app_config`'s own "anyone can read" policy is what makes this safe to
+ * call before checking session. Cached for the page load's lifetime since
+ * both chat surfaces need it and it only changes when jinxbit hand-flips it
+ * in the Supabase SQL editor. (`getChatDisplayNames` below does call
+ * `supabase.rpc()` — the RLS split it needs, §10.5, can't be expressed as a
+ * plain table read.)
  */
 async function fetchChatEnabled(): Promise<boolean> {
   const { data, error } = await supabase.from('app_config').select('chat_enabled').maybeSingle()
@@ -151,22 +153,23 @@ export async function markChatRead(gameId: string, userId: string, lastReadId: n
 
 /**
  * Best-effort display names for a batch of sender ids, keyed by `user_id`.
- * Backed by `profiles.display_name` (0015_profile_display_name.sql) — the
- * "existing profiles/useDisplayName path" CHAT_PLAN.md §3 calls for. That
- * table's RLS (0013_discord_notify_backend.sql) only exposes a row to its
- * own owner or a co-player sharing a game, so a site-wide message from
- * someone the caller has never shared a game with resolves to no entry here
- * at all — there is no server-side way to read a stranger's Discord-derived
- * fallback name (`user_metadata` lives in `auth.users`, never exposed to
- * other clients) without a new RLS-relaxing migration or RPC, which is out
- * of this issue's scope. Callers fall back to a generic label for any id
- * missing from the result, the same way resolveDisplayName falls back to
- * `'Player'`. Widening this is a follow-up decision, not guessed at here.
+ * Backed by `profiles.display_name` (0015_profile_display_name.sql) via the
+ * `chat_sender_display_names` RPC (0035_chat_sender_display_names.sql,
+ * issue #684, CHAT_PLAN.md §10.5), not a direct `profiles` select —
+ * `profiles`' own RLS (0013_discord_notify_backend.sql) only exposes a row
+ * to its own owner, and a plain relaxation would also expose
+ * `discord_webhook_url` (RLS is row-, not column-scoped). The `security
+ * definer` RPC returns only `(user_id, display_name)` for any signed-in
+ * caller, which is what lets a site-wide message from someone the caller
+ * has never shared a game with still resolve to their custom name. Callers
+ * fall back to a generic label for any id missing from the result (no
+ * custom name set, or the caller is signed out), the same way
+ * resolveDisplayName falls back to `'Player'`.
  */
 export async function getChatDisplayNames(userIds: string[]): Promise<Record<string, string>> {
   const distinctIds = [...new Set(userIds)]
   if (distinctIds.length === 0) return {}
-  const { data, error } = await supabase.from('profiles').select('user_id, display_name').in('user_id', distinctIds)
+  const { data, error } = await supabase.rpc('chat_sender_display_names', { sender_ids: distinctIds })
   if (error) throw error
   const names: Record<string, string> = {}
   for (const row of (data ?? []) as { user_id: string; display_name: string | null }[]) {
