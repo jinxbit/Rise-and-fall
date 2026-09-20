@@ -232,6 +232,30 @@ async function handleRest(req: Request, url: URL, options: ServerOptions): Promi
   }
 }
 
+/**
+ * `POST /rest/v1/rpc/:name` — the one function this stack models is
+ * `chat_sender_display_names` (0035_chat_sender_display_names.sql, issue
+ * #684): PostgREST exposes every `public` schema function this way, and
+ * `chatApi.ts`'s `getChatDisplayNames` is the first client call in this repo
+ * to use `supabase.rpc()` rather than `.from()`.
+ */
+async function handleRpc(req: Request, url: URL, options: ServerOptions): Promise<Response> {
+  const name = url.pathname.slice('/rest/v1/rpc/'.length)
+  if (req.method !== 'POST') throw new UnsupportedQueryError(`Unsupported RPC method: ${req.method} ${url.pathname}`)
+  const actor = resolveActor(req, options.tokens)
+  if (!actor) return json(401, { code: 'PGRST301', message: 'JWT expired or invalid', details: null, hint: null })
+
+  const args = (await req.json()) as Record<string, unknown>
+  try {
+    return json(200, options.db.rpc(actor, name, args))
+  } catch (error) {
+    if (error instanceof DatabaseError) {
+      return json(error.status, { code: error.code, message: error.message, details: error.details, hint: error.hint })
+    }
+    throw error
+  }
+}
+
 function userPayload(userId: string, email: string): Record<string, unknown> {
   return {
     id: userId,
@@ -329,6 +353,7 @@ export async function serveStackRequest(req: Request, options: ServerOptions): P
   options.requestLog.push(`${req.method} ${url.pathname}${url.search}`)
 
   if (req.method === 'OPTIONS') return new Response('ok', { status: 200 })
+  if (url.pathname.startsWith('/rest/v1/rpc/')) return await handleRpc(req, url, options)
   if (url.pathname.startsWith('/rest/v1/')) return await handleRest(req, url, options)
   if (url.pathname.startsWith('/auth/v1/')) return await handleAuth(req, url, options)
   if (url.pathname.startsWith('/functions/v1/')) return await handleFunctions(req, url, options)

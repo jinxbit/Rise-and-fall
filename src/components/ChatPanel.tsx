@@ -415,17 +415,13 @@ export function ChatPanel({ gameId, players, canPost = true, open, onUnreadCount
   /**
    * In-game, prefer the sender's seat (`PlayerRow.display_name`), which is
    * already broadly readable to any co-player via `players`' own RLS
-   * ("players are readable by any signed-in user", 0001_init_schema.sql).
-   * `names` (`getChatDisplayNames`, backed by `profiles`) can't be relied on
-   * here: the "co-players can read each other's profile" policy was dropped
-   * in 0013_discord_notify_backend.sql once webhook delivery moved
-   * server-side, so `profiles` has been strictly own-row-readable ever
-   * since — long before chat (0031) existed — and every other seated
-   * player's `names` lookup silently resolves to nothing, falling through to
-   * the generic 'Player' label. Site-wide chat has no seats to fall back to,
-   * so it still depends on `names`/`profiles` and inherits that same gap for
-   * a sender the viewer has never shared a game with (chatApi.ts's
-   * `getChatDisplayNames` doc comment).
+   * ("players are readable by any signed-in user", 0001_init_schema.sql) —
+   * cheaper than the `names` RPC lookup below when a seat is available.
+   * Site-wide chat has no seats to fall back to, so it depends on `names`
+   * (`getChatDisplayNames`, backed by the `chat_sender_display_names` RPC,
+   * issue #684, CHAT_PLAN.md §10.5) resolving a sender the viewer has never
+   * shared a game with — which it now does, since that RPC is readable by
+   * any signed-in user, not just the sender themselves.
    */
   function nameFor(senderId: string): string {
     if (senderId === uid) return ownDisplayName || 'Player'
