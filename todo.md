@@ -6399,3 +6399,69 @@ excludes; the `players` rows still carry only the five trimmed columns.
 
 `npm run lint`, `npm run test` (81 files / 1363 tests) and `npm run build`
 all pass.
+
+## 138. Bandwidth: persist client-side game state between sessions, so a cold open can fetch a delta (issue #688)
+
+Part of the same bandwidth/egress set as #646/#647/#687. #647 (todo.md #126)
+taught `get-game-state` to answer a `sinceActionIndex` request with just the
+entries logged since then instead of the whole `actionHistory` array, but
+that cursor only ever lived in a `useRef` — gone the moment the tab closed.
+The app's normal usage is async (open, make a move, come back hours later),
+so the cold open that pays for a full fetch happened on every single visit,
+which is exactly the case #647's delta never helped: `GamePage.tsx`'s
+mount effect called `fetchGameState(game)` with no `previous` at all.
+
+Added `src/lib/gameStateCache.ts`: an IndexedDB-backed cache of the
+client-materialised `GameState`, keyed on `gameId:userId`. `GamePage.tsx`
+reads it on mount (`loadCachedGameState`) to seed that first fetch's
+`previous` parameter, and writes it (`saveCachedGameState`) in a new
+`useEffect` that fires on every applied snapshot — a same-session refetch,
+a realtime push, or this client's own submitted action, not just the
+initial load. Only ever a seed for the delta request, never rendered ahead
+of the server confirming it — same role `latestGameStateRef` already plays
+for a same-session refetch, and `fetchGameState` already ignores whatever
+`previous` it's handed for a non-redacted (client-trusted or no-hidden-
+information) game, so this only actually benefits a `usesRedactedReads`
+game today, same scope #647 had.
+
+Every entry carries a `buildId` (`__BUILD_ID__`, already used by
+`useAppUpdateAvailable.ts`) and a `stateHash` (a non-cryptographic FNV-1a
+over the raw JSON) alongside the compressed state
+(`compressGameStateForStorage`, reused read-only — not modified, so this
+stays a client-only change despite living under `src/lib/**`). Both are
+checked only at read time: a build-id mismatch means a state materialised
+by an older engine must never seed a delta request against a newer one's
+rules; a hash mismatch means the entry got corrupted or partially written.
+`stateHash` is deliberately a self-consistency check, not a comparison
+against anything the server reports — there's no server-side notion of a
+content hash for a given version (#647 only ever agreed on lengths, see
+`applyRedactedGameStateDelta`), and the issue is explicit about building
+against #647's existing request shape rather than inventing a second one. A
+different signed-in user can't even reach another user's entry — the
+store's key embeds `userId`, so a lookup structurally can't cross accounts,
+which also means a shared browser can't hand one account's cached view to
+the next. A stale/too-new `version` isn't checked here at all: it falls out
+of `get-game-state`'s existing contract for free, since a `sinceActionIndex`
+outside the valid range already gets a full response back, byte for byte.
+
+Every read and write degrades silently — wrapped in try/catch, resolving to
+"no cache" rather than rejecting, since IndexedDB can be unavailable
+(private browsing, disabled site data) or throw (quota) for reasons that
+have nothing to do with whether the game is playable. The store is capped
+at `MAX_ENTRIES` (20) entries, LRU-evicted by `savedAt` in the same
+transaction as the write that triggered it, so a player who accumulates
+games indefinitely (the same unbounded-growth shape #687, todo.md #137,
+fixed server-side) doesn't grow it without bound.
+
+New coverage in `gameStateCache.test.ts`, using `fake-indexeddb` (new
+devDependency — jsdom itself implements no IndexedDB) with a fresh
+`IDBFactory` per test: round-trips a real genesis state; scopes entries to
+`userId`; falls back to `null` on a corrupted `buildId` or `stateHash`
+(poked directly into the fake store, since `saveCachedGameState` itself
+never writes an inconsistent entry); degrades silently when `indexedDB` is
+deleted from `globalThis`; evicts the oldest entries once `MAX_ENTRIES` is
+exceeded; re-saving the same game/user overwrites rather than growing the
+store.
+
+`npm run lint`, `npm run test` (82 files / 1371 tests) and `npm run build`
+all pass.

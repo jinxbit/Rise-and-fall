@@ -67,6 +67,7 @@ import {
   writeGameState,
   type GameEnforcementResult,
 } from '../lib/gameApi'
+import { loadCachedGameState, saveCachedGameState } from '../lib/gameStateCache'
 import { encodeGameStateExport } from '../lib/gameStateExport'
 import { saveMapToPool } from '../lib/mapPoolApi'
 import { gamePath, isFinished as isMyGameFinished, isCanceled as isMyGameCanceled, isMyTurn as isMyGameTurn, latestUpdatedAt as latestMyGameUpdatedAt, type MyGameEntry } from '../lib/myGamesView'
@@ -234,6 +235,26 @@ export function GamePage() {
     setGameState(snapshot.state)
     setVersion(snapshot.version)
   }
+  /**
+   * Persists every snapshot applyGameStateSnapshot accepts to IndexedDB
+   * (issue #688), so a later cold open — the mount effect below, via
+   * loadCachedGameState — has something to seed its first fetch with
+   * instead of always paying for a full one. Fires for a same-session
+   * refetch, a realtime push, and this client's own submitted action alike,
+   * not just the initial load, since all of them flow through the
+   * gameState/version state this depends on. Fire-and-forget:
+   * saveCachedGameState degrades to a no-op on any failure (its own doc
+   * comment), so there's nothing to await or surface here.
+   */
+  useEffect(() => {
+    if (!game || !session || !gameState || version === null) return
+    void saveCachedGameState(game.id, session.user.id, version, gameState)
+    // Deliberately keyed on the ids, not the `game`/`session` objects: a
+    // `subscribeToGame` merge (below) gives `game` a new identity on every
+    // unrelated `games` row change (e.g. a presence touch), and re-running
+    // this on those would just re-persist the same gameState/version.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [game?.id, session?.user?.id, gameState, version])
   const [actionError, setActionError] = useState<AppError | null>(null)
   /** True while a move submitted via submitAction() is in flight — surfaced as a small "Sending…" badge in the board's top-right corner (issue #434). */
   const [submitting, setSubmitting] = useState(false)
@@ -513,7 +534,17 @@ export function GamePage() {
     latestGameStateRef.current = null
 
     void (async () => {
-      const snapshot = await fetchGameState(game)
+      // issue #688: the cold-open counterpart to latestGameStateRef above —
+      // a state this same signed-in user materialised in a *previous*
+      // session, read back from IndexedDB so this very first fetch can also
+      // ask get-game-state for a delta instead of the whole state. Only
+      // ever a seed for that request (fetchGameState's own doc comment) —
+      // gameStateCache.ts's own doc comment covers why a stale/foreign/
+      // corrupt entry here just falls back to today's full fetch rather
+      // than risk anything worse.
+      const userId = session?.user?.id
+      const cached = userId ? await loadCachedGameState(gameId, userId) : null
+      const snapshot = await fetchGameState(game, cached)
       if (!cancelled && snapshot) applyGameStateSnapshot(snapshot)
     })()
 
