@@ -6344,3 +6344,58 @@ with no custom name is omitted; a signed-out caller is rejected. `CHAT_PLAN.md`
 
 `npm run lint`, `npm run test` (80 files / 1359 tests) and `npm run build`
 all pass.
+
+## 137. Bandwidth: `listMyGames` fetched every game a user had ever played, forever (issue #687)
+
+Issue #622 (todo.md #120) trimmed the `players` columns `listMyGames`/
+`listPublicRooms`/`listAllRooms` fetch, but that was only half the problem
+this issue reports: `listMyGames` (`MyGamesPage.tsx`'s data source) never
+filtered or paginated *which* games it fetched at all — every game a user
+had ever been seated in, `games`+`players`+`game_state_meta` rows alike, on
+every single app open. Active/lobby/canceled games are each naturally
+bounded (how many a person plausibly has in flight, or has opened and
+abandoned), but a completed game never leaves the set — one account already
+showed ~46 games total, and that number only grows for the life of the
+account with no ceiling, unlike the bandwidth issues #646/#647 already fixed
+(each bounded by a single game's length).
+
+Re-checked the column-trim half first: `PLAYER_LIST_COLUMNS`/
+`GAME_LIST_COLUMNS` are already applied at all three call sites this issue
+named — issue #622 had already fully landed that part; nothing to do there.
+
+For the row-count half, `listMyGames` now asks Postgres to do the filtering
+instead of fetching every completed game's row just to discard most of them
+client-side. Its one `game_state_meta` query (issue #441) split into two:
+`.neq('status', 'completed')` for the active/boardSetup bucket (unbounded
+but naturally small), and `.eq('status', 'completed').order('updated_at',
+{ ascending: false }).limit(FINISHED_GAMES_LIMIT)` (30) for the finished
+bucket — the one that actually grows with an account's history. A third
+query, `.in('status', ['lobby', 'canceled'])` against `games` directly,
+covers the two statuses `games.status` can actually hold for a game with no
+`game_state_meta` row at all (it never reaches `'completed'` — see
+`GameRow`'s doc comment). The final `games`/`players` fetches then run only
+against the resulting bounded id set, so the row count on the wire stops
+growing with completed-game count instead of merely being trimmed after
+arriving. `listMyGames`'s signature and every caller (`MyGamesPage.tsx`,
+`GamePage.tsx`'s "other games" nudge) are unchanged — `excludeGameId` still
+works the same way. `MyGamesPage.tsx` now shows a note under Finished when
+the cap is hit, so a long-time player doesn't read the cut-off list as games
+silently vanishing (they're still reachable by room link); full "load more"
+pagination is a possible follow-up, not built here.
+
+`src/test/supabaseStack/` had never modeled `.limit()`/`.offset()` — real
+PostgREST semantics, but the in-process fake reserved the params without
+ever slicing on them, so a test relying on `.limit()` alone couldn't have
+told a real cap from a no-op. Added `applyRange()` to `httpServer.ts`'s GET
+handler, next to the existing `applyOrder()`. New coverage in
+`listMyGames.test.ts`, following `startGameFromLobby.test.ts`'s pattern
+(the mocked `supabase` singleton swapped to whichever user is "querying," so
+`gameApi.ts`'s real `listMyGames` runs against real RLS): dozens of
+completed games seeded directly via `stack.db.seed` (cheap — the whole point
+is this is the shape a long-lived account accumulates) confirms only the
+most recently updated `FINISHED_GAMES_LIMIT` come back; active/lobby/
+canceled games are all still returned unbounded; `excludeGameId` still
+excludes; the `players` rows still carry only the five trimmed columns.
+
+`npm run lint`, `npm run test` (81 files / 1363 tests) and `npm run build`
+all pass.

@@ -337,34 +337,25 @@ export async function listPlayers(gameId: string): Promise<PlayerRow[]> {
 }
 
 /**
- * Fetches the cheap `game_state_meta` columns for a batch of games and
- * assembles a `GameStateSummary` per game — the shared plumbing behind
- * `listMyGames` and `roomEntriesForGames` (issue #441). Deliberately never
- * touches `game_state` itself: that table now denies direct SELECT outright
- * for a `hiddenInformationEnabled` game (`0028_hidden_information_rls_lockdown.sql`,
- * issue #488), including to a viewer with no seat — exactly the case
- * `listPublicRooms`/`listAllRooms` hit — and even where it's still readable,
- * `state` is the compressed full GameState blob whose per-game
- * download+decompression on every listing-screen visit was issue #441's
- * actual bandwidth cost. `game_state_meta` (`0025_game_state_meta.sql`,
- * `active_player_id` added by `0028`) is kept in sync with `game_state` by a
- * DB trigger on every insert/update, so it's always as fresh as `state`
- * would be, and its own RLS was never tightened by `0028` since none of this
- * is hidden information. See GameStateSummary's doc comment (gameCardView.ts)
- * for what this can't tell you compared to the full state.
+ * Every `game_state_meta` column a `GameStateSummary` is built from — shared
+ * by `fetchGameStateSummaries` (below) and `listMyGames`'s own bounded
+ * queries (issue #687), which need the same columns but split across two
+ * separate status-filtered requests rather than one unfiltered one.
  */
-async function fetchGameStateSummaries(
-  gameIds: string[],
-): Promise<{ summaryByGame: Map<string, GameStateSummary>; updatedAtByGame: Map<string, string> }> {
-  const { data: metas, error } = await supabase
-    .from('game_state_meta')
-    .select('game_id, status, round_phase, turn, pending_player_ids, active_player_id, updated_at')
-    .in('game_id', gameIds)
-  if (error) throw error
+const GAME_STATE_SUMMARY_COLUMNS = 'game_id, status, round_phase, turn, pending_player_ids, active_player_id, updated_at'
 
+type GameStateSummaryRow = Pick<
+  GameStateMetaRow,
+  'game_id' | 'status' | 'round_phase' | 'turn' | 'pending_player_ids' | 'active_player_id' | 'updated_at'
+>
+
+function summariesFromMetaRows(rows: GameStateSummaryRow[]): {
+  summaryByGame: Map<string, GameStateSummary>
+  updatedAtByGame: Map<string, string>
+} {
   const summaryByGame = new Map<string, GameStateSummary>()
   const updatedAtByGame = new Map<string, string>()
-  for (const row of metas as Pick<GameStateMetaRow, 'game_id' | 'status' | 'round_phase' | 'turn' | 'pending_player_ids' | 'active_player_id' | 'updated_at'>[]) {
+  for (const row of rows) {
     summaryByGame.set(row.game_id, {
       status: row.status as GameStatus,
       roundPhase: row.round_phase as RoundPhase | null,
@@ -374,8 +365,35 @@ async function fetchGameStateSummaries(
     })
     updatedAtByGame.set(row.game_id, row.updated_at)
   }
-
   return { summaryByGame, updatedAtByGame }
+}
+
+/**
+ * Fetches the cheap `game_state_meta` columns for a batch of games and
+ * assembles a `GameStateSummary` per game — the shared plumbing behind
+ * `roomEntriesForGames` (issue #441; `listMyGames` below runs its own
+ * bounded variant of this same query instead, issue #687). Deliberately
+ * never touches `game_state` itself: that table now denies direct SELECT
+ * outright for a `hiddenInformationEnabled` game
+ * (`0028_hidden_information_rls_lockdown.sql`, issue #488), including to a
+ * viewer with no seat — exactly the case `listPublicRooms`/`listAllRooms`
+ * hit — and even where it's still readable, `state` is the compressed full
+ * GameState blob whose per-game download+decompression on every
+ * listing-screen visit was issue #441's actual bandwidth cost.
+ * `game_state_meta` (`0025_game_state_meta.sql`, `active_player_id` added by
+ * `0028`) is kept in sync with `game_state` by a DB trigger on every
+ * insert/update, so it's always as fresh as `state` would be, and its own
+ * RLS was never tightened by `0028` since none of this is hidden
+ * information. See GameStateSummary's doc comment (gameCardView.ts) for
+ * what this can't tell you compared to the full state.
+ */
+async function fetchGameStateSummaries(
+  gameIds: string[],
+): Promise<{ summaryByGame: Map<string, GameStateSummary>; updatedAtByGame: Map<string, string> }> {
+  const { data: metas, error } = await supabase.from('game_state_meta').select(GAME_STATE_SUMMARY_COLUMNS).in('game_id', gameIds)
+  if (error) throw error
+
+  return summariesFromMetaRows(metas as GameStateSummaryRow[])
 }
 
 /**
@@ -428,7 +446,24 @@ const PLAYER_LIST_COLUMNS = 'id, game_id, user_id, display_name, seat_index'
  * — for GamePage.tsx's "other games" nudge, which already has the room it's
  * currently showing loaded via getGameState and only ever reads *other*
  * games out of this list (see nextGameNeedingInput).
+ *
+ * The `players.game_id` list above is every game the user has *ever* been
+ * seated in — issue #687 found this growing without bound, ~46 games deep
+ * on one account already and rising for the life of the account, since a
+ * finished game never leaves it. Active/lobby/canceled games are each
+ * naturally bounded (how many a person plausibly has in flight, or has
+ * opened and abandoned), so only the completed bucket needs capping:
+ * `FINISHED_GAMES_LIMIT` below, applied by Postgres itself via
+ * `.eq('status', 'completed').order('updated_at', { ascending: false }).limit(...)`
+ * rather than fetched-then-discarded client-side, so the row count actually
+ * on the wire stops growing with the account's history instead of merely
+ * being trimmed after the fact. `games`/`players` are then fetched only for
+ * the resulting bounded id set. Older finished games aren't deleted — they
+ * just don't round-trip on every visit; MyGamesPage.tsx notes the cap so a
+ * long-time player doesn't read it as games disappearing.
  */
+export const FINISHED_GAMES_LIMIT = 30
+
 export async function listMyGames(userId: string, excludeGameId?: string): Promise<MyGameEntry[]> {
   const { data: myRows, error: myRowsError } = await supabase.from('players').select('game_id').eq('user_id', userId)
   if (myRowsError) throw myRowsError
@@ -439,16 +474,43 @@ export async function listMyGames(userId: string, excludeGameId?: string): Promi
   if (gameIds.length === 0) return []
 
   const [
-    { data: games, error: gamesError },
-    { data: allPlayers, error: allPlayersError },
-    { summaryByGame, updatedAtByGame },
+    { data: neverStartedGames, error: neverStartedError },
+    { data: activeMetas, error: activeMetasError },
+    { data: finishedMetas, error: finishedMetasError },
   ] = await Promise.all([
-    supabase.from('games').select(GAME_LIST_COLUMNS).in('id', gameIds),
-    supabase.from('players').select(PLAYER_LIST_COLUMNS).in('game_id', gameIds),
-    fetchGameStateSummaries(gameIds),
+    // games.status never reaches 'completed' (see GameRow's doc comment) —
+    // 'lobby'/'canceled' here means exactly "no game_state_meta row exists yet".
+    supabase.from('games').select(GAME_LIST_COLUMNS).in('id', gameIds).in('status', ['lobby', 'canceled']),
+    supabase.from('game_state_meta').select(GAME_STATE_SUMMARY_COLUMNS).in('game_id', gameIds).neq('status', 'completed'),
+    supabase
+      .from('game_state_meta')
+      .select(GAME_STATE_SUMMARY_COLUMNS)
+      .in('game_id', gameIds)
+      .eq('status', 'completed')
+      .order('updated_at', { ascending: false })
+      .limit(FINISHED_GAMES_LIMIT),
   ])
-  if (gamesError) throw gamesError
+  if (neverStartedError) throw neverStartedError
+  if (activeMetasError) throw activeMetasError
+  if (finishedMetasError) throw finishedMetasError
+
+  const metaRows = [...(activeMetas as GameStateSummaryRow[]), ...(finishedMetas as GameStateSummaryRow[])]
+  const { summaryByGame, updatedAtByGame } = summariesFromMetaRows(metaRows)
+  const startedGameIds = metaRows.map((row) => row.game_id)
+  const consideredGameIds = [...startedGameIds, ...(neverStartedGames as GameRow[]).map((g) => g.id)]
+
+  const [{ data: startedGames, error: startedGamesError }, { data: allPlayers, error: allPlayersError }] = await Promise.all([
+    startedGameIds.length === 0
+      ? Promise.resolve({ data: [] as GameRow[], error: null })
+      : supabase.from('games').select(GAME_LIST_COLUMNS).in('id', startedGameIds),
+    consideredGameIds.length === 0
+      ? Promise.resolve({ data: [] as PlayerListRow[], error: null })
+      : supabase.from('players').select(PLAYER_LIST_COLUMNS).in('game_id', consideredGameIds),
+  ])
+  if (startedGamesError) throw startedGamesError
   if (allPlayersError) throw allPlayersError
+
+  const games = [...(neverStartedGames as GameRow[]), ...(startedGames as GameRow[])]
 
   const playersByGame = new Map<string, PlayerListRow[]>()
   for (const p of allPlayers as PlayerListRow[]) {
@@ -457,7 +519,7 @@ export async function listMyGames(userId: string, excludeGameId?: string): Promi
     playersByGame.set(p.game_id, list)
   }
 
-  return (games as GameRow[]).map((game) => {
+  return games.map((game) => {
     const gamePlayers = (playersByGame.get(game.id) ?? []).sort((a, b) => a.seat_index - b.seat_index)
     return {
       game,

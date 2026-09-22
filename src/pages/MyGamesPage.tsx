@@ -4,7 +4,7 @@ import { ErrorBanner } from '../components/ErrorBanner'
 import { GameOverviewCard } from '../components/GameOverviewCard'
 import { useAuth } from '../hooks/useAuth'
 import { useRefetchOnVisible } from '../hooks/useRefetchOnVisible'
-import { listMyGames } from '../lib/gameApi'
+import { FINISHED_GAMES_LIMIT, listMyGames } from '../lib/gameApi'
 import { buildGameCardSummary, formatFinishedAt } from '../lib/gameCardView'
 import { toAppError, type AppError } from '../lib/errors'
 import {
@@ -100,6 +100,12 @@ export function MyGamesPage() {
               <GameRowItem key={entry.game.id} entry={entry} onOpen={() => navigate(gamePath(entry))} />
             ))}
           </ul>
+          {finished.length >= FINISHED_GAMES_LIMIT && (
+            <p className="text-sm text-neutral-500">
+              Showing your {FINISHED_GAMES_LIMIT} most recently finished games. Older finished games are still
+              reachable by their room link.
+            </p>
+          )}
         </section>
       )}
 
