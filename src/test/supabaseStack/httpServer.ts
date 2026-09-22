@@ -160,6 +160,25 @@ function applyOrder(rows: Record<string, unknown>[], order: string | null): Reco
   })
 }
 
+/**
+ * `.range()`/`.limit()`/`.offset()` — PostgREST's `Range`/`limit`/`offset`
+ * params. Added for `listMyGames`'s bounded "finished games" query (issue
+ * #687): before this, `limit`/`offset` were only reserved out of
+ * `buildMatcher()` (`NON_FILTER_PARAMS`) so they wouldn't misparse as column
+ * filters, but nothing actually sliced the result — any test asserting a
+ * capped row count would have passed against a fake that quietly ignored the
+ * cap. Applied after `applyOrder` so "top N by recency" slices the same rows
+ * a real ordered/limited query would.
+ */
+function applyRange(rows: Record<string, unknown>[], params: URLSearchParams): Record<string, unknown>[] {
+  const offset = params.get('offset')
+  const limit = params.get('limit')
+  if (!offset && !limit) return rows
+  const start = offset ? Number(offset) : 0
+  const end = limit ? start + Number(limit) : undefined
+  return rows.slice(start, end)
+}
+
 async function handleRest(req: Request, url: URL, options: ServerOptions): Promise<Response> {
   const table = url.pathname.slice('/rest/v1/'.length) as TableName
   if (!TABLES.includes(table)) {
@@ -197,7 +216,7 @@ async function handleRest(req: Request, url: URL, options: ServerOptions): Promi
   try {
     switch (req.method) {
       case 'GET': {
-        const rows = applyOrder(options.db.select(actor, table, match), params.get('order'))
+        const rows = applyRange(applyOrder(options.db.select(actor, table, match), params.get('order')), params)
         const [status, body] = asBody(project(rows, select))
         return json(status, body)
       }
