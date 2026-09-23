@@ -81,7 +81,7 @@ describe('gameStateCache', () => {
     await saveCachedGameState('game_1', 'auth_1', 1, state)
     const loaded = await loadCachedGameState('game_1', 'auth_1')
 
-    expect(loaded).toEqual(state)
+    expect(loaded).toEqual({ state, version: 1 })
   })
 
   it('returns null for a game/user pair that was never saved', async () => {
@@ -134,7 +134,7 @@ describe('gameStateCache', () => {
 
     expect(await loadCachedGameState('game_0', 'auth_1')).toBeNull()
     expect(await loadCachedGameState('game_4', 'auth_1')).toBeNull()
-    expect(await loadCachedGameState(`game_${MAX_ENTRIES + 4}`, 'auth_1')).toEqual(state)
+    expect(await loadCachedGameState(`game_${MAX_ENTRIES + 4}`, 'auth_1')).toEqual({ state, version: 1 })
 
     vi.restoreAllMocks()
   })
@@ -149,7 +149,7 @@ describe('gameStateCache', () => {
     }
 
     const loaded = await loadCachedGameState('game_1', 'auth_1')
-    expect(loaded).toEqual(state)
+    expect(loaded).toEqual({ state, version: MAX_ENTRIES + 4 })
 
     vi.restoreAllMocks()
   })
