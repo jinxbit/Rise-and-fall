@@ -6465,3 +6465,93 @@ store.
 
 `npm run lint`, `npm run test` (82 files / 1371 tests) and `npm run build`
 all pass.
+
+## 139. Bandwidth: patch `stateWithoutHistory` instead of resending it whole (issue #648)
+
+Last of the #646/#647/#687/#688 bandwidth set. #647 (todo.md #126) made
+`actionHistory` — 60-70% of a raw `GameState`'s bytes — incremental via
+`sinceActionIndex`, but left the rest (`stateWithoutHistory`: board,
+achievements, resources, ...) sent in full on every request, even though it
+plateaus early (~move 40) and barely changes move to move after that.
+Measured against the three `productionGames` fixtures: patching it instead
+cuts per-request bytes 5.4× over doing nothing, on top of #647's own win.
+
+The blocker in earlier queue runs on this issue was `HIDDEN_INFORMATION_PLAN.md`
+§5.3's dropped reveal high-water mark — diffing two states looked like it
+would need replaying history to reconstruct "the previous view" the same way
+§5.3 would have. It doesn't: `redactStateForPlayer` is a pure function of a
+*materialised* `GameState`, so the previous view just needs a materialised
+*earlier* `GameState` to call it against, not a replay. `0036_game_state_snapshots.sql`
+adds exactly that — a small rolling buffer (16 versions per game, service-
+role only) maintained by `writeGameStateCAS`
+(`supabase/functions/_shared/gameEnforcement.ts`) alongside every write, and
+seeded at genesis by `start-game`. Pruned automatically as new versions push
+old ones out, and dropped outright once a game's `status` reaches
+`'completed'` (no more writes ever coming, so nothing left to diff against).
+
+New `src/engine/statePatch.ts`: a generic structural differ (`diffState`/
+`applyStatePatch`) — not RFC 6902 JSON Patch, since every diff here only ever
+runs between two views of the same `GameState`-shaped object for the same
+viewer, so a format that mirrors the source shape needs no path strings and
+is simpler to generate/apply correctly at the same size. `redaction.ts`
+extracts `collapseStateWithoutHistory` (the non-`actionHistory` half of
+`toClientGameState`'s collapse) and adds `buildRedactedGameStateDelta`/
+redefines `RedactedGameStateDelta`/`applyRedactedGameStateDelta` to carry a
+`statePatch` — computed over the *collapsed* (client-shape) view, since
+that's what a caller actually has cached to diff against — alongside #647's
+unchanged `actionHistoryAppend` machinery. Exactly one of `state`/`statePatch`
+is ever present; a fallback to plain `state` is always safe, never a leak,
+never more than one extra full response.
+
+`get-game-state` needed one new request field: `baseVersion`, the actual
+`game_state.version` the caller's `previous` came from. It can't be derived
+from `sinceActionIndex` alone — a caller's own *safe* (post-`unredactedPrefix`)
+actionHistory length understates the raw version whenever some other
+player's pick was still masked from them as of `previous`, a real scenario
+this issue's own test suite caught as a genuine bug during implementation
+(a three-player selectCards phase where the caller's own next move landed
+one version off from the buffer's entry, producing a merge the client
+correctly rejected as inconsistent rather than silently applying it wrong).
+`respondWithState` now looks the buffered state up by `baseVersion` and
+*verifies* its own recomputed safe-prefix length still matches the caller's
+stated `sinceActionIndex` before trusting it as a diff base — any mismatch,
+same as an outright buffer miss, degrades to a plain `state` for that one
+request. `gameApi.ts`'s `getGameStateRedacted` gained a `previousVersion`
+parameter to carry this; `gameStateCache.ts`'s `loadCachedGameState` now
+returns `{state, version}` instead of bare `state` so issue #688's
+cross-session cache can supply it too.
+
+`apply-action`/`undo-action`/`redo-action` needed no buffer at all — their
+own pre-write state is already in memory — so their response is *always* a
+patch now (`buildEnforcedActionResponseDelta`), not just on request, which
+closes a bigger gap than #647 ever touched: every move's own write response
+was still sending the *entire* state, full `actionHistory` included, on top
+of whatever the follow-up read fetched. `applyActionEnforced`/
+`undoActionEnforced`/`redoActionEnforced` gained a `previous` parameter
+(`GamePage.tsx`'s `runEnforced` now threads its own `gameState` through) to
+reconstruct against. Since this pair of endpoints had no existing opt-in
+request field the way `sinceActionIndex` gave the read path one, `gameApi.ts`
+additionally checks for the pre-#648 response shape
+(`'actionHistoryAppend' in result`) and collapses it the old way when seen —
+the one deploy-skew combination (an old browser tab, a freshly-redeployed
+function) this change newly has to tolerate that the read-side change,
+being opt-in from day one, already did.
+
+`src/test/supabaseStack/`, `src/test/productionSmoke/liveProject.ts` and
+`src/test/productionSmoke/hiddenInformationWire.ts` all talk to real Edge
+Function responses and needed matching updates: the stack's `invokeEnforced`
+now reads the pre-write state straight from the double's database
+(service role, via the same `loadGameContext`/`redactedResponseState` the
+functions themselves use) to reconstruct against, rather than assuming a
+full state came back; the wire-level leak check
+(`hiddenInformationWire.ts`'s `disclosedCardIds`) gained a structural
+patch-walker so it can still find a still-secret `cardId` wherever it might
+leak through `chosenCardIdByPlayerId`/`players[].declineCardIds`, now that
+those can arrive as a diff instead of a plain object.
+
+`RULE_ENFORCEMENT_PLAN.md` §8 phase 8 and `HIDDEN_INFORMATION_PLAN.md` §5.3/
+§8 phase 8 record the protocol and that §5.3 stays dropped.
+
+`npm run lint`, `npm run test` and `npm run build` all pass. This migration
+(`0036_game_state_snapshots.sql`) needs a human read per CLAUDE.md — no
+automerge.

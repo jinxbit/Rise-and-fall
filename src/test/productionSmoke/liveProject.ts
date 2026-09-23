@@ -27,13 +27,14 @@
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import type { Action } from '../../engine/actions.ts'
-import { toClientGameState, type RedactedGameState } from '../../engine/redaction.ts'
+import { applyRedactedGameStateDelta, toClientGameState, type RedactedGameState, type RedactedGameStateDelta } from '../../engine/redaction.ts'
 import type { GameState } from '../../engine/types.ts'
 import type { GameRow, PlayerRow } from '../../lib/dbTypes.ts'
 import { decompressGameStateFromStorage, type StoredGameState } from '../../lib/gameStateCompression.ts'
 import type { ProductionGameFixture } from '../fixtures/productionGames/loadFixtures.ts'
 import type { EnforcedCallResult } from '../supabaseStack/index.ts'
 import type { ReplayTarget } from '../supabaseStack/replayFixture.ts'
+import { loadGameContext, redactedResponseState } from '../../../supabase/functions/_shared/gameEnforcement.ts'
 import { remapFixtureToRoom, type RemappedFixture, type RoomIdentity } from './remapFixture.ts'
 
 export interface LiveProjectConfig {
@@ -130,6 +131,44 @@ async function invoke(client: SupabaseClient, name: string, body: Record<string,
   }
   const result = data as { ok: true; state: RedactedGameState; version: number }
   return { ok: true, state: toClientGameState(result.state), version: result.version, status: 200 }
+}
+
+/**
+ * apply-action/undo-action/redo-action's own response, unlike get-game-state's
+ * above (issue #648): always a `RedactedGameStateDelta` (a `statePatch`
+ * against the pre-write state), never a full `RedactedGameState`. Reconstructs
+ * it the same way `src/test/supabaseStack/index.ts`'s `invokeEnforced` does
+ * against the in-process stack — reading the pre-write state straight from
+ * the project (service role, via `admin`) right before the call, the same
+ * `loadGameContext`/`redactedResponseState` the Edge Function itself uses —
+ * rather than tracking a "last response" client-side, since
+ * `replayFixtureThroughStack`'s callers (this file's own `applyAction`/
+ * `undoAction`/`redoAction`) have no such per-seat cache to reuse either.
+ */
+async function invokeEnforced(admin: SupabaseClient, client: SupabaseClient, gameId: string, userId: string, name: string, body: Record<string, unknown>): Promise<EnforcedCallResult> {
+  const ctxBefore = await loadGameContext(admin, gameId, userId)
+  const { data, error } = await client.functions.invoke(name, { body })
+  if (error) {
+    const context = (error as { context?: Response }).context
+    if (context) {
+      const status = context.status
+      try {
+        const parsed = (await context.clone().json()) as { error?: string }
+        if (parsed.error) return { ok: false, error: parsed.error, status }
+      } catch {
+        // Not JSON — fall through to the generic message.
+      }
+      return { ok: false, error: error.message, status }
+    }
+    return { ok: false, error: error.message, status: 0 }
+  }
+  if (!ctxBefore) return { ok: false, error: 'pre-write game context vanished mid-call', status: 500 }
+  const result = data as ({ ok: true; version: number } & RedactedGameStateDelta) | { ok: false; error: string }
+  if (!result.ok) return { ...result, status: 400 }
+  const previous = toClientGameState(redactedResponseState(ctxBefore, userId, ctxBefore.gameState.state))
+  const state = applyRedactedGameStateDelta(previous, result)
+  if (!state) return { ok: false, error: "delta failed to reconstruct against this room's own pre-write state", status: 500 }
+  return { ok: true, state, version: result.version, status: 200 }
 }
 
 /**
@@ -316,9 +355,9 @@ export async function provisionLiveRoom(config: LiveProjectConfig, fixture: Prod
       players,
       genesis,
       remapped,
-      applyAction: (userId, _gameId, action: Action) => invoke(clientFor(userId), 'apply-action', { gameId, action }),
-      undoAction: (userId) => invoke(clientFor(userId), 'undo-action', { gameId }),
-      redoAction: (userId) => invoke(clientFor(userId), 'redo-action', { gameId }),
+      applyAction: (userId, _gameId, action: Action) => invokeEnforced(admin, clientFor(userId), gameId!, userId, 'apply-action', { gameId, action }),
+      undoAction: (userId) => invokeEnforced(admin, clientFor(userId), gameId!, userId, 'undo-action', { gameId }),
+      redoAction: (userId) => invokeEnforced(admin, clientFor(userId), gameId!, userId, 'redo-action', { gameId }),
       async readGameState() {
         // Ground truth for test assertions, not a simulation of any app read
         // path (contrast supabaseStack's `readGameState(userId, ...)`, which

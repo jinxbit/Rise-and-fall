@@ -19,7 +19,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { resolveHistory } from '../../engine/historyFold.ts'
-import { toClientGameState, type RedactedGameState } from '../../engine/redaction.ts'
+import { toClientGameState, type RedactedGameStateDelta } from '../../engine/redaction.ts'
 import { buildGenesisState } from '../../lib/gameGenesis.ts'
 import type { GameRow, GameSettings, PlayerRow } from '../../lib/dbTypes.ts'
 import { createProductionStack, type ProductionStack } from '../supabaseStack/index.ts'
@@ -111,11 +111,19 @@ describe('apply-action/undo-action/redo-action write-path redaction (issue #478)
     return state
   }
 
-  /** The raw Edge Function response body, bypassing gameApi.ts/the stack's own toClientGameState collapse — this is what actually crossed the wire. */
+  /**
+   * The raw Edge Function response body, bypassing gameApi.ts/the stack's
+   * own reconstruction — this is what actually crossed the wire. Since issue
+   * #648 that's a `RedactedGameStateDelta` (a `statePatch` against the
+   * pre-action state, not a full `RedactedGameState`) — see this describe
+   * block's assertions below for why a plain substring check on the whole
+   * serialized payload is what actually matters for a wire-redaction
+   * regression test, regardless of which exact shape carries it.
+   */
   async function rawApplyAction(userId: string, action: Parameters<ProductionStack['applyAction']>[2]) {
     const { data, error } = await stack.clientFor(userId).functions.invoke('apply-action', { body: { gameId: GAME_ID, action } })
     if (error) throw new Error(`apply-action rejected: ${error.message}`)
-    return data as { ok: true; state: RedactedGameState; version: number }
+    return data as { ok: true; version: number } & RedactedGameStateDelta
   }
 
   it("hides another still-pending player's secret pick from the acting player's own apply-action response, and reveals it once the phase resolves", async () => {
@@ -130,21 +138,23 @@ describe('apply-action/undo-action/redo-action write-path redaction (issue #478)
     expect(bobChose.state.pendingPlayerIds).toEqual(expect.arrayContaining(['seat-alice', 'seat-charlie']))
 
     // Alice submits her own pick next — pending: Charlie only, so the phase
-    // is still open. Before the fix, this response's chosenCardIdByPlayerId
-    // carried Bob's real cardId straight back to Alice's own browser.
+    // is still open. Before the #478 fix, this response's
+    // chosenCardIdByPlayerId carried Bob's real cardId straight back to
+    // Alice's own browser — now (#648) it's a patch, not a full state, but
+    // the same secret must still never cross the wire in it, in whatever
+    // form (a masked field, or a patch op naming it).
     const aliceResponse = await rawApplyAction(ALICE, { type: 'CHOOSE_CARD', playerId: 'seat-alice', cardId: aliceCard })
-    expect(aliceResponse.state.pendingPlayerIds).toEqual(['seat-charlie'])
-    expect(aliceResponse.state.chosenCardIdByPlayerId['seat-bob']).toEqual({ chosen: true, cardId: null })
-    // Alice's own pick is never hidden from herself.
-    expect(aliceResponse.state.chosenCardIdByPlayerId['seat-alice']).toEqual({ chosen: true, cardId: aliceCard })
+    expect(JSON.stringify(aliceResponse)).not.toContain(bobCard)
 
     // Charlie's own submission resolves the phase — nothing left pending, so
     // this same response (still Charlie's own apply-action call) now reveals
-    // every pick, Bob's included.
+    // every pick, Bob's included — and did cross the wire, confirming this
+    // test actually exercises a real reveal rather than vacuously finding
+    // nothing either way.
     const charlieResponse = await rawApplyAction(CHARLIE, { type: 'CHOOSE_CARD', playerId: 'seat-charlie', cardId: charlieCard })
-    expect(charlieResponse.state.roundPhase).toBe('actions')
-    expect(charlieResponse.state.chosenCardIdByPlayerId['seat-bob']).toEqual({ chosen: true, cardId: bobCard })
-    expect(charlieResponse.state.chosenCardIdByPlayerId['seat-alice']).toEqual({ chosen: true, cardId: aliceCard })
+    expect('statePatch' in charlieResponse).toBe(true) // sanity: this is a delta, not a full RedactedGameState — see this file's rawApplyAction doc comment
+    expect(JSON.stringify(charlieResponse)).toContain(bobCard)
+    expect(JSON.stringify(charlieResponse)).toContain(aliceCard)
   })
 
   it("doesn't change behavior for a game without hiddenInformationEnabled — apply-action's collapsed response still carries the real pick straight through", async () => {

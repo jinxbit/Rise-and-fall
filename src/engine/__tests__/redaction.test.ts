@@ -6,7 +6,7 @@ import { cardIdFor, moveCard, UNIT_KINDS } from '../cards'
 import { createNewGame } from '../createGame'
 import { buildGameLog, PLAYER_PLACEHOLDER } from '../gameLog'
 import { resolveHistory } from '../historyFold'
-import { applyRedactedGameStateDelta, redactGameLog, redactStateForPlayer, revealedGameStateView, toClientGameState, unredactedPrefix } from '../redaction'
+import { applyRedactedGameStateDelta, buildRedactedGameStateDelta, redactGameLog, redactStateForPlayer, revealedGameStateView, toClientGameState, unredactedPrefix } from '../redaction'
 import type { RedactedGameStateDelta } from '../redaction'
 import type { GameState, Unit } from '../types'
 import { applyUndoAction } from '../undoRedo'
@@ -576,18 +576,12 @@ describe('toClientGameState', () => {
   })
 })
 
-describe('applyRedactedGameStateDelta (issue #647)', () => {
-  /** Mirrors get-game-state/index.ts's respondWithState for a given viewer/sinceActionIndex, without going through the Edge Function itself — this is the server-side half the client-side applyRedactedGameStateDelta under test here is meant to invert. */
-  function buildDelta(state: GameState, viewerId: string | null, sinceActionIndex: number): RedactedGameStateDelta {
-    const redacted = redactStateForPlayer(state, viewerId)
-    const safePrefixLength = unredactedPrefix(redacted.actionHistory).length
-    const { actionHistory, ...stateWithoutHistory } = redacted
-    return {
-      state: stateWithoutHistory,
-      actionHistoryFrom: sinceActionIndex,
-      actionHistoryAppend: actionHistory.slice(sinceActionIndex, safePrefixLength),
-      actionHistoryLength: safePrefixLength,
-    }
+describe('buildRedactedGameStateDelta/applyRedactedGameStateDelta (issues #647/#648)', () => {
+  /** Mirrors get-game-state/index.ts's respondWithState for a given viewer/sinceActionIndex, without going through the Edge Function itself — this is the server-side half the client-side applyRedactedGameStateDelta under test here is meant to invert. `previousState`, when given, produces a `statePatch`; `null` produces a plain fallback `state`, same as a buffer miss would server-side. */
+  function buildDelta(previousState: GameState | null, state: GameState, viewerId: string | null, sinceActionIndex: number): RedactedGameStateDelta {
+    const previousView = previousState ? redactStateForPlayer(previousState, viewerId) : null
+    const currentView = redactStateForPlayer(state, viewerId)
+    return buildRedactedGameStateDelta(previousView, currentView, sinceActionIndex)
   }
 
   it('reproduces the exact same client GameState a full fetch would, spliced across a phase resolution that un-masks a previously-secret pick', () => {
@@ -605,44 +599,56 @@ describe('applyRedactedGameStateDelta (issue #647)', () => {
     // Round 2's selectCards phase opens: p1 picks first, still secret from
     // p2 — the real log grew, but the safe prefix p2 can see didn't.
     const p1PickedAgain = requireOk(applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'temple') }))
-    const midPhaseDelta = buildDelta(p1PickedAgain, 'p2', previous.actionHistory.length)
+    const midPhaseDelta = buildDelta(state, p1PickedAgain, 'p2', previous.actionHistory.length)
     expect(midPhaseDelta.actionHistoryAppend).toEqual([])
     expect(midPhaseDelta.actionHistoryLength).toBe(4)
-    const midPhaseMerged = applyRedactedGameStateDelta(previous.actionHistory, midPhaseDelta)
+    expect('statePatch' in midPhaseDelta).toBe(true) // a previousState was given — this is a patch, not a full state
+    const midPhaseMerged = applyRedactedGameStateDelta(previous, midPhaseDelta)
     expect(midPhaseMerged).not.toBeNull()
     // Only actionHistory is expected to still match `previous` here — the
     // rest of the state (pendingPlayerIds, roundPhase, ...) has legitimately
     // moved on to reflect p1's new, still-secret-from-p2 pick.
-    expect(toClientGameState(midPhaseMerged!).actionHistory).toEqual(previous.actionHistory)
+    expect(midPhaseMerged!.actionHistory).toEqual(previous.actionHistory)
 
     // p2 makes their own pick, resolving the phase — both this round's picks
     // (including p1's, now safe to show) become visible at once.
     const bothPicked = requireOk(applyAction(p1PickedAgain, { type: 'CHOOSE_CARD', playerId: 'p2', cardId: cardIdFor('p2', 'temple') }))
-    const resolvedDelta = buildDelta(bothPicked, 'p2', previous.actionHistory.length)
+    const resolvedDelta = buildDelta(state, bothPicked, 'p2', previous.actionHistory.length)
     expect(resolvedDelta.actionHistoryAppend.map((e) => e.action.type)).toEqual(['CHOOSE_CARD', 'CHOOSE_CARD'])
-    const resolvedMerged = applyRedactedGameStateDelta(previous.actionHistory, resolvedDelta)
+    const resolvedMerged = applyRedactedGameStateDelta(previous, resolvedDelta)
     expect(resolvedMerged).not.toBeNull()
 
     // Ground truth: what a full (non-incremental) fetch would return for the
     // exact same state/viewer.
     const fullFetch = toClientGameState(redactStateForPlayer(bothPicked, 'p2'))
-    expect(toClientGameState(resolvedMerged!)).toEqual(fullFetch)
+    expect(resolvedMerged!).toEqual(fullFetch)
+  })
+
+  it('sends a plain (un-patched) state, not a statePatch, when there is no previous view to diff against — a buffer miss server-side', () => {
+    const genesis = makeActiveGameWithFullHands()
+    const state = requireOk(applyAction(genesis, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }))
+    const delta = buildDelta(null, state, 'p1', 0)
+    expect('state' in delta).toBe(true)
+    expect('statePatch' in delta).toBe(false)
+    const merged = applyRedactedGameStateDelta(genesis, delta)
+    expect(merged).not.toBeNull()
+    expect(merged!).toEqual(toClientGameState(redactStateForPlayer(state, 'p1')))
   })
 
   it("falls back (returns null) when actionHistoryFrom doesn't match the caller's own cached prefix length", () => {
     const genesis = makeActiveGameWithFullHands()
     const state = requireOk(applyAction(genesis, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }))
-    const delta = buildDelta(state, 'p1', 1)
+    const delta = buildDelta(null, state, 'p1', 1)
     // The caller's real cached prefix is only 0 entries long, not 1 — e.g. a
     // stale cache, a race against another in-flight fetch, or a bug.
-    expect(applyRedactedGameStateDelta([], delta)).toBeNull()
+    expect(applyRedactedGameStateDelta(genesis, delta)).toBeNull()
   })
 
   it("falls back (returns null) when the spliced array's length disagrees with actionHistoryLength", () => {
     const genesis = makeActiveGameWithFullHands()
     const state = requireOk(applyAction(genesis, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'city') }))
-    const delta = buildDelta(state, 'p1', 0)
-    expect(applyRedactedGameStateDelta([], { ...delta, actionHistoryLength: delta.actionHistoryLength + 1 })).toBeNull()
+    const delta = buildDelta(null, state, 'p1', 0)
+    expect(applyRedactedGameStateDelta(genesis, { ...delta, actionHistoryLength: delta.actionHistoryLength + 1 })).toBeNull()
   })
 })
 

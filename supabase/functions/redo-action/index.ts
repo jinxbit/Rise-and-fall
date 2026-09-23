@@ -3,17 +3,17 @@
 // the shared background. Same authorization (any seated player, or the room
 // owner/an admin — no per-seat ownership check, no owner-override), same
 // genesis-replay approach, same no-payload request body, same write-side
-// response redaction (issue #478 — see redactedResponseState in
-// ../_shared/gameEnforcement.ts).
+// response redaction+delta (issue #478/#648 — see
+// buildEnforcedActionResponseDelta in ../_shared/gameEnforcement.ts).
 import { applyRedoAction } from '../../../src/engine/undoRedo.ts'
 import {
+  buildEnforcedActionResponseDelta,
   buildGenesisState,
   corsHeaders,
   getCallerUserId,
   jsonResponse,
   loadFullGameAndPlayers,
   loadGameContext,
-  redactedResponseState,
   resolveGameContent,
   serviceRoleClient,
   writeGameStateCAS,
@@ -53,16 +53,9 @@ Deno.serve(async (req) => {
 
   const callerPlayerId = ctx.players.find((p) => p.user_id === callerUserId)?.id ?? null
 
-  const content = resolveGameContent(ctx.gameState.state)
-  const result = applyRedoAction(
-    genesis,
-    ctx.gameState.state,
-    callerPlayerId,
-    content.unitContent,
-    content.achievementContent,
-    content.boardGenerationContent,
-    content.taleContent,
-  )
+  const preState = ctx.gameState.state
+  const content = resolveGameContent(preState)
+  const result = applyRedoAction(genesis, preState, callerPlayerId, content.unitContent, content.achievementContent, content.boardGenerationContent, content.taleContent)
   if (!result.ok) return jsonResponse(400, { ok: false, error: result.error })
 
   const newVersion = await writeGameStateCAS(supabase, gameId, result.state, ctx.gameState.version)
@@ -70,7 +63,8 @@ Deno.serve(async (req) => {
     return jsonResponse(409, { ok: false, error: 'Game state changed concurrently — refetch and retry.' })
   }
 
-  // issue #478: same write-side redaction as apply-action — see
-  // redactedResponseState's doc comment.
-  return jsonResponse(200, { ok: true, state: redactedResponseState(ctx, callerUserId, result.state), version: newVersion })
+  // issue #478/#648: same write-side redaction+patch as apply-action — see
+  // buildEnforcedActionResponseDelta's doc comment.
+  const delta = buildEnforcedActionResponseDelta(ctx, callerUserId, preState, result.state)
+  return jsonResponse(200, { ok: true, ...delta, version: newVersion })
 })

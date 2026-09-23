@@ -823,6 +823,30 @@ to rule enforcement (2, 5) are omitted here.
      invoked from a real signed-in browser session — this sandbox's
      `supabase start` stack from phase 6's verification wasn't re-used here;
      see §9/§10.
+
+   **Update (2026-09-23, issue #648): apply-action/undo-action/redo-action's
+   response is now a patch, not the whole state.** `runEnforced()`'s "adopts
+   its returned `state`/`version` directly" above still holds — only what
+   crosses the wire to get there changed. Each function computes the caller's
+   own redacted view of the state it CAS'd *over* (already in memory — no
+   extra read) and of the state that write just produced, and sends the
+   structural diff between them (`buildEnforcedActionResponseDelta`,
+   `../_shared/gameEnforcement.ts`) instead of the full thing; `gameApi.ts`'s
+   `invokeGameFunction` reconstructs against `previous` (the state
+   `runEnforced()` is already calling from) via
+   `applyRedactedGameStateDelta`, now threaded through
+   `applyActionEnforced`/`undoActionEnforced`/`redoActionEnforced` as an
+   explicit parameter. Falls back to a fresh `getGameStateRedacted` read on
+   any reconstruction mismatch, and to the pre-#648 full-state collapse when
+   the response itself is pre-#648-shaped (`'actionHistoryAppend' in result`)
+   — the one deploy-skew case this pair of Edge Functions didn't already
+   tolerate before, since unlike the read path's `sinceActionIndex` this
+   wasn't previously an opt-in request field. See
+   `HIDDEN_INFORMATION_PLAN.md` §8 phase 8's matching update (issue #647's
+   sibling on the read side) for the full design, including why this needed
+   a small rolling `game_state_snapshots` buffer for `get-game-state`
+   specifically (a write always already has its own "previous" in memory;
+   a read, days later, does not).
 9. **End-to-end verification against a real two-browser Supabase
    session**, exercising this document's authorization rules specifically —
    confirm a client can't submit an action naming another player's
