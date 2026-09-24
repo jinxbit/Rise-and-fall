@@ -6700,3 +6700,48 @@ Protocol 1 (#647) is untouched — a client that never asks for protocol 2 gets
 the old shape, so a stale bundle keeps working with no coordinated rollout.
 
 `npm run lint`, `npm run test` and `npm run build` all pass.
+
+## 143. Saved maps survive a rebuild, and can be seeded from production
+
+`map_pool` is the one table in `public` holding something a person made by
+hand that nothing can regenerate (`src/pages/MapBuilderPage.tsx`), and
+`rebuild-preproduction.yml` drops the schema whole. Two gaps, one script.
+
+`scripts/supabase/map-pool.sh` has three modes over the Management API query
+endpoint — the same mechanism `reset-project.sh` and `set-chat-enabled.sh`
+already use, so no database password:
+
+- `MODE=export` / `MODE=import` — the rebuild now exports the maps before the
+  drop and imports them back after `db push`. The export is also uploaded as a
+  `map-pool-backup` artifact, so a failed import leaves the maps recoverable
+  from the run rather than gone.
+- `MODE=copy` — production to pre-production, via
+  `.github/workflows/copy-map-pool.yml`, for maps that only ever existed in
+  production.
+
+Three columns are deliberately not carried across. `id`, because nothing
+depends on it surviving (`games.settings.mapPoolMapId` is display-only; a game
+stores its own `mapPoolBoard` copy) and fresh ids can't collide with rows
+already there. `created_at`, because the import is a new event in the target's
+history. And `created_by`, which is the only real obstacle to a straight row
+copy: it is `not null references auth.users (id)` and auth user ids are
+per-project, so the source's value means nothing in the target.
+`TARGET_CREATED_BY` names a replacement, or the target's oldest account is
+adopted. A project with no accounts at all — a rebuild that also ticked
+`wipe_auth_users` — is not an error: the insert no-ops via `where ... is not
+null` and says so, leaving the exported JSON for a later run.
+
+`board_key` is copied verbatim rather than recomputed, so two deploys on
+different engine versions can never disagree about a map's signature. With
+`unique (player_count, board_key)` (0016_map_pool.sql) that makes every import
+idempotent — re-running inserts nothing.
+
+Writes can never reach production: `environment:` is the literal string
+Preview in both workflows, and the script refuses when the write target equals
+`PRODUCTION_SUPABASE_PROJECT_ID`, treating that variable being unset as a
+broken guard rather than an absent one (the 2026-09-09 reasoning in
+`deploy-supabase.yml`). Reading production is the point of `MODE=copy` and is
+safe — a map row is terrain data plus a user id that gets discarded anyway.
+
+The rebuild's inventory now counts maps too, so the job summary says how many
+are at stake before `dry_run` is unticked.

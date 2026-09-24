@@ -24,6 +24,12 @@
 # push_subscriptions, map_pool. Also clears the migration history so every
 # migration re-applies.
 #
+# `map_pool` is the one table here holding work a person did by hand that
+# nothing can regenerate (src/pages/MapBuilderPage.tsx), so
+# rebuild-preproduction.yml exports it with ./map-pool.sh before calling this
+# and imports it back afterwards. This script itself makes no exception for
+# it — it drops the schema, whole.
+#
 # WHAT IT LEAVES ALONE: the `auth` schema (accounts, identities, sessions)
 # unless WIPE_AUTH_USERS=1, `storage`, and the `supabase_realtime`
 # publication itself. Dropping the tables removes them from that publication;
@@ -99,6 +105,7 @@ select jsonb_build_object(
   'players',            (select count(*) from public.players),
   'game_state',         (select count(*) from public.game_state),
   'profiles',           (select count(*) from public.profiles),
+  'maps',               (select count(*) from public.map_pool),
   'admins',             (select count(*) from public.profiles where is_admin),
   'migrations_applied', (select count(*) from supabase_migrations.schema_migrations),
   'realtime_tables',    (select count(*) from pg_publication_tables where pubname = 'supabase_realtime'),

@@ -1,0 +1,92 @@
+name: Copy saved maps from production
+
+# Seeds pre-production's `map_pool` from production's, for the case
+# rebuild-preproduction.yml's own export/import doesn't cover: maps that only
+# ever existed in production. Reads production, writes pre-production, and
+# cannot be turned round — see below.
+#
+# Maps are the one thing in `public` that a person made by hand and nothing can
+# regenerate (src/pages/MapBuilderPage.tsx). A row is a terrain layout, its
+# canonical signature, and a player count; no personal data crosses, because
+# `created_by` is deliberately not carried over (scripts/supabase/map-pool.sh
+# explains why it can't be).
+#
+# THE DIRECTION IS FIXED. `environment:` is the literal string Preview, so the
+# only secrets in scope are pre-production's, and production's ref arrives from
+# the `PRODUCTION_SUPABASE_PROJECT_ID` repository *variable* — which is also
+# what map-pool.sh refuses to write to. Reading production is the point; there
+# is no input that could make it the target.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Report what would be copied without writing anything. Defaults to ON.'
+        type: boolean
+        default: true
+      target_created_by:
+        description: 'Optional auth.users id in pre-production to own the copied maps. Blank adopts the oldest account there.'
+        required: false
+        type: string
+
+concurrency:
+  # Shared with deploy-supabase.yml, smoke.yml and rebuild-preproduction.yml,
+  # so this can never land in the middle of a rebuild or a deploy.
+  group: supabase-Preview
+  cancel-in-progress: false
+
+jobs:
+  copy:
+    runs-on: ubuntu-latest
+    environment: Preview
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SOURCE_PROJECT_ID: ${{ vars.PRODUCTION_SUPABASE_PROJECT_ID }}
+      TARGET_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+      PRODUCTION_SUPABASE_PROJECT_ID: ${{ vars.PRODUCTION_SUPABASE_PROJECT_ID }}
+      TARGET_CREATED_BY: ${{ inputs.target_created_by }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # The same inheritance trap deploy-supabase.yml documents: an environment
+      # with no SUPABASE_PROJECT_ID of its own silently falls back to the
+      # repository-level one, which is production's. Here that would make
+      # source and target the same project — map-pool.sh refuses that too, but
+      # failing here says why.
+      - name: Refuse to copy production onto itself
+        run: |
+          if [ -z "$TARGET_PROJECT_ID" ]; then
+            echo "::error::No SUPABASE_PROJECT_ID for the Preview environment."
+            exit 1
+          fi
+          if [ -z "$SOURCE_PROJECT_ID" ]; then
+            echo "::error::Repository variable PRODUCTION_SUPABASE_PROJECT_ID is not set, so there is nothing to copy from and no guard on what to copy to."
+            exit 1
+          fi
+          if [ "$TARGET_PROJECT_ID" = "$SOURCE_PROJECT_ID" ]; then
+            echo "::error::The Preview environment resolved to the PRODUCTION project ('$SOURCE_PROJECT_ID') — it has no SUPABASE_PROJECT_ID of its own and inherited the repository-level one. Add it under Settings -> Environments -> Preview. Refusing to continue."
+            exit 1
+          fi
+          echo "Copying maps: '$SOURCE_PROJECT_ID' (read) -> '$TARGET_PROJECT_ID' (write)."
+
+      - name: Copy the map pool
+        env:
+          MODE: copy
+          DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
+        run: bash scripts/supabase/map-pool.sh
+
+      - name: Summarise
+        if: always()
+        run: |
+          {
+            echo "## Copy saved maps from production"
+            echo
+            if [ "${{ inputs.dry_run }}" = "true" ]; then
+              echo "**Dry run — nothing was written.** Re-run with \`dry_run\` unticked to copy."
+            else
+              echo "Maps copied into pre-production. Re-running is safe: \`unique (player_count, board_key)\` skips anything already there."
+              echo
+              echo "If the step reported that pre-production has no accounts, nothing was imported — sign in there once and run this again."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
