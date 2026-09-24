@@ -1,0 +1,203 @@
+name: Rebuild pre-production
+
+# Drops pre-production's `public` schema and re-applies every migration from
+# scratch, then redeploys the Edge Functions on top (todo.md #139).
+#
+# WHY THIS EXISTS: pre-production accumulates state no migration describes —
+# throwaway smoke users and rooms, hand-run SQL, and migrations applied on the
+# project that have since been reverted out of the repository, leaving a
+# `schema_migrations` row with no file behind it. Reconciling that by hand is
+# how migration history drifts, which `audit-and-fix-migrations.yml` exists
+# because of. Rebuilding from `supabase/migrations/` instead makes the repo
+# the only source of truth again.
+#
+# THIS CAN NEVER TOUCH PRODUCTION, by construction and then by guard:
+#   1. `environment:` below is the literal string `Preview`. There is no
+#      environment input, so production is not expressible — unlike
+#      deploy-supabase.yml and smoke.yml, which need the choice and therefore
+#      need the guard to carry the whole weight.
+#   2. scripts/supabase/reset-project.sh refuses when the resolved project ref
+#      equals `vars.PRODUCTION_SUPABASE_PROJECT_ID`, and refuses again when
+#      that variable is unset, on the reasoning deploy-supabase.yml's "Refuse
+#      to touch the wrong project" spells out: an environment missing its own
+#      SUPABASE_PROJECT_ID silently inherits the repository-level one, which
+#      is production's. That is how a run requested for "staging" reached
+#      production on 2026-09-09.
+#
+# Production is rebuilt by nobody and nothing. If production ever needs this,
+# it needs a different workflow, a maintenance window and PRODUCTION_DEPLOYMENT.md.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type REBUILD PRE-PRODUCTION to confirm. Everything in the pre-production database is destroyed.'
+        required: true
+        type: string
+      dry_run:
+        description: 'Report the inventory and print the SQL without changing anything. Defaults to ON — untick deliberately.'
+        type: boolean
+        default: true
+      wipe_auth_users:
+        description: 'Also delete every auth user (your pre-production login and the throwaway smoke accounts). Leaves them signed up when false.'
+        type: boolean
+        default: false
+
+# Shared with deploy-supabase.yml's deploy job and smoke.yml's run of the same
+# group name, so a rebuild can never interleave with a deploy or a smoke run
+# against the same project. Never cancel in flight: a half-applied reset is
+# worse than a queued one, and much worse than a slow one.
+concurrency:
+  group: supabase-Preview
+  cancel-in-progress: false
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    # Hardcoded, not an input. See this file's header. Add a required reviewer
+    # to this environment (Settings -> Environments -> Preview) if you want a
+    # second pair of eyes before each rebuild; the workflow needs no change.
+    environment: Preview
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+      PRODUCTION_SUPABASE_PROJECT_ID: ${{ vars.PRODUCTION_SUPABASE_PROJECT_ID }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Typed rather than a checkbox on purpose: a checkbox is one mis-click,
+      # and this destroys data. The comparison is exact, including case.
+      - name: Check the confirmation phrase
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          if [ "$CONFIRM" != "REBUILD PRE-PRODUCTION" ]; then
+            echo "::error::Confirmation phrase did not match. Type exactly: REBUILD PRE-PRODUCTION"
+            exit 1
+          fi
+
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      # Defence in depth behind the hardcoded environment above — this is the
+      # same check deploy-supabase.yml makes, and it is what catches a Preview
+      # environment that has lost its own SUPABASE_PROJECT_ID and is quietly
+      # inheriting production's.
+      - name: Refuse to touch the wrong project
+        run: |
+          if [ -z "$SUPABASE_PROJECT_ID" ]; then
+            echo "::error::No SUPABASE_PROJECT_ID for the Preview environment."
+            exit 1
+          fi
+          if [ -z "$PRODUCTION_SUPABASE_PROJECT_ID" ]; then
+            echo "::error::Repository variable PRODUCTION_SUPABASE_PROJECT_ID is not set, so the guard keeping this away from production cannot work."
+            exit 1
+          fi
+          if [ "$SUPABASE_PROJECT_ID" = "$PRODUCTION_SUPABASE_PROJECT_ID" ]; then
+            echo "::error::The Preview environment resolved to the PRODUCTION project ('$PRODUCTION_SUPABASE_PROJECT_ID') — it has no SUPABASE_PROJECT_ID of its own and inherited the repository-level one. Add it under Settings -> Environments -> Preview. Refusing to continue."
+            exit 1
+          fi
+          echo "Target: project '$SUPABASE_PROJECT_ID' (production is '$PRODUCTION_SUPABASE_PROJECT_ID')."
+
+      # Runs in every mode, dry run included: the log should record what was
+      # there before, whether or not this run went on to destroy it.
+      - name: Inventory the project
+        env:
+          MODE: inventory
+        run: bash scripts/supabase/reset-project.sh
+
+      - name: Show the SQL that a real run would send
+        if: inputs.dry_run
+        env:
+          DRY_RUN: '1'
+          WIPE_AUTH_USERS: ${{ inputs.wipe_auth_users && '1' || '' }}
+        run: bash scripts/supabase/reset-project.sh
+
+      - name: Drop the public schema and clear the migration history
+        if: ${{ !inputs.dry_run }}
+        env:
+          WIPE_AUTH_USERS: ${{ inputs.wipe_auth_users && '1' || '' }}
+        run: bash scripts/supabase/reset-project.sh
+
+      - name: Link Supabase project
+        if: ${{ !inputs.dry_run }}
+        run: supabase link --project-ref "$SUPABASE_PROJECT_ID"
+
+      # With the history cleared above, this re-applies every migration in
+      # order. If it pushes nothing, the history was not cleared and the
+      # schema is empty — which the verify step below is there to catch.
+      - name: Re-apply all migrations
+        if: ${{ !inputs.dry_run }}
+        run: supabase db push
+
+      # src/lib/** and the functions themselves are deployed from the same
+      # commit, matching deploy-supabase.yml — a rebuilt database with stale
+      # functions on top is not a rebuilt environment.
+      - name: Deploy edge functions
+        if: ${{ !inputs.dry_run }}
+        run: supabase functions deploy
+
+      # Same call deploy-supabase.yml makes, for the same reason (CHAT_PLAN.md
+      # §4): chat is on in pre-production automatically, so it does not need a
+      # hand-run statement after every reset — which is exactly the situation
+      # this workflow creates.
+      - name: Enable chat
+        if: ${{ !inputs.dry_run }}
+        continue-on-error: true
+        run: bash scripts/supabase/set-chat-enabled.sh
+
+      # Proves the rebuild actually landed rather than silently no-opping.
+      # Checks the two things a reset gets wrong in different ways: an empty
+      # schema (history not cleared, so `db push` skipped everything) and an
+      # empty publication (tables back but Realtime not re-subscribed, which
+      # would surface later as smoke.yml's hiddenInformationWire check timing
+      # out and look like the flake in #691 rather than a broken rebuild).
+      - name: Verify the rebuild
+        if: ${{ !inputs.dry_run }}
+        env:
+          MODE: inventory
+        run: |
+          out="$(bash scripts/supabase/reset-project.sh)"
+          printf '%s\n' "$out"
+          applied="$(printf '%s' "$out" | jq -r '.[0].migrations_applied // empty' 2>/dev/null || true)"
+          realtime="$(printf '%s' "$out" | jq -r '.[0].realtime_tables // empty' 2>/dev/null || true)"
+          expected="$(ls supabase/migrations/*.sql | wc -l | tr -d ' ')"
+          if [ "${applied:-0}" != "$expected" ]; then
+            echo "::error::$expected migrations in the repository but $applied recorded as applied. The rebuild did not complete."
+            exit 1
+          fi
+          if [ "${realtime:-0}" -lt 1 ]; then
+            echo "::error::No tables are in the supabase_realtime publication. Realtime will not deliver, and smoke.yml will fail looking like a flake."
+            exit 1
+          fi
+          echo "$applied migrations applied, $realtime tables published to Realtime."
+
+      - name: Summarise
+        if: always()
+        run: |
+          {
+            echo "## Rebuild pre-production"
+            echo
+            if [ "${{ inputs.dry_run }}" = "true" ]; then
+              echo "**Dry run — nothing was changed.** Re-run with \`dry_run\` unticked to apply."
+            else
+              echo "Pre-production was rebuilt from \`supabase/migrations/\` at \`${{ github.sha }}\`."
+              echo
+              echo "### Still to do by hand"
+              echo
+              echo "- **Re-grant admin.** \`profiles.is_admin\` is wiped by the reset and 0017_admin_delete_any_game.sql grants it by hand, not by migration. In the SQL editor:"
+              echo '  ```sql'
+              echo "  insert into public.profiles (user_id, is_admin)"
+              echo "  values ('<your-auth-user-id>', true)"
+              echo "  on conflict (user_id) do update set is_admin = true;"
+              echo '  ```'
+              if [ "${{ inputs.wipe_auth_users }}" = "true" ]; then
+                echo "- **Sign up again.** Auth users were deleted, so every account — including yours — is gone and will come back with a new id."
+              fi
+              echo "- **Run Smoke** against Preview to confirm the rebuilt project actually serves games."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

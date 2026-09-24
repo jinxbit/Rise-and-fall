@@ -6533,3 +6533,51 @@ way: it sits at c4ff854, never received 0036, and so has nothing to reconcile.
 (IndexedDB cache) are untouched and still in place — this reverts only the
 `stateWithoutHistory` patching layered on top. Production was never affected:
 it sits at c4ff854 and #648 never promoted past pre-production.
+
+## 140. A workflow for rebuilding pre-production from the migrations
+
+`.github/workflows/rebuild-preproduction.yml` plus
+`scripts/supabase/reset-project.sh`: drops pre-production's `public` schema,
+clears `supabase_migrations.schema_migrations`, re-applies every migration
+and redeploys the Edge Functions on top. Written for #139's situation — a
+migration applied on the project and then reverted out of the repository —
+but the general case is the same: pre-production accumulates state no
+migration describes (throwaway smoke users and rooms, hand-run SQL), and
+reconciling that by hand is how history drifts in the first place.
+`audit-and-fix-migrations.yml` exists because that has bitten before; this is
+the other way out, making the repo the only source of truth again.
+
+The reset runs over the Management API's query endpoint, the same mechanism
+`set-chat-enabled.sh` and `register-database-webhook.sh` already use, so it
+needs no database password and no direct network path to Postgres.
+
+**It cannot reach production, by construction and then by guard.**
+`environment:` is the literal string `Preview` and there is no environment
+input, so production is not expressible — unlike `deploy-supabase.yml` and
+`smoke.yml`, which need the choice and therefore lean on their guard alone.
+Behind that, the script refuses when the resolved ref equals
+`vars.PRODUCTION_SUPABASE_PROJECT_ID`, and refuses again when that variable is
+unset, treating a missing guard as a broken one — the 2026-09-09 reasoning,
+where an environment lacking its own `SUPABASE_PROJECT_ID` inherited
+production's.
+
+Three more things it does deliberately. `dry_run` defaults to **on**, so the
+first click reports the inventory and prints the SQL rather than destroying
+anything. The confirmation is a typed phrase, not a checkbox, because a
+checkbox is one mis-click. And it shares `concurrency: supabase-Preview` with
+deploy-supabase.yml's deploy job and smoke.yml, so a rebuild can never
+interleave with either.
+
+The verify step checks the two ways a reset fails quietly: migration count
+applied vs. `supabase/migrations/*.sql` on disk (if the history was not
+cleared, `db push` skips everything and leaves an empty schema), and at least
+one table in the `supabase_realtime` publication (the migrations re-add them
+idempotently, but if that ever stopped working the symptom would be
+smoke.yml's `hiddenInformationWire` check timing out — indistinguishable from
+the flake in #691 unless something checks here).
+
+What it does not restore: `profiles.is_admin`, which
+0017_admin_delete_any_game.sql grants by hand rather than by migration. The
+run summary prints the statement to paste. `auth.users` is left alone unless
+`wipe_auth_users` is ticked, since the `auth` schema is not in `public` and
+survives the drop.
