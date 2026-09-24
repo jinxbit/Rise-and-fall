@@ -6514,13 +6514,20 @@ takes both added round trips off the critical path. And the prune does not
 need to run on every write — `version % SNAPSHOT_BUFFER_SIZE === 0` keeps the
 buffer bounded at ~2x target for one fewer call per action.
 
-`0036_game_state_snapshots.sql` is **deliberately kept** rather than reverted
-with the rest. It is already applied on Preview, and removing an applied
-migration from the repo is exactly the history drift CLAUDE.md warns about
-(`audit-and-fix-migrations.yml` exists because it has bitten before). The
-table simply goes unused; nothing references it after this revert, and the
-in-process stack hand-transcribes migrations rather than parsing `.sql`, so
-an orphan file costs the tests nothing.
+`0036_game_state_snapshots.sql` is removed along with the rest. The first cut
+of this revert kept it, on the grounds that it is already applied on Preview
+and that deleting an applied migration is the history drift CLAUDE.md warns
+about (`audit-and-fix-migrations.yml` exists because it has bitten before).
+jinxbit's call was to drop and rebuild pre-production instead, which makes
+that concern moot: a Preview rebuilt from `supabase/migrations/` has no row
+for 0036 to drift against, and the repo keeps no migration for a table
+nothing references.
+
+This does mean **the revert is not safe to deploy to Preview on its own** —
+merging it without rebuilding leaves Preview holding a `game_state_snapshots`
+table and a `schema_migrations` row for a migration the repo no longer has.
+Rebuild first, or rebuild in the same window. Production is unaffected either
+way: it sits at c4ff854, never received 0036, and so has nothing to reconcile.
 
 #648 stays open for a rethink. #647 (incremental `actionHistory`) and #688
 (IndexedDB cache) are untouched and still in place — this reverts only the
