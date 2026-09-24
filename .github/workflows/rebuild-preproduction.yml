@@ -31,8 +31,8 @@ on:
   workflow_dispatch:
     inputs:
       confirm:
-        description: 'Type REBUILD PRE-PRODUCTION to confirm. Everything in the pre-production database is destroyed.'
-        required: true
+        description: 'Type REBUILD PRE-PRODUCTION. Needed only for a real run — leave empty for a dry run.'
+        required: false
         type: string
       dry_run:
         description: 'Report the inventory and print the SQL without changing anything. Defaults to ON — untick deliberately.'
@@ -69,12 +69,21 @@ jobs:
 
       # Typed rather than a checkbox on purpose: a checkbox is one mis-click,
       # and this destroys data. The comparison is exact, including case.
+      #
+      # Demanded only for a real run, and the input is deliberately NOT
+      # `required: true`. It was at first, which made the safe default
+      # impossible to use: `dry_run` defaults to on, so every harmless preview
+      # still had to be unlocked with the destructive phrase — training the
+      # reflex the phrase exists to prevent. A dry run changes nothing and
+      # asks for nothing; typing the phrase stays a decision rather than a
+      # habit.
       - name: Check the confirmation phrase
+        if: ${{ !inputs.dry_run }}
         env:
           CONFIRM: ${{ inputs.confirm }}
         run: |
           if [ "$CONFIRM" != "REBUILD PRE-PRODUCTION" ]; then
-            echo "::error::Confirmation phrase did not match. Type exactly: REBUILD PRE-PRODUCTION"
+            echo "::error::A real run needs the confirmation phrase. Type exactly: REBUILD PRE-PRODUCTION — or tick dry_run to preview without it."
             exit 1
           fi
 

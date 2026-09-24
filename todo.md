@@ -6564,7 +6564,11 @@ production's.
 Three more things it does deliberately. `dry_run` defaults to **on**, so the
 first click reports the inventory and prints the SQL rather than destroying
 anything. The confirmation is a typed phrase, not a checkbox, because a
-checkbox is one mis-click. And it shares `concurrency: supabase-Preview` with
+checkbox is one mis-click — but the input is **not** `required`, and the
+phrase is only checked for a real run. It was required at first, which made
+the safe default impossible to use: every harmless preview had to be unlocked
+with the destructive phrase, training exactly the reflex the phrase exists to
+prevent. And it shares `concurrency: supabase-Preview` with
 deploy-supabase.yml's deploy job and smoke.yml, so a rebuild can never
 interleave with either.
 
