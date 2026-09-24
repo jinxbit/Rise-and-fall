@@ -20,7 +20,7 @@ import type { GameState } from '../../engine/types.ts'
 import type { CompressedGameState } from '../../lib/gameStateCompression.ts'
 import { divergentStateFields, type ProductionGameFixture } from '../fixtures/productionGames/loadFixtures.ts'
 import { expectedFinalState, normalizeForComparison, replayFixtureThroughStack } from '../supabaseStack/replayFixture.ts'
-import { provisionLiveRoom, type LiveProjectConfig, type LiveRoom } from './liveProject.ts'
+import { DEFAULT_MAX_AVERAGE_ACTION_MS, provisionLiveRoom, type LiveProjectConfig, type LiveRoom } from './liveProject.ts'
 
 export interface SmokeReport {
   fixture: string
@@ -30,6 +30,8 @@ export interface SmokeReport {
   actionsSubmitted?: number
   foldedEntries?: number
   durationMs?: number
+  /** Mean of `ReplayOutcome.actionDurationsMs` — see `maxAverageActionMs` on `LiveProjectConfig`. */
+  averageActionMs?: number
 }
 
 export type SmokeLogger = (message: string) => void
@@ -163,13 +165,34 @@ export async function runProductionSmoke(
         `[${fixture.name}] the finished state differs from the one this game ended on in production (on ${diverged.join(', ')}).`,
       )
 
-      log(`ok    ${fixture.name}: ${outcome.version} actions, finished ${winners.map(roomFixture.describePlayer).join(', ')} ahead`)
+      // A round-trip regression should fail here, clearly, rather than only
+      // surface as the whole run eventually blowing its 900s cap — the
+      // opaque failure mode todo.md #139 hit. Every entry that reached
+      // submitLoggedEntry counts — a folded entry (no round trip) doesn't —
+      // so a fully-folded fixture (none seen in practice) skips the check
+      // rather than dividing by zero.
+      const averageActionMs =
+        outcome.actionDurationsMs.length === 0
+          ? 0
+          : outcome.actionDurationsMs.reduce((total, duration) => total + duration, 0) / outcome.actionDurationsMs.length
+      const maxAverageActionMs = config.maxAverageActionMs ?? DEFAULT_MAX_AVERAGE_ACTION_MS
+      assertThat(
+        outcome.actionDurationsMs.length === 0 || averageActionMs <= maxAverageActionMs,
+        `[${fixture.name}] averaged ${averageActionMs.toFixed(0)}ms/action over ${outcome.actionDurationsMs.length} actions, ` +
+          `exceeding the ${maxAverageActionMs}ms ceiling — the deployed round trip has regressed.`,
+      )
+
+      log(
+        `ok    ${fixture.name}: ${outcome.version} actions, finished ${winners.map(roomFixture.describePlayer).join(', ')} ahead ` +
+          `(${averageActionMs.toFixed(0)}ms/action)`,
+      )
       reports.push({
         fixture: fixture.name,
         gameId: room.game.id,
         actionsSubmitted: outcome.version,
         foldedEntries: outcome.foldedEntryIndices.length,
         durationMs: Date.now() - startedAt,
+        averageActionMs,
       })
     } finally {
       await room.teardown()

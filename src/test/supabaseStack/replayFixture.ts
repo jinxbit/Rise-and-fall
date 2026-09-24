@@ -72,6 +72,15 @@ export interface ReplayOutcome {
   version: number
   /** Indices into the fixture's raw history that had nothing left to submit — see `isStaleForcedFollowUp` below. */
   foldedEntryIndices: number[]
+  /**
+   * Wall-clock time of each `submitLoggedEntry` call, in submission order. A
+   * folded entry (see above) never reaches `submitLoggedEntry` — it costs no
+   * round trip — so this is shorter than the raw history whenever any were
+   * folded. Consumed by ../productionSmoke/runSmoke.ts to catch a round-trip
+   * regression as a clear failure rather than as the whole run eventually
+   * hitting its timeout (todo.md #139).
+   */
+  actionDurationsMs: number[]
 }
 
 /**
@@ -115,6 +124,7 @@ function isStaleForcedFollowUp(state: GameState, entry: LoggedEntry, fixture: Pr
 export async function replayFixtureThroughStack(stack: ReplayTarget, fixture: ProductionGameFixture): Promise<ReplayOutcome> {
   const history = fixture.finalState.actionHistory
   const foldedEntryIndices: number[] = []
+  const actionDurationsMs: number[] = []
   let state = fixture.genesis
   let version = 0
 
@@ -123,7 +133,9 @@ export async function replayFixtureThroughStack(stack: ReplayTarget, fixture: Pr
       foldedEntryIndices.push(index)
       continue
     }
+    const startedAt = Date.now()
     const result = await submitLoggedEntry(stack, fixture, entry)
+    actionDurationsMs.push(Date.now() - startedAt)
     if (!result.ok) {
       throw new Error(
         `[${fixture.name}] action ${index + 1}/${history.length} (${entry.action.type} by ${entry.action.playerId}) was rejected with ${result.status}: ${result.error}`,
@@ -135,7 +147,7 @@ export async function replayFixtureThroughStack(stack: ReplayTarget, fixture: Pr
     }
     state = result.state
   }
-  return { version, foldedEntryIndices }
+  return { version, foldedEntryIndices, actionDurationsMs }
 }
 
 /**

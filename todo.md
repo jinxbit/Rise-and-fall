@@ -6602,3 +6602,34 @@ What it does not restore: `profiles.is_admin`, which
 run summary prints the statement to paste. `auth.users` is left alone unless
 `wipe_auth_users` is ticked, since the `auth` schema is not in `public` and
 survives the drop.
+
+## 141. Production smoke: fail clearly on a slow average action, not just eventually on the run timeout (issue #695)
+
+#139 found a doubled Edge Function round trip only because the whole run blew
+its 900s cap twice in a row, and even then the failure named no number — the
+exact per-action figure for the regressed run was unrecoverable, since the
+runner only printed per-game timings in its end-of-run summary, which never
+executes on a timeout. This closes that gap directly: `replayFixture.ts`'s
+`replayFixtureThroughStack` now times every `submitLoggedEntry` call (an
+apply-action/undo-action/redo-action round trip) and returns them on
+`ReplayOutcome.actionDurationsMs`, in submission order. A folded entry (see
+`isStaleForcedFollowUp`) costs no round trip and isn't timed.
+
+`runSmoke.ts` averages those per fixture and fails the run — with the
+measured average, the action count and the ceiling all in the message — if it
+exceeds `DEFAULT_MAX_AVERAGE_ACTION_MS` (`liveProject.ts`, 1500ms, overridable
+with `SMOKE_MAX_AVERAGE_ACTION_MS`). The ceiling was picked from #139's own
+numbers: ~860-890ms/action was the healthy baseline there, and the regression
+it caught ran at roughly double that, so 1500ms catches a regression of that
+size with headroom left for ordinary network jitter. `SmokeReport` carries
+`averageActionMs` for every fixture that ran, not only a failing one, and
+`productionSmoke.smoke.ts`'s per-fixture log line prints it — so the nightly
+log shows the trend before a run ever crosses the line.
+
+`replayFixtureThroughStack` is shared with `productionGames.test.ts`,
+`supabaseStack.test.ts`, `hiddenInformationWire.ts` and
+`previewSeed/seedFinishedGame.ts`; none of them read the new field, so timing
+every call costs them nothing but a couple of `Date.now()` reads against an
+in-process stack.
+
+`npm run lint`, `npm run test` and `npm run build` all pass.

@@ -28,6 +28,19 @@ throwaway users and deleting them again. Every game action is submitted as a
 real signed-in player over the anon key — submitting as the service role would
 bypass the very authorization this is here to test.
 
+## It also fails on a slow deploy, not just a wrong one
+
+Each fixture's average `apply-action`/`undo-action`/`redo-action` round trip
+(`replayFixture.ts`'s `actionDurationsMs`) is checked against a ceiling —
+`DEFAULT_MAX_AVERAGE_ACTION_MS` in `liveProject.ts`, 1500ms, overridable with
+`SMOKE_MAX_AVERAGE_ACTION_MS` — and the run fails with the measured average
+and the ceiling named in the message if it's exceeded. This exists because of
+todo.md #139: a change that roughly doubled the per-action round trip (~860-
+890ms baseline) was only visible as the whole run eventually blowing its 900s
+cap, twice, with no number in the failure pointing at what got slower. A
+report also carries `averageActionMs` for every fixture that ran, not just a
+failing one, so the nightly log shows the trend before it crosses the line.
+
 ## Why it can't touch anything real
 
 It writes to the production database, so isolation is the whole safety story
