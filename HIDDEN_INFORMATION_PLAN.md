@@ -1025,6 +1025,20 @@ overlay baked in and can't be un-applied), so the client seeds one by replaying
 from genesis: 10-130ms for a completed game, which is why it only happens on a
 cold start and every other path extends incrementally.
 
+### The write path speaks it too (issue #693)
+
+`apply-action`, `undo-action` and `redo-action` answer in the same three
+shapes, because `respondWithState` moved into `_shared/gameEnforcement.ts` and
+all four endpoints now share it. That matters more than it sounds: a move's own
+response is the most frequent read the player actually playing makes, and it
+was still carrying the whole state — **10.1x** less per move across the
+recorded games (2,613 KB -> 260 KB over 686 moves; ~3,800 -> ~320 bytes each).
+
+One thing the shared clamp gets right that a naive "return the action I just
+applied" would not: a player's own submission can *resolve* the phase, which
+unmasks every other player's pick at once. The append is then longer than the
+single action they sent. `unredactedPrefix` decides that, not the caller.
+
 Protocol 1 (issue #647) is untouched: a client that never sends `protocol: 2`
 gets the old shape, so a stale bundle keeps working and no coordinated rollout
 is needed — the same posture as the `__gz` read path.

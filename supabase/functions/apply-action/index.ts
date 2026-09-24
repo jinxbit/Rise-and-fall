@@ -37,6 +37,7 @@ import {
   jsonResponse,
   loadGameContext,
   redactedResponseState,
+  respondWithState,
   requiresOwnerOverride,
   serviceRoleClient,
   writeGameStateCAS,
@@ -45,6 +46,16 @@ import {
 interface ApplyActionRequest {
   gameId: string
   action: Action
+  /**
+   * The caller's own cached `actionHistory` prefix length, and which delta
+   * contract it speaks — both forwarded straight to `respondWithState`
+   * (../_shared/gameEnforcement.ts), which is the same builder the read path
+   * uses. Issue #693: a move's own response was still sending the whole state
+   * back on every submission, which for the player actually playing is the
+   * most frequent read of all.
+   */
+  sinceActionIndex?: number
+  protocol?: number
 }
 
 Deno.serve(async (req) => {
@@ -59,7 +70,7 @@ Deno.serve(async (req) => {
   } catch {
     return jsonResponse(400, { ok: false, error: 'Invalid JSON body.' })
   }
-  const { gameId, action } = body
+  const { gameId, action, sinceActionIndex, protocol } = body
   if (!gameId || !action || typeof action.type !== 'string') {
     return jsonResponse(400, { ok: false, error: 'Request body must be { gameId, action }.' })
   }
@@ -129,5 +140,5 @@ Deno.serve(async (req) => {
   // issue #478: the response is redacted the same way get-game-state's read
   // is (redactedResponseState, ../_shared/gameEnforcement.ts) — the CAS write
   // above always persists the real, unredacted result.state regardless.
-  return jsonResponse(200, { ok: true, state: redactedResponseState(ctx, callerUserId, result.state), version: newVersion })
+  return respondWithState(result.state, redactedResponseState(ctx, callerUserId, result.state), newVersion, sinceActionIndex, protocol)
 })

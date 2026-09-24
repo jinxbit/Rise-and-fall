@@ -69,11 +69,8 @@
 // getGameStateRedacted only sends it once it has a previous state to splice
 // onto, and any inconsistency (a stale cache, a different game, a client
 // bug) just costs one extra full response rather than a wrong splice.
-import { redactStateForPlayer, revealedGameStateView, toClientGameState, unredactedPrefix, type RedactedGameState, type RedactedGameStateDelta } from '../../../src/engine/redaction.ts'
-import { buildInFlightOverlay, needsInFlightOverlay } from '../../../src/engine/inFlightOverlay.ts'
-import { hashGameStateView } from '../../../src/lib/gameStateHash.ts'
-import type { GameState } from '../../../src/engine/types.ts'
-import { canReadGameState, corsHeaders, getCallerUserId, jsonResponse, loadGameContext, serviceRoleClient } from '../_shared/gameEnforcement.ts'
+import { redactStateForPlayer, revealedGameStateView } from '../../../src/engine/redaction.ts'
+import { canReadGameState, corsHeaders, getCallerUserId, jsonResponse, loadGameContext, respondWithState, serviceRoleClient } from '../_shared/gameEnforcement.ts'
 
 interface GetGameStateRequest {
   gameId: string
@@ -92,58 +89,6 @@ interface GetGameStateRequest {
    * No coordinated rollout, same posture as the `__gz` read path.
    */
   protocol?: number
-}
-
-/**
- * Builds this function's response for a given (already redacted-or-not)
- * state view — see the module doc comment above for why `sinceActionIndex`
- * only ever changes the response when it's a valid index into the current
- * safe actionHistory prefix, and falls back to the full `view` otherwise.
- */
-function respondWithState(trueState: GameState, view: RedactedGameState, version: number, sinceActionIndex: number | undefined, protocol: number | undefined) {
-  if (typeof sinceActionIndex === 'number' && Number.isInteger(sinceActionIndex) && sinceActionIndex >= 0) {
-    const safePrefixLength = unredactedPrefix(view.actionHistory).length
-    // `<=`, not `<`: the safe prefix is NOT monotonic. With
-    // HIDDEN_INFORMATION_PLAN.md §5.3's reveal high-water mark dropped,
-    // masking derives strictly from the *current* roundPhase/pendingPlayerIds
-    // (see redactStateForPlayer's doc comment), so a newly-opened phase can
-    // re-mask entries this viewer was already shown and move the prefix
-    // backwards. A caller asking from beyond it falls through to a full
-    // response here, which is exactly right — it has entries it is no longer
-    // entitled to replay from.
-    if (sinceActionIndex <= safePrefixLength) {
-      const { actionHistory, ...stateWithoutHistory } = view
-      const actionHistoryAppend = actionHistory.slice(sinceActionIndex, safePrefixLength)
-      if ((protocol ?? 1) >= 2) {
-        const clientView = toClientGameState(view)
-        const overlay = needsInFlightOverlay(trueState, clientView) ? buildInFlightOverlay(clientView) : undefined
-        return jsonResponse(200, {
-          ok: true,
-          actionHistoryFrom: sinceActionIndex,
-          actionHistoryAppend,
-          actionHistoryLength: safePrefixLength,
-          ...(overlay ? { overlay } : {}),
-          stateHash: hashGameStateView(clientView),
-          version,
-        })
-      }
-      const delta: RedactedGameStateDelta = {
-        state: stateWithoutHistory,
-        actionHistoryFrom: sinceActionIndex,
-        actionHistoryAppend,
-        actionHistoryLength: safePrefixLength,
-      }
-      return jsonResponse(200, { ok: true, ...delta, version })
-    }
-  }
-  // A full response carries the hash too under protocol 2, so a client that
-  // seeds its base by replaying this log from genesis can tell straight away
-  // whether its engine agrees with ours, rather than finding out on the next
-  // delta.
-  if ((protocol ?? 1) >= 2) {
-    return jsonResponse(200, { ok: true, state: view, stateHash: hashGameStateView(toClientGameState(view)), version })
-  }
-  return jsonResponse(200, { ok: true, state: view, version })
 }
 
 Deno.serve(async (req) => {

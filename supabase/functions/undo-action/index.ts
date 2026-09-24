@@ -43,6 +43,7 @@ import {
   loadFullGameAndPlayers,
   loadGameContext,
   redactedResponseState,
+  respondWithState,
   resolveGameContent,
   serviceRoleClient,
   writeGameStateCAS,
@@ -50,6 +51,16 @@ import {
 
 interface UndoActionRequest {
   gameId: string
+  /**
+   * The caller's own cached `actionHistory` prefix length, and which delta
+   * contract it speaks — both forwarded straight to `respondWithState`
+   * (../_shared/gameEnforcement.ts), which is the same builder the read path
+   * uses. Issue #693: a move's own response was still sending the whole state
+   * back on every submission, which for the player actually playing is the
+   * most frequent read of all.
+   */
+  sinceActionIndex?: number
+  protocol?: number
 }
 
 Deno.serve(async (req) => {
@@ -64,7 +75,7 @@ Deno.serve(async (req) => {
   } catch {
     return jsonResponse(400, { ok: false, error: 'Invalid JSON body.' })
   }
-  const { gameId } = body
+  const { gameId, sinceActionIndex, protocol } = body
   if (!gameId) return jsonResponse(400, { ok: false, error: 'Request body must be { gameId }.' })
 
   const supabase = serviceRoleClient()
@@ -120,5 +131,5 @@ Deno.serve(async (req) => {
 
   // issue #478: same write-side redaction as apply-action — see
   // redactedResponseState's doc comment.
-  return jsonResponse(200, { ok: true, state: redactedResponseState(ctx, callerUserId, result.state), version: newVersion })
+  return respondWithState(result.state, redactedResponseState(ctx, callerUserId, result.state), newVersion, sinceActionIndex, protocol)
 })

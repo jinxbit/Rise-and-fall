@@ -19,11 +19,16 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { resolveHistory } from '../../engine/historyFold.ts'
-import { toClientGameState, type RedactedGameState } from '../../engine/redaction.ts'
+import { toClientGameState, type RedactedGameState, type RedactedLoggedAction } from '../../engine/redaction.ts'
+import { applyInFlightOverlay, type InFlightOverlay } from '../../engine/inFlightOverlay.ts'
+import { extendReplay, replayActions } from '../../engine/replay.ts'
+import { hashGameStateView } from '../../lib/gameStateHash.ts'
+import type { LoggedAction } from '../../engine/actions.ts'
+import type { GameState } from '../../engine/types.ts'
 import { buildGenesisState } from '../../lib/gameGenesis.ts'
 import type { GameRow, GameSettings, PlayerRow } from '../../lib/dbTypes.ts'
 import { createProductionStack, type ProductionStack } from '../supabaseStack/index.ts'
-import { nextLegalAction, resolveGameContent } from '../supabaseStack/sampleGame.ts'
+import { nextLegalAction, resolveGameContent, type GameContent } from '../supabaseStack/sampleGame.ts'
 
 const GAME_ID = '3f1c2d4e-0000-4000-8000-000000000003'
 const ALICE = 'auth-user-alice' // room owner, seated
@@ -145,6 +150,117 @@ describe('apply-action/undo-action/redo-action write-path redaction (issue #478)
     expect(charlieResponse.state.roundPhase).toBe('actions')
     expect(charlieResponse.state.chosenCardIdByPlayerId['seat-bob']).toEqual({ chosen: true, cardId: bobCard })
     expect(charlieResponse.state.chosenCardIdByPlayerId['seat-alice']).toEqual({ chosen: true, cardId: aliceCard })
+  })
+
+  describe('replay delta on the write path (protocol 2, issue #693)', () => {
+    /** Rebuilds the acting player's state the way gameApi.ts's applyReplayDelta does. */
+    function rebuild(genesis: GameState, base: GameState, delta: { actionHistoryAppend: RedactedLoggedAction[]; overlay?: InFlightOverlay }, content: GameContent) {
+      const next = extendReplay(genesis, base, delta.actionHistoryAppend as unknown as LoggedAction[], content.unitContent, content.achievementContent, content.boardGenerationContent, content.taleContent)
+      return applyInFlightOverlay(next, delta.overlay)
+    }
+
+    /** The acting player's own base: the state replayed up to their safe prefix. */
+    async function baseFor(userId: string, genesis: GameState, content: GameContent) {
+      const full = await stack.getGameState(userId, GAME_ID)
+      if (!full.ok) throw new Error(full.error)
+      if ('actionHistoryAppend' in full) throw new Error('expected a full response')
+      const view = toClientGameState(full.state)
+      return { ...replayActions(genesis, view.actionHistory, content.unitContent, content.achievementContent, content.boardGenerationContent, content.taleContent), actionHistory: view.actionHistory }
+    }
+
+    it("sends no state back on a move, and the acting player rebuilds exactly what the old full response carried", async () => {
+      const setup = await reachSelectCardsPhase()
+      const genesis = buildGenesisState(gameRow(settingsFor()), PLAYERS)
+      const content = resolveGameContent(genesis)
+      const base = await baseFor(ALICE, genesis, content)
+
+      const bobCard = setup.players.find((p) => p.id === 'seat-bob')!.handCardIds[0]
+      const bobChose = await stack.applyAction(BOB, GAME_ID, { type: 'CHOOSE_CARD', playerId: 'seat-bob', cardId: bobCard })
+      if (!bobChose.ok) throw new Error(bobChose.error)
+
+      const aliceCard = setup.players.find((p) => p.id === 'seat-alice')!.handCardIds[0]
+      const delta = await stack.applyAction(ALICE, GAME_ID, { type: 'CHOOSE_CARD', playerId: 'seat-alice', cardId: aliceCard }, base.actionHistory.length, 2)
+      if (!delta.ok) throw new Error(delta.error)
+      if (!('stateHash' in delta)) throw new Error('expected a protocol-2 delta')
+      // The point of #693: a move no longer carries the board back with it.
+      expect(delta).not.toHaveProperty('state')
+
+      const rebuilt = rebuild(genesis, base, delta, content)
+      expect(hashGameStateView(rebuilt)).toBe(delta.stateHash)
+      // Charlie is still pending, so redaction is live — and Alice rebuilding
+      // the state herself is not a way around it.
+      expect(rebuilt.pendingPlayerIds).toEqual(['seat-charlie'])
+      expect(rebuilt.chosenCardIdByPlayerId['seat-bob']).toBeNull()
+      expect(rebuilt.chosenCardIdByPlayerId['seat-alice']).toBe(aliceCard)
+
+      // ...and it agrees with what a plain read would have said.
+      const read = await stack.getGameState(ALICE, GAME_ID)
+      if (!read.ok) throw new Error(read.error)
+      if ('actionHistoryAppend' in read) throw new Error('expected a full response')
+      expect(rebuilt).toEqual(toClientGameState(read.state))
+    })
+
+    it('carries the entries a move made newly visible, not just the one submitted', async () => {
+      // The acting player's own submission can resolve the phase, which
+      // unmasks every other player's pick at once — so the append is longer
+      // than the single action they sent. respondWithState's clamp is what
+      // gets this right; a naive "return the action I just applied" would not.
+      const setup = await reachSelectCardsPhase()
+      const genesis = buildGenesisState(gameRow(settingsFor()), PLAYERS)
+      const content = resolveGameContent(genesis)
+      const cardFor = (seat: string) => setup.players.find((p) => p.id === seat)!.handCardIds[0]
+
+      for (const [user, seat] of [[BOB, 'seat-bob'], [ALICE, 'seat-alice']] as const) {
+        const r = await stack.applyAction(user, GAME_ID, { type: 'CHOOSE_CARD', playerId: seat, cardId: cardFor(seat) })
+        if (!r.ok) throw new Error(r.error)
+      }
+
+      const base = await baseFor(CHARLIE, genesis, content)
+      const delta = await stack.applyAction(CHARLIE, GAME_ID, { type: 'CHOOSE_CARD', playerId: 'seat-charlie', cardId: cardFor('seat-charlie') }, base.actionHistory.length, 2)
+      if (!delta.ok) throw new Error(delta.error)
+      if (!('stateHash' in delta)) throw new Error('expected a protocol-2 delta')
+
+      expect(delta.actionHistoryAppend.length).toBeGreaterThan(1)
+      const rebuilt = rebuild(genesis, base, delta, content)
+      expect(hashGameStateView(rebuilt)).toBe(delta.stateHash)
+      expect(rebuilt.roundPhase).toBe('actions')
+      expect(rebuilt.chosenCardIdByPlayerId['seat-bob']).toBe(cardFor('seat-bob'))
+    })
+
+    it('undo and redo answer in the same shape', async () => {
+      const setup = await reachSelectCardsPhase()
+      const genesis = buildGenesisState(gameRow(settingsFor()), PLAYERS)
+      const content = resolveGameContent(genesis)
+      const bobCard = setup.players.find((p) => p.id === 'seat-bob')!.handCardIds[0]
+
+      const chose = await stack.applyAction(BOB, GAME_ID, { type: 'CHOOSE_CARD', playerId: 'seat-bob', cardId: bobCard })
+      if (!chose.ok) throw new Error(chose.error)
+
+      const undoBase = await baseFor(BOB, genesis, content)
+      const undone = await stack.undoAction(BOB, GAME_ID, undoBase.actionHistory.length, 2)
+      if (!undone.ok) throw new Error(undone.error)
+      if (!('stateHash' in undone)) throw new Error('expected a protocol-2 delta from undo-action')
+      expect(undone).not.toHaveProperty('state')
+      expect(hashGameStateView(rebuild(genesis, undoBase, undone, content))).toBe(undone.stateHash)
+
+      const redoBase = await baseFor(BOB, genesis, content)
+      const redone = await stack.redoAction(BOB, GAME_ID, redoBase.actionHistory.length, 2)
+      if (!redone.ok) throw new Error(redone.error)
+      if (!('stateHash' in redone)) throw new Error('expected a protocol-2 delta from redo-action')
+      expect(hashGameStateView(rebuild(genesis, redoBase, redone, content))).toBe(redone.stateHash)
+    })
+
+    it('leaves a client that never asks for protocol 2 on the old full-state shape', async () => {
+      const setup = await reachSelectCardsPhase()
+      const bobCard = setup.players.find((p) => p.id === 'seat-bob')!.handCardIds[0]
+      const { data } = await stack.clientFor(BOB).functions.invoke('apply-action', {
+        body: { gameId: GAME_ID, action: { type: 'CHOOSE_CARD', playerId: 'seat-bob', cardId: bobCard } },
+      })
+      const body = data as Record<string, unknown>
+      expect(body).toHaveProperty('state')
+      expect(body).not.toHaveProperty('stateHash')
+      expect(body).not.toHaveProperty('actionHistoryAppend')
+    })
   })
 
   it("doesn't change behavior for a game without hiddenInformationEnabled — apply-action's collapsed response still carries the real pick straight through", async () => {

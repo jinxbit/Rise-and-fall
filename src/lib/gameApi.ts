@@ -1118,6 +1118,65 @@ export async function getGameState(gameId: string): Promise<GameStateSnapshot | 
  * `previous`, or any other inconsistency) falls back to an ordinary full fetch
  * rather than risk assembling a wrong `actionHistory`.
  */
+/** A protocol-2 delta on the wire, from `get-game-state` or any of the three write endpoints. */
+export interface ReplayDeltaResponse {
+  version: number
+  actionHistoryFrom: number
+  actionHistoryAppend: RedactedLoggedAction[]
+  actionHistoryLength: number
+  overlay?: InFlightOverlay
+  stateHash: string
+}
+
+/**
+ * Turns a protocol-2 delta into a state to render and a base to cache, or
+ * `null` when this client could not reproduce what the server said it would.
+ *
+ * Every `null` here means the same thing to callers — ask for a full response —
+ * and there are four ways to get one, all of them expected rather than
+ * exceptional:
+ *
+ *   - the append does not start where this client's log ends (a stale base);
+ *   - the replay threw, which is what a client running an older engine does
+ *     when handed an action type it does not know;
+ *   - the spliced log came out the wrong length;
+ *   - the hash disagrees.
+ *
+ * That last one is what the whole design rests on. A PWA holding a stale
+ * bundle after a rules change is normal operation here, and without the check
+ * such a client would render a board that quietly disagreed with everyone
+ * else's. With it, engine skew costs one full fetch and nothing else.
+ *
+ * Shared by the read path and the write path deliberately: they receive the
+ * same shape for the same reason, and a verification routine that exists twice
+ * is one that will eventually only be fixed once.
+ */
+export function applyReplayDelta(
+  previous: EngineGameState,
+  replay: DeltaReplayContext,
+  delta: ReplayDeltaResponse,
+): { state: EngineGameState; base: EngineGameState } | null {
+  if (delta.actionHistoryFrom !== previous.actionHistory.length) return null
+  let base: EngineGameState
+  try {
+    base = extendReplay(
+      replay.genesis,
+      previous,
+      delta.actionHistoryAppend as unknown as LoggedAction[],
+      replay.unitContent,
+      replay.achievementContent,
+      replay.boardGenerationContent,
+      replay.taleContent,
+    )
+  } catch {
+    return null
+  }
+  if (base.actionHistory.length !== delta.actionHistoryLength) return null
+  const state = applyInFlightOverlay(base, delta.overlay)
+  if (hashGameStateView(state) !== delta.stateHash) return null
+  return { state, base }
+}
+
 export async function getGameStateRedacted(
   gameId: string,
   previous?: EngineGameState | null,
@@ -1137,27 +1196,12 @@ export async function getGameStateRedacted(
   if (!result.ok) return null
 
   // Protocol 2 (issue #648): no materialised state on the wire at all. Rebuild
-  // it from the actions, lay the overlay over what a replay cannot reach, and
-  // prove the answer matches the server's before trusting any of it.
+  // it from the actions and verify — any failure is a cache miss, answered by
+  // one full fetch.
   if ('stateHash' in result && 'actionHistoryAppend' in result && replay && previous) {
-    if (result.actionHistoryFrom !== previous.actionHistory.length) return getGameStateRedacted(gameId, null, replay)
-    const content = [replay.unitContent, replay.achievementContent, replay.boardGenerationContent, replay.taleContent] as const
-    let base: EngineGameState
-    try {
-      base = extendReplay(replay.genesis, previous, result.actionHistoryAppend as unknown as LoggedAction[], ...content)
-    } catch {
-      // A client running an older engine than the server can fail to replay an
-      // action it does not understand. That is a cache miss, not an error.
-      return getGameStateRedacted(gameId, null, replay)
-    }
-    if (base.actionHistory.length !== result.actionHistoryLength) return getGameStateRedacted(gameId, null, replay)
-    const state = applyInFlightOverlay(base, result.overlay)
-    // The check the whole design rests on: if this client's engine disagrees
-    // with the server's — a stale PWA bundle after a rules change, which is
-    // normal here — the hashes differ and we pay for one full fetch instead of
-    // rendering a board that quietly disagrees with everyone else's.
-    if (hashGameStateView(state) !== result.stateHash) return getGameStateRedacted(gameId, null, replay)
-    return { state, base, version: result.version }
+    const rebuilt = applyReplayDelta(previous, replay, result)
+    if (!rebuilt) return getGameStateRedacted(gameId, null, replay)
+    return { ...rebuilt, version: result.version }
   }
 
   if (!('actionHistoryAppend' in result)) {
@@ -1221,7 +1265,7 @@ export async function writeGameState(gameId: string, state: EngineGameState, exp
 }
 
 /** Either arm of an Edge Function response body (see supabase/functions/apply-action|undo-action|redo-action/index.ts) — {ok:true} carries the resulting state/version, {ok:false} carries a player-facing error message. */
-export type GameEnforcementResult = { ok: true; state: EngineGameState; version: number } | { ok: false; error: string }
+export type GameEnforcementResult = { ok: true; state: EngineGameState; base?: EngineGameState; version: number } | { ok: false; error: string }
 
 /**
  * Invokes one of the RULE_ENFORCEMENT_PLAN.md §8 phase 6 Edge Functions and
@@ -1244,8 +1288,19 @@ export type GameEnforcementResult = { ok: true; state: EngineGameState; version:
  * doc comment), so a game without `hiddenInformationEnabled` sees no
  * behavior change.
  */
-async function invokeGameFunction(name: 'apply-action' | 'undo-action' | 'redo-action', body: Record<string, unknown>): Promise<GameEnforcementResult> {
-  const { data, error } = await supabase.functions.invoke(name, { body })
+async function invokeGameFunction(
+  name: 'apply-action' | 'undo-action' | 'redo-action',
+  body: Record<string, unknown>,
+  previous?: EngineGameState | null,
+  replay?: DeltaReplayContext,
+): Promise<GameEnforcementResult> {
+  // Issue #693: a move's own response used to carry the whole state back,
+  // which for the player actually playing is the most frequent read there is.
+  // Same protocol-2 contract as the read path (respondWithState builds both).
+  const useDelta = Boolean(previous && replay)
+  const { data, error } = await supabase.functions.invoke(name, {
+    body: useDelta ? { ...body, sinceActionIndex: previous!.actionHistory.length, protocol: 2 } : body,
+  })
   if (error) {
     const context = (error as { context?: Response }).context
     if (context) {
@@ -1258,8 +1313,28 @@ async function invokeGameFunction(name: 'apply-action' | 'undo-action' | 'redo-a
     }
     return { ok: false, error: error.message }
   }
-  const result = data as { ok: true; state: RedactedGameState; version: number } | { ok: false; error: string }
+  const result = data as
+    | { ok: true; state: RedactedGameState; stateHash?: string; version: number }
+    | ({ ok: true } & ReplayDeltaResponse)
+    | { ok: false; error: string }
   if (!result.ok) return result
+
+  if (useDelta && 'stateHash' in result && 'actionHistoryAppend' in result) {
+    const rebuilt = applyReplayDelta(previous!, replay!, result)
+    // A miss here is not an error the player should see — the write itself
+    // succeeded, only our local rebuild of the result didn't. Read the state
+    // back in full and carry on, exactly as the read path does.
+    if (rebuilt) return { ok: true, ...rebuilt, version: result.version }
+    const fresh = await getGameStateRedacted(body.gameId as string, null, replay)
+    if (!fresh) return { ok: false, error: 'The move was applied, but its result could not be read back. Refresh to continue.' }
+    return { ok: true, state: fresh.state, base: fresh.base, version: fresh.version }
+  }
+
+  if (!('state' in result)) {
+    const fresh = await getGameStateRedacted(body.gameId as string, null, replay)
+    if (!fresh) return { ok: false, error: 'The move was applied, but its result could not be read back. Refresh to continue.' }
+    return { ok: true, state: fresh.state, base: fresh.base, version: fresh.version }
+  }
   return { ok: true, state: toClientGameState(result.state), version: result.version }
 }
 
@@ -1285,18 +1360,18 @@ async function invokeStartGame(gameId: string): Promise<{ ok: true } | { ok: fal
 }
 
 /** §4.1-enforced action submission for a ruleEnforcementEnabled game — see supabase/functions/apply-action/index.ts. */
-export async function applyActionEnforced(gameId: string, action: Action): Promise<GameEnforcementResult> {
-  return invokeGameFunction('apply-action', { gameId, action })
+export async function applyActionEnforced(gameId: string, action: Action, previous?: EngineGameState | null, replay?: DeltaReplayContext): Promise<GameEnforcementResult> {
+  return invokeGameFunction('apply-action', { gameId, action }, previous, replay)
 }
 
 /** §4.4 pointer-move undo for a ruleEnforcementEnabled game — see supabase/functions/undo-action/index.ts. */
-export async function undoActionEnforced(gameId: string): Promise<GameEnforcementResult> {
-  return invokeGameFunction('undo-action', { gameId })
+export async function undoActionEnforced(gameId: string, previous?: EngineGameState | null, replay?: DeltaReplayContext): Promise<GameEnforcementResult> {
+  return invokeGameFunction('undo-action', { gameId }, previous, replay)
 }
 
 /** §4.4 pointer-move redo for a ruleEnforcementEnabled game — see supabase/functions/redo-action/index.ts. */
-export async function redoActionEnforced(gameId: string): Promise<GameEnforcementResult> {
-  return invokeGameFunction('redo-action', { gameId })
+export async function redoActionEnforced(gameId: string, previous?: EngineGameState | null, replay?: DeltaReplayContext): Promise<GameEnforcementResult> {
+  return invokeGameFunction('redo-action', { gameId }, previous, replay)
 }
 
 /**
