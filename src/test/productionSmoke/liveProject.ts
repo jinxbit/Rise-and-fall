@@ -36,10 +36,27 @@ import type { EnforcedCallResult } from '../supabaseStack/index.ts'
 import type { ReplayTarget } from '../supabaseStack/replayFixture.ts'
 import { remapFixtureToRoom, type RemappedFixture, type RoomIdentity } from './remapFixture.ts'
 
+/**
+ * Default ceiling on a fixture's average apply-action/undo-action/redo-action
+ * round trip, in milliseconds, before ./runSmoke.ts fails the run outright.
+ * Historically ~860-890ms/action against a live project; a regression that
+ * roughly doubles that (todo.md #139 — a reverted attempt at #648) is exactly
+ * what this is sized to catch, with headroom left for ordinary network
+ * jitter. Override with SMOKE_MAX_AVERAGE_ACTION_MS.
+ */
+export const DEFAULT_MAX_AVERAGE_ACTION_MS = 1500
+
 export interface LiveProjectConfig {
   url: string
   anonKey: string
   serviceRoleKey: string
+  /**
+   * See DEFAULT_MAX_AVERAGE_ACTION_MS. Optional so every in-process caller
+   * (productionSmokeRunner.test.ts and friends, which build this object by
+   * hand from the in-process stack's own url/keys) doesn't have to name it —
+   * ./runSmoke.ts falls back to the default itself.
+   */
+  maxAverageActionMs?: number
 }
 
 /** Reads config from the environment, or explains exactly what is missing. */
@@ -52,6 +69,7 @@ export function liveProjectConfigFromEnv(env: Record<string, string | undefined>
     url: env.SMOKE_SUPABASE_URL!,
     anonKey: env.SMOKE_SUPABASE_ANON_KEY!,
     serviceRoleKey: env.SMOKE_SUPABASE_SERVICE_ROLE_KEY!,
+    maxAverageActionMs: env.SMOKE_MAX_AVERAGE_ACTION_MS ? Number(env.SMOKE_MAX_AVERAGE_ACTION_MS) : DEFAULT_MAX_AVERAGE_ACTION_MS,
   }
 }
 

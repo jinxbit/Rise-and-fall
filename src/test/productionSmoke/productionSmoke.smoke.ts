@@ -41,7 +41,7 @@ describe('production smoke', () => {
       console.log(
         report.skippedReason
           ? `- ${report.fixture}: skipped (${report.skippedReason})`
-          : `- ${report.fixture}: ${report.actionsSubmitted} actions in ${report.durationMs}ms (game ${report.gameId})`,
+          : `- ${report.fixture}: ${report.actionsSubmitted} actions in ${report.durationMs}ms, ${report.averageActionMs?.toFixed(0)}ms/action (game ${report.gameId})`,
       )
     }
 
