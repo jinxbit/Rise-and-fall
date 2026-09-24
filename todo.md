@@ -6745,3 +6745,41 @@ safe — a map row is terrain data plus a user id that gets discarded anyway.
 
 The rebuild's inventory now counts maps too, so the job summary says how many
 are at stake before `dry_run` is unticked.
+
+## 144. The write endpoints speak the replay delta too (issue #693)
+
+`apply-action`/`undo-action`/`redo-action` were still returning the whole
+`GameState` on every submission — the most frequent read the player actually
+playing makes. They now answer in the same shapes `get-game-state` does:
+**10.1x less per move** across the recorded games, 2,613 KB -> 260 KB over 686
+moves (~3,800 -> ~320 bytes each).
+
+`respondWithState` moved from `get-game-state/index.ts` into
+`_shared/gameEnforcement.ts` and is now the single response builder for all
+four endpoints. Shared rather than copied because the `sinceActionIndex`
+clamping is subtle and getting it wrong in one of four places is the kind of
+bug that shows up as a leak rather than a test failure. On the client,
+`applyReplayDelta` is likewise one verification routine for both paths — the
+read and the write receive the same shape for the same reason, and a check
+that exists twice is one that eventually only gets fixed once.
+
+Two things worth recording:
+
+- **A move's own append can be longer than the action it sent.** The acting
+  player's submission can resolve the phase, which unmasks every other
+  player's pick at once. `unredactedPrefix` decides how much becomes visible,
+  not the caller, and a naive "return the action I just applied" would leave
+  the client short. There is a test for exactly this.
+- **`runEnforced` dropped `base`.** `GamePage.tsx` fed only `state` and
+  `version` into `applyGameStateSnapshot` after a write, which would have
+  nulled `latestBaseRef` after every move and sent the *next* request back to a
+  full fetch — quietly removing the win this change exists for, while every
+  test still passed. Caught by reading the call site rather than by the suite.
+
+A delta the client cannot verify is not surfaced as an error: the write itself
+succeeded, only the local rebuild of its result failed, so it falls back to
+reading the state in full and carries on — the same fallback the read path
+takes, for a strictly less alarming reason.
+
+`npm run lint`, `npm run test` (84 files / 1390 tests) and `npm run build` all
+pass.

@@ -42,6 +42,16 @@ export type { GameStateRow, ProfileRow }
 export type EnforcedCallResult = ({ ok: true; state: GameState; version: number } | { ok: false; error: string }) & { status: number }
 
 /**
+ * apply-action/undo-action/redo-action's protocol-2 response (issue #693):
+ * the same shape get-game-state's delta has, because respondWithState builds
+ * both. Reached by passing `protocol: 2` to the helpers below.
+ */
+export type EnforcedReplayDeltaResult = (
+  | { ok: true; version: number; actionHistoryFrom: number; actionHistoryAppend: RedactedLoggedAction[]; actionHistoryLength: number; overlay?: InFlightOverlay; stateHash: string }
+  | { ok: false; error: string }
+) & { status: number }
+
+/**
  * get-game-state's full-response shape — always RedactedGameState-shaped
  * (revealedGameStateView wraps even the "nothing's actually masked" cases:
  * admin, hotseat, or a game that hasn't opted into
@@ -119,8 +129,11 @@ export interface ProductionStack {
   getGameState(userId: string, gameId: string, sinceActionIndex: number | undefined, protocol: 2): Promise<GameStateReplayDeltaReadResult | GameStateReadResult>
   getGameState(userId: string, gameId: string, sinceActionIndex?: number): Promise<GameStateReadResult | GameStateDeltaReadResult>
   /** Submits `action` to the real apply-action Edge Function as `userId`, the way gameApi.ts's applyActionEnforced does. */
+  applyAction(userId: string, gameId: string, action: Action, sinceActionIndex: number | undefined, protocol: 2): Promise<EnforcedReplayDeltaResult | EnforcedCallResult>
   applyAction(userId: string, gameId: string, action: Action): Promise<EnforcedCallResult>
+  undoAction(userId: string, gameId: string, sinceActionIndex: number | undefined, protocol: 2): Promise<EnforcedReplayDeltaResult | EnforcedCallResult>
   undoAction(userId: string, gameId: string): Promise<EnforcedCallResult>
+  redoAction(userId: string, gameId: string, sinceActionIndex: number | undefined, protocol: 2): Promise<EnforcedReplayDeltaResult | EnforcedCallResult>
   redoAction(userId: string, gameId: string): Promise<EnforcedCallResult>
   /** Calls the real start-game Edge Function as `userId` — gameApi.ts's startGameFromLobby's enforced branch. */
   startGame(userId: string, gameId: string): Promise<StartGameCallResult>
@@ -198,6 +211,14 @@ function mintAccessToken(userId: string): string {
 }
 
 // ---------------------------------------------------------------------------
+
+/** The two optional delta fields every enforced endpoint now accepts, omitted entirely when not asked for so an old-shape call stays byte-identical. */
+function deltaFields(sinceActionIndex: number | undefined, protocol: number | undefined): Record<string, unknown> {
+  return {
+    ...(sinceActionIndex === undefined ? {} : { sinceActionIndex }),
+    ...(protocol === undefined ? {} : { protocol }),
+  }
+}
 
 export async function createProductionStack(): Promise<ProductionStack> {
   const db = new Database()
@@ -310,8 +331,13 @@ export async function createProductionStack(): Promise<ProductionStack> {
    * replayFixture.ts's local re-application and final fixture comparison).
    */
   async function invokeEnforced(name: EdgeFunctionName, userId: string, body: Record<string, unknown>): Promise<EnforcedCallResult> {
-    const result = await invoke<{ ok: true; state: RedactedGameState; version: number }>(name, userId, body)
+    const result = await invoke<{ ok: true; state?: RedactedGameState; version: number }>(name, userId, body)
     if (!result.ok) return result
+    // A protocol-2 caller (issue #693) gets a delta with no `state` to
+    // collapse — hand it back untouched and let the caller rebuild, the way
+    // gameApi.ts's applyReplayDelta does. The overloads on the helpers above
+    // are what give such a caller the right type for it.
+    if (!result.state) return result as unknown as EnforcedCallResult
     return { ...result, state: toClientGameState(result.state) }
   }
 
@@ -402,9 +428,14 @@ export async function createProductionStack(): Promise<ProductionStack> {
         ...(sinceActionIndex === undefined ? {} : { sinceActionIndex }),
         ...(protocol === undefined ? {} : { protocol }),
       })) as ProductionStack['getGameState'],
-    applyAction: (userId, gameId, action) => invokeEnforced('apply-action', userId, { gameId, action }),
-    undoAction: (userId, gameId) => invokeEnforced('undo-action', userId, { gameId }),
-    redoAction: (userId, gameId) => invokeEnforced('redo-action', userId, { gameId }),
+    // Cast for the same reason getGameState above is: two overloads, one
+    // implementation, and the protocol-2 shape has no `state` to match against.
+    applyAction: ((userId: string, gameId: string, action: Action, sinceActionIndex?: number, protocol?: number) =>
+      invokeEnforced('apply-action', userId, { gameId, action, ...deltaFields(sinceActionIndex, protocol) })) as ProductionStack['applyAction'],
+    undoAction: ((userId: string, gameId: string, sinceActionIndex?: number, protocol?: number) =>
+      invokeEnforced('undo-action', userId, { gameId, ...deltaFields(sinceActionIndex, protocol) })) as ProductionStack['undoAction'],
+    redoAction: ((userId: string, gameId: string, sinceActionIndex?: number, protocol?: number) =>
+      invokeEnforced('redo-action', userId, { gameId, ...deltaFields(sinceActionIndex, protocol) })) as ProductionStack['redoAction'],
     startGame: (userId, gameId) => invoke<{ ok: true }>('start-game', userId, { gameId }),
 
     applyActionClientTrusted: (userId, gameId, action, content) =>

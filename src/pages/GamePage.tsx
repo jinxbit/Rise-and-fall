@@ -1319,7 +1319,10 @@ export function GamePage() {
     if (guardError) return { ok: false, error: guardError }
     const result = await call()
     if (!result.ok) return result
-    applyGameStateSnapshot({ state: result.state, version: result.version })
+    // `base` too, not just the rendered state: dropping it here would null
+    // latestBaseRef after every move and send the *next* request back to a
+    // full fetch — the exact cost issue #693 exists to remove.
+    applyGameStateSnapshot({ state: result.state, base: result.base, version: result.version })
     return { ok: true, state: result.state }
   }
 
@@ -1390,7 +1393,7 @@ export function GamePage() {
     setSubmitting(true)
     try {
       const result = game?.settings.ruleEnforcementEnabled
-        ? await runEnforced(() => applyActionEnforced(game.id, action))
+        ? await runEnforced(() => applyActionEnforced(game.id, action, latestBaseRef.current, deltaContextRef.current ?? undefined))
         : await writeWithRetry((state) => applyAction(state, action, unitContent, achievementContent, boardGenerationContent, taleContent))
       setActionError(result.ok ? null : simpleError(result.error))
     } finally {
@@ -1508,7 +1511,7 @@ export function GamePage() {
       // ruleEnforcementEnabled: delegate to undo-action instead of replaying
       // client-side — same applyUndoAction, same walk-back, server-side.
       if (game.settings.ruleEnforcementEnabled) {
-        const result = await runEnforced(() => undoActionEnforced(game.id))
+        const result = await runEnforced(() => undoActionEnforced(game.id, latestBaseRef.current, deltaContextRef.current ?? undefined))
         setActionError(result.ok ? null : simpleError(result.error))
         return
       }
@@ -1558,7 +1561,7 @@ export function GamePage() {
       // ruleEnforcementEnabled: delegate to redo-action instead of replaying
       // client-side — see handleUndo's matching branch above.
       if (game.settings.ruleEnforcementEnabled) {
-        const result = await runEnforced(() => redoActionEnforced(game.id))
+        const result = await runEnforced(() => redoActionEnforced(game.id, latestBaseRef.current, deltaContextRef.current ?? undefined))
         setActionError(result.ok ? null : simpleError(result.error))
         return
       }

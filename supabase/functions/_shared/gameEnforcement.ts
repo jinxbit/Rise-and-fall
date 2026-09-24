@@ -28,7 +28,9 @@ import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2'
 import { applyAction } from '../../../src/engine/applyAction.ts'
 import type { Action, LoggedAction } from '../../../src/engine/actions.ts'
 import { redoableTail } from '../../../src/engine/historyFold.ts'
-import { redactStateForPlayer, revealedGameStateView, type RedactedGameState } from '../../../src/engine/redaction.ts'
+import { redactStateForPlayer, revealedGameStateView, toClientGameState, unredactedPrefix, type RedactedGameState, type RedactedGameStateDelta } from '../../../src/engine/redaction.ts'
+import { buildInFlightOverlay, needsInFlightOverlay } from '../../../src/engine/inFlightOverlay.ts'
+import { hashGameStateView } from '../../../src/lib/gameStateHash.ts'
 import { applyTaleAchievementModifiers, applyTaleModifiers } from '../../../src/engine/tales.ts'
 import type { ActionResult, GameState } from '../../../src/engine/types.ts'
 import {
@@ -355,3 +357,73 @@ export async function loadFullGameAndPlayers(supabase: SupabaseClient, gameId: s
 }
 
 export { buildGenesisState }
+
+/**
+ * The single response builder for every endpoint that hands a caller a game
+ * state: `get-game-state` reading one, and `apply-action`/`undo-action`/
+ * `redo-action` handing back the state their own compare-and-swap just wrote.
+ *
+ * Shared rather than copied because the clamping below is subtle and getting
+ * it wrong in one of four places is the kind of bug that only shows up as a
+ * leak. `view` is whatever that endpoint already decided the caller may see —
+ * `redactedResponseState` for a write, `redactStateForPlayer`/
+ * `revealedGameStateView` for a read — and `trueState` is the unredacted state
+ * it was derived from, needed only to decide whether an overlay is required.
+ *
+ * Three response shapes, picked by what the caller asked for:
+ *
+ *   - `protocol: 2` with a usable `sinceActionIndex` (issue #648): the actions
+ *     it may replay, an overlay for what a replay cannot reach, and a hash to
+ *     check the result against. No materialised state at all.
+ *   - `sinceActionIndex` alone (issue #647): `stateWithoutHistory` plus the
+ *     appended log.
+ *   - Neither: the whole view, as it always was.
+ *
+ * A caller that sends nothing new gets byte-for-byte what it got before, which
+ * is what lets a stale PWA bundle keep working with no coordinated rollout.
+ */
+export function respondWithState(trueState: GameState, view: RedactedGameState, version: number, sinceActionIndex: number | undefined, protocol: number | undefined) {
+  if (typeof sinceActionIndex === 'number' && Number.isInteger(sinceActionIndex) && sinceActionIndex >= 0) {
+    const safePrefixLength = unredactedPrefix(view.actionHistory).length
+    // `<=`, not `<`: the safe prefix is NOT monotonic. With
+    // HIDDEN_INFORMATION_PLAN.md §5.3's reveal high-water mark dropped,
+    // masking derives strictly from the *current* roundPhase/pendingPlayerIds
+    // (see redactStateForPlayer's doc comment), so a newly-opened phase can
+    // re-mask entries this viewer was already shown and move the prefix
+    // backwards. A caller asking from beyond it falls through to a full
+    // response here, which is exactly right — it has entries it is no longer
+    // entitled to replay from.
+    if (sinceActionIndex <= safePrefixLength) {
+      const { actionHistory, ...stateWithoutHistory } = view
+      const actionHistoryAppend = actionHistory.slice(sinceActionIndex, safePrefixLength)
+      if ((protocol ?? 1) >= 2) {
+        const clientView = toClientGameState(view)
+        const overlay = needsInFlightOverlay(trueState, clientView) ? buildInFlightOverlay(clientView) : undefined
+        return jsonResponse(200, {
+          ok: true,
+          actionHistoryFrom: sinceActionIndex,
+          actionHistoryAppend,
+          actionHistoryLength: safePrefixLength,
+          ...(overlay ? { overlay } : {}),
+          stateHash: hashGameStateView(clientView),
+          version,
+        })
+      }
+      const delta: RedactedGameStateDelta = {
+        state: stateWithoutHistory,
+        actionHistoryFrom: sinceActionIndex,
+        actionHistoryAppend,
+        actionHistoryLength: safePrefixLength,
+      }
+      return jsonResponse(200, { ok: true, ...delta, version })
+    }
+  }
+  // A full response carries the hash too under protocol 2, so a client that
+  // seeds its base by replaying this log from genesis can tell straight away
+  // whether its engine agrees with ours, rather than finding out on the next
+  // delta.
+  if ((protocol ?? 1) >= 2) {
+    return jsonResponse(200, { ok: true, state: view, stateHash: hashGameStateView(toClientGameState(view)), version })
+  }
+  return jsonResponse(200, { ok: true, state: view, version })
+}
