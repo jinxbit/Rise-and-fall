@@ -49,8 +49,8 @@ export const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
-export function jsonResponse(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
+export function jsonResponse(status: number, body: unknown, extraHeaders: Record<string, string> = {}): Response {
+  return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, 'Content-Type': 'application/json', ...extraHeaders } })
 }
 
 /** Every table row this module needs — deliberately narrower than dbTypes.ts's full GameRow/PlayerRow, just the columns actually selected below. */
@@ -359,6 +359,58 @@ export async function loadFullGameAndPlayers(supabase: SupabaseClient, gameId: s
 export { buildGenesisState }
 
 /**
+ * Why a caller ended up asking for a whole state instead of a delta, as the
+ * client reports it (gameApi.ts sets it when `applyReplayDelta` gives up).
+ *
+ * The point of carrying this at all: the server cannot otherwise tell a
+ * healthy cold start — a client with no cache yet, which is expected and which
+ * issue #688 exists to make rarer — from a client whose local rebuild
+ * *disagreed with the server*. Both arrive as "protocol 2, no cursor". The
+ * second is the one worth watching: a hash mismatch means this client's engine
+ * and ours produced different states from the same actions, which is exactly
+ * what the hash is there to catch and is otherwise completely silent —
+ * everything keeps working, just at the old cost, and nothing says so.
+ */
+export type StateFallbackReason = 'hash-mismatch' | 'replay-failed' | 'cursor-mismatch' | 'length-mismatch' | 'other'
+
+const KNOWN_FALLBACK_REASONS: readonly string[] = ['hash-mismatch', 'replay-failed', 'cursor-mismatch', 'length-mismatch']
+
+/**
+ * Client-supplied, therefore not trusted into a log line as-is: anything
+ * unrecognised collapses to 'other' rather than letting an arbitrary string
+ * (newlines, forged JSON, unbounded length) reach the log and either break a
+ * query or fake a record.
+ */
+function normalizeFallbackReason(raw: unknown): StateFallbackReason | undefined {
+  if (typeof raw !== 'string' || raw.length === 0) return undefined
+  return KNOWN_FALLBACK_REASONS.includes(raw) ? (raw as StateFallbackReason) : 'other'
+}
+
+/** What the caller asked for, and why — everything respondWithState needs beyond the state itself. */
+export interface StateResponseRequest {
+  sinceActionIndex?: number
+  protocol?: number
+  fallbackReason?: string
+}
+
+/**
+ * One line per state response, into the Edge Function logs (todo.md #145).
+ *
+ * Deliberately a log line and not a counter table: a row per request would put
+ * a PostgREST round trip back on the hot path to measure a change whose whole
+ * point was removing round trips — the same mistake that made issue #648's
+ * first attempt double Edge Function latency (todo.md #139). stdout costs
+ * nothing and Supabase already collects it.
+ *
+ * `evt` is a fixed string so the Logs Explorer has something exact to filter
+ * on, and nothing else in supabase/functions/ writes to the console at all, so
+ * these lines are the only ones there.
+ */
+function logStateResponse(fields: Record<string, unknown>): void {
+  console.log(JSON.stringify({ evt: 'state_response', ...fields }))
+}
+
+/**
  * The single response builder for every endpoint that hands a caller a game
  * state: `get-game-state` reading one, and `apply-action`/`undo-action`/
  * `redo-action` handing back the state their own compare-and-swap just wrote.
@@ -382,7 +434,26 @@ export { buildGenesisState }
  * A caller that sends nothing new gets byte-for-byte what it got before, which
  * is what lets a stale PWA bundle keep working with no coordinated rollout.
  */
-export function respondWithState(trueState: GameState, view: RedactedGameState, version: number, sinceActionIndex: number | undefined, protocol: number | undefined) {
+export function respondWithState(
+  fn: string,
+  trueState: GameState,
+  view: RedactedGameState,
+  version: number,
+  request: StateResponseRequest,
+): Response {
+  const { sinceActionIndex, protocol } = request
+  const fallbackReason = normalizeFallbackReason(request.fallbackReason)
+  const protocolVersion = protocol ?? 1
+
+  // `x-state-shape` / `x-state-reason` mirror the log line into the response
+  // itself, so the network tab answers "is this actually sending a delta right
+  // now" without a trip to the Logs Explorer. Aggregates come from the log;
+  // this is for looking at one request.
+  const tagged = (shape: string, reason: string, body: unknown, extra: Record<string, unknown>) => {
+    logStateResponse({ fn, shape, reason, protocol: protocolVersion, ...extra })
+    return jsonResponse(200, body, { 'x-state-shape': shape, 'x-state-reason': reason })
+  }
+
   if (typeof sinceActionIndex === 'number' && Number.isInteger(sinceActionIndex) && sinceActionIndex >= 0) {
     const safePrefixLength = unredactedPrefix(view.actionHistory).length
     // `<=`, not `<`: the safe prefix is NOT monotonic. With
@@ -396,18 +467,23 @@ export function respondWithState(trueState: GameState, view: RedactedGameState, 
     if (sinceActionIndex <= safePrefixLength) {
       const { actionHistory, ...stateWithoutHistory } = view
       const actionHistoryAppend = actionHistory.slice(sinceActionIndex, safePrefixLength)
-      if ((protocol ?? 1) >= 2) {
+      if (protocolVersion >= 2) {
         const clientView = toClientGameState(view)
         const overlay = needsInFlightOverlay(trueState, clientView) ? buildInFlightOverlay(clientView) : undefined
-        return jsonResponse(200, {
-          ok: true,
-          actionHistoryFrom: sinceActionIndex,
-          actionHistoryAppend,
-          actionHistoryLength: safePrefixLength,
-          ...(overlay ? { overlay } : {}),
-          stateHash: hashGameStateView(clientView),
-          version,
-        })
+        return tagged(
+          'delta',
+          'ok',
+          {
+            ok: true,
+            actionHistoryFrom: sinceActionIndex,
+            actionHistoryAppend,
+            actionHistoryLength: safePrefixLength,
+            ...(overlay ? { overlay } : {}),
+            stateHash: hashGameStateView(clientView),
+            version,
+          },
+          { append: actionHistoryAppend.length, overlay: Boolean(overlay) },
+        )
       }
       const delta: RedactedGameStateDelta = {
         state: stateWithoutHistory,
@@ -415,15 +491,24 @@ export function respondWithState(trueState: GameState, view: RedactedGameState, 
         actionHistoryAppend,
         actionHistoryLength: safePrefixLength,
       }
-      return jsonResponse(200, { ok: true, ...delta, version })
+      return tagged('history-delta', 'protocol-1', { ok: true, ...delta, version }, { append: actionHistoryAppend.length })
     }
+    // Asked from beyond the safe prefix: the phase re-masked entries this
+    // caller already held. Distinct from a cold start, and worth counting
+    // separately — measured under 1% of reads, so a rise means something
+    // changed about how often phases re-open.
+    if (protocolVersion >= 2) {
+      return tagged('full', 'prefix-moved-back', { ok: true, state: view, stateHash: hashGameStateView(toClientGameState(view)), version }, {})
+    }
+    return tagged('full', 'prefix-moved-back', { ok: true, state: view, version }, {})
   }
-  // A full response carries the hash too under protocol 2, so a client that
-  // seeds its base by replaying this log from genesis can tell straight away
-  // whether its engine agrees with ours, rather than finding out on the next
-  // delta.
-  if ((protocol ?? 1) >= 2) {
-    return jsonResponse(200, { ok: true, state: view, stateHash: hashGameStateView(toClientGameState(view)), version })
+
+  // No cursor at all. Either a genuine cold start, or the client rebuilt a
+  // delta and didn't like the result — `fallbackReason` is the only thing that
+  // tells those apart, and the second is the one that matters.
+  const reason = fallbackReason ?? (protocolVersion >= 2 ? 'cold-start' : 'protocol-1')
+  if (protocolVersion >= 2) {
+    return tagged('full', reason, { ok: true, state: view, stateHash: hashGameStateView(toClientGameState(view)), version }, {})
   }
-  return jsonResponse(200, { ok: true, state: view, version })
+  return tagged('full', reason, { ok: true, state: view, version }, {})
 }

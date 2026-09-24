@@ -56,6 +56,8 @@ interface ApplyActionRequest {
    */
   sinceActionIndex?: number
   protocol?: number
+  /** Why the caller could not use a delta, when it could not — see StateFallbackReason (../_shared/gameEnforcement.ts). */
+  fallbackReason?: string
 }
 
 Deno.serve(async (req) => {
@@ -70,7 +72,7 @@ Deno.serve(async (req) => {
   } catch {
     return jsonResponse(400, { ok: false, error: 'Invalid JSON body.' })
   }
-  const { gameId, action, sinceActionIndex, protocol } = body
+  const { gameId, action, sinceActionIndex, protocol, fallbackReason } = body
   if (!gameId || !action || typeof action.type !== 'string') {
     return jsonResponse(400, { ok: false, error: 'Request body must be { gameId, action }.' })
   }
@@ -140,5 +142,5 @@ Deno.serve(async (req) => {
   // issue #478: the response is redacted the same way get-game-state's read
   // is (redactedResponseState, ../_shared/gameEnforcement.ts) — the CAS write
   // above always persists the real, unredacted result.state regardless.
-  return respondWithState(result.state, redactedResponseState(ctx, callerUserId, result.state), newVersion, sinceActionIndex, protocol)
+  return respondWithState('apply-action', result.state, redactedResponseState(ctx, callerUserId, result.state), newVersion, { sinceActionIndex, protocol, fallbackReason })
 })

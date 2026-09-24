@@ -99,6 +99,13 @@ export interface ProductionStack {
   readonly requests: string[]
   /** A signed-in browser's client for `userId`: anon key + that user's bearer token, exactly like a real session. */
   clientFor(userId: string): SupabaseClient
+  /**
+   * An Edge Function call that hands back the raw HTTP response as well as the
+   * parsed body — `functions.invoke` swallows the headers on success, and the
+   * response *tags* (`x-state-shape`, `x-state-reason`, todo.md #145) are part
+   * of the contract now, so something has to be able to see them.
+   */
+  rawInvoke(userId: string, name: EdgeFunctionName, body: Record<string, unknown>): Promise<{ status: number; headers: Headers; body: unknown }>
   /** A signed-out visitor's client — no bearer token, so every RLS policy scoped to `authenticated` denies it. */
   anonClient(): SupabaseClient
   /** Registers a user so the fake GoTrue will resolve their token, and gives them a `profiles` row. */
@@ -303,6 +310,29 @@ export async function createProductionStack(): Promise<ProductionStack> {
    * the same way it covers apply-action/undo-action/redo-action/get-game-state's
    * `{ok:true, state, version}`.
    */
+  /** The bearer token clientFor would use, for the one caller that needs to build its own request. */
+  function tokenFor(userId: string): string {
+    const token = tokenByUserId.get(userId)
+    if (!token) throw new Error(`No such user in this stack: ${userId}. Call addUser()/seedStartedGame() first.`)
+    return token
+  }
+
+  async function rawInvoke(userId: string, name: EdgeFunctionName, body: Record<string, unknown>): Promise<{ status: number; headers: Headers; body: unknown }> {
+    const response = await fetch(`${STACK_URL}/functions/v1/${name}`, {
+      method: 'POST',
+      headers: { apikey: ANON_KEY, Authorization: `Bearer ${tokenFor(userId)}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    const text = await response.text()
+    let parsed: unknown = text
+    try {
+      parsed = JSON.parse(text)
+    } catch {
+      // Leave it as text — a non-JSON body is itself worth asserting on.
+    }
+    return { status: response.status, headers: response.headers, body: parsed }
+  }
+
   async function invoke<TOk extends { ok: true }>(name: EdgeFunctionName, userId: string, body: Record<string, unknown>): Promise<(TOk | { ok: false; error: string }) & { status: number }> {
     const { data, error } = await clientFor(userId).functions.invoke(name, { body })
     if (error) {
@@ -388,6 +418,7 @@ export async function createProductionStack(): Promise<ProductionStack> {
     clientFor,
     anonClient: () => createClient(STACK_URL, ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false, storageKey: 'sb-test-anon' } }),
     addUser,
+    rawInvoke,
 
     async seedStartedGame({ game, players, genesis, admins = [] }) {
       addUser(game.created_by, { isAdmin: admins.includes(game.created_by) })

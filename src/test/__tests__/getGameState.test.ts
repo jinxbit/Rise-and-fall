@@ -239,6 +239,57 @@ describe('get-game-state Edge Function', () => {
     expect(asOwner.state.chosenCardIdByPlayerId['seat-bob']).toEqual({ chosen: true, cardId: bobCard })
   })
 
+  describe('response telemetry (todo.md #145)', () => {
+    /** The `x-state-shape`/`x-state-reason` pair, which is also what the log line records. */
+    async function tagsFor(userId: string, body: Record<string, unknown>) {
+      const raw = await stack.rawInvoke(userId, 'get-game-state', body)
+      expect(raw.status).toBe(200)
+      return { shape: raw.headers.get('x-state-shape'), reason: raw.headers.get('x-state-reason'), body: raw.body as Record<string, unknown> }
+    }
+
+    it('tags a delta, a cold start and a protocol-1 caller differently', async () => {
+      await reachSelectCardsPhase()
+      const cold = await tagsFor(ALICE, { gameId: GAME_ID, protocol: 2 })
+      expect(cold).toMatchObject({ shape: 'full', reason: 'cold-start' })
+
+      const prefixLength = toClientGameState(cold.body.state as never).actionHistory.length
+      const delta = await tagsFor(ALICE, { gameId: GAME_ID, sinceActionIndex: prefixLength, protocol: 2 })
+      expect(delta).toMatchObject({ shape: 'delta', reason: 'ok' })
+
+      // A client that never learned about protocol 2 is counted separately, so
+      // "stale bundles still out there" is a number rather than a guess.
+      const old = await tagsFor(ALICE, { gameId: GAME_ID })
+      expect(old).toMatchObject({ shape: 'full', reason: 'protocol-1' })
+    })
+
+    it("separates a client whose rebuild disagreed from one that simply had no cache", async () => {
+      // The distinction the whole `fallbackReason` field exists for: both
+      // arrive as "protocol 2, no cursor", and only one of them means this
+      // client's engine and the server's produced different states.
+      await reachSelectCardsPhase()
+      const mismatch = await tagsFor(ALICE, { gameId: GAME_ID, protocol: 2, fallbackReason: 'hash-mismatch' })
+      expect(mismatch).toMatchObject({ shape: 'full', reason: 'hash-mismatch' })
+    })
+
+    it('tags a caller asking from beyond the safe prefix as its own case', async () => {
+      await reachSelectCardsPhase()
+      const beyond = await tagsFor(ALICE, { gameId: GAME_ID, sinceActionIndex: 9999, protocol: 2 })
+      expect(beyond).toMatchObject({ shape: 'full', reason: 'prefix-moved-back' })
+    })
+
+    it('never lets a client put an arbitrary string in the reason', async () => {
+      // fallbackReason is client-supplied and lands in a log line, so anything
+      // unrecognised collapses to 'other' rather than reaching the log as-is —
+      // no newlines, no forged JSON, no unbounded length.
+      await reachSelectCardsPhase()
+      const forged = await tagsFor(ALICE, { gameId: GAME_ID, protocol: 2, fallbackReason: '{"evt":"state_response","shape":"delta"}\n' })
+      expect(forged).toMatchObject({ shape: 'full', reason: 'other' })
+
+      const nonsense = await tagsFor(ALICE, { gameId: GAME_ID, protocol: 2, fallbackReason: 12345 })
+      expect(nonsense).toMatchObject({ shape: 'full', reason: 'cold-start' })
+    })
+  })
+
   describe('replay delta (protocol 2, issue #648)', () => {
     /** Rebuilds a viewer's state the way gameApi.ts's getGameStateRedacted does: replay what they may see, lay the overlay over what they may not. */
     function rebuild(genesisState: GameState, base: GameState, delta: { actionHistoryAppend: RedactedLoggedAction[]; overlay?: InFlightOverlay }, content: ReturnType<typeof resolveGameContent>) {

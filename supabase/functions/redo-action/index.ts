@@ -32,6 +32,8 @@ interface RedoActionRequest {
    */
   sinceActionIndex?: number
   protocol?: number
+  /** Why the caller could not use a delta, when it could not — see StateFallbackReason (../_shared/gameEnforcement.ts). */
+  fallbackReason?: string
 }
 
 Deno.serve(async (req) => {
@@ -46,7 +48,7 @@ Deno.serve(async (req) => {
   } catch {
     return jsonResponse(400, { ok: false, error: 'Invalid JSON body.' })
   }
-  const { gameId, sinceActionIndex, protocol } = body
+  const { gameId, sinceActionIndex, protocol, fallbackReason } = body
   if (!gameId) return jsonResponse(400, { ok: false, error: 'Request body must be { gameId }.' })
 
   const supabase = serviceRoleClient()
@@ -83,5 +85,5 @@ Deno.serve(async (req) => {
 
   // issue #478: same write-side redaction as apply-action — see
   // redactedResponseState's doc comment.
-  return respondWithState(result.state, redactedResponseState(ctx, callerUserId, result.state), newVersion, sinceActionIndex, protocol)
+  return respondWithState('redo-action', result.state, redactedResponseState(ctx, callerUserId, result.state), newVersion, { sinceActionIndex, protocol, fallbackReason })
 })

@@ -1118,6 +1118,15 @@ export async function getGameState(gameId: string): Promise<GameStateSnapshot | 
  * `previous`, or any other inconsistency) falls back to an ordinary full fetch
  * rather than risk assembling a wrong `actionHistory`.
  */
+/**
+ * Why a rebuild gave up, reported back to the server on the retry so the
+ * telemetry can separate a healthy cold start from a client whose engine
+ * disagrees with the server's — see StateFallbackReason
+ * (supabase/functions/_shared/gameEnforcement.ts) for why that distinction is
+ * the one worth watching.
+ */
+export type ReplayDeltaFailure = 'cursor-mismatch' | 'replay-failed' | 'length-mismatch' | 'hash-mismatch'
+
 /** A protocol-2 delta on the wire, from `get-game-state` or any of the three write endpoints. */
 export interface ReplayDeltaResponse {
   version: number
@@ -1155,8 +1164,8 @@ export function applyReplayDelta(
   previous: EngineGameState,
   replay: DeltaReplayContext,
   delta: ReplayDeltaResponse,
-): { state: EngineGameState; base: EngineGameState } | null {
-  if (delta.actionHistoryFrom !== previous.actionHistory.length) return null
+): { ok: true; state: EngineGameState; base: EngineGameState } | { ok: false; reason: ReplayDeltaFailure } {
+  if (delta.actionHistoryFrom !== previous.actionHistory.length) return { ok: false, reason: 'cursor-mismatch' }
   let base: EngineGameState
   try {
     base = extendReplay(
@@ -1169,23 +1178,29 @@ export function applyReplayDelta(
       replay.taleContent,
     )
   } catch {
-    return null
+    return { ok: false, reason: 'replay-failed' }
   }
-  if (base.actionHistory.length !== delta.actionHistoryLength) return null
+  if (base.actionHistory.length !== delta.actionHistoryLength) return { ok: false, reason: 'length-mismatch' }
   const state = applyInFlightOverlay(base, delta.overlay)
-  if (hashGameStateView(state) !== delta.stateHash) return null
-  return { state, base }
+  if (hashGameStateView(state) !== delta.stateHash) return { ok: false, reason: 'hash-mismatch' }
+  return { ok: true, state, base }
 }
 
 export async function getGameStateRedacted(
   gameId: string,
   previous?: EngineGameState | null,
   replay?: DeltaReplayContext,
+  fallbackReason?: ReplayDeltaFailure,
 ): Promise<GameStateSnapshot | null> {
   const sinceActionIndex = previous ? previous.actionHistory.length : undefined
   const protocol = replay ? 2 : undefined
   const { data, error } = await supabase.functions.invoke('get-game-state', {
-    body: { gameId, ...(sinceActionIndex === undefined ? {} : { sinceActionIndex }), ...(protocol ? { protocol } : {}) },
+    body: {
+      gameId,
+      ...(sinceActionIndex === undefined ? {} : { sinceActionIndex }),
+      ...(protocol ? { protocol } : {}),
+      ...(fallbackReason ? { fallbackReason } : {}),
+    },
   })
   if (error) return null
   const result = data as
@@ -1200,8 +1215,8 @@ export async function getGameStateRedacted(
   // one full fetch.
   if ('stateHash' in result && 'actionHistoryAppend' in result && replay && previous) {
     const rebuilt = applyReplayDelta(previous, replay, result)
-    if (!rebuilt) return getGameStateRedacted(gameId, null, replay)
-    return { ...rebuilt, version: result.version }
+    if (!rebuilt.ok) return getGameStateRedacted(gameId, null, replay, rebuilt.reason)
+    return { state: rebuilt.state, base: rebuilt.base, version: result.version }
   }
 
   if (!('actionHistoryAppend' in result)) {
@@ -1212,7 +1227,7 @@ export async function getGameStateRedacted(
   // with (only possible if `replay`/`previous` went missing between request
   // and response) — there is no materialised state in it to fall back on, so
   // ask for a full one.
-  if (!('state' in result)) return getGameStateRedacted(gameId, null, replay)
+  if (!('state' in result)) return getGameStateRedacted(gameId, null, replay, 'cursor-mismatch')
   const merged = applyRedactedGameStateDelta(previous!.actionHistory, result)
   if (!merged) return getGameStateRedacted(gameId)
   return { state: toClientGameState(merged), version: result.version }
@@ -1323,15 +1338,16 @@ async function invokeGameFunction(
     const rebuilt = applyReplayDelta(previous!, replay!, result)
     // A miss here is not an error the player should see — the write itself
     // succeeded, only our local rebuild of the result didn't. Read the state
-    // back in full and carry on, exactly as the read path does.
-    if (rebuilt) return { ok: true, ...rebuilt, version: result.version }
-    const fresh = await getGameStateRedacted(body.gameId as string, null, replay)
+    // back in full and carry on, exactly as the read path does, reporting why
+    // so the retry is counted as a rebuild failure rather than a cold start.
+    if (rebuilt.ok) return { ok: true, state: rebuilt.state, base: rebuilt.base, version: result.version }
+    const fresh = await getGameStateRedacted(body.gameId as string, null, replay, rebuilt.reason)
     if (!fresh) return { ok: false, error: 'The move was applied, but its result could not be read back. Refresh to continue.' }
     return { ok: true, state: fresh.state, base: fresh.base, version: fresh.version }
   }
 
   if (!('state' in result)) {
-    const fresh = await getGameStateRedacted(body.gameId as string, null, replay)
+    const fresh = await getGameStateRedacted(body.gameId as string, null, replay, 'cursor-mismatch')
     if (!fresh) return { ok: false, error: 'The move was applied, but its result could not be read back. Refresh to continue.' }
     return { ok: true, state: fresh.state, base: fresh.base, version: fresh.version }
   }

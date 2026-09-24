@@ -6783,3 +6783,61 @@ takes, for a strictly less alarming reason.
 
 `npm run lint`, `npm run test` (84 files / 1390 tests) and `npm run build` all
 pass.
+
+## 145. Counting full responses against deltas in production
+
+The replay delta (#142, #144) degrades *silently*: when a client cannot rebuild
+a state it asks for a whole one, everything keeps working, and the only
+symptom is the bandwidth win quietly not happening. So there is now one line
+per state response in the Edge Function logs, and a matching pair of response
+headers.
+
+**Not a counters table.** A row incremented per request would put a PostgREST
+round trip back on the hot path to measure a change whose entire point was
+removing round trips — the same mistake that made #648's first attempt double
+Edge Function latency (#139). `console.log` costs nothing and Supabase already
+collects stdout. Nothing else under `supabase/functions/` writes to the
+console at all, so `{"evt":"state_response",...}` lines are the only ones
+there.
+
+It lives in `respondWithState` (`_shared/gameEnforcement.ts`), which #144 made
+the single response builder for all four endpoints — so one call site covers
+reads, moves, undo and redo.
+
+`x-state-shape` and `x-state-reason` carry the same two fields on the response
+itself, so the network tab answers "is this actually sending a delta right
+now" without a trip to the Logs Explorer. Aggregates come from the log; the
+headers are for looking at one request.
+
+### Why `fallbackReason` exists
+
+A raw full-vs-delta ratio is a weak signal, because "full" is four different
+situations and only one of them is a problem:
+
+| reason | what it means |
+| --- | --- |
+| `ok` | a delta — the good case |
+| `protocol-1` | a stale PWA bundle; should trend to zero after a deploy |
+| `cold-start` | the client had no cache yet — expected, and what #138's cache exists to make rarer |
+| `prefix-moved-back` | a re-opened phase re-masked entries the caller held (measured under 1%) |
+| `hash-mismatch` / `replay-failed` / `length-mismatch` | **the client's rebuild disagreed with the server** |
+
+Those last three are invisible from the server alone: a client that gives up
+on a delta just asks again with no cursor, which looks exactly like a cold
+start. So `applyReplayDelta` now returns *why* it failed and the client sends
+it back on the retry.
+
+**`hash-mismatch` is the number actually worth watching.** It means this
+client's engine and the server's produced different states from the same
+actions — precisely what the hash is there to catch, and precisely what
+nothing else would ever report. A rules change that breaks replay
+compatibility would show up here and nowhere else.
+
+`fallbackReason` is client-supplied and lands in a log line, so anything
+unrecognised collapses to `other` rather than reaching the log as-is — no
+newlines, no forged `state_response` records, no unbounded strings. There is a
+test that tries exactly that.
+
+Log retention on Supabase's lower tiers is short. If a longer history is
+wanted, the answer is a scheduled daily rollup writing one summary row — still
+never a per-request write.

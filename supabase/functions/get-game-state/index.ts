@@ -89,6 +89,8 @@ interface GetGameStateRequest {
    * No coordinated rollout, same posture as the `__gz` read path.
    */
   protocol?: number
+  /** Why the caller could not use a delta, when it could not — see StateFallbackReason (../_shared/gameEnforcement.ts). */
+  fallbackReason?: string
 }
 
 Deno.serve(async (req) => {
@@ -103,7 +105,7 @@ Deno.serve(async (req) => {
   } catch {
     return jsonResponse(400, { ok: false, error: 'Invalid JSON body.' })
   }
-  const { gameId, sinceActionIndex, protocol } = body
+  const { gameId, sinceActionIndex, protocol, fallbackReason } = body
   if (!gameId) return jsonResponse(400, { ok: false, error: 'Request body must be { gameId }.' })
 
   const supabase = serviceRoleClient()
@@ -130,10 +132,10 @@ Deno.serve(async (req) => {
   const shouldRedact = ctx.gameState.state.hiddenInformationEnabled && ctx.game.play_mode !== 'hotseat'
 
   if (ctx.isAdmin || !shouldRedact) {
-    return respondWithState(ctx.gameState.state, revealedGameStateView(ctx.gameState.state), ctx.gameState.version, sinceActionIndex, protocol)
+    return respondWithState('get-game-state', ctx.gameState.state, revealedGameStateView(ctx.gameState.state), ctx.gameState.version, { sinceActionIndex, protocol, fallbackReason })
   }
 
   const callerPlayerId = ctx.players.find((p) => p.user_id === callerUserId)?.id ?? null
   const state = redactStateForPlayer(ctx.gameState.state, callerPlayerId)
-  return respondWithState(ctx.gameState.state, state, ctx.gameState.version, sinceActionIndex, protocol)
+  return respondWithState('get-game-state', ctx.gameState.state, state, ctx.gameState.version, { sinceActionIndex, protocol, fallbackReason })
 })
