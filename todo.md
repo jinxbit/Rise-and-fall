@@ -6891,3 +6891,52 @@ even when a cached base exists. Serialising `listPlayers` before it would buy
 answer is to cache `genesis` alongside the base so the replay context can be
 rebuilt from IndexedDB with no network at all — worth doing, and larger than
 this fix.
+
+## 147. A cold open can finally ask for a delta
+
+`x-state-reason: protocol-1` on every refresh, even with a populated cache.
+#146 fixed the cache being *written*; this fixes it being *usable*.
+
+`GamePage.tsx`'s mount effect fetches the game state and the players roster
+together, so when the state request goes out `players` is still empty,
+`genesis` is null, `deltaContextRef` is null — and `getGameStateRedacted` only
+sends `protocol: 2` when it has a replay context to apply the answer with.
+A cold open therefore fell back to #647's history-delta and still shipped the
+whole `stateWithoutHistory`, cached base or not. For this app's async usage a
+cold open is *most* opens, which made it the case that mattered least served.
+
+**None of it actually needed the table.** `buildGenesisState` reads exactly
+four player columns, and a cached `GameState`'s own `players` carry all four
+(`Player.id`/`authUserId`/`displayName`/`color`). So genesis is reconstructable
+from the cache plus the `games` row, which the mount effect already holds
+before it runs — no schema change, no extra request, no waiting.
+
+`buildGenesisState`'s parameter is now `GenesisPlayerInput[]` rather than
+`PlayerRow[]`: same four columns, spelled out in the type so the dependency is
+visible and a caller can legitimately supply them from elsewhere. `PlayerRow[]`
+is assignable, so every existing caller is untouched.
+
+Content resolves from the **state**, not the roster, and that is not
+incidental: `GameState.players` is fixed at genesis and never shrinks
+(elimination flags a player rather than removing them) while the live table can
+disagree — resolving against the table is what gave a 2-player game the
+3-player board-generation pool in issue #519. `gameLength` drives achievements,
+the player count drives units and board generation, and `activeTaleIds` drives
+Tales; all three come off the cached state.
+
+A stale cache is not a hazard. A roster that changed since the write produces a
+different genesis, the replay lands somewhere the server disagrees with, the
+hash fails, and the client pays for one full fetch — the same fallback every
+other mismatch takes.
+
+`deltaReplayContext.test.ts` asserts the reconstructed genesis *equals* the one
+built from the players table, across every recorded game. That is the assertion
+that matters: if `buildGenesisState` ever starts reading a column only a
+`PlayerRow` has, it fails here rather than silently producing a genesis that
+replays to the wrong state and turns every cold open into a hash mismatch —
+which would look exactly like the bug this fixes.
+
+`DeltaReplayContext` moved out of `gameApi.ts` into its own module on the way,
+because `gameApi.ts` imports `./supabase` and therefore throws at import time
+without env vars — nothing in the repo can test anything that lives there. That
+is the same reason #146's regression went unnoticed.

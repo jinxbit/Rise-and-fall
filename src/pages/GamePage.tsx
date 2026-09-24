@@ -69,6 +69,7 @@ import {
   writeGameState,
   type GameEnforcementResult,
 } from '../lib/gameApi'
+import { buildDeltaReplayContextFromState } from '../lib/deltaReplayContext'
 import { loadCachedGameState, saveCachedGameState } from '../lib/gameStateCache'
 import { encodeGameStateExport } from '../lib/gameStateExport'
 import { saveMapToPool } from '../lib/mapPoolApi'
@@ -589,7 +590,14 @@ export function GamePage() {
       // than risk anything worse.
       const userId = session?.user?.id
       const cached = userId ? await loadCachedGameState(gameId, userId) : null
-      const snapshot = await fetchGameState(game, cached, deltaContextRef.current)
+      // deltaContextRef is still null here: `genesis` needs `players`, and the
+      // listPlayers call below hasn't resolved yet. Rebuilding the context
+      // from the cached state itself (deltaReplayContext.ts) is what lets this
+      // very first request ask for a protocol-2 delta instead of falling back
+      // to the pre-#648 contract — which, for a cold open, is most opens.
+      // A stale cache just costs one hash mismatch and a full fetch.
+      const replay = deltaContextRef.current ?? (cached ? buildDeltaReplayContextFromState(game, cached) : null)
+      const snapshot = await fetchGameState(game, cached, replay)
       if (!cancelled && snapshot) applyGameStateSnapshot(snapshot)
     })()
 

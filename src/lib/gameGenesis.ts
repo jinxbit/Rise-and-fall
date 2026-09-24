@@ -15,7 +15,28 @@ import { createNewGame, startGame, startGameWithPresetBoard } from '../engine/cr
 import type { GameState } from '../engine/types.ts'
 import type { GameRow, GameSettings, MapPoolRow, PlayerRow } from './dbTypes.ts'
 
-export function buildGenesisState(game: GameRow, players: PlayerRow[]): GameState {
+/**
+ * Exactly the `players` columns genesis depends on — nothing else in a
+ * `PlayerRow` reaches `buildGenesisState`, and saying so in the type is what
+ * lets a caller rebuild genesis from somewhere other than the table.
+ *
+ * A cached `GameState`'s own `players` carry all four (`Player.id`/
+ * `authUserId`/`displayName`/`color`, engine/types.ts), which is how
+ * ../lib/deltaReplayContext.ts reconstructs genesis on a cold open without
+ * waiting for `listPlayers` — see its doc comment. `PlayerRow[]` is assignable
+ * to this, so every existing caller is unaffected.
+ *
+ * Order is significant: seat order becomes `turnOrder`, so callers must pass
+ * these in the same order `listPlayers` returns them (by `seat_index`).
+ */
+export type GenesisPlayerInput = {
+  id: string
+  user_id: string | null
+  display_name: string
+  color: string
+}
+
+export function buildGenesisState(game: GameRow, players: readonly GenesisPlayerInput[]): GameState {
   const lobbyState = createNewGame({
     gameId: game.id,
     playMode: game.play_mode,

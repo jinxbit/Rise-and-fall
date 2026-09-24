@@ -28,11 +28,8 @@ import { applyRedactedGameStateDelta, toClientGameState, type RedactedGameState,
 import { extendReplay, replayToBase } from '../engine/replay'
 import { applyInFlightOverlay, type InFlightOverlay } from '../engine/inFlightOverlay'
 import { hashGameStateView } from './gameStateHash'
+import type { DeltaReplayContext } from './deltaReplayContext'
 import type { LoggedAction } from '../engine/actions'
-import type { UnitContent } from '../engine/unitContent'
-import type { AchievementContent } from '../engine/achievementContent'
-import type { BoardGenerationContent } from '../engine/boardGenerationContent'
-import type { TaleContent } from '../engine/taleContent'
 
 /**
  * Reads a user's Discord webhook URL (supabase/migrations/0005_discord_webhooks.sql).
@@ -955,6 +952,8 @@ export function subscribeToGame(gameId: string, onChange: (game: GameRow) => voi
   }
 }
 
+export type { DeltaReplayContext } from './deltaReplayContext'
+
 export interface GameStateSnapshot {
   /** What to render: the viewer's full current view. */
   state: EngineGameState
@@ -974,19 +973,6 @@ export interface GameStateSnapshot {
   version: number
 }
 
-/**
- * Everything `getGameStateRedacted` needs to rebuild a state from actions
- * rather than be handed one — supplied by GamePage.tsx, which already derives
- * all of it for the game log and turn review. Absent means "speak the old
- * protocol": the server keeps sending a materialised state.
- */
-export interface DeltaReplayContext {
-  genesis: EngineGameState
-  unitContent: UnitContent
-  achievementContent: AchievementContent
-  boardGenerationContent: BoardGenerationContent
-  taleContent: TaleContent
-}
 
 /**
  * Writes the game's very first GameState row (see createNewGame/startGame in
