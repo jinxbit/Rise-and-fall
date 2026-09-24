@@ -34,6 +34,8 @@ import { decompressGameStateFromStorage, type StoredGameState } from '../../lib/
 import type { ProductionGameFixture } from '../fixtures/productionGames/loadFixtures.ts'
 import type { EnforcedCallResult } from '../supabaseStack/index.ts'
 import type { ReplayTarget } from '../supabaseStack/replayFixture.ts'
+import { buildDeltaReplayContextFromState, type DeltaReplayContext } from '../../lib/deltaReplayContext.ts'
+import { applyReplayDelta, deriveBaseFromView, type ReplayDeltaFailure, type ReplayDeltaResponse } from '../../lib/replayDelta.ts'
 import { remapFixtureToRoom, type RemappedFixture, type RoomIdentity } from './remapFixture.ts'
 
 /**
@@ -93,6 +95,14 @@ export interface LiveRoom extends ReplayTarget {
    */
   readTrueState(): Promise<{ state: GameState; version: number } | null>
   /**
+   * `get-game-state` as one seat, through the same protocol-2 client the
+   * write calls use — so the read path's delta branch is exercised too, and
+   * not only against a seat that has just written.
+   */
+  readAs(userId: string): Promise<EnforcedCallResult>
+  /** What this room's protocol-2 traffic looked like. Accumulates across every call made through it. */
+  protocolStats: ProtocolStats
+  /**
    * The signed-in client for one of this room's seats — the same one
    * `applyAction`/`undoAction`/`redoAction` invoke Edge Functions through.
    * Exposed for HIDDEN_INFORMATION_PLAN.md §8 phase 9's wire-level check
@@ -144,6 +154,29 @@ function randomPassword(): string {
 }
 
 /**
+ * What a run's protocol-2 traffic actually looked like, so
+ * ./runSmoke.ts can assert on it rather than take the deployed
+ * functions' word for it.
+ *
+ * `fullResponses` is not a failure count. The server decides a delta is not
+ * worth sending in two legitimate cases — a caller with no `sinceActionIndex`
+ * (a seat's very first call, since a browser starts with an empty cache too),
+ * and a redacted game whose safe prefix moved *backwards*, which is a real
+ * thing: it is not monotonic (a measured 173 -> 104), and get-game-state
+ * answers `prefix-moved-back` with a full state. `rebuildFailures` is the
+ * count that matters: each one is this client being handed a delta and failing
+ * to reproduce the state the server said it would.
+ */
+export interface ProtocolStats {
+  /** Deltas received and successfully rebuilt and hash-verified. */
+  deltaResponses: number
+  /** Full states received — a first call for a seat, or the server declining to send a delta. */
+  fullResponses: number
+  /** One entry per delta this client could not reproduce, with `applyReplayDelta`'s own reason. */
+  rebuildFailures: ReplayDeltaFailure[]
+}
+
+/**
  * Mirrors gameApi.ts's `invokeGameFunction`: supabase-js reports a non-2xx
  * Edge Function response as `error` with `data: null`, hiding the function's
  * own `{ok:false, error}` body inside `error.context`. The app has to reach
@@ -153,7 +186,10 @@ function randomPassword(): string {
  * `replayFixtureThroughStack`'s local re-application and final fixture
  * comparison see the same shape they always have.
  */
-async function invoke(client: SupabaseClient, name: string, body: Record<string, unknown>): Promise<EnforcedCallResult> {
+type RawInvokeResult = { ok: true; data: unknown } | { ok: false; error: string; status: number }
+
+/** The error-unwrapping half of `invoke` below, split out so the protocol-2 client can reuse it without also collapsing the success body. */
+async function rawInvoke(client: SupabaseClient, name: string, body: Record<string, unknown>): Promise<RawInvokeResult> {
   const { data, error } = await client.functions.invoke(name, { body })
   if (error) {
     const context = (error as { context?: Response }).context
@@ -169,7 +205,13 @@ async function invoke(client: SupabaseClient, name: string, body: Record<string,
     }
     return { ok: false, error: error.message, status: 0 }
   }
-  const result = data as { ok: true; state: RedactedGameState; version: number }
+  return { ok: true, data }
+}
+
+async function invoke(client: SupabaseClient, name: string, body: Record<string, unknown>): Promise<EnforcedCallResult> {
+  const raw = await rawInvoke(client, name, body)
+  if (!raw.ok) return raw
+  const result = raw.data as { ok: true; state: RedactedGameState; version: number }
   return { ok: true, state: toClientGameState(result.state), version: result.version, status: 200 }
 }
 
@@ -358,6 +400,82 @@ export async function provisionLiveRoom(config: LiveProjectConfig, fixture: Prod
       return client
     }
 
+    // --- The protocol-2 client (issue #648/#693) -------------------------
+    //
+    // Neither smoke file used to send `protocol`/`sinceActionIndex` at all, so
+    // every deployed response came back `shape: "full", reason: "protocol-1"`
+    // and the delta path — the rebuild, the in-flight overlay, the hash check —
+    // had no coverage against a real project whatsoever. It has it now: every
+    // call below asks for a delta as soon as it has a base to apply one to.
+    //
+    // A cache per *seat*, not per room, because that is what the world looks
+    // like: each seat is a separate browser holding its own IndexedDB entry,
+    // and a seat's cache only advances when that seat itself calls. So a
+    // request's `sinceActionIndex` is usually several entries behind the row,
+    // and the append it gets back is a multi-entry one — which is the case
+    // `extendReplay` has to fold undo/redo markers through, and the case a
+    // single-action test never reaches.
+    //
+    // The logic is gameApi.ts's own (`applyReplayDelta`, `deriveBaseFromView`,
+    // imported from src/lib/replayDelta.ts), deliberately: a smoke test that
+    // reimplemented the client half would prove the deployment agrees with the
+    // test, not that it agrees with the app.
+    const replayContext: DeltaReplayContext | null = buildDeltaReplayContextFromState(game, genesis)
+    // The base — the unredacted-replayable state — not the rendered view, the
+    // same distinction GamePage.tsx's `latestBaseRef` draws.
+    const baseByUserId = new Map<string, GameState>()
+    const protocolStats: ProtocolStats = { deltaResponses: 0, fullResponses: 0, rebuildFailures: [] }
+
+    async function invokeWithDelta(userId: string, name: string, body: Record<string, unknown>): Promise<EnforcedCallResult> {
+      const base = baseByUserId.get(userId)
+      const useDelta = Boolean(base && replayContext)
+      const raw = await rawInvoke(clientFor(userId), name, {
+        ...body,
+        ...(useDelta ? { sinceActionIndex: base!.actionHistory.length, protocol: 2 } : {}),
+      })
+      if (!raw.ok) return raw
+      const result = raw.data as ({ ok: true; state: RedactedGameState; version: number }) | ({ ok: true } & ReplayDeltaResponse)
+
+      if (useDelta && 'stateHash' in result && 'actionHistoryAppend' in result) {
+        const rebuilt = applyReplayDelta(base!, replayContext!, result)
+        if (rebuilt.ok) {
+          protocolStats.deltaResponses += 1
+          baseByUserId.set(userId, rebuilt.base)
+          return { ok: true, state: rebuilt.state, version: result.version, status: 200 }
+        }
+        // The app answers a miss with one full fetch and carries on, so this
+        // does too — but it records the reason, and runSmoke.ts fails the run
+        // on any of them. A miss here means the deployed engine and this
+        // checkout's engine disagree about what the game is, which is exactly
+        // the class of deployment problem this file exists to catch.
+        protocolStats.rebuildFailures.push(rebuilt.reason)
+        const fresh = await rawInvoke(clientFor(userId), 'get-game-state', { gameId, fallbackReason: rebuilt.reason })
+        if (!fresh.ok) return fresh
+        return collapseFull(userId, fresh.data, result.version)
+      }
+
+      if (!('state' in result)) {
+        // A delta with no replay context to apply it with — only reachable if
+        // `replayContext` is null, in which case `useDelta` was false and the
+        // server should not have sent one.
+        return { ok: false, error: `${name} answered with a protocol-2 delta this client never asked for.`, status: 200 }
+      }
+      return collapseFull(userId, raw.data, result.version)
+    }
+
+    /** A full response: collapse it the way gameApi.ts does, and re-derive the base to send with the next call. */
+    function collapseFull(userId: string, data: unknown, version: number): EnforcedCallResult {
+      const result = data as { ok: true; state: RedactedGameState; version: number }
+      protocolStats.fullResponses += 1
+      const state = toClientGameState(result.state)
+      if (replayContext) {
+        const derived = deriveBaseFromView(state, replayContext)
+        if (derived) baseByUserId.set(userId, derived)
+        else baseByUserId.delete(userId)
+      }
+      return { ok: true, state, version: result.version ?? version, status: 200 }
+    }
+
     // Ground truth for test assertions, not a simulation of any app read
     // path (contrast supabaseStack's `readGameState(userId, ...)`, which
     // deliberately reads as a specific actor to exercise RLS) — so this
@@ -379,9 +497,11 @@ export async function provisionLiveRoom(config: LiveProjectConfig, fixture: Prod
       players,
       genesis,
       remapped,
-      applyAction: (userId, _gameId, action: Action) => invoke(clientFor(userId), 'apply-action', { gameId, action }),
-      undoAction: (userId) => invoke(clientFor(userId), 'undo-action', { gameId }),
-      redoAction: (userId) => invoke(clientFor(userId), 'redo-action', { gameId }),
+      applyAction: (userId, _gameId, action: Action) => invokeWithDelta(userId, 'apply-action', { gameId, action }),
+      undoAction: (userId) => invokeWithDelta(userId, 'undo-action', { gameId }),
+      redoAction: (userId) => invokeWithDelta(userId, 'redo-action', { gameId }),
+      readAs: (userId) => invokeWithDelta(userId, 'get-game-state', { gameId }),
+      protocolStats,
       readGameState: readTrueState,
       readTrueState,
       clientFor,

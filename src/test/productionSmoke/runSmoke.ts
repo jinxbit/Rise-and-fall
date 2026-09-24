@@ -32,6 +32,10 @@ export interface SmokeReport {
   durationMs?: number
   /** Mean of `ReplayOutcome.actionDurationsMs` — see `maxAverageActionMs` on `LiveProjectConfig`. */
   averageActionMs?: number
+  /** Protocol-2 deltas received, rebuilt and hash-verified against the deployed functions. */
+  deltaResponses?: number
+  /** Full states received — a seat's first call, or the server declining a delta (see `ProtocolStats`). */
+  fullResponses?: number
 }
 
 export type SmokeLogger = (message: string) => void
@@ -158,6 +162,34 @@ export async function runProductionSmoke(
         `[${fixture.name}] finished with status "${stored.state.status}", expected "completed".`,
       )
 
+      // One protocol-2 read per seat now the game is finished, so the read
+      // path's delta branch is covered too and not just the three write
+      // endpoints. Each seat's cache is wherever its own last write left it,
+      // which for most seats is several entries behind the final row.
+      for (const player of room.players) {
+        const read = await room.readAs(player.user_id)
+        assertThat(read.ok, read.ok ? '' : `[${fixture.name}] a finished-game read as one seat failed: ${read.error}`)
+      }
+
+      // Every delta the run received had to be reproducible from the actions
+      // alone. A failure here is the deployed engine and this checkout's
+      // engine disagreeing about what the game is — silent in production
+      // (the client just pays for a full fetch), and invisible to this file
+      // until now, because neither smoke entry point sent `protocol` at all.
+      const { deltaResponses, fullResponses, rebuildFailures } = room.protocolStats
+      assertThat(
+        rebuildFailures.length === 0,
+        `[${fixture.name}] ${rebuildFailures.length} of ${deltaResponses + rebuildFailures.length} protocol-2 deltas could not be rebuilt ` +
+          `(${[...new Set(rebuildFailures)].join(', ')}) — the deployed engine and this checkout disagree.`,
+      )
+      // And the protocol has to have actually engaged: a deployment that
+      // ignored `protocol: 2` and answered everything in full would otherwise
+      // pass this file silently, which is the state it was in before.
+      assertThat(
+        deltaResponses > 0,
+        `[${fixture.name}] not one response came back as a protocol-2 delta over ${fullResponses} calls — the deployed functions are ignoring it.`,
+      )
+
       const scores = roomFixture.finalScores(stored.state)
       for (const [playerId, expected] of Object.entries(roomFixture.expected.finalScoreByPlayerId ?? {})) {
         assertThat(
@@ -201,7 +233,7 @@ export async function runProductionSmoke(
 
       log(
         `ok    ${fixture.name}: ${outcome.version} actions, finished ${winners.map(roomFixture.describePlayer).join(', ')} ahead ` +
-          `(${averageActionMs.toFixed(0)}ms/action)`,
+          `(${averageActionMs.toFixed(0)}ms/action, ${deltaResponses} deltas / ${fullResponses} full)`,
       )
       reports.push({
         fixture: fixture.name,
@@ -210,6 +242,8 @@ export async function runProductionSmoke(
         foldedEntries: outcome.foldedEntryIndices.length,
         durationMs: Date.now() - startedAt,
         averageActionMs,
+        deltaResponses,
+        fullResponses,
       })
     } finally {
       await room.teardown()

@@ -99,6 +99,46 @@ only. That read is deliberately outside the `actionDurationsMs` window, which
 exists to catch a regression in the *round trip*; a target that can't supply
 it fails loudly rather than replaying against a state that isn't the game.
 
+## Every call asks for a protocol-2 delta
+
+Neither smoke entry point used to send `protocol` or `sinceActionIndex`, so
+every deployed response came back `shape: "full", reason: "protocol-1"` and
+the delta path — the rebuild, the in-flight overlay, the hash check — had no
+coverage against a real project at all. The replay now speaks protocol 2 on
+every call, and `runSmoke.ts` fails the run if a delta could not be rebuilt,
+or if not one response came back as a delta (a deployment that ignored
+`protocol: 2` used to pass silently, which was the whole problem).
+
+The cache is **per seat**, not per room, because that is what the world looks
+like: each seat is a separate browser holding its own IndexedDB entry, and a
+seat's cache only advances when that seat itself calls. So a request's
+`sinceActionIndex` is usually several entries behind the row and the append
+comes back multi-entry — the case `extendReplay` has to fold undo/redo
+markers through, which a single-action test never reaches.
+
+The client half is `gameApi.ts`'s own `applyReplayDelta`/`deriveBaseFromView`,
+imported from `src/lib/replayDelta.ts`. That module exists so they can be
+imported at all: `gameApi.ts` pulls in `./supabase`, which throws at import
+time without env vars. A smoke test that reimplemented the client half would
+prove the deployment agrees with the test, not with the app.
+
+Measured against the in-process stack:
+
+```
+red-beats-blue-async      251 actions   251 deltas   2 full
+three-player-red-runaway  211 actions   209 deltas   5 full
+```
+
+`full` is not a failure count. A seat's first call has no cache, and a
+redacted game's safe prefix can move *backwards* (it is not monotonic — a
+measured 173 → 104), which `get-game-state` answers with a full state and the
+reason `prefix-moved-back`. That is the whole of the excess above: three
+first calls and two moved-back prefixes in the three-player game.
+
+There is also one protocol-2 `get-game-state` per seat once the game is
+finished, so the read path's delta branch is covered and not only the three
+write endpoints.
+
 ## Player ids are remapped
 
 A fixture's action history names the original room's `players.id` uuids, and

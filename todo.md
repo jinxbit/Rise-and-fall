@@ -6995,3 +6995,57 @@ that already makes ~500 function invocations. Still untouched: neither smoke
 file sends `protocol`/`sinceActionIndex`, so the protocol-2 delta path, the
 in-flight overlay and the hash check have no deployed coverage at all. That
 is a separate gap from this one.
+
+## 149. Smoke finally speaks protocol 2
+
+The gap #148 left open. Neither smoke entry point sent `protocol` or
+`sinceActionIndex` — `liveProject.ts` and `hiddenInformationWire.ts` both
+invoked the functions bare — so every deployed response came back
+`shape: "full", reason: "protocol-1"`, the same log line a stale bundle
+produces in production. The rebuild, the in-flight overlay and the hash check
+had no coverage against a real project whatsoever, which matters because
+#697/#698 leaned on smoke as the thing that would validate the protocol
+against a deployed one.
+
+**`applyReplayDelta` moved out of `gameApi.ts`** into `src/lib/replayDelta.ts`,
+with `deriveBaseFromView`, `ReplayDeltaFailure` and `ReplayDeltaResponse` —
+the same move `DeltaReplayContext` made in #147, for the same reason: that
+module imports `./supabase` and throws at import time without env vars, so
+nothing in the repo can reuse or test what lives inside it. This is the
+routine the whole protocol rests on, and it had already been reimplemented in
+`writePathRedaction.test.ts` ("the way gameApi.ts's applyReplayDelta does")
+precisely because it could not be imported. `gameApi.ts` re-exports it, so no
+caller changed.
+
+That import is the point, not a tidying: a smoke test that reimplemented the
+client half would prove the deployment agrees with the test rather than with
+the app.
+
+**The cache is per seat, not per room.** Each seat is a separate browser with
+its own IndexedDB entry, and a seat's cache only advances when that seat
+itself calls — so `sinceActionIndex` is usually several entries behind the
+row and the append comes back multi-entry. That is the case `extendReplay`
+has to fold undo/redo markers through, and the case no single-action test
+reaches.
+
+Measured against the in-process stack: 251 actions / 251 deltas / 2 full, and
+211 / 209 / 5. Zero rebuild failures, 460 deltas rebuilt and hash-verified.
+
+`full` is not a failure count, and separating the two is most of the design
+here. The server legitimately declines a delta twice: a seat's first call has
+no cursor, and a redacted game's safe prefix can move *backwards* — it is not
+monotonic (a measured 173 → 104) — which `get-game-state` answers with
+`prefix-moved-back` and a full state. Those are exactly the five extra in the
+three-player game. What is asserted is `rebuildFailures === 0`: a delta the
+client was handed and could not reproduce means the deployed engine and this
+checkout disagree about what the game is, which is silent in production (the
+client just pays for one full fetch) and was invisible here.
+
+The other new assertion is the inverse, and is the one that would have caught
+the original gap: at least one response has to come back as a delta. A
+deployment that ignored `protocol: 2` and answered everything in full passed
+this file silently before, because nothing ever looked.
+
+Also one protocol-2 `get-game-state` per seat once the game is finished, so
+the read path's delta branch is covered and not only the three write
+endpoints.

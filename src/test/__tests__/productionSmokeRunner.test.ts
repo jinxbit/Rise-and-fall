@@ -50,6 +50,16 @@ describe('production smoke runner', () => {
       if (fixture.game.settings.ruleEnforcementEnabled) {
         expect(report.skippedReason, `${report.fixture} should have run`).toBeUndefined()
         expect(report.actionsSubmitted).toBeGreaterThan(0)
+
+        // Protocol 2 (issues #648/#693) really engaged, for nearly every call:
+        // a seat's first call has no cache and gets a full state, and a
+        // redacted game's safe prefix can move backwards and get one too, but
+        // everything else is a delta this client rebuilt from the actions and
+        // hash-verified. `runProductionSmoke` already fails on a rebuild that
+        // missed; this is the other half — a deployment that quietly ignored
+        // `protocol: 2` and answered everything in full used to pass silently.
+        expect(report.deltaResponses).toBeGreaterThan(report.actionsSubmitted! * 0.9)
+        expect(report.fullResponses).toBeLessThanOrEqual(fixture.finalState.players.length + 2)
       } else {
         // A client-trusted game is skipped with a reason rather than forced
         // through rules it was never played under.
