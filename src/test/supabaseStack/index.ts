@@ -25,14 +25,13 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import type { Action } from '../../engine/actions.ts'
 import { applyAction } from '../../engine/applyAction.ts'
 import { applyRedoAction, applyUndoAction } from '../../engine/undoRedo.ts'
-import { applyRedactedGameStateDelta, toClientGameState, type RedactedGameState, type RedactedGameStateDelta } from '../../engine/redaction.ts'
+import { toClientGameState, type RedactedGameState, type RedactedGameStateDelta } from '../../engine/redaction.ts'
 import type { GameState } from '../../engine/types.ts'
 import type { GameRow, PlayerRow } from '../../lib/dbTypes.ts'
 import { decompressGameStateFromStorage, type StoredGameState } from '../../lib/gameStateCompression.ts'
 import { Database, type GameStateRow, type ProfileRow } from './database.ts'
 import type { GameContent } from './sampleGame.ts'
 import { loadEdgeFunctions, type EdgeFunctionName } from './edgeFunctions.ts'
-import { loadGameContext, redactedResponseState } from '../../../supabase/functions/_shared/gameEnforcement.ts'
 import { ANON_KEY, SERVICE_ROLE_KEY, STACK_URL, serveStackRequest, type AccountRegistry, type EdgeFunctionHandler, type ServerOptions, type TokenRegistry } from './httpServer.ts'
 
 export { Database, STACK_URL, ANON_KEY, SERVICE_ROLE_KEY }
@@ -99,19 +98,14 @@ export interface ProductionStack {
    * wired in. `sinceActionIndex`, when given, is sent the same way
    * getGameStateRedacted sends it (issue #647): a valid index gets back
    * GameStateDeltaReadResult; an omitted or out-of-range one falls back to
-   * GameStateReadResult, same as a real client would see. `baseVersion`
-   * (issue #648), when given alongside a valid `sinceActionIndex`, is what
-   * lets that delta carry a `statePatch` instead of a plain `state` — see
-   * get-game-state/index.ts's own doc comment for why it's a separate value
-   * from `sinceActionIndex` rather than derived from it. A test that passes
+   * GameStateReadResult, same as a real client would see. A test that passes
    * `sinceActionIndex` and needs the delta fields narrows via
    * `'actionHistoryAppend' in result`, the same way gameApi.ts does; every
    * other call site (most of this suite) never sees that shape in practice
    * since it never sends `sinceActionIndex`, but still narrows the union with
    * a one-line assertion for TypeScript's sake — see getGameState.test.ts.
    */
-  getGameState(userId: string, gameId: string): Promise<GameStateReadResult>
-  getGameState(userId: string, gameId: string, sinceActionIndex: number, baseVersion?: number): Promise<GameStateReadResult | GameStateDeltaReadResult>
+  getGameState(userId: string, gameId: string, sinceActionIndex?: number): Promise<GameStateReadResult | GameStateDeltaReadResult>
   /** Submits `action` to the real apply-action Edge Function as `userId`, the way gameApi.ts's applyActionEnforced does. */
   applyAction(userId: string, gameId: string, action: Action): Promise<EnforcedCallResult>
   undoAction(userId: string, gameId: string): Promise<EnforcedCallResult>
@@ -296,36 +290,17 @@ export async function createProductionStack(): Promise<ProductionStack> {
   }
 
   /**
-   * apply-action/undo-action/redo-action's response is a `RedactedGameStateDelta`
-   * (issue #478's redaction, patched since issue #648 against the pre-write
-   * state — see `buildEnforcedActionResponseDelta`,
-   * `../../../supabase/functions/_shared/gameEnforcement.ts`) — this
-   * reconstructs it back to a plain `GameState` via
-   * `applyRedactedGameStateDelta`, the same conversion `gameApi.ts`'s
-   * `invokeGameFunction` does, so `EnforcedCallResult.state` stays a real
-   * `GameState` for every existing caller (including replayFixture.ts's
-   * local re-application and final fixture comparison).
-   *
-   * Reconstructing needs the exact pre-write state the server diffed
-   * against, redacted for this same `userId` — read straight from the DB
-   * (service role) *before* the call, via the same `loadGameContext`/
-   * `redactedResponseState` the Edge Function itself uses, rather than
-   * tracked client-side: a real client always already holds this (its own
-   * `gameState`, guaranteed current or the write's own compare-and-swap
-   * would have 409'd instead), but this stack's test callers routinely
-   * submit a game's very first action without ever having called
-   * `getGameState` first, so there is no "this caller's last response" to
-   * reuse here the way a real client's `latestGameStateRef` would.
+   * apply-action/undo-action/redo-action's response is `RedactedGameState`-
+   * shaped, same as get-game-state's (issue #478) — this collapses it back
+   * to a plain `GameState` via `toClientGameState`, the same conversion
+   * `gameApi.ts`'s `invokeGameFunction` does, so `EnforcedCallResult.state`
+   * stays a real `GameState` for every existing caller (including
+   * replayFixture.ts's local re-application and final fixture comparison).
    */
-  async function invokeEnforced(name: EdgeFunctionName, userId: string, gameId: string, body: Record<string, unknown>): Promise<EnforcedCallResult> {
-    const ctxBefore = await loadGameContext(serviceClient, gameId, userId)
-    const result = await invoke<{ ok: true; version: number } & RedactedGameStateDelta>(name, userId, body)
+  async function invokeEnforced(name: EdgeFunctionName, userId: string, body: Record<string, unknown>): Promise<EnforcedCallResult> {
+    const result = await invoke<{ ok: true; state: RedactedGameState; version: number }>(name, userId, body)
     if (!result.ok) return result
-    if (!ctxBefore) return { ok: false, error: 'pre-write game context vanished mid-call', status: 500 }
-    const previous = toClientGameState(redactedResponseState(ctxBefore, userId, ctxBefore.gameState.state))
-    const state = applyRedactedGameStateDelta(previous, result)
-    if (!state) return { ok: false, error: 'delta failed to reconstruct against this stack\'s own pre-write state', status: 500 }
-    return { ok: true, state, version: result.version, status: result.status }
+    return { ...result, state: toClientGameState(result.state) }
   }
 
   /**
@@ -366,21 +341,6 @@ export async function createProductionStack(): Promise<ProductionStack> {
     return { ok: true, state: result.state, version: expectedVersion + 1, status: 200 }
   }
 
-  // A real overloaded function, not an inline arrow assigned to the object
-  // literal's `getGameState` property below — only a genuine overloaded
-  // declaration+implementation is assignable to ProductionStack's own
-  // overloaded `getGameState` member (see that interface's own doc comment
-  // for why the no-`sinceActionIndex` overload matters to callers).
-  function getGameState(userId: string, gameId: string): Promise<GameStateReadResult>
-  function getGameState(userId: string, gameId: string, sinceActionIndex: number, baseVersion?: number): Promise<GameStateReadResult | GameStateDeltaReadResult>
-  function getGameState(userId: string, gameId: string, sinceActionIndex?: number, baseVersion?: number) {
-    return invoke<{ ok: true; state: RedactedGameState; version: number } | ({ ok: true; version: number } & RedactedGameStateDelta)>(
-      'get-game-state',
-      userId,
-      sinceActionIndex === undefined ? { gameId } : { gameId, sinceActionIndex, ...(baseVersion === undefined ? {} : { baseVersion }) },
-    )
-  }
-
   return {
     url: STACK_URL,
     anonKey: ANON_KEY,
@@ -417,10 +377,15 @@ export async function createProductionStack(): Promise<ProductionStack> {
       return { state: await decompressGameStateFromStorage(data.state as StoredGameState), version: data.version as number }
     },
 
-    getGameState,
-    applyAction: (userId, gameId, action) => invokeEnforced('apply-action', userId, gameId, { gameId, action }),
-    undoAction: (userId, gameId) => invokeEnforced('undo-action', userId, gameId, { gameId }),
-    redoAction: (userId, gameId) => invokeEnforced('redo-action', userId, gameId, { gameId }),
+    getGameState: (userId, gameId, sinceActionIndex) =>
+      invoke<{ ok: true; state: RedactedGameState; version: number } | ({ ok: true; version: number } & RedactedGameStateDelta)>(
+        'get-game-state',
+        userId,
+        sinceActionIndex === undefined ? { gameId } : { gameId, sinceActionIndex },
+      ),
+    applyAction: (userId, gameId, action) => invokeEnforced('apply-action', userId, { gameId, action }),
+    undoAction: (userId, gameId) => invokeEnforced('undo-action', userId, { gameId }),
+    redoAction: (userId, gameId) => invokeEnforced('redo-action', userId, { gameId }),
     startGame: (userId, gameId) => invoke<{ ok: true }>('start-game', userId, { gameId }),
 
     applyActionClientTrusted: (userId, gameId, action, content) =>

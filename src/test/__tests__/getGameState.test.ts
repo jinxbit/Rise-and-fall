@@ -249,23 +249,19 @@ describe('get-game-state Edge Function', () => {
       const second = await stack.applyAction(BOB, GAME_ID, { type: 'CHOOSE_CARD', playerId: 'seat-bob', cardId: bobCard })
       if (!second.ok) throw new Error(second.error)
 
-      const delta = await stack.getGameState(ALICE, GAME_ID, baselineClient.actionHistory.length, baseline.version)
+      const delta = await stack.getGameState(ALICE, GAME_ID, baselineClient.actionHistory.length)
       if (!delta.ok) throw new Error(delta.error)
       if (!('actionHistoryAppend' in delta)) throw new Error('expected an incremental response')
       expect(delta.actionHistoryFrom).toBe(baselineClient.actionHistory.length)
       expect(delta.actionHistoryAppend.map((e) => e.action.type)).toEqual(['CHOOSE_CARD', 'CHOOSE_CARD'])
-      // issue #648: the baseline's version is well within game_state_snapshots'
-      // buffer, so this is a statePatch, not the whole non-history state again.
-      expect('statePatch' in delta).toBe(true)
-      expect('state' in delta).toBe(false)
 
-      const merged = applyRedactedGameStateDelta(baselineClient, delta)
+      const merged = applyRedactedGameStateDelta(baselineClient.actionHistory, delta)
       expect(merged).not.toBeNull()
 
       const fullFetch = await stack.getGameState(ALICE, GAME_ID)
       if (!fullFetch.ok) throw new Error(fullFetch.error)
       if ('actionHistoryAppend' in fullFetch) throw new Error('expected a full response — no sinceActionIndex was sent')
-      expect(merged!).toEqual(toClientGameState(fullFetch.state))
+      expect(toClientGameState(merged!)).toEqual(toClientGameState(fullFetch.state))
     })
 
     it('falls back to a full response, unchanged, when sinceActionIndex is out of range', async () => {
@@ -305,66 +301,20 @@ describe('get-game-state Edge Function', () => {
       if (!resolved.ok) throw new Error(resolved.error)
       expect(resolved.state.roundPhase).toBe('actions')
 
-      const delta = await stack.getGameState(ALICE, GAME_ID, beforeResolveClient.actionHistory.length, beforeResolve.version)
+      const delta = await stack.getGameState(ALICE, GAME_ID, beforeResolveClient.actionHistory.length)
       if (!delta.ok) throw new Error(delta.error)
       if (!('actionHistoryAppend' in delta)) throw new Error('expected an incremental response')
       // Bob's pick (now safe to show) and Alice's own new pick both arrive
       // in this one append, in the order they were actually logged.
       expect(delta.actionHistoryAppend).toHaveLength(2)
       expect(delta.actionHistoryAppend.every((e) => e.action.type === 'CHOOSE_CARD' && typeof e.action.cardId === 'string')).toBe(true)
-      expect('statePatch' in delta).toBe(true)
 
-      const merged = applyRedactedGameStateDelta(beforeResolveClient, delta)
+      const merged = applyRedactedGameStateDelta(beforeResolveClient.actionHistory, delta)
       expect(merged).not.toBeNull()
       const fullFetch = await stack.getGameState(ALICE, GAME_ID)
       if (!fullFetch.ok) throw new Error(fullFetch.error)
       if ('actionHistoryAppend' in fullFetch) throw new Error('expected a full response — no sinceActionIndex was sent')
-      expect(merged!).toEqual(toClientGameState(fullFetch.state))
-    })
-  })
-
-  describe('patched stateWithoutHistory (issue #648)', () => {
-    it("falls back to a full non-history state, not a patch, once the caller's base version has aged out of game_state_snapshots' buffer", async () => {
-      // A long gameLength so 20 further moves don't run the game to
-      // completion (which would clear the buffer outright, for a different
-      // reason than aging out — see writeGameStateCAS's own doc comment).
-      const setup = await reachSelectCardsPhase({ gameLength: 50 })
-      const baseline = await stack.getGameState(ALICE, GAME_ID)
-      if (!baseline.ok) throw new Error(baseline.error)
-      if ('actionHistoryAppend' in baseline) throw new Error('expected a full response — no sinceActionIndex was sent')
-      const baselineClient = toClientGameState(baseline.state)
-
-      // Drive more real moves than game_state_snapshots' 16-entry buffer
-      // (0036_game_state_snapshots.sql), through the real apply-action
-      // function, so baseline's own version ages out of it.
-      const content = resolveGameContent(setup)
-      const userIdForSeat: Record<string, string> = { 'seat-alice': ALICE, 'seat-bob': BOB }
-      let state = setup
-      for (let i = 0; i < 20; i++) {
-        const action = nextLegalAction(state, content)
-        if (!action) break
-        const userId = userIdForSeat[action.playerId ?? '']
-        if (!userId) throw new Error(`nextLegalAction returned an action for an unexpected seat: ${action.playerId}`)
-        const result = await stack.applyAction(userId, GAME_ID, action)
-        if (!result.ok) throw new Error(`drive failed: ${result.error}`)
-        state = result.state
-      }
-      expect(state.actionHistory.length).toBeGreaterThan(baselineClient.actionHistory.length + 16)
-
-      const delta = await stack.getGameState(ALICE, GAME_ID, baselineClient.actionHistory.length, baseline.version)
-      if (!delta.ok) throw new Error(delta.error)
-      if (!('actionHistoryAppend' in delta)) throw new Error('expected an incremental response')
-      // The buffer only ever keeps the last 16 versions — baseline's is long
-      // gone, so this degrades to a full, un-patched state.
-      expect('state' in delta).toBe(true)
-      expect('statePatch' in delta).toBe(false)
-
-      const merged = applyRedactedGameStateDelta(baselineClient, delta)
-      expect(merged).not.toBeNull()
-      const fullFetch = await stack.getGameState(ALICE, GAME_ID)
-      if (!fullFetch.ok) throw new Error(fullFetch.error)
-      if ('actionHistoryAppend' in fullFetch) throw new Error('expected a full response — no sinceActionIndex was sent')
-      expect(merged!).toEqual(toClientGameState(fullFetch.state))
+      expect(toClientGameState(merged!)).toEqual(toClientGameState(fullFetch.state))
     })
   })
 })

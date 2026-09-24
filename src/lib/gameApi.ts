@@ -1076,28 +1076,16 @@ export async function getGameState(gameId: string): Promise<GameStateSnapshot | 
  * is sent as `sinceActionIndex`, and get-game-state/index.ts responds with just
  * the entries logged since then instead of the whole array (issue #647: that
  * array is 60-70% of a full GameState's bytes, and every move only ever adds
- * one entry to it — see the issue for measurements), plus (issue #648) a
- * structural patch of everything else instead of that whole remainder too.
- * `previousVersion` — the actual `game_state.version` `previous` was applied
- * at (GamePage.tsx's `latestVersionRef`/the IndexedDB cache's own stored
- * `version`) — is sent alongside it as `baseVersion`, the key get-game-state
- * uses to find `previous` again server-side for the patch (see that
- * function's own doc comment for why this can't be derived from
- * `sinceActionIndex` alone). Omitted (or a `previous` given with no matching
- * version known) just costs the patch half of the win for this one request,
- * same as any other buffer miss.
- *
- * `applyRedactedGameStateDelta` (redaction.ts) does the actual splice/patch-
- * and-verify against `previous` and returns the reconstructed `GameState`
- * directly — it's the pure, testable half of this; a `null` from it (a
- * stale/foreign `previous`, or any other inconsistency) falls back to an
- * ordinary full fetch rather than risk assembling a wrong result.
+ * one entry to it — see the issue for measurements). `applyRedactedGameStateDelta`
+ * (redaction.ts) does the actual splice-and-verify against `previous.actionHistory`
+ * and is the pure, testable half of this; a `null` from it (a stale/foreign
+ * `previous`, or any other inconsistency) falls back to an ordinary full fetch
+ * rather than risk assembling a wrong `actionHistory`.
  */
-export async function getGameStateRedacted(gameId: string, previous?: EngineGameState | null, previousVersion?: number | null): Promise<GameStateSnapshot | null> {
+export async function getGameStateRedacted(gameId: string, previous?: EngineGameState | null): Promise<GameStateSnapshot | null> {
   const sinceActionIndex = previous ? previous.actionHistory.length : undefined
-  const baseVersion = previous && typeof previousVersion === 'number' ? previousVersion : undefined
   const { data, error } = await supabase.functions.invoke('get-game-state', {
-    body: sinceActionIndex === undefined ? { gameId } : { gameId, sinceActionIndex, ...(baseVersion === undefined ? {} : { baseVersion }) },
+    body: sinceActionIndex === undefined ? { gameId } : { gameId, sinceActionIndex },
   })
   if (error) return null
   const result = data as
@@ -1108,9 +1096,9 @@ export async function getGameStateRedacted(gameId: string, previous?: EngineGame
   if (!('actionHistoryAppend' in result)) {
     return { state: toClientGameState(result.state), version: result.version }
   }
-  const merged = applyRedactedGameStateDelta(previous!, result)
+  const merged = applyRedactedGameStateDelta(previous!.actionHistory, result)
   if (!merged) return getGameStateRedacted(gameId)
-  return { state: merged, version: result.version }
+  return { state: toClientGameState(merged), version: result.version }
 }
 
 /**
@@ -1145,32 +1133,17 @@ export type GameEnforcementResult = { ok: true; state: EngineGameState; version:
  * message the function actually sent, falling back to the generic
  * FunctionsError message if that response body isn't there or isn't JSON.
  *
- * A success response is `RedactedGameStateDelta`-shaped (issue #478: the
- * write endpoints redact their response the same way `get-game-state`
- * redacts a read; issue #648: it's a patch against `previous` — the state
- * this caller submitted its action against, i.e. exactly what the write's
- * own compare-and-swap succeeded against, so it's always a valid base —
- * rather than the whole thing). `applyRedactedGameStateDelta` (redaction.ts)
- * reconstructs a plain `GameState` from it here, at the network boundary, so
+ * A success response's `state` is `RedactedGameState`-shaped, same as
+ * `getGameStateRedacted` below (issue #478: the write endpoints redact their
+ * response the same way `get-game-state` redacts a read) — `toClientGameState`
+ * collapses it back to a plain `GameState` here, at the network boundary, so
  * `GamePage.tsx`'s submitAction/handleUndo/handleRedo keep consuming
- * `GameEnforcementResult.state` exactly as before. A `null` reconstruction —
- * not expected in practice, since `previous` is always the exact state this
- * request was built from, but the same defensive posture as
- * `getGameStateRedacted`'s own fallback — falls back to an ordinary redacted
- * read instead of surfacing a broken response to the player.
- *
- * `'actionHistoryAppend' in result` also covers a deploy-skew edge this
- * repo's Edge Functions don't otherwise negotiate (Vercel and
- * deploy-supabase.yml are two separate jobs off the same push, per
- * DELIVERY_PIPELINE_PLAN.md §3): an old browser tab holding a pre-#648
- * bundle would send a request the newly-deployed function answers with a
- * delta, but an old bundle running against an old, not-yet-redeployed
- * function still gets the pre-#648 full `RedactedGameState` shape back —
- * this branch keeps that combination collapsing exactly the way it always
- * did, rather than crashing on a `.state` that doesn't exist on the new
- * shape (or that isn't a full state on the old client's assumption).
+ * `GameEnforcementResult.state` exactly as before. This is a lossless round
+ * trip whenever nothing was actually masked (see `toClientGameState`'s own
+ * doc comment), so a game without `hiddenInformationEnabled` sees no
+ * behavior change.
  */
-async function invokeGameFunction(name: 'apply-action' | 'undo-action' | 'redo-action', body: Record<string, unknown>, previous: EngineGameState): Promise<GameEnforcementResult> {
+async function invokeGameFunction(name: 'apply-action' | 'undo-action' | 'redo-action', body: Record<string, unknown>): Promise<GameEnforcementResult> {
   const { data, error } = await supabase.functions.invoke(name, { body })
   if (error) {
     const context = (error as { context?: Response }).context
@@ -1184,20 +1157,9 @@ async function invokeGameFunction(name: 'apply-action' | 'undo-action' | 'redo-a
     }
     return { ok: false, error: error.message }
   }
-  const result = data as
-    | { ok: true; state: RedactedGameState; version: number }
-    | ({ ok: true; version: number } & RedactedGameStateDelta)
-    | { ok: false; error: string }
+  const result = data as { ok: true; state: RedactedGameState; version: number } | { ok: false; error: string }
   if (!result.ok) return result
-  if (!('actionHistoryAppend' in result)) {
-    return { ok: true, state: toClientGameState(result.state), version: result.version }
-  }
-  const merged = applyRedactedGameStateDelta(previous, result)
-  if (merged) return { ok: true, state: merged, version: result.version }
-  const gameId = body.gameId as string
-  const fallback = await getGameStateRedacted(gameId)
-  if (fallback) return { ok: true, state: fallback.state, version: fallback.version }
-  return { ok: false, error: `${name} succeeded, but the response could not be applied — please refresh.` }
+  return { ok: true, state: toClientGameState(result.state), version: result.version }
 }
 
 /**
@@ -1221,26 +1183,19 @@ async function invokeStartGame(gameId: string): Promise<{ ok: true } | { ok: fal
   return { ok: false, error: error.message }
 }
 
-/**
- * §4.1-enforced action submission for a ruleEnforcementEnabled game — see
- * supabase/functions/apply-action/index.ts. `previous` is the state this
- * action is being submitted against (GamePage.tsx's own `gameState`,
- * guaranteed current or the server's compare-and-swap would 409 instead) —
- * issue #648: the response is a patch against exactly this state, so it
- * doubles as the base `invokeGameFunction` reconstructs against.
- */
-export async function applyActionEnforced(gameId: string, action: Action, previous: EngineGameState): Promise<GameEnforcementResult> {
-  return invokeGameFunction('apply-action', { gameId, action }, previous)
+/** §4.1-enforced action submission for a ruleEnforcementEnabled game — see supabase/functions/apply-action/index.ts. */
+export async function applyActionEnforced(gameId: string, action: Action): Promise<GameEnforcementResult> {
+  return invokeGameFunction('apply-action', { gameId, action })
 }
 
-/** §4.4 pointer-move undo for a ruleEnforcementEnabled game — see supabase/functions/undo-action/index.ts. `previous` — see applyActionEnforced's own doc comment. */
-export async function undoActionEnforced(gameId: string, previous: EngineGameState): Promise<GameEnforcementResult> {
-  return invokeGameFunction('undo-action', { gameId }, previous)
+/** §4.4 pointer-move undo for a ruleEnforcementEnabled game — see supabase/functions/undo-action/index.ts. */
+export async function undoActionEnforced(gameId: string): Promise<GameEnforcementResult> {
+  return invokeGameFunction('undo-action', { gameId })
 }
 
-/** §4.4 pointer-move redo for a ruleEnforcementEnabled game — see supabase/functions/redo-action/index.ts. `previous` — see applyActionEnforced's own doc comment. */
-export async function redoActionEnforced(gameId: string, previous: EngineGameState): Promise<GameEnforcementResult> {
-  return invokeGameFunction('redo-action', { gameId }, previous)
+/** §4.4 pointer-move redo for a ruleEnforcementEnabled game — see supabase/functions/redo-action/index.ts. */
+export async function redoActionEnforced(gameId: string): Promise<GameEnforcementResult> {
+  return invokeGameFunction('redo-action', { gameId })
 }
 
 /**
@@ -1284,14 +1239,12 @@ export async function redoActionEnforced(gameId: string, previous: EngineGameSta
  * existed.
  *
  * `getAppliedState`, when given and `redacted` is true, is handed to
- * getGameStateRedacted as its `previous` (with `getAppliedVersion`'s own
- * value as `previousVersion`, i.e. the `baseVersion` that same state was
- * applied at — issue #648) — the per-move refetch this subscription drives
- * is exactly the hot path issue #647's incremental actionHistory targets, so
- * the same last-applied state/version this ref pair already tracks is reused
- * here to also avoid re-downloading the whole log, or the whole remainder of
- * the state, on every move. Ignored when `redacted` is false: getGameState
- * has no equivalent parameter.
+ * getGameStateRedacted as its `previous` — the per-move refetch this
+ * subscription drives is exactly the hot path issue #647's incremental
+ * actionHistory targets, so the same last-applied state
+ * `getAppliedVersion` reads the version off of is reused here to also avoid
+ * re-downloading the whole log on every move. Ignored when `redacted` is
+ * false: getGameState has no equivalent parameter.
  */
 export function subscribeToGameState(
   gameId: string,
@@ -1300,7 +1253,7 @@ export function subscribeToGameState(
   getAppliedVersion?: () => number | null,
   getAppliedState?: () => EngineGameState | null,
 ): () => void {
-  const fetchState = () => (redacted ? getGameStateRedacted(gameId, getAppliedState?.(), getAppliedVersion?.()) : getGameState(gameId))
+  const fetchState = () => (redacted ? getGameStateRedacted(gameId, getAppliedState?.()) : getGameState(gameId))
   const channel = supabase
     .channel(`game_state:${gameId}`)
     .on(

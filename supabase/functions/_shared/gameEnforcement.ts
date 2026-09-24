@@ -28,14 +28,7 @@ import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2'
 import { applyAction } from '../../../src/engine/applyAction.ts'
 import type { Action, LoggedAction } from '../../../src/engine/actions.ts'
 import { redoableTail } from '../../../src/engine/historyFold.ts'
-import {
-  buildRedactedGameStateDelta,
-  redactStateForPlayer,
-  revealedGameStateView,
-  unredactedPrefix,
-  type RedactedGameState,
-  type RedactedGameStateDelta,
-} from '../../../src/engine/redaction.ts'
+import { redactStateForPlayer, revealedGameStateView, type RedactedGameState } from '../../../src/engine/redaction.ts'
 import { applyTaleAchievementModifiers, applyTaleModifiers } from '../../../src/engine/tales.ts'
 import type { ActionResult, GameState } from '../../../src/engine/types.ts'
 import {
@@ -46,12 +39,7 @@ import {
 } from '../../../src/content/resolveContent.ts'
 import { buildGenesisState } from '../../../src/lib/gameGenesis.ts'
 import type { GameRow as FullGameRow, PlayerRow as FullPlayerRow } from '../../../src/lib/dbTypes.ts'
-import {
-  compressGameStateForStorage,
-  decompressGameStateFromStorage,
-  type CompressedGameState,
-  type StoredGameState,
-} from '../../../src/lib/gameStateCompression.ts'
+import { compressGameStateForStorage, decompressGameStateFromStorage, type StoredGameState } from '../../../src/lib/gameStateCompression.ts'
 
 export const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -213,39 +201,6 @@ export function redactedResponseState(ctx: GameContext, callerUserId: string, st
 }
 
 /**
- * issue #648: apply-action/undo-action/redo-action's own response, same as
- * `get-game-state`'s, is now a `RedactedGameStateDelta` rather than a full
- * `RedactedGameState` — but unlike `get-game-state`, which needs
- * `loadBufferedGameState` to find something to diff against, a write always
- * already has its "previous" in memory: `preState` is exactly the state this
- * request's compare-and-swap wrote *over*, i.e. the very state the caller
- * must already hold (a stale one would have lost the CAS and 409'd instead
- * of reaching this call at all). So this never hits the `state`-fallback arm
- * of `buildRedactedGameStateDelta` — every enforced write response carries a
- * `statePatch`, never a full `state`.
- *
- * `sinceActionIndex` is `unredactedPrefix(previousView.actionHistory).length`
- * — the caller's own *safe* prefix length as of `preState`, not
- * `preState.actionHistory.length` itself (the raw log's length). Those two
- * can differ: if some other player's pick was still masked from this caller
- * as of `preState` (e.g. a three-seat selectCards phase where seat B picked
- * first, still hidden from A and C), that masked entry — and everything
- * `unredactedPrefix` cuts because of it — was never part of what this caller
- * actually held, even though the raw log already contains it. Getting this
- * wrong doesn't leak anything (the cut is always conservative), but it does
- * make `applyRedactedGameStateDelta` reject the response outright, since the
- * caller's own `previous.actionHistory.length` (built the same
- * redact-then-truncate way, client-side) would then disagree with
- * `actionHistoryFrom`.
- */
-export function buildEnforcedActionResponseDelta(ctx: GameContext, callerUserId: string, preState: GameState, postState: GameState): RedactedGameStateDelta {
-  const previousView = redactedResponseState(ctx, callerUserId, preState)
-  const currentView = redactedResponseState(ctx, callerUserId, postState)
-  const sinceActionIndex = unredactedPrefix(previousView.actionHistory).length
-  return buildRedactedGameStateDelta(previousView, currentView, sinceActionIndex)
-}
-
-/**
  * §4.4's owner-override condition, adapted to the actually-shipped
  * marker-based history model (issue #412's UNDO_ACTION/REDO_ACTION entries +
  * resolveHistory, ./historyFold.ts) rather than historyPointer.ts's
@@ -378,84 +333,7 @@ export async function writeGameStateCAS(supabase: SupabaseClient, gameId: string
     .select('version')
     .maybeSingle()
   if (error) throw error
-  if (!data) return null
-  await bufferGameStateSnapshot(supabase, gameId, data.version as number, compressed, state.status === 'completed')
-  return data.version
-}
-
-/**
- * How many recent versions of a game's GameState `game_state_snapshots`
- * keeps (issue #648, 0036_game_state_snapshots.sql) — sized off the normal
- * async usage pattern (an opponent makes 1-3 moves between a player's own
- * visits), so a cold open after hours away still finds its base version in
- * the buffer far more often than not; a miss just costs one full response
- * instead of a patch (`get-game-state/index.ts`), never a wrong one. Not
- * tuned from real production data yet — a starting point per the issue's own
- * design note, revisit if misses turn out to be common.
- */
-const SNAPSHOT_BUFFER_SIZE = 16
-
-/**
- * Maintains `game_state_snapshots` alongside `writeGameStateCAS`'s own write
- * (genesis's equivalent write — `start-game/index.ts`'s direct insert at
- * version 0 — calls this too, since it's the one write path
- * `writeGameStateCAS` doesn't cover): inserts this write's own resulting
- * `(gameId, version, state)`, then either prunes the buffer back down to
- * `SNAPSHOT_BUFFER_SIZE` rows or, once the game has actually finished, drops
- * every row for it outright — a completed game never writes again, so a
- * `get-game-state` delta request against it will only ever ask for the same
- * final version repeatedly (an empty patch), making the buffer pure
- * unreclaimed storage from that point on.
- *
- * Deliberately best-effort: this is a bandwidth optimization's cache, not
- * part of the write's own correctness — a failure here must never turn an
- * otherwise-successful game-state write into an apparent failure for the
- * caller, so every error is swallowed (logged, not thrown) rather than
- * propagated. The cost of a miss is exactly one full `get-game-state`
- * response instead of a patch (see `loadBufferedGameState`'s callers), never
- * a correctness issue.
- */
-export async function bufferGameStateSnapshot(supabase: SupabaseClient, gameId: string, version: number, compressed: CompressedGameState, completed: boolean): Promise<void> {
-  try {
-    if (completed) {
-      const { error } = await supabase.from('game_state_snapshots').delete().eq('game_id', gameId)
-      if (error) throw error
-      return
-    }
-    // A plain insert, not an upsert: `unique (game_id, version)` means a
-    // second write for a version already buffered (only possible on a
-    // caller retry after an earlier failure) hits 23505, which this
-    // function's own try/catch below already treats as a harmless miss —
-    // no need for a second conflict-resolution mechanism on top of that.
-    const { error: insertError } = await supabase.from('game_state_snapshots').insert({ game_id: gameId, version, state: compressed })
-    if (insertError) throw insertError
-    const { error: pruneError } = await supabase.from('game_state_snapshots').delete().eq('game_id', gameId).lte('version', version - SNAPSHOT_BUFFER_SIZE)
-    if (pruneError) throw pruneError
-  } catch (err) {
-    console.error(`game_state_snapshots maintenance failed for game ${gameId} (non-fatal — the next delta request for it just falls back to a full fetch):`, err)
-  }
-}
-
-/**
- * `get-game-state`'s buffer lookup: the `GameState` this game had at exactly
- * `version`, or `null` if it's outside `game_state_snapshots`' rolling window
- * (or the lookup itself fails — treated the same as a miss, per
- * `bufferGameStateSnapshot`'s own best-effort reasoning). A miss means
- * `respondWithState` falls back to sending the plain, un-patched
- * `stateWithoutHistory` for this one request — never an error, and never a
- * reason to withhold the `actionHistoryAppend` half of the response, which
- * has nothing to do with this buffer at all.
- */
-export async function loadBufferedGameState(supabase: SupabaseClient, gameId: string, version: number): Promise<GameState | null> {
-  try {
-    const { data, error } = await supabase.from('game_state_snapshots').select('state').eq('game_id', gameId).eq('version', version).maybeSingle()
-    if (error) throw error
-    if (!data) return null
-    return await decompressGameStateFromStorage(data.state as StoredGameState)
-  } catch (err) {
-    console.error(`game_state_snapshots lookup failed for game ${gameId} version ${version} (non-fatal — falling back to a full response):`, err)
-    return null
-  }
+  return data ? data.version : null
 }
 
 /**

@@ -15,11 +15,10 @@ import type { GameState } from '../engine/types'
  *
  * This is a **seed for a delta request, never something rendered ahead of
  * the server confirming it** — `fetchGameState` (GamePage.tsx) only ever
- * uses a `loadCachedGameState` result as `getGameStateRedacted`'s
- * `previous`/`previousVersion` parameters, exactly the same role
- * `latestGameStateRef`/`latestVersionRef` already play for a same-session
- * refetch (issues #647/#648). Nothing here renders before that fetch
- * resolves. Also: this only ever helps a `usesRedactedReads` game —
+ * uses a `loadCachedGameState` result as `getGameStateRedacted`'s `previous`
+ * parameter, exactly the same role `latestGameStateRef` already plays for a
+ * same-session refetch (issue #647). Nothing here renders before that
+ * fetch resolves. Also: this only ever helps a `usesRedactedReads` game —
  * `getGameState` (the client-trusted/no-hidden-information path) has no
  * delta parameter to seed at all, so `fetchGameState` just ignores whatever
  * this returns for those games, same as it already ignores a same-session
@@ -193,15 +192,8 @@ export async function saveCachedGameState(gameId: string, userId: string, versio
  * Reads back the cached state for `gameId`/`userId`, or `null` if there is
  * none, it doesn't pass the invalidation checks described in this module's
  * doc comment, or IndexedDB itself failed. Never throws.
- *
- * Returns `version` alongside `state` (issue #648): `getGameStateRedacted`'s
- * `stateWithoutHistory` patch needs the exact `game_state.version` this
- * cached state came from to find it again in the server's own snapshot
- * buffer (get-game-state/index.ts's own doc comment) — `sinceActionIndex`
- * alone (this state's own `actionHistory.length`) isn't reliably the same
- * number, so the caller can no longer get away with reading only `state`.
  */
-export async function loadCachedGameState(gameId: string, userId: string): Promise<{ state: GameState; version: number } | null> {
+export async function loadCachedGameState(gameId: string, userId: string): Promise<GameState | null> {
   try {
     const db = await openDb()
     if (!db) return null
@@ -216,7 +208,7 @@ export async function loadCachedGameState(gameId: string, userId: string): Promi
     if (entry.buildId !== __BUILD_ID__ || entry.userId !== userId || entry.gameId !== gameId) return null
     const state = await decompressGameStateFromStorage(entry.state)
     if (hashState(JSON.stringify(state)) !== entry.stateHash) return null
-    return { state, version: entry.version }
+    return state
   } catch {
     return null
   }

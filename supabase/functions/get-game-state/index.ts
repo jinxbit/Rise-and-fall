@@ -69,101 +69,31 @@
 // getGameStateRedacted only sends it once it has a previous state to splice
 // onto, and any inconsistency (a stale cache, a different game, a client
 // bug) just costs one extra full response rather than a wrong splice.
-//
-// Patched stateWithoutHistory (issue #648): actionHistory was #647's whole
-// scope — everything else in a RedactedGameState (the board, achievements,
-// resources, ...) was still sent in full on every request, even though it
-// plateaus early and barely changes move to move. Request body grows a
-// second field, `baseVersion` — the actual `game_state.version` the caller's
-// `previous` state came from (gameApi.ts's getGameStateRedacted sends
-// whatever version it last applied `previous` at). This can NOT be derived
-// from `sinceActionIndex` alone: `sinceActionIndex` is the caller's own safe
-// (post-`unredactedPrefix`) actionHistory length, which understates the raw
-// version whenever some *other* player's pick was still masked from this
-// caller as of `previous` — the masked entry (and the version it landed at)
-// is real and buffered, just not something this caller's own truncated log
-// ever counted. `respondWithState` uses `baseVersion` to ask
-// `loadBufferedGameState` (../_shared/gameEnforcement.ts) for the actual
-// GameState at that version — a small rolling buffer maintained alongside
-// every `writeGameStateCAS` write (0036_game_state_snapshots.sql) — redacts
-// it for this same caller, and *verifies* that redaction's own safe-prefix
-// length agrees with the caller's stated `sinceActionIndex` before trusting
-// it as a diff base (a stale cache, a lie, or any other inconsistency just
-// falls back to the old plain-`state` behavior for that one request, per
-// this function's existing "any inconsistency -> full response" posture).
-// Only once verified does it hand both views to `buildRedactedGameStateDelta`
-// (src/engine/redaction.ts), which diffs them into a `statePatch` instead of
-// resending `state` whole. A buffer miss (a base version older than the
-// buffer covers, or no `baseVersion` sent at all) degrades the same way; the
-// `actionHistoryAppend` half of the response is unaffected either way. This
-// is still exactly the "straight reuse of redactStateForPlayer against a
-// materialised state, no replay" shape this function's opening paragraph
-// describes — `loadBufferedGameState` supplies an *older* materialised state
-// to also call it against, nothing more; see redactStateForPlayer's own doc
-// comment for why HIDDEN_INFORMATION_PLAN.md §5.3's reveal high-water mark
-// stays dropped rather than revived for this.
-import { buildRedactedGameStateDelta, redactStateForPlayer, revealedGameStateView, unredactedPrefix, type RedactedGameState } from '../../../src/engine/redaction.ts'
-import {
-  canReadGameState,
-  corsHeaders,
-  getCallerUserId,
-  jsonResponse,
-  loadBufferedGameState,
-  loadGameContext,
-  serviceRoleClient,
-} from '../_shared/gameEnforcement.ts'
-import type { GameState } from '../../../src/engine/types.ts'
-import type { SupabaseClient } from 'jsr:@supabase/supabase-js@2'
+import { redactStateForPlayer, revealedGameStateView, unredactedPrefix, type RedactedGameState, type RedactedGameStateDelta } from '../../../src/engine/redaction.ts'
+import { canReadGameState, corsHeaders, getCallerUserId, jsonResponse, loadGameContext, serviceRoleClient } from '../_shared/gameEnforcement.ts'
 
 interface GetGameStateRequest {
   gameId: string
   sinceActionIndex?: number
-  /** The actual `game_state.version` `sinceActionIndex` was computed from — see the module doc comment above for why this can't be derived from `sinceActionIndex` alone. */
-  baseVersion?: number
 }
 
 /**
  * Builds this function's response for a given (already redacted-or-not)
- * current state view — see the module doc comment above for why
- * `sinceActionIndex` only ever changes the response when it's a valid index
- * into the current safe actionHistory prefix, and falls back to the full
- * `view` otherwise.
- *
- * `redact` is the same per-viewer function (`revealedGameStateView` or
- * `redactStateForPlayer` bound to this caller's seat) already used to
- * produce `view` — passed through so a buffered earlier `GameState`
- * (issue #648, `loadBufferedGameState`, keyed by `baseVersion`) can be
- * redacted for the *same* viewer before `buildRedactedGameStateDelta` diffs
- * the two. Its own safe-prefix length is then checked against the caller's
- * stated `sinceActionIndex` before it's trusted as a diff base — a mismatch
- * means `baseVersion` doesn't actually correspond to the `previous` state
- * `sinceActionIndex` was computed from (a stale/foreign cache, or worse), so
- * treating it as a buffer miss (never as something to patch against) is the
- * safe response either way. A miss still gets the `actionHistoryAppend` half
- * of the win — only the `stateWithoutHistory` patch degrades to a plain,
- * un-patched value for that one request.
+ * state view — see the module doc comment above for why `sinceActionIndex`
+ * only ever changes the response when it's a valid index into the current
+ * safe actionHistory prefix, and falls back to the full `view` otherwise.
  */
-async function respondWithState(
-  supabase: SupabaseClient,
-  gameId: string,
-  redact: (state: GameState) => RedactedGameState,
-  view: RedactedGameState,
-  version: number,
-  sinceActionIndex: number | undefined,
-  baseVersion: number | undefined,
-) {
+function respondWithState(view: RedactedGameState, version: number, sinceActionIndex: number | undefined) {
   if (typeof sinceActionIndex === 'number' && Number.isInteger(sinceActionIndex) && sinceActionIndex >= 0) {
     const safePrefixLength = unredactedPrefix(view.actionHistory).length
     if (sinceActionIndex <= safePrefixLength) {
-      let previousView: RedactedGameState | null = null
-      if (typeof baseVersion === 'number' && Number.isInteger(baseVersion) && baseVersion >= 0) {
-        const previousState = await loadBufferedGameState(supabase, gameId, baseVersion)
-        if (previousState) {
-          const candidateView = redact(previousState)
-          if (unredactedPrefix(candidateView.actionHistory).length === sinceActionIndex) previousView = candidateView
-        }
+      const { actionHistory, ...stateWithoutHistory } = view
+      const delta: RedactedGameStateDelta = {
+        state: stateWithoutHistory,
+        actionHistoryFrom: sinceActionIndex,
+        actionHistoryAppend: actionHistory.slice(sinceActionIndex, safePrefixLength),
+        actionHistoryLength: safePrefixLength,
       }
-      const delta = buildRedactedGameStateDelta(previousView, view, sinceActionIndex)
       return jsonResponse(200, { ok: true, ...delta, version })
     }
   }
@@ -182,7 +112,7 @@ Deno.serve(async (req) => {
   } catch {
     return jsonResponse(400, { ok: false, error: 'Invalid JSON body.' })
   }
-  const { gameId, sinceActionIndex, baseVersion } = body
+  const { gameId, sinceActionIndex } = body
   if (!gameId) return jsonResponse(400, { ok: false, error: 'Request body must be { gameId }.' })
 
   const supabase = serviceRoleClient()
@@ -209,10 +139,10 @@ Deno.serve(async (req) => {
   const shouldRedact = ctx.gameState.state.hiddenInformationEnabled && ctx.game.play_mode !== 'hotseat'
 
   if (ctx.isAdmin || !shouldRedact) {
-    return await respondWithState(supabase, gameId, revealedGameStateView, revealedGameStateView(ctx.gameState.state), ctx.gameState.version, sinceActionIndex, baseVersion)
+    return respondWithState(revealedGameStateView(ctx.gameState.state), ctx.gameState.version, sinceActionIndex)
   }
 
   const callerPlayerId = ctx.players.find((p) => p.user_id === callerUserId)?.id ?? null
-  const redact = (s: GameState) => redactStateForPlayer(s, callerPlayerId)
-  return await respondWithState(supabase, gameId, redact, redact(ctx.gameState.state), ctx.gameState.version, sinceActionIndex, baseVersion)
+  const state = redactStateForPlayer(ctx.gameState.state, callerPlayerId)
+  return respondWithState(state, ctx.gameState.version, sinceActionIndex)
 })
