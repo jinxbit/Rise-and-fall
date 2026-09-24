@@ -45,7 +45,12 @@
 #                                    inherited production's).
 #   SUPABASE_ACCESS_TOKEN            Supabase personal access token (not needed under DRY_RUN)
 # Optional env:
-#   MODE=inventory                   report what is there and exit without changing anything
+#   MODE=inventory                   report what is there and exit without changing anything.
+#                                    Prints ONLY the JSON result, so a caller
+#                                    can parse it; the prose belongs to the caller.
+#   TOLERATE_MISSING=1               with MODE=inventory, report `{}` and warn instead of
+#                                    failing when the schema isn't there to count (a project
+#                                    that is already torn down, or half-way through a reset)
 #   WIPE_AUTH_USERS=1                also delete every row in auth.users
 #   DRY_RUN=1                        print the SQL that would be sent and exit 0
 #   MANAGEMENT_API_URL               defaults to https://api.supabase.com
@@ -88,15 +93,30 @@ fi
 # what was destroyed rather than just that something was. to_regclass keeps
 # it working against a project that is already partly torn down.
 read -r -d '' inventory_sql <<'SQL' || true
-select
-  (select count(*) from auth.users)                                                    as auth_users,
-  coalesce((select count(*) from public.games), -1)                                    as games,
-  coalesce((select count(*) from public.players), -1)                                  as players,
-  coalesce((select count(*) from public.game_state), -1)                               as game_state,
-  coalesce((select count(*) from public.profiles), -1)                                 as profiles,
-  coalesce((select count(*) from public.profiles where is_admin), -1)                  as admins,
-  (select count(*) from supabase_migrations.schema_migrations)                          as migrations_applied,
-  (select count(*) from pg_publication_tables where pubname = 'supabase_realtime')      as realtime_tables;
+select jsonb_build_object(
+  'auth_users',         (select count(*) from auth.users),
+  'games',              (select count(*) from public.games),
+  'players',            (select count(*) from public.players),
+  'game_state',         (select count(*) from public.game_state),
+  'profiles',           (select count(*) from public.profiles),
+  'admins',             (select count(*) from public.profiles where is_admin),
+  'migrations_applied', (select count(*) from supabase_migrations.schema_migrations),
+  'realtime_tables',    (select count(*) from pg_publication_tables where pubname = 'supabase_realtime'),
+  'in_progress_games',  coalesce((
+    select jsonb_agg(jsonb_build_object(
+      'name',       g.name,
+      'room_code',  g.room_code,
+      'status',     g.status,
+      'play_mode',  g.play_mode,
+      'players',    (select count(*) from public.players p where p.game_id = g.id),
+      'turn',       m.turn,
+      'last_move',  to_char(coalesce(m.updated_at, g.updated_at), 'YYYY-MM-DD HH24:MI')
+    ) order by coalesce(m.updated_at, g.updated_at) desc)
+    from public.games g
+    left join public.game_state_meta m on m.game_id = g.id
+    where g.status in ('lobby', 'active')
+  ), '[]'::jsonb)
+) as inventory;
 SQL
 
 # `drop schema public cascade` takes the tables, views, functions, triggers,
@@ -130,8 +150,12 @@ if [ -n "$WIPE_AUTH_USERS" ]; then
 delete from auth.users;"
 fi
 
+# `soft` (third arg) turns a failed query into a return 1 instead of exit 1 —
+# used only by the pre-reset inventory, where "there is nothing to count" is a
+# legitimate state (a project already torn down, or a reset that died
+# half-way). The reset itself and the post-push verify never pass it.
 run_query() {
-  local sql="$1" label="$2"
+  local sql="$1" label="$2" soft="${3:-}"
   local request response status body
   request="$(jq -nc --arg q "$sql" '{query: $q}')"
   response="$(curl -sS -w $'\n%{http_code}' \
@@ -144,7 +168,15 @@ run_query() {
   case "$status" in
     2*) printf '%s\n' "$body" | jq . 2>/dev/null || printf '%s\n' "$body" ;;
     401|403) fail "The Management API rejected SUPABASE_ACCESS_TOKEN (HTTP $status) during: $label" ;;
-    *) fail "$label failed (HTTP ${status:-no response}): $(printf '%s' "$body" | jq -r '.message? // .error? // .' 2>/dev/null | head -c 800)" ;;
+    *)
+      local detail
+      detail="$(printf '%s' "$body" | jq -r '.message? // .error? // .' 2>/dev/null | head -c 800)"
+      if [ -n "$soft" ]; then
+        echo "::warning::$label could not run (HTTP ${status:-no response}): $detail" >&2
+        return 1
+      fi
+      fail "$label failed (HTTP ${status:-no response}): $detail"
+      ;;
   esac
 }
 
@@ -158,13 +190,22 @@ if [ -n "$DRY_RUN" ]; then
   exit 0
 fi
 
-echo "Inventory of project ${SUPABASE_PROJECT_ID} before any change:"
-run_query "$inventory_sql" "inventory"
-
 if [ "$MODE" = "inventory" ]; then
-  echo "MODE=inventory — nothing changed."
+  # Only JSON on stdout: .github/workflows/rebuild-preproduction.yml parses
+  # this, and an earlier version printed a heading above it that made every
+  # `jq` in the caller silently yield nothing.
+  if ! run_query "$inventory_sql" "inventory" soft; then
+    if [ -n "${TOLERATE_MISSING:-}" ]; then
+      echo '{}'
+      exit 0
+    fi
+    fail "Could not take an inventory of project ${SUPABASE_PROJECT_ID}."
+  fi
   exit 0
 fi
+
+echo "Inventory of project ${SUPABASE_PROJECT_ID} before any change:" >&2
+run_query "$inventory_sql" "inventory" soft || echo "::warning::Nothing to inventory — continuing to the reset." >&2
 
 echo "Dropping and recreating public schema on ${SUPABASE_PROJECT_ID}${WIPE_AUTH_USERS:+ (and deleting all auth users)}..."
 run_query "$reset_sql" "reset"

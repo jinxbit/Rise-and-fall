@@ -6572,6 +6572,23 @@ prevent. And it shares `concurrency: supabase-Preview` with
 deploy-supabase.yml's deploy job and smoke.yml, so a rebuild can never
 interleave with either.
 
+The inventory names the games rather than just counting them: every room in
+`lobby` or `active`, with its room code, seat count, turn and last move, into
+the job summary. "Everything in pre-production is destroyed" is a sentence you
+have to trust; a list of the rooms it means is something you can read before
+unticking `dry_run`. Finished and cancelled games are counted but not listed —
+losing those is not the decision anyone hesitates over.
+
+Two bugs found writing that, both of which would have bitten on the first real
+run. The inventory used to print a prose heading above its JSON, which made the
+verify step's `jq` yield nothing and fail the run at the last step with
+"0 migrations applied". And its doc comment claimed `to_regclass` kept it
+working against a half-torn-down project, which it never did — a missing table
+is a parse error, and `coalesce` around the subquery cannot catch one.
+`MODE=inventory` now prints only JSON, and `TOLERATE_MISSING=1` reports `{}`
+with a warning instead of failing, since "there is nothing to count" is a
+legitimate state to rebuild from.
+
 The verify step checks the two ways a reset fails quietly: migration count
 applied vs. `supabase/migrations/*.sql` on disk (if the history was not
 cleared, `db push` skips everything and leaves an empty schema), and at least

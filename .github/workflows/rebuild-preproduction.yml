@@ -113,11 +113,40 @@ jobs:
           echo "Target: project '$SUPABASE_PROJECT_ID' (production is '$PRODUCTION_SUPABASE_PROJECT_ID')."
 
       # Runs in every mode, dry run included: the log should record what was
-      # there before, whether or not this run went on to destroy it.
+      # there before, whether or not this run went on to destroy it — and the
+      # job summary should name the games, so "everything in pre-production"
+      # is a list you can read rather than a phrase you have to trust.
+      # TOLERATE_MISSING because a project that is already torn down (or a
+      # reset that died half-way) has nothing to count, and that is a
+      # legitimate state to rebuild from, not a reason to refuse.
       - name: Inventory the project
         env:
           MODE: inventory
-        run: bash scripts/supabase/reset-project.sh
+          TOLERATE_MISSING: '1'
+        run: |
+          json="$(bash scripts/supabase/reset-project.sh)"
+          printf '%s\n' "$json"
+          inv="$(printf '%s' "$json" | jq -c '.[0].inventory // {}')"
+          {
+            echo "## Before: what is in pre-production now"
+            echo
+            echo "| | |"
+            echo "| --- | --- |"
+            printf '%s' "$inv" | jq -r 'to_entries[] | select(.key != "in_progress_games") | "| \(.key) | \(.value) |"'
+            echo
+            echo "### Games in progress (lobby or active)"
+            echo
+            count="$(printf '%s' "$inv" | jq '(.in_progress_games // []) | length')"
+            if [ "${count:-0}" -eq 0 ]; then
+              echo "_None — nothing unfinished would be lost._"
+            else
+              echo "These are destroyed by a real run:"
+              echo
+              echo "| name | room | status | mode | players | turn | last move |"
+              echo "| --- | --- | --- | --- | --- | --- | --- |"
+              printf '%s' "$inv" | jq -r '(.in_progress_games // [])[] | "| \(.name) | \(.room_code) | \(.status) | \(.play_mode) | \(.players) | \(.turn // "-") | \(.last_move // "-") |"'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Show the SQL that a real run would send
         if: inputs.dry_run
@@ -172,8 +201,8 @@ jobs:
         run: |
           out="$(bash scripts/supabase/reset-project.sh)"
           printf '%s\n' "$out"
-          applied="$(printf '%s' "$out" | jq -r '.[0].migrations_applied // empty' 2>/dev/null || true)"
-          realtime="$(printf '%s' "$out" | jq -r '.[0].realtime_tables // empty' 2>/dev/null || true)"
+          applied="$(printf '%s' "$out" | jq -r '.[0].inventory.migrations_applied // empty' 2>/dev/null || true)"
+          realtime="$(printf '%s' "$out" | jq -r '.[0].inventory.realtime_tables // empty' 2>/dev/null || true)"
           expected="$(ls supabase/migrations/*.sql | wc -l | tr -d ' ')"
           if [ "${applied:-0}" != "$expected" ]; then
             echo "::error::$expected migrations in the repository but $applied recorded as applied. The rebuild did not complete."
