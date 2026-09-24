@@ -120,3 +120,31 @@ export function extendReplay(
   }
   return { ...state, actionHistory }
 }
+
+/**
+ * The state a viewer's own actions imply, rebuilt from `genesis` — the clean
+ * *base* behind a rendered view, for the delta read path.
+ *
+ * A view cannot be used as a base directly: once an in-flight overlay has been
+ * laid over it (../engine/inFlightOverlay.ts) it carries the effects of actions
+ * the viewer is not yet allowed to replay, and re-applying those actions later,
+ * when they do become visible, would double them. Replaying `view.actionHistory`
+ * sidesteps that entirely — that array is the viewer's safe prefix whether or
+ * not an overlay was applied, so the overlay's fields are never consulted.
+ *
+ * The returned state keeps the view's own `actionHistory` rather than the one
+ * the replay logged, for the same reason `extendReplay` does: `applyAction`
+ * stamps wall-clock time on entries it creates, and the server's timestamps
+ * are the ones that belong in the log.
+ */
+export function replayToBase(
+  genesis: GameState,
+  view: GameState,
+  unitContent: UnitContent = EMPTY_UNIT_CONTENT,
+  achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT,
+  boardGenerationContent: BoardGenerationContent = EMPTY_BOARD_GENERATION_CONTENT,
+  taleContent: TaleContent = EMPTY_TALE_CONTENT,
+): GameState {
+  const rebuilt = replayActions(genesis, view.actionHistory, unitContent, achievementContent, boardGenerationContent, taleContent)
+  return { ...rebuilt, actionHistory: view.actionHistory }
+}

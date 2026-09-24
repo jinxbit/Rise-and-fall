@@ -55,6 +55,7 @@ import {
   getGameByRoomCode,
   getGameState,
   getGameStateRedacted,
+  deriveBaseFromView,
   type DeltaReplayContext,
   type GameStateSnapshot,
   listMyGames,
@@ -269,11 +270,27 @@ export function GamePage() {
    */
   useEffect(() => {
     if (!game || !session || !gameState || version === null) return
-    // The base, not the rendered view — see latestBaseRef. Nothing to cache
-    // when the last response couldn't produce one (no replay context yet on a
-    // very early mount, or a local replay that disagreed with the server);
-    // skipping just costs the next cold open a full fetch.
-    const base = latestBaseRef.current
+    // The base, not the rendered view — see latestBaseRef.
+    //
+    // Derived here when the last response couldn't produce one, which on a
+    // cold open is the normal case rather than the exception: the mount fetch
+    // below runs before `players` has loaded, so `genesis` — and with it the
+    // replay context — is still null when the response comes back. Without
+    // this the ref stayed null, nothing was ever written to IndexedDB, and the
+    // first move of every session went out on protocol 1. #688's cache had
+    // populated unconditionally; making it conditional on a base is what
+    // broke it.
+    //
+    // Deriving from the *view* is safe whether or not an overlay was applied:
+    // deriveBaseFromView replays `actionHistory`, which is the safe prefix
+    // either way, so the overlay's fields are never consulted.
+    let base = latestBaseRef.current
+    if (!base) {
+      const replay = deltaContextRef.current
+      if (!replay) return
+      base = deriveBaseFromView(gameState, replay) ?? null
+      latestBaseRef.current = base
+    }
     if (!base) return
     void saveCachedGameState(game.id, session.user.id, version, base)
     // Deliberately keyed on the ids, not the `game`/`session` objects: a
@@ -281,7 +298,7 @@ export function GamePage() {
     // unrelated `games` row change (e.g. a presence touch), and re-running
     // this on those would just re-persist the same gameState/version.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [game?.id, session?.user?.id, gameState, version])
+  }, [game?.id, session?.user?.id, gameState, version, players.length])
   const [actionError, setActionError] = useState<AppError | null>(null)
   /** True while a move submitted via submitAction() is in flight — surfaced as a small "Sending…" badge in the board's top-right corner (issue #434). */
   const [submitting, setSubmitting] = useState(false)

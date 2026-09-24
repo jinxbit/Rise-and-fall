@@ -6841,3 +6841,53 @@ test that tries exactly that.
 Log retention on Supabase's lower tiers is short. If a longer history is
 wanted, the answer is a scheduled daily rollup writing one summary row — still
 never a per-request write.
+
+## 146. The client-side cache stopped being written, and nothing noticed
+
+Symptom, from a real production log line: `{"evt":"state_response",
+"fn":"apply-action","shape":"full","reason":"protocol-1","protocol":1}` — a
+move going out on the pre-#648 contract from a client that should have been
+asking for a delta. And, in the browser, no IndexedDB entry at all.
+
+**Cause, and it was mine.** #142 changed `GamePage.tsx` to cache the *base*
+rather than the rendered view — correct in itself, since a view has the
+in-flight overlay baked in and would double-apply it — but guarded the write
+with `if (!base) return`. The base only ever came from a response that carried
+a replay context, and on a cold open there isn't one: the mount fetch runs
+before `listPlayers` resolves, so `genesis` is null, so `deltaContextRef` is
+null, so the response comes back with no base.
+
+The effects compound rather than cancel:
+
+- nothing is written to IndexedDB, so #138's cache is inert;
+- `latestBaseRef` stays null, so `useDelta` is false and the first move of the
+  session goes out on protocol 1;
+- a protocol-1 *write* response carries no base either, so it does not
+  self-correct — only a later read with a replay context does (a realtime
+  push, or tab focus).
+
+For "open the game, make a move, leave" — the normal usage this whole line of
+work exists for — that is every session.
+
+**Fix.** The save effect now derives the base itself when the last response
+couldn't: `replayToBase` (`src/engine/replay.ts`) replays `view.actionHistory`
+from genesis, which is the viewer's safe prefix whether or not an overlay was
+applied, so the overlay's fields are never consulted and a contaminated view
+still yields a clean base. `players.length` joins the effect's dependencies,
+which is what re-runs it once the roster arrives and `deltaContextRef` is
+populated.
+
+**Why no test caught it.** `deriveBaseFromView` lived in `gameApi.ts`, which
+imports `./supabase` and therefore throws without env vars — no test in the
+repo imports it, and none could. The pure half is now `replayToBase` in
+`src/engine/replay.ts` with `replayToBase.test.ts` pinning the round trip
+against real games, including an assertion that the contaminated-view case was
+actually exercised rather than silently skipped.
+
+The remaining gap, deliberately not fixed here: the *first* fetch of a session
+still goes out without a replay context, so a cold open cannot use protocol 2
+even when a cached base exists. Serialising `listPlayers` before it would buy
+~2.4 KB for an extra round trip, which is a bad trade on mobile. The real
+answer is to cache `genesis` alongside the base so the replay context can be
+rebuilt from IndexedDB with no network at all — worth doing, and larger than
+this fix.

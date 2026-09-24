@@ -25,7 +25,7 @@ import { resolveUnitReserveDisplayMode, type UnitReserveDisplayMode } from './un
 import type { Board, GameState as EngineGameState, GameStatus, PlayMode, RoundPhase } from '../engine/types'
 import type { Action } from '../engine/actions'
 import { applyRedactedGameStateDelta, toClientGameState, type RedactedGameState, type RedactedGameStateDelta, type RedactedLoggedAction } from '../engine/redaction'
-import { extendReplay, replayActions } from '../engine/replay'
+import { extendReplay, replayToBase } from '../engine/replay'
 import { applyInFlightOverlay, type InFlightOverlay } from '../engine/inFlightOverlay'
 import { hashGameStateView } from './gameStateHash'
 import type { LoggedAction } from '../engine/actions'
@@ -1221,7 +1221,7 @@ export async function getGameStateRedacted(
 
   if (!('actionHistoryAppend' in result)) {
     const state = toClientGameState(result.state)
-    return { state, base: replay ? seedBase(state, replay) : undefined, version: result.version }
+    return { state, base: replay ? deriveBaseFromView(state, replay) : undefined, version: result.version }
   }
   // A protocol-2 delta that reached here has no replay context to apply it
   // with (only possible if `replay`/`previous` went missing between request
@@ -1234,28 +1234,17 @@ export async function getGameStateRedacted(
 }
 
 /**
- * Rebuilds the cacheable base from a full response, by replaying the viewer's
- * safe prefix from genesis — the one place a full replay happens, and only
- * because a full response hands over the *view*, which already has the
- * overlay baked in and cannot be un-applied.
+ * `replayToBase` (../engine/replay) with a `DeltaReplayContext` unpacked and a
+ * failure turned into `undefined`: a client running an older engine than the
+ * server can fail to replay an action it does not understand, and the caller's
+ * answer to that is simply not to cache, not to crash.
  *
- * Measured at 10-130ms for a completed game, which is fine for the cold start
- * it belongs to and is why every other path extends incrementally instead.
- * Returns undefined rather than throwing if the local engine can't reproduce
- * the log: the caller simply doesn't cache, and the next read is another full
- * fetch.
+ * Measured at 10-130ms for a completed game, which is why it belongs to a cold
+ * open and every other path extends incrementally instead.
  */
-function seedBase(view: EngineGameState, replay: DeltaReplayContext): EngineGameState | undefined {
+export function deriveBaseFromView(view: EngineGameState, replay: DeltaReplayContext): EngineGameState | undefined {
   try {
-    const rebuilt = replayActions(
-      replay.genesis,
-      view.actionHistory,
-      replay.unitContent,
-      replay.achievementContent,
-      replay.boardGenerationContent,
-      replay.taleContent,
-    )
-    return { ...rebuilt, actionHistory: view.actionHistory }
+    return replayToBase(replay.genesis, view, replay.unitContent, replay.achievementContent, replay.boardGenerationContent, replay.taleContent)
   } catch {
     return undefined
   }
