@@ -6633,3 +6633,70 @@ every call costs them nothing but a couple of `Date.now()` reads against an
 in-process stack.
 
 `npm run lint`, `npm run test` and `npm run build` all pass.
+
+## 142. The replay delta, second attempt (issue #648)
+
+`get-game-state` stops sending a materialised state to a client that can
+rebuild one. A caller sending `protocol: 2` gets the actions it may replay, an
+overlay for what a replay cannot reach, and a hash to check the result — no
+`state` field at all. **8.0x less per read** across the recorded games: 1,930
+KB -> 241 KB over 686 reads, ~2,881 -> ~360 bytes each. See
+`HIDDEN_INFORMATION_PLAN.md` §11 for the design; this entry is what it cost to
+get there.
+
+jinxbit's design, and the part that unlocked it was the hash. #648's first
+attempt rejected client-side replay because a stale PWA bundle would render a
+board that silently disagreed with the server. Hashing the result turns that
+into a cache miss instead, which makes the cheaper option also the safer one.
+It also needs no storage at all, unlike the reverted attempt (#139), whose
+snapshot buffer added two PostgREST round trips per write and doubled Edge
+Function latency.
+
+Four things measurement caught that reasoning had got wrong:
+
+1. **The overlay field list.** A hand-written guess at "obviously
+   phase-related fields" missed `units`, `resourceBank`, `idSequence`,
+   `claimedByAchievementId`, `declineSourceZoneByCardId` and
+   `achievementsClaimedThisRound` — all moved by a mid-flight purchase. The
+   list now comes from diffing a replay against the view for every state of
+   every fixture from every seat (2287 comparisons), and
+   `inFlightOverlay.test.ts` re-runs that so it cannot rot.
+2. **An overlay is needed even when the prefix does not lag.**
+   `redactStateForPlayer` masks `chosenCardIdByPlayerId` whenever
+   `hideChosenCards` holds, but masks a `CHOOSE_CARD` *log entry* only when
+   `entry.turn === state.turn`. A pick carried over from an earlier turn is
+   readable in the log and masked in the field, so the replay produces the real
+   card id while the view says `null`. ~5% of reads, and it would have failed
+   the hash check on every one of them.
+3. **The safe prefix is not monotonic.** A new phase re-masks entries a viewer
+   had already seen, so the prefix moves backwards (observed: 173 -> 104). The
+   pre-existing `sinceActionIndex <= safePrefixLength` guard already turns that
+   into a full fetch; the first version of the test asserted monotonicity and
+   was simply wrong.
+4. **Raw log entries cannot be applied in order.** Undo and redo are logged
+   actions folded by `resolveHistory`, not a splice, so an append carrying an
+   `UNDO_ACTION` changes which *earlier* actions are effective.
+   `extendReplay` (`src/engine/replay.ts`) goes incremental only when the
+   append is undo-free and rebuilds from genesis otherwise. Getting this wrong
+   fails loudly ("Not in the purchase phase"), which is how it was found.
+
+Two deliberate exclusions from the hash, both learned the hard way. The log's
+*contents* are out, because `applyAction` stamps wall-clock time on every entry
+it logs — hashing them would fail always, and look like the design not working
+rather than a serialisation bug. Object key order is normalised, because the
+two sides reach the same state by different paths. The log's *length* is in,
+which is what catches a client that spliced its append at the wrong offset:
+that would otherwise pass verification silently and leave the game log and the
+Undo button wrong while the board looked fine — jinxbit's suggestion.
+
+The client caches the **base** (state at the safe prefix), never the rendered
+view, since the view has the overlay's effects baked in and would double-apply
+them once those actions became visible for real. `GamePage.tsx` holds it in
+`latestBaseRef` and the delta context in a ref assigned during render, because
+the effects that read them are declared above `genesis` and would otherwise hit
+the temporal dead zone.
+
+Protocol 1 (#647) is untouched — a client that never asks for protocol 2 gets
+the old shape, so a stale bundle keeps working with no coordinated rollout.
+
+`npm run lint`, `npm run test` and `npm run build` all pass.

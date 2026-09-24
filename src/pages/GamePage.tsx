@@ -55,6 +55,7 @@ import {
   getGameByRoomCode,
   getGameState,
   getGameStateRedacted,
+  type DeltaReplayContext,
   type GameStateSnapshot,
   listMyGames,
   listPlayers,
@@ -108,8 +109,8 @@ function usesRedactedReads(game: GameRow): boolean {
  * to splice its incremental actionHistory response onto (issue #647) —
  * ignored for a non-redacted game, which has no equivalent parameter.
  */
-function fetchGameState(game: GameRow, previous?: EngineGameState | null): Promise<GameStateSnapshot | null> {
-  return usesRedactedReads(game) ? getGameStateRedacted(game.id, previous) : getGameState(game.id)
+function fetchGameState(game: GameRow, previous?: EngineGameState | null, replay?: DeltaReplayContext | null): Promise<GameStateSnapshot | null> {
+  return usesRedactedReads(game) ? getGameStateRedacted(game.id, previous, replay ?? undefined) : getGameState(game.id)
 }
 
 /**
@@ -211,6 +212,25 @@ export function GamePage() {
    * whole array again.
    */
   const latestGameStateRef = useRef<EngineGameState | null>(null)
+  /**
+   * The *base* behind `latestGameStateRef`'s rendered view: the state replayed
+   * up to this viewer's safe actionHistory prefix, before
+   * `applyInFlightOverlay` lays the unresolved phase over it (issue #648).
+   * This — never the view — is what seeds the next delta request and what gets
+   * cached, because the view has the overlay's effects already baked in and
+   * would double-apply them once those actions became visible for real.
+   * `null` whenever the last response could not produce one, which just means
+   * the next read is a full fetch.
+   */
+  const latestBaseRef = useRef<EngineGameState | null>(null)
+  /**
+   * Everything getGameStateRedacted needs to rebuild a state from actions
+   * instead of being handed one. Held in a ref, assigned during render below
+   * once `genesis` and the content bundles exist, because the effects that
+   * read it are declared above them — referencing them in a dependency array
+   * up here would hit the temporal dead zone.
+   */
+  const deltaContextRef = useRef<DeltaReplayContext | null>(null)
 
   /**
    * Applies a freshly fetched state/version pair, discarding it if it's no
@@ -232,6 +252,7 @@ export function GamePage() {
     if (latestVersionRef.current !== null && snapshot.version <= latestVersionRef.current) return
     latestVersionRef.current = snapshot.version
     latestGameStateRef.current = snapshot.state
+    latestBaseRef.current = snapshot.base ?? null
     setGameState(snapshot.state)
     setVersion(snapshot.version)
   }
@@ -248,7 +269,13 @@ export function GamePage() {
    */
   useEffect(() => {
     if (!game || !session || !gameState || version === null) return
-    void saveCachedGameState(game.id, session.user.id, version, gameState)
+    // The base, not the rendered view — see latestBaseRef. Nothing to cache
+    // when the last response couldn't produce one (no replay context yet on a
+    // very early mount, or a local replay that disagreed with the server);
+    // skipping just costs the next cold open a full fetch.
+    const base = latestBaseRef.current
+    if (!base) return
+    void saveCachedGameState(game.id, session.user.id, version, base)
     // Deliberately keyed on the ids, not the `game`/`session` objects: a
     // `subscribeToGame` merge (below) gives `game` a new identity on every
     // unrelated `games` row change (e.g. a presence touch), and re-running
@@ -513,7 +540,7 @@ export function GamePage() {
     void getGameByRoomCode(roomCode).then((fresh) => {
       if (fresh) setGame(fresh)
     })
-    void fetchGameState(game, latestGameStateRef.current).then((snapshot) => {
+    void fetchGameState(game, latestBaseRef.current, deltaContextRef.current).then((snapshot) => {
       if (snapshot) applyGameStateSnapshot(snapshot)
     })
     void listPlayers(game.id).then(setPlayers)
@@ -532,6 +559,7 @@ export function GamePage() {
     // prefix to splice this one's incremental fetches onto.
     latestVersionRef.current = null
     latestGameStateRef.current = null
+    latestBaseRef.current = null
 
     void (async () => {
       // issue #688: the cold-open counterpart to latestGameStateRef above —
@@ -544,11 +572,11 @@ export function GamePage() {
       // than risk anything worse.
       const userId = session?.user?.id
       const cached = userId ? await loadCachedGameState(gameId, userId) : null
-      const snapshot = await fetchGameState(game, cached)
+      const snapshot = await fetchGameState(game, cached, deltaContextRef.current)
       if (!cancelled && snapshot) applyGameStateSnapshot(snapshot)
     })()
 
-    const unsubscribeGameState = subscribeToGameState(gameId, applyGameStateSnapshot, redacted, () => latestVersionRef.current, () => latestGameStateRef.current)
+    const unsubscribeGameState = subscribeToGameState(gameId, applyGameStateSnapshot, redacted, () => latestVersionRef.current, () => latestBaseRef.current, () => deltaContextRef.current)
     const unsubscribePlayers = subscribeToPlayers(gameId, () => {
       void listPlayers(gameId).then(setPlayers)
     })
@@ -743,6 +771,12 @@ export function GamePage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [game, players.length, playersSignature])
+
+  // Assigned during render rather than in an effect so the very next fetch —
+  // including the mount one, which runs after this — already sees it. Null
+  // until the roster has loaded, which is simply "ask for a full state this
+  // time"; see deltaContextRef's own comment for why it is a ref at all.
+  deltaContextRef.current = genesis ? { genesis, unitContent, achievementContent, boardGenerationContent, taleContent } : null
 
   /**
    * Turn boundaries across the ENTIRE actionHistory (issue #261 follow-up:

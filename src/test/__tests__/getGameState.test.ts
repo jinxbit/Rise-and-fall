@@ -12,7 +12,12 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { buildGameLogFrom } from '../../engine/gameLog.ts'
-import { applyRedactedGameStateDelta, toClientGameState } from '../../engine/redaction.ts'
+import { applyRedactedGameStateDelta, toClientGameState, type RedactedLoggedAction } from '../../engine/redaction.ts'
+import { applyInFlightOverlay, type InFlightOverlay } from '../../engine/inFlightOverlay.ts'
+import { extendReplay, replayActions } from '../../engine/replay.ts'
+import { hashGameStateView } from '../../lib/gameStateHash.ts'
+import type { LoggedAction } from '../../engine/actions.ts'
+import type { GameState } from '../../engine/types.ts'
 import { buildGenesisState } from '../../lib/gameGenesis.ts'
 import type { GameRow, GameSettings, PlayerRow } from '../../lib/dbTypes.ts'
 import { createProductionStack, type ProductionStack } from '../supabaseStack/index.ts'
@@ -232,6 +237,111 @@ describe('get-game-state Edge Function', () => {
     const asOwner = await stack.getGameState(ALICE, GAME_ID)
     if (!asOwner.ok) throw new Error(asOwner.error)
     expect(asOwner.state.chosenCardIdByPlayerId['seat-bob']).toEqual({ chosen: true, cardId: bobCard })
+  })
+
+  describe('replay delta (protocol 2, issue #648)', () => {
+    /** Rebuilds a viewer's state the way gameApi.ts's getGameStateRedacted does: replay what they may see, lay the overlay over what they may not. */
+    function rebuild(genesisState: GameState, base: GameState, delta: { actionHistoryAppend: RedactedLoggedAction[]; overlay?: InFlightOverlay }, content: ReturnType<typeof resolveGameContent>) {
+      const next = extendReplay(genesisState, base, delta.actionHistoryAppend as unknown as LoggedAction[], content.unitContent, content.achievementContent, content.boardGenerationContent, content.taleContent)
+      return applyInFlightOverlay(next, delta.overlay)
+    }
+
+    it('sends no materialised state at all, and the caller rebuilds exactly what a full fetch would have given', async () => {
+      const setup = await reachSelectCardsPhase()
+      const genesisState = buildGenesisState(gameRow(settingsFor(), 'active'), PLAYERS)
+      const content = resolveGameContent(genesisState)
+
+      const seed = await stack.getGameState(ALICE, GAME_ID)
+      if (!seed.ok) throw new Error(seed.error)
+      if ('actionHistoryAppend' in seed) throw new Error('expected a full response')
+      const seedClient = toClientGameState(seed.state)
+      const base = { ...replayActions(genesisState, seedClient.actionHistory, content.unitContent, content.achievementContent, content.boardGenerationContent, content.taleContent), actionHistory: seedClient.actionHistory }
+
+      const bobCard = setup.players.find((p) => p.id === 'seat-bob')!.handCardIds[0]
+      const chose = await stack.applyAction(BOB, GAME_ID, { type: 'CHOOSE_CARD', playerId: 'seat-bob', cardId: bobCard })
+      if (!chose.ok) throw new Error(chose.error)
+
+      const delta = await stack.getGameState(ALICE, GAME_ID, base.actionHistory.length, 2)
+      if (!delta.ok) throw new Error(delta.error)
+      if (!('stateHash' in delta)) throw new Error('expected a protocol-2 delta')
+      // The point of the whole change: the board, the cards and the units do
+      // not ride along on an ordinary read.
+      expect(delta).not.toHaveProperty('state')
+
+      const rebuilt = rebuild(genesisState, base, delta, content)
+      expect(hashGameStateView(rebuilt)).toBe(delta.stateHash)
+
+      // ...and it matches what the old, state-carrying path would have said.
+      const full = await stack.getGameState(ALICE, GAME_ID)
+      if (!full.ok) throw new Error(full.error)
+      if ('actionHistoryAppend' in full) throw new Error('expected a full response')
+      expect(rebuilt).toEqual(toClientGameState(full.state))
+      // Alice still cannot see what Bob picked — rebuilding is not a way around redaction.
+      expect(rebuilt.chosenCardIdByPlayerId['seat-bob']).toBeNull()
+    })
+
+    it("carries an overlay while a pick is pending, because the viewer's own replay cannot reach it", async () => {
+      const setup = await reachSelectCardsPhase()
+      const genesisState = buildGenesisState(gameRow(settingsFor(), 'active'), PLAYERS)
+      const seed = await stack.getGameState(ALICE, GAME_ID)
+      if (!seed.ok) throw new Error(seed.error)
+      if ('actionHistoryAppend' in seed) throw new Error('expected a full response')
+      const prefixLength = toClientGameState(seed.state).actionHistory.length
+
+      const bobCard = setup.players.find((p) => p.id === 'seat-bob')!.handCardIds[0]
+      const chose = await stack.applyAction(BOB, GAME_ID, { type: 'CHOOSE_CARD', playerId: 'seat-bob', cardId: bobCard })
+      if (!chose.ok) throw new Error(chose.error)
+
+      const delta = await stack.getGameState(ALICE, GAME_ID, prefixLength, 2)
+      if (!delta.ok) throw new Error(delta.error)
+      if (!('stateHash' in delta)) throw new Error('expected a protocol-2 delta')
+      // Bob's pick is masked, so it is not in Alice's appendable log at all —
+      // the overlay is the only thing telling her the phase moved.
+      expect(delta.actionHistoryAppend).toEqual([])
+      expect(delta.overlay).toBeDefined()
+      expect(delta.overlay!.pendingPlayerIds).toEqual(['seat-alice'])
+      expect(delta.overlay!.chosenCardIdByPlayerId!['seat-bob']).toBeNull()
+      expect(delta.overlay).not.toHaveProperty('board')
+      expect(genesisState.board).toBeDefined()
+    })
+
+    it('omits the overlay entirely once nothing is in flight', async () => {
+      await reachSelectCardsPhase()
+      const seed = await stack.getGameState(ALICE, GAME_ID)
+      if (!seed.ok) throw new Error(seed.error)
+      if ('actionHistoryAppend' in seed) throw new Error('expected a full response')
+      const prefixLength = toClientGameState(seed.state).actionHistory.length
+
+      const delta = await stack.getGameState(ALICE, GAME_ID, prefixLength, 2)
+      if (!delta.ok) throw new Error(delta.error)
+      if (!('stateHash' in delta)) throw new Error('expected a protocol-2 delta')
+      expect(delta.overlay).toBeUndefined()
+    })
+
+    it('a client that asks from beyond the safe prefix gets a full state, not a delta it cannot use', async () => {
+      await reachSelectCardsPhase()
+      const beyond = await stack.getGameState(ALICE, GAME_ID, 9999, 2)
+      if (!beyond.ok) throw new Error(beyond.error)
+      expect(beyond).toHaveProperty('state')
+      // A full protocol-2 response still carries the hash, so a client seeding
+      // its base by replaying from genesis can check its engine agrees at once.
+      expect(beyond).toHaveProperty('stateHash')
+    })
+
+    it('leaves a client that never asks for protocol 2 on the old shape', async () => {
+      await reachSelectCardsPhase()
+      const seed = await stack.getGameState(ALICE, GAME_ID)
+      if (!seed.ok) throw new Error(seed.error)
+      if ('actionHistoryAppend' in seed) throw new Error('expected a full response')
+      const prefixLength = toClientGameState(seed.state).actionHistory.length
+
+      const old = await stack.getGameState(ALICE, GAME_ID, prefixLength)
+      if (!old.ok) throw new Error(old.error)
+      if (!('actionHistoryAppend' in old)) throw new Error('expected an incremental response')
+      // The pre-#648 contract, unchanged: a materialised state and no hash.
+      expect(old).toHaveProperty('state')
+      expect(old).not.toHaveProperty('stateHash')
+    })
   })
 
   describe('incremental actionHistory (sinceActionIndex, issue #647)', () => {

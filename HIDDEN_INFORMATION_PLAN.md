@@ -943,3 +943,88 @@ testing.)
 (See `RULE_ENFORCEMENT_PLAN.md` §10 for enforcement-specific open items:
 `RETRACT_CHOICE`/`RETRACT_DECLINE` design decisions, Edge Function
 cold-start risk, and the admin/owner carve-out landing sequence.)
+
+## 11. The replay delta (protocol 2, issue #648)
+
+`get-game-state` no longer sends a materialised state to a client that can
+rebuild one. A caller sending `protocol: 2` alongside its `sinceActionIndex`
+gets back the actions it is entitled to replay, an **overlay** for what a
+replay cannot reach, and a **hash** of the result — and no `state` field at
+all. Measured at **8.0x** less per read across the recorded games (1,930 KB ->
+241 KB over 686 reads; ~2,881 -> ~360 bytes each).
+
+This is the second attempt. The first (reverted, `todo.md` #139) diffed
+`stateWithoutHistory` server-side against a rolling snapshot buffer, which
+needed two extra PostgREST round trips on every write and roughly doubled
+Edge Function latency. Nothing here stores anything: the server already has
+the current state loaded and the actions are already inside its
+`actionHistory`.
+
+### Why an overlay is needed at all
+
+`unredactedPrefix` truncates a viewer's log at the first entry that isn't safe
+for them, so replaying everything they hold lands *before* any unresolved
+simultaneous phase. Two distinct reasons a viewer's own replay can't reach
+their view, and `needsInFlightOverlay` tests for both:
+
+1. **The safe prefix lags the log.** The obvious case: masked entries exist,
+   the prefix cuts before them.
+2. **A field is masked although its action is visible.**
+   `redactStateForPlayer` hides `chosenCardIdByPlayerId` for every non-viewer
+   whenever `hideChosenCards` holds, but hides the matching `CHOOSE_CARD`
+   *log entry* only when `entry.turn === state.turn`. A pick carried over from
+   an earlier turn is therefore readable in the log and masked in the field —
+   the replay reconstructs the real card id while the view says `null`. About
+   5% of reads, and fatal to the hash check if unhandled.
+
+Only `chosenCardIdByPlayerId` and `players` need comparing for (2): those are
+the only fields `redactStateForPlayer` rewrites.
+
+The overlay carries a fixed set of fields (`src/engine/inFlightOverlay.ts`),
+**measured** rather than reasoned about — a hand-written guess at "obviously
+phase-related fields" missed `units`, `resourceBank`, `idSequence`,
+`claimedByAchievementId`, `declineSourceZoneByCardId` and
+`achievementsClaimedThisRound`, all of which a mid-flight purchase moves.
+`board` and `cards` never diverge and are deliberately excluded; keeping them
+off the wire is most of the win. It rides on ~2-19% of reads and is omitted
+entirely otherwise.
+
+### Why the hash makes client-side replay safe
+
+Rebuilding state on the client is the design §10 and issue #648 both argued
+against, because a PWA holding a stale bundle after a rules change — normal
+operation here — would render a board that silently disagrees with the
+server's. The hash converts that from a correctness bug into a cache miss:
+mismatch, throw, or an unknown action type all fall back to a full fetch.
+
+It covers the state and the log's *length*, never the log's contents.
+`applyAction` stamps `new Date().toISOString()` on entries it logs, so hashing
+the log would fail *always* — which would look like the design not working
+rather than like a serialisation bug. The length still catches a client that
+spliced its append at the wrong offset, an error that would otherwise pass
+verification silently and leave the game log and the Undo button wrong while
+the board looked right. Keys are sorted before hashing, because the two sides
+reach the same state by different paths.
+
+### The safe prefix is not monotonic
+
+With §5.3's reveal high-water mark dropped, masking derives strictly from the
+*current* `roundPhase`/`pendingPlayerIds`, so a newly-opened phase can re-mask
+entries a viewer was already shown and move their prefix **backwards**. The
+pre-existing `sinceActionIndex <= safePrefixLength` guard already handles it:
+such a caller falls through to a full response, which is right, since it holds
+entries it is no longer entitled to replay from. Measured at under 1% of reads.
+
+### What the client caches
+
+The **base** — the state replayed up to the safe prefix, before the overlay —
+never the rendered view. Caching the view would double-apply the overlay's
+effects the moment those actions became visible and entered the replay for
+real. A full response can't produce a base directly (its view already has the
+overlay baked in and can't be un-applied), so the client seeds one by replaying
+from genesis: 10-130ms for a completed game, which is why it only happens on a
+cold start and every other path extends incrementally.
+
+Protocol 1 (issue #647) is untouched: a client that never sends `protocol: 2`
+gets the old shape, so a stale bundle keeps working and no coordinated rollout
+is needed — the same posture as the `__gz` read path.
