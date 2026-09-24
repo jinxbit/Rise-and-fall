@@ -309,14 +309,6 @@ in the first place; nothing changed in `redactStateForPlayer`/
 `unredactedPrefix` themselves, since a legitimately-still-open phase's
 masking-then-truncation behavior is correct and unrelated.
 
-**Stays dropped (2026-09-23, issue #648):** the bandwidth issue that follow-up
-initially worried would need this mark back — diffing `stateWithoutHistory`
-between two requests — turned out not to. Diffing two *materialised*
-`GameState`s (a small rolling buffer of recent ones, `0036_game_state_snapshots.sql`)
-against the same `redactStateForPlayer` this section's opening paragraph
-already established needs no replay either way. See §8 phase 8's 2026-09-23
-update.
-
 ### 5.4 What actually runs today (client-side)
 
 **Update (2026-09-08, phase 8): `get-game-state` is now a real read path —
@@ -719,49 +711,6 @@ to hidden information (6) are omitted here.
    sound for exactly the same two reasons phase 8 above already established
    (append-only history, truncation-not-rewrite) rather than needing any new
    reveal bookkeeping.
-
-   **Update (2026-09-23, issue #648): the *rest* of a `RedactedGameState` —
-   everything #647 above left as `state (actionHistory omitted)` — is now
-   patched too, not sent whole.** Measured (see the issue): `actionHistory`
-   was the quadratic term #647 fixed; `stateWithoutHistory` is the constant
-   one left over, ~2.5 KB gzipped that barely changes move to move once a
-   game's board settles (~move 40).
-
-   §5.3's dropped reveal high-water mark is explicitly **not** revived for
-   this — that was the one open question standing between this issue and an
-   implementation, and it dissolves once the previous view being diffed
-   against comes from a *materialised* `GameState`, not a replay:
-   `0036_game_state_snapshots.sql` adds a small rolling buffer (16 versions
-   per game, maintained alongside every `writeGameStateCAS` write, pruned on
-   game completion) of recent raw `GameState`s. `get-game-state` calls
-   `redactStateForPlayer` against a buffered earlier state the exact same way
-   it already calls it against the live one — see that function's own doc
-   comment — and diffs the two collapsed (client-shape) views with a new
-   generic structural differ (`src/engine/statePatch.ts`'s `diffState`/
-   `applyStatePatch` — not RFC 6902; a format that mirrors the source shape
-   turned out simpler to generate and apply correctly at the same size, since
-   every diff here only ever runs between two views for the same viewer).
-   `redaction.ts`'s `buildRedactedGameStateDelta`/`applyRedactedGameStateDelta`
-   replace #647's own delta type/functions (now covering both halves —
-   `actionHistoryAppend` unchanged, plus an optional `statePatch` in place of
-   `state`) — see that type's own doc comment.
-
-   The read side needs one thing #647 didn't: the caller's own safe
-   (post-`unredactedPrefix`) actionHistory length is *not* reliably the same
-   number as the raw `game_state.version` its `previous` state came from
-   (they diverge whenever some other player's pick was still masked from
-   this caller as of `previous`) — so the request body gained a second field,
-   `baseVersion`, alongside `sinceActionIndex`; a request lacking it, or
-   naming a version outside the buffer, or naming one whose own recomputed
-   safe-prefix length doesn't match the caller's stated `sinceActionIndex`,
-   all degrade the same way — a plain, un-patched `state`, never an error.
-   `apply-action`/`undo-action`/`redo-action` need no such extra field: a
-   write's own pre-image is always already in memory (`buildEnforcedActionResponseDelta`,
-   `../supabase/functions/_shared/gameEnforcement.ts`), so their response is
-   *always* a patch. See `RULE_ENFORCEMENT_PLAN.md` §8 phase 8's matching
-   update for that write-side half, including the one deploy-skew case it
-   newly has to tolerate that this read-side change already didn't (an
-   opt-in request field degrades safely by construction).
 9. **End-to-end verification against a real Supabase project — closed
    (2026-09-09, issue #480).** The "this sandbox has no live project"
    limitation this section used to record is gone: a pre-production

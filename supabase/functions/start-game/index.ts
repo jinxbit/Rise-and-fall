@@ -32,7 +32,7 @@ import { canStartGame } from '../../../src/lib/roomReadiness.ts'
 import { resolveMapPoolRandomAtStart, resolveSoloBuildMap } from '../../../src/lib/gameGenesis.ts'
 import { compressGameStateForStorage } from '../../../src/lib/gameStateCompression.ts'
 import type { GameRow, GameSettings, MapPoolRow, PlayerRow } from '../../../src/lib/dbTypes.ts'
-import { buildGenesisState, bufferGameStateSnapshot, corsHeaders, getCallerUserId, jsonResponse, serviceRoleClient } from '../_shared/gameEnforcement.ts'
+import { buildGenesisState, corsHeaders, getCallerUserId, jsonResponse, serviceRoleClient } from '../_shared/gameEnforcement.ts'
 import type { SupabaseClient } from 'jsr:@supabase/supabase-js@2'
 
 interface StartGameRequest {
@@ -146,17 +146,6 @@ async function handleStartGame(req: Request): Promise<Response> {
       .from('game_state')
       .insert({ game_id: gameId, state: compressed, turn: genesis.turn, active_player_id: genesis.activePlayerId })
     if (insertError && insertError.code !== '23505') throw insertError
-    // issue #648: seeds game_state_snapshots at version 0 — the one write to
-    // game_state that doesn't go through writeGameStateCAS (genesis is an
-    // insert, not a compare-and-swap update), so it's the one place that
-    // buffer maintenance has to be called explicitly rather than falling out
-    // of the shared write path. A 23505 above (a retried call landing on an
-    // already-inserted genesis) still reaches here with the same `compressed`
-    // value it would have inserted the first time, so this upserts cleanly
-    // either way.
-    if (!insertError || insertError.code === '23505') {
-      await bufferGameStateSnapshot(supabase, gameId, 0, compressed, false)
-    }
   }
 
   // Same coarse-status-only flip startGameFromLobby's client-side path ends

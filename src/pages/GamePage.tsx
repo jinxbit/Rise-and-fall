@@ -104,14 +104,12 @@ function usesRedactedReads(game: GameRow): boolean {
 
 /**
  * Picks getGameState vs getGameStateRedacted per usesRedactedReads above.
- * `previous`/`previousVersion`, when given, are forwarded to
- * getGameStateRedacted as the state (and the version it was applied at) to
- * splice its incremental actionHistory response, and patch its
- * stateWithoutHistory response, onto (issues #647/#648) — ignored for a
- * non-redacted game, which has no equivalent parameters.
+ * `previous`, when given, is forwarded to getGameStateRedacted as the state
+ * to splice its incremental actionHistory response onto (issue #647) —
+ * ignored for a non-redacted game, which has no equivalent parameter.
  */
-function fetchGameState(game: GameRow, previous?: EngineGameState | null, previousVersion?: number | null): Promise<GameStateSnapshot | null> {
-  return usesRedactedReads(game) ? getGameStateRedacted(game.id, previous, previousVersion) : getGameState(game.id)
+function fetchGameState(game: GameRow, previous?: EngineGameState | null): Promise<GameStateSnapshot | null> {
+  return usesRedactedReads(game) ? getGameStateRedacted(game.id, previous) : getGameState(game.id)
 }
 
 /**
@@ -515,7 +513,7 @@ export function GamePage() {
     void getGameByRoomCode(roomCode).then((fresh) => {
       if (fresh) setGame(fresh)
     })
-    void fetchGameState(game, latestGameStateRef.current, latestVersionRef.current).then((snapshot) => {
+    void fetchGameState(game, latestGameStateRef.current).then((snapshot) => {
       if (snapshot) applyGameStateSnapshot(snapshot)
     })
     void listPlayers(game.id).then(setPlayers)
@@ -546,7 +544,7 @@ export function GamePage() {
       // than risk anything worse.
       const userId = session?.user?.id
       const cached = userId ? await loadCachedGameState(gameId, userId) : null
-      const snapshot = await fetchGameState(game, cached?.state, cached?.version)
+      const snapshot = await fetchGameState(game, cached)
       if (!cancelled && snapshot) applyGameStateSnapshot(snapshot)
     })()
 
@@ -1281,17 +1279,11 @@ export function GamePage() {
    * Function already did its own compare-and-swap server-side, so there's no
    * client-side retry loop here (a 409 just surfaces as an ordinary error,
    * same as any other rejected submission).
-   *
-   * `call` is handed `gameState` (non-null — `writeGuardError` already
-   * proved that below) as `previous`: issue #648's write-path response is a
-   * patch against the exact state the caller submitted its action from, and
-   * this is that state.
    */
-  async function runEnforced(call: (previous: EngineGameState) => Promise<GameEnforcementResult>): Promise<ActionResult> {
+  async function runEnforced(call: () => Promise<GameEnforcementResult>): Promise<ActionResult> {
     const guardError = writeGuardError()
     if (guardError) return { ok: false, error: guardError }
-    if (!gameState) return { ok: false, error: 'Game not loaded yet' } // unreachable — narrows for TS; writeGuardError() already proved this
-    const result = await call(gameState)
+    const result = await call()
     if (!result.ok) return result
     applyGameStateSnapshot({ state: result.state, version: result.version })
     return { ok: true, state: result.state }
@@ -1364,7 +1356,7 @@ export function GamePage() {
     setSubmitting(true)
     try {
       const result = game?.settings.ruleEnforcementEnabled
-        ? await runEnforced((previous) => applyActionEnforced(game.id, action, previous))
+        ? await runEnforced(() => applyActionEnforced(game.id, action))
         : await writeWithRetry((state) => applyAction(state, action, unitContent, achievementContent, boardGenerationContent, taleContent))
       setActionError(result.ok ? null : simpleError(result.error))
     } finally {
@@ -1482,7 +1474,7 @@ export function GamePage() {
       // ruleEnforcementEnabled: delegate to undo-action instead of replaying
       // client-side — same applyUndoAction, same walk-back, server-side.
       if (game.settings.ruleEnforcementEnabled) {
-        const result = await runEnforced((previous) => undoActionEnforced(game.id, previous))
+        const result = await runEnforced(() => undoActionEnforced(game.id))
         setActionError(result.ok ? null : simpleError(result.error))
         return
       }
@@ -1532,7 +1524,7 @@ export function GamePage() {
       // ruleEnforcementEnabled: delegate to redo-action instead of replaying
       // client-side — see handleUndo's matching branch above.
       if (game.settings.ruleEnforcementEnabled) {
-        const result = await runEnforced((previous) => redoActionEnforced(game.id, previous))
+        const result = await runEnforced(() => redoActionEnforced(game.id))
         setActionError(result.ok ? null : simpleError(result.error))
         return
       }

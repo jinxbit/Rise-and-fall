@@ -23,23 +23,20 @@
 // ordinary forward step from `state` like any other action, just with its
 // own owner-or-admin authorization instead of the usual per-seat one.
 //
-// The response is redacted the same way get-game-state's read is
+// The response's `state` is redacted the same way get-game-state's read is
 // (HIDDEN_INFORMATION_PLAN.md §8, issue #478) — the acting player's own
 // submission would otherwise be the easiest way to see every other player's
 // still-secret pick, since it hands back the very state the action just
-// produced. Since issue #648, it's also sent as a delta (a `statePatch`
-// against the pre-action state, the same shape get-game-state's own
-// `sinceActionIndex` response uses) rather than the whole thing — see
-// buildEnforcedActionResponseDelta (../_shared/gameEnforcement.ts).
+// produced. See redactedResponseState (../_shared/gameEnforcement.ts).
 import type { Action } from '../../../src/engine/actions.ts'
 import {
   applyActionFullyEnforced,
-  buildEnforcedActionResponseDelta,
   corsHeaders,
   getCallerUserId,
   isAuthorizedToActAs,
   jsonResponse,
   loadGameContext,
+  redactedResponseState,
   requiresOwnerOverride,
   serviceRoleClient,
   writeGameStateCAS,
@@ -121,8 +118,7 @@ Deno.serve(async (req) => {
     }
   }
 
-  const preState = ctx.gameState.state
-  const result = applyActionFullyEnforced(preState, action)
+  const result = applyActionFullyEnforced(ctx.gameState.state, action)
   if (!result.ok) return jsonResponse(400, { ok: false, error: result.error })
 
   const newVersion = await writeGameStateCAS(supabase, gameId, result.state, ctx.gameState.version)
@@ -130,12 +126,8 @@ Deno.serve(async (req) => {
     return jsonResponse(409, { ok: false, error: 'Game state changed concurrently — refetch and retry.' })
   }
 
-  // issue #478/#648: the response is redacted the same way get-game-state's
-  // read is, and — since #648 — sent as a patch against `preState` (the very
-  // state this write's compare-and-swap succeeded against, so it's exactly
-  // what the caller already holds) rather than the whole thing — see
-  // buildEnforcedActionResponseDelta (../_shared/gameEnforcement.ts). The CAS
-  // write above always persists the real, unredacted result.state regardless.
-  const delta = buildEnforcedActionResponseDelta(ctx, callerUserId, preState, result.state)
-  return jsonResponse(200, { ok: true, ...delta, version: newVersion })
+  // issue #478: the response is redacted the same way get-game-state's read
+  // is (redactedResponseState, ../_shared/gameEnforcement.ts) — the CAS write
+  // above always persists the real, unredacted result.state regardless.
+  return jsonResponse(200, { ok: true, state: redactedResponseState(ctx, callerUserId, result.state), version: newVersion })
 })

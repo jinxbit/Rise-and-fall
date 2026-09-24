@@ -6466,92 +6466,118 @@ store.
 `npm run lint`, `npm run test` (82 files / 1371 tests) and `npm run build`
 all pass.
 
-## 139. Bandwidth: patch `stateWithoutHistory` instead of resending it whole (issue #648)
+## 139. Reverted #648's state-patch delta — it doubled Edge Function latency
 
-Last of the #646/#647/#687/#688 bandwidth set. #647 (todo.md #126) made
-`actionHistory` — 60-70% of a raw `GameState`'s bytes — incremental via
-`sinceActionIndex`, but left the rest (`stateWithoutHistory`: board,
-achievements, resources, ...) sent in full on every request, even though it
-plateaus early (~move 40) and barely changes move to move after that.
-Measured against the three `productionGames` fixtures: patching it instead
-cuts per-request bytes 5.4× over doing nothing, on top of #647's own win.
+Issue #648 (`stateWithoutHistory` sent as a structural patch instead of in
+full, backed by a rolling `game_state_snapshots` buffer) landed as
+a0b334c/f8a8399 and is reverted here. Pre-production smoke went from passing
+in ~7 minutes to timing out against its 900s cap, twice in a row, on the same
+fixtures and the same action counts:
 
-The blocker in earlier queue runs on this issue was `HIDDEN_INFORMATION_PLAN.md`
-§5.3's dropped reveal high-water mark — diffing two states looked like it
-would need replaying history to reconstruct "the previous view" the same way
-§5.3 would have. It doesn't: `redactStateForPlayer` is a pure function of a
-*materialised* `GameState`, so the previous view just needs a materialised
-*earlier* `GameState` to call it against, not a replay. `0036_game_state_snapshots.sql`
-adds exactly that — a small rolling buffer (16 versions per game, service-
-role only) maintained by `writeGameStateCAS`
-(`supabase/functions/_shared/gameEnforcement.ts`) alongside every write, and
-seeded at genesis by `start-game`. Pruned automatically as new versions push
-old ones out, and dropped outright once a game's `status` reaches
-`'completed'` (no more writes ever coming, so nothing left to diff against).
+| smoke run | commit | `productionSmoke.smoke.ts` |
+| --- | --- | --- |
+| 93 | c4ff854 (before) | 405,938 ms, both games completed |
+| 94 | f8a8399 (#648) | timed out at 900,000 ms |
+| 95 | f8a8399 (#648) | timed out at 900,000 ms |
 
-New `src/engine/statePatch.ts`: a generic structural differ (`diffState`/
-`applyStatePatch`) — not RFC 6902 JSON Patch, since every diff here only ever
-runs between two views of the same `GameState`-shaped object for the same
-viewer, so a format that mirrors the source shape needs no path strings and
-is simpler to generate/apply correctly at the same size. `redaction.ts`
-extracts `collapseStateWithoutHistory` (the non-`actionHistory` half of
-`toClientGameState`'s collapse) and adds `buildRedactedGameStateDelta`/
-redefines `RedactedGameStateDelta`/`applyRedactedGameStateDelta` to carry a
-`statePatch` — computed over the *collapsed* (client-shape) view, since
-that's what a caller actually has cached to diff against — alongside #647's
-unchanged `actionHistoryAppend` machinery. Exactly one of `state`/`statePatch`
-is ever present; a fallback to plain `state` is always safe, never a leak,
-never more than one extra full response.
+Before the change the replay ran at ~888 ms/action (251 actions in 222,974
+ms) and ~858 ms/action for the 3-player game. After it, the first game
+completes and the second dies partway through. The exact post-change
+per-action figure isn't recoverable: the runner only prints per-game timings
+in its end-of-run summary, which never executes on a timeout.
 
-`get-game-state` needed one new request field: `baseVersion`, the actual
-`game_state.version` the caller's `previous` came from. It can't be derived
-from `sinceActionIndex` alone — a caller's own *safe* (post-`unredactedPrefix`)
-actionHistory length understates the raw version whenever some other
-player's pick was still masked from them as of `previous`, a real scenario
-this issue's own test suite caught as a genuine bug during implementation
-(a three-player selectCards phase where the caller's own next move landed
-one version off from the buffer's entry, producing a merge the client
-correctly rejected as inconsistent rather than silently applying it wrong).
-`respondWithState` now looks the buffered state up by `baseVersion` and
-*verifies* its own recomputed safe-prefix length still matches the caller's
-stated `sinceActionIndex` before trusting it as a diff base — any mismatch,
-same as an outright buffer miss, degrades to a plain `state` for that one
-request. `gameApi.ts`'s `getGameStateRedacted` gained a `previousVersion`
-parameter to carry this; `gameStateCache.ts`'s `loadCachedGameState` now
-returns `{state, version}` instead of bare `state` so issue #688's
-cross-session cache can supply it too.
+**Ruled out by measurement: the diff itself.** `statePatch.ts`'s `diffState`
+called `deepEqual` at every recursion level, so each subtree was re-walked
+once per ancestor — the obvious suspect. Benchmarked against real consecutive
+late-game states it costs **0.02 ms** per diff (a single-pass variant that
+drops the redundant `deepEqual` and lets "unchanged" fall out of the
+recursion measures 0.012 ms and produces byte-identical output). 20
+microseconds is not why a ~880 ms action got slower. Worth keeping in mind if
+this is attempted again: the diff is cheap, and optimising it is not the
+lever.
 
-`apply-action`/`undo-action`/`redo-action` needed no buffer at all — their
-own pre-write state is already in memory — so their response is *always* a
-patch now (`buildEnforcedActionResponseDelta`), not just on request, which
-closes a bigger gap than #647 ever touched: every move's own write response
-was still sending the *entire* state, full `actionHistory` included, on top
-of whatever the follow-up read fetched. `applyActionEnforced`/
-`undoActionEnforced`/`redoActionEnforced` gained a `previous` parameter
-(`GamePage.tsx`'s `runEnforced` now threads its own `gameState` through) to
-reconstruct against. Since this pair of endpoints had no existing opt-in
-request field the way `sinceActionIndex` gave the read path one, `gameApi.ts`
-additionally checks for the pre-#648 response shape
-(`'actionHistoryAppend' in result`) and collapses it the old way when seen —
-the one deploy-skew combination (an old browser tab, a freshly-redeployed
-function) this change newly has to tolerate that the read-side change,
-being opt-in from day one, already did.
+**The remaining suspect, inferred from structure rather than measured:**
+round trips. `writeGameStateCAS` went from one PostgREST call to three, all
+sequential and all awaited before the response returns — the `game_state`
+update, then `bufferGameStateSnapshot`'s insert, then its prune delete. Reads
+gained a fourth (`loadBufferedGameState`'s select). At a baseline that was
+already latency-dominated rather than CPU-dominated (~880 ms/action for work
+that is mostly waiting), tripling the write path's round trips lines up with
+roughly the observed slowdown. This was not confirmed against a live project
+— re-landing should measure it before assuming it.
 
-`src/test/supabaseStack/`, `src/test/productionSmoke/liveProject.ts` and
-`src/test/productionSmoke/hiddenInformationWire.ts` all talk to real Edge
-Function responses and needed matching updates: the stack's `invokeEnforced`
-now reads the pre-write state straight from the double's database
-(service role, via the same `loadGameContext`/`redactedResponseState` the
-functions themselves use) to reconstruct against, rather than assuming a
-full state came back; the wire-level leak check
-(`hiddenInformationWire.ts`'s `disclosedCardIds`) gained a structural
-patch-walker so it can still find a still-secret `cardId` wherever it might
-leak through `chosenCardIdByPlayerId`/`players[].declineCardIds`, now that
-those can arrive as a diff instead of a plain object.
+Two things a second attempt should probably start from. `bufferGameStateSnapshot`
+is already best-effort by its own doc comment ("non-fatal — the next delta
+request just falls back to a full fetch"), so work that is allowed to fail
+silently has no business blocking the response: `EdgeRuntime.waitUntil()`
+takes both added round trips off the critical path. And the prune does not
+need to run on every write — `version % SNAPSHOT_BUFFER_SIZE === 0` keeps the
+buffer bounded at ~2x target for one fewer call per action.
 
-`RULE_ENFORCEMENT_PLAN.md` §8 phase 8 and `HIDDEN_INFORMATION_PLAN.md` §5.3/
-§8 phase 8 record the protocol and that §5.3 stays dropped.
+`0036_game_state_snapshots.sql` is removed along with the rest. The first cut
+of this revert kept it, on the grounds that it is already applied on Preview
+and that deleting an applied migration is the history drift CLAUDE.md warns
+about (`audit-and-fix-migrations.yml` exists because it has bitten before).
+jinxbit's call was to drop and rebuild pre-production instead, which makes
+that concern moot: a Preview rebuilt from `supabase/migrations/` has no row
+for 0036 to drift against, and the repo keeps no migration for a table
+nothing references.
 
-`npm run lint`, `npm run test` and `npm run build` all pass. This migration
-(`0036_game_state_snapshots.sql`) needs a human read per CLAUDE.md — no
-automerge.
+This does mean **the revert is not safe to deploy to Preview on its own** —
+merging it without rebuilding leaves Preview holding a `game_state_snapshots`
+table and a `schema_migrations` row for a migration the repo no longer has.
+Rebuild first, or rebuild in the same window. Production is unaffected either
+way: it sits at c4ff854, never received 0036, and so has nothing to reconcile.
+
+#648 stays open for a rethink. #647 (incremental `actionHistory`) and #688
+(IndexedDB cache) are untouched and still in place — this reverts only the
+`stateWithoutHistory` patching layered on top. Production was never affected:
+it sits at c4ff854 and #648 never promoted past pre-production.
+
+## 140. A workflow for rebuilding pre-production from the migrations
+
+`.github/workflows/rebuild-preproduction.yml` plus
+`scripts/supabase/reset-project.sh`: drops pre-production's `public` schema,
+clears `supabase_migrations.schema_migrations`, re-applies every migration
+and redeploys the Edge Functions on top. Written for #139's situation — a
+migration applied on the project and then reverted out of the repository —
+but the general case is the same: pre-production accumulates state no
+migration describes (throwaway smoke users and rooms, hand-run SQL), and
+reconciling that by hand is how history drifts in the first place.
+`audit-and-fix-migrations.yml` exists because that has bitten before; this is
+the other way out, making the repo the only source of truth again.
+
+The reset runs over the Management API's query endpoint, the same mechanism
+`set-chat-enabled.sh` and `register-database-webhook.sh` already use, so it
+needs no database password and no direct network path to Postgres.
+
+**It cannot reach production, by construction and then by guard.**
+`environment:` is the literal string `Preview` and there is no environment
+input, so production is not expressible — unlike `deploy-supabase.yml` and
+`smoke.yml`, which need the choice and therefore lean on their guard alone.
+Behind that, the script refuses when the resolved ref equals
+`vars.PRODUCTION_SUPABASE_PROJECT_ID`, and refuses again when that variable is
+unset, treating a missing guard as a broken one — the 2026-09-09 reasoning,
+where an environment lacking its own `SUPABASE_PROJECT_ID` inherited
+production's.
+
+Three more things it does deliberately. `dry_run` defaults to **on**, so the
+first click reports the inventory and prints the SQL rather than destroying
+anything. The confirmation is a typed phrase, not a checkbox, because a
+checkbox is one mis-click. And it shares `concurrency: supabase-Preview` with
+deploy-supabase.yml's deploy job and smoke.yml, so a rebuild can never
+interleave with either.
+
+The verify step checks the two ways a reset fails quietly: migration count
+applied vs. `supabase/migrations/*.sql` on disk (if the history was not
+cleared, `db push` skips everything and leaves an empty schema), and at least
+one table in the `supabase_realtime` publication (the migrations re-add them
+idempotently, but if that ever stopped working the symptom would be
+smoke.yml's `hiddenInformationWire` check timing out — indistinguishable from
+the flake in #691 unless something checks here).
+
+What it does not restore: `profiles.is_admin`, which
+0017_admin_delete_any_game.sql grants by hand rather than by migration. The
+run summary prints the statement to paste. `auth.users` is left alone unless
+`wipe_auth_users` is ticked, since the `auth` schema is not in `public` and
+survives the drop.

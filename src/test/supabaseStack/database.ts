@@ -20,16 +20,7 @@ import type { StoredGameState } from '../../lib/gameStateCompression.ts'
 export type Row = Record<string, unknown>
 
 /** Only the tables the game write path touches, plus chat (0031_chat_messages.sql, 0032_chat_read_status.sql) — anything else is a loud 404 from ./postgrestServer.ts. */
-export type TableName =
-  | 'profiles'
-  | 'games'
-  | 'players'
-  | 'game_state'
-  | 'game_state_meta'
-  | 'game_state_snapshots'
-  | 'app_config'
-  | 'chat_messages'
-  | 'chat_read_status'
+export type TableName = 'profiles' | 'games' | 'players' | 'game_state' | 'game_state_meta' | 'app_config' | 'chat_messages' | 'chat_read_status'
 
 /**
  * Who a request runs as. `service_role` bypasses RLS entirely (Supabase's
@@ -94,7 +85,6 @@ const PRIMARY_KEY: Record<TableName, string> = {
   players: 'id',
   game_state: 'game_id',
   game_state_meta: 'game_id',
-  game_state_snapshots: 'id',
   app_config: 'id',
   chat_messages: 'id',
   chat_read_status: 'id',
@@ -109,7 +99,6 @@ export class Database {
     players: [],
     game_state: [],
     game_state_meta: [],
-    game_state_snapshots: [],
     // 0031_chat_messages.sql seeds exactly one row on migration; every fresh
     // stack starts post-migration, same as a real project would.
     app_config: [{ id: true, chat_enabled: false }],
@@ -119,9 +108,6 @@ export class Database {
 
   /** `generated always as identity` (0031_chat_messages.sql) — the next chat_messages.id. */
   private nextChatMessageId = 1
-
-  /** `generated always as identity` (0036_game_state_snapshots.sql) — the next game_state_snapshots.id. */
-  private nextSnapshotId = 1
 
   /** Direct, RLS-free access for arranging a test's starting fixture — the equivalent of seeding via `psql`, not via the API. */
   seed(table: TableName, row: Row): void {
@@ -195,13 +181,6 @@ export class Database {
         }
         return false
       }
-
-      // 0036_game_state_snapshots.sql: RLS enabled, no policies at all — every
-      // command is denied for `authenticated`/`anon` alike, same as any table
-      // in that state. Only the service-role client (the early return at the
-      // top of this method) ever touches it.
-      case 'game_state_snapshots':
-        return false
 
       // 0025_game_state_meta.sql: readable by the same audience as
       // game_state; never writable by `authenticated` — only the security
@@ -341,15 +320,6 @@ export class Database {
       if (this.rows[table].some((existing) => existing[key] === row[key])) {
         throw new DatabaseError(409, '23505', `duplicate key value violates unique constraint "${table}_pkey"`)
       }
-      // 0036_game_state_snapshots.sql's `unique (game_id, version)` — the
-      // table's actual key for this repo's purposes (see PRIMARY_KEY's own
-      // comment on why `id` is a surrogate rather than the composite key).
-      if (table === 'game_state_snapshots') {
-        const clash = this.rows.game_state_snapshots.some((existing) => existing.game_id === row.game_id && existing.version === row.version)
-        if (clash) {
-          throw new DatabaseError(409, '23505', 'duplicate key value violates unique constraint "game_state_snapshots_game_id_version_key"')
-        }
-      }
       // 0031_chat_messages.sql's `check (char_length(body) between 1 and
       // 2000)` — the one column CHECK constraint a test in this repo actually
       // needs modeled (everything else in this class-level comment's "not
@@ -439,7 +409,7 @@ export class Database {
    * ../productionSmoke/) would look like it worked while leaving orphans.
    */
   private cascadeFromGame(gameId: string): void {
-    for (const table of ['players', 'game_state', 'game_state_meta', 'game_state_snapshots', 'chat_messages', 'chat_read_status'] as const) {
+    for (const table of ['players', 'game_state', 'game_state_meta', 'chat_messages', 'chat_read_status'] as const) {
       this.rows[table] = this.rows[table].filter((row) => row.game_id !== gameId)
     }
   }
@@ -468,8 +438,6 @@ export class Database {
         return { id: this.nextChatMessageId++, game_id: null, created_at: now }
       case 'chat_read_status':
         return { id: globalThis.crypto.randomUUID(), last_read_id: 0, updated_at: now }
-      case 'game_state_snapshots':
-        return { id: this.nextSnapshotId++, created_at: now }
       default:
         return {}
     }

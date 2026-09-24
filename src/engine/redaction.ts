@@ -1,6 +1,5 @@
 import type { Action, ChooseCardAction, LoggedAction, MoveToDeclineAction, PurchaseCardAction, RetractDeclineAction } from './actions.ts'
 import { resolveHistory } from './historyFold.ts'
-import { applyStatePatch, diffState, type StatePatch } from './statePatch.ts'
 import type { GameEvent, GameState, Player } from './types.ts'
 
 /**
@@ -133,13 +132,7 @@ export type RedactedGameState = Omit<GameState, 'chosenCardIdByPlayerId' | 'play
  * is a display flicker on review, not a leak (the viewer's own client
  * already rendered the real value before the rewind), and dropping it is
  * what let `get-game-state` ship as a straight read of the live state
- * instead of needing a full engine replay to compute the mark, and stays
- * dropped: issue #648's `stateWithoutHistory` patch (`buildRedactedGameStateDelta`
- * below) diffs two *materialised* `GameState`s (the current one, and a
- * buffered earlier one — see `game_state_snapshots`,
- * `supabase/functions/_shared/gameEnforcement.ts`), calling this exact
- * function against each — no replay, and no revival of the high-water mark
- * it would have needed.
+ * instead of needing a full engine replay to compute the mark.
  */
 export function redactStateForPlayer(state: GameState, viewerId: string | null): RedactedGameState {
   const hideChosenCards = state.roundPhase === 'selectCards' && state.pendingPlayerIds.length > 0
@@ -252,120 +245,57 @@ export function revealedGameStateView(state: GameState): RedactedGameState {
  * choice there.
  */
 export function toClientGameState(redacted: RedactedGameState): GameState {
-  return { ...collapseStateWithoutHistory(redacted), actionHistory: unredactedPrefix(redacted.actionHistory) }
-}
-
-/**
- * `toClientGameState`'s collapse, minus the `actionHistory` handling — split
- * out (issue #648) because it's a pure function of `redacted`'s own
- * `chosenCardIdByPlayerId`/`players` fields alone, independent of
- * `actionHistory`'s separate merge-then-`unredactedPrefix` handling
- * (`buildRedactedGameStateDelta`/`applyRedactedGameStateDelta` below). That
- * independence is what lets a `stateWithoutHistory` patch be computed and
- * applied entirely separately from the actionHistory-append delta issue #647
- * already established, each diffing/merging only the part it owns.
- */
-function collapseStateWithoutHistory(redacted: Omit<RedactedGameState, 'actionHistory'>): Omit<GameState, 'actionHistory'> {
   const chosenCardIdByPlayerId: Record<string, string | null> = {}
   for (const [playerId, choice] of Object.entries(redacted.chosenCardIdByPlayerId)) {
     chosenCardIdByPlayerId[playerId] = choice.chosen ? choice.cardId : null
   }
   const players = redacted.players.map((player) => ({ ...player, declineCardIds: player.declineCardIds as string[] }))
-  return { ...redacted, chosenCardIdByPlayerId, players }
+  return { ...redacted, chosenCardIdByPlayerId, players, actionHistory: unredactedPrefix(redacted.actionHistory) }
 }
 
 /**
- * get-game-state/apply-action/undo-action/redo-action's incremental response
- * payload — two independent deltas bundled together, one per field group of
- * `RedactedGameState`, each carried the way that group is cheapest to
- * transmit:
- *
- * - `actionHistory` (issue #647): just the entries logged after
- *   `actionHistoryFrom`, since the safe-to-show prefix only ever grows (see
- *   `unredactedPrefix`'s own doc comment) — `actionHistoryAppend`/
- *   `actionHistoryLength` below.
- * - Everything else (issue #648): a structural patch (`../engine/statePatch.ts`)
- *   from the caller's own previously-applied `Omit<GameState,'actionHistory'>`
- *   to the current one, computed over the *collapsed* (client-shape) view —
- *   the same shape `toClientGameState`/`collapseStateWithoutHistory` produce
- *   — rather than the wire `RedactedGameState` shape, since that's what a
- *   caller actually has cached to diff against. `statePatch` is `null` when
- *   nothing in that half changed at all (a move that only appended to the
- *   log, e.g. an UNDO_ACTION that didn't change anything else visible to this
- *   viewer). `state` (the plain, un-patched value) is sent instead whenever
- *   there's no previous view to diff against — a read-path buffer miss (an
- *   older base version than `get-game-state`'s snapshot buffer covers, see
- *   its own doc comment) or the write-path's very first response for a game.
- *   Exactly one of `state`/`statePatch` is ever present.
- *
- * See `buildRedactedGameStateDelta` for the server-side builder and
- * `applyRedactedGameStateDelta` for the client-side inverse.
+ * get-game-state's incremental-fetch response payload (issue #647): the rest
+ * of a RedactedGameState, plus the actionHistory entries logged after
+ * `actionHistoryFrom` instead of the whole array — see that function's own
+ * doc comment for when it sends this instead of a plain RedactedGameState,
+ * and applyRedactedGameStateDelta below for the client-side inverse.
  */
-export type RedactedGameStateDelta = {
+export interface RedactedGameStateDelta {
+  state: Omit<RedactedGameState, 'actionHistory'>
   actionHistoryFrom: number
   actionHistoryAppend: RedactedLoggedAction[]
   actionHistoryLength: number
-} & ({ state: Omit<GameState, 'actionHistory'>; statePatch?: undefined } | { state?: undefined; statePatch: StatePatch })
-
-/**
- * Server-side builder for `RedactedGameStateDelta`, shared by
- * `get-game-state` (against a buffered previous `GameState`, or `null` on a
- * buffer miss) and `apply-action`/`undo-action`/`redo-action` (always
- * against the pre-write state they already hold in memory — see
- * `../../supabase/functions/_shared/gameEnforcement.ts`'s
- * `buildEnforcedActionResponseDelta`). `previousView`/`currentView` are both
- * already-redacted-for-this-viewer (`redactStateForPlayer`/
- * `revealedGameStateView`) — this only ever diffs two views for the *same*
- * viewer, never across viewers.
- */
-export function buildRedactedGameStateDelta(previousView: RedactedGameState | null, currentView: RedactedGameState, sinceActionIndex: number): RedactedGameStateDelta {
-  const safePrefixLength = unredactedPrefix(currentView.actionHistory).length
-  const actionHistoryAppend = currentView.actionHistory.slice(sinceActionIndex, safePrefixLength)
-  const currentWithoutHistory = collapseStateWithoutHistory(currentView)
-  const shared = { actionHistoryFrom: sinceActionIndex, actionHistoryAppend, actionHistoryLength: safePrefixLength }
-  if (!previousView) return { ...shared, state: currentWithoutHistory }
-  const statePatch = diffState(collapseStateWithoutHistory(previousView), currentWithoutHistory)
-  return { ...shared, statePatch }
 }
 
 /**
- * The client-side counterpart to `buildRedactedGameStateDelta`: reconstructs
- * the caller's next full `GameState` from `previous` (the `GameState` this
- * caller already applied — itself the result of a previous call to this same
- * function, `toClientGameState`, or a fresh genesis) plus `delta`.
+ * The client-side counterpart to get-game-state's incremental fetch (issue
+ * #647): reconstructs a full RedactedGameState by splicing `delta`'s new
+ * entries onto `previousActionHistory` — the caller's already-applied
+ * GameState.actionHistory (itself the safe prefix a previous toClientGameState
+ * call already produced) — rather than a fresh network response carrying the
+ * whole array again.
  *
- * Splices `delta.actionHistoryAppend` onto `previous.actionHistory` the same
- * way issue #647's version did, then runs `unredactedPrefix` over the merged
- * array — this is a lossless reconstruction of what a full fetch would have
- * returned, not an approximation, for the same reason issue #647's version
- * was: `unredactedPrefix`'s cut point only ever moves later as new entries
- * arrive, never earlier or in place, so `previous.actionHistory` is
- * guaranteed unchanged in the merge.
- *
- * Separately, reconstructs the rest of the state: `delta.state` verbatim, or
- * `applyStatePatch(previous-without-history, delta.statePatch)` — these two
- * halves (history, everything else) are independent (see
- * `RedactedGameStateDelta`'s own doc comment), so there's no ordering
- * dependency between them.
+ * This is a lossless reconstruction of what a full fetch would have returned,
+ * not an approximation: `unredactedPrefix`'s cut point only ever moves later
+ * as new entries arrive (see its own doc comment), never earlier or in place,
+ * so `previousActionHistory`'s entries are guaranteed unchanged in the merged
+ * array, and running toClientGameState's own unredactedPrefix call over the
+ * merge lands on the exact same length get-game-state computed server-side.
  *
  * Returns `null` — rather than guessing — when `delta` doesn't verify against
- * `previous`: `actionHistoryFrom` not matching `previous.actionHistory.length`
- * (a response for a different request than the one that produced `previous`),
- * or the merged array's length disagreeing with `actionHistoryLength` (any
- * other inconsistency). Cheap insurance against a stale cache, a race, or a
- * caller bug — every caller (gameApi.ts's getGameStateRedacted/
- * invokeGameFunction) falls back to an ordinary full fetch when this happens
- * rather than trust a possibly-wrong splice/patch.
+ * `previousActionHistory`: `actionHistoryFrom` not matching its length (a
+ * response for a different request than the one that produced
+ * `previousActionHistory`), or the merged array's length disagreeing with
+ * `actionHistoryLength` (any other inconsistency). Cheap insurance against a
+ * stale cache, a race, or a caller bug — gameApi.ts's getGameStateRedacted
+ * falls back to an ordinary full fetch when this happens rather than trust a
+ * possibly-wrong splice.
  */
-export function applyRedactedGameStateDelta(previous: GameState, delta: RedactedGameStateDelta): GameState | null {
-  if (delta.actionHistoryFrom !== previous.actionHistory.length) return null
-  const mergedHistory: RedactedLoggedAction[] = [...previous.actionHistory, ...delta.actionHistoryAppend]
-  if (mergedHistory.length !== delta.actionHistoryLength) return null
-  const actionHistory = unredactedPrefix(mergedHistory)
-
-  if (delta.state !== undefined) return { ...delta.state, actionHistory }
-  const { actionHistory: _previousActionHistory, ...previousWithoutHistory } = previous
-  return { ...applyStatePatch(previousWithoutHistory, delta.statePatch), actionHistory }
+export function applyRedactedGameStateDelta(previousActionHistory: LoggedAction[], delta: RedactedGameStateDelta): RedactedGameState | null {
+  if (delta.actionHistoryFrom !== previousActionHistory.length) return null
+  const actionHistory: RedactedLoggedAction[] = [...previousActionHistory, ...delta.actionHistoryAppend]
+  if (actionHistory.length !== delta.actionHistoryLength) return null
+  return { ...delta.state, actionHistory }
 }
 
 /**

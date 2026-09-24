@@ -309,120 +309,39 @@ interface WireStateLike {
   actionHistory?: { turn: number; action: { type: string; cardId?: string | null } }[]
 }
 
-/** The raw shape of a `src/engine/statePatch.ts` `StatePatchNode` on the wire — same "read structurally" reasoning as `WireStateLike` above. */
-interface WirePatchLike {
-  t: 'value' | 'object' | 'array'
-  v?: unknown
-  set?: Record<string, WirePatchLike>
-}
-
-/**
- * Every leaf value reachable by following `path` (object keys, stepping into
- * every element of an array along the way) through a structural patch —
- * `disclosedCardIdsFromPatch` below uses this to reach into
- * `chosenCardIdByPlayerId`/`players[].declineCardIds` the same way it would
- * read those fields off a plain object, without needing to know whether the
- * patch replaced that subtree wholesale (`t: 'value'`) or diffed into it
- * (`t: 'object'`/`t: 'array'`).
- */
-function leavesUnderPath(patch: WirePatchLike, path: string[]): unknown[] {
-  if (patch.t === 'value') {
-    // A whole-subtree replacement — walk `path` by plain property access,
-    // except that stepping past an array (as `players` is) applies the next
-    // key to every element instead of to the array itself.
-    let values: unknown[] = [patch.v]
-    for (const key of path) {
-      values = values.flatMap((v) => {
-        if (Array.isArray(v)) return v.map((el) => (el !== null && typeof el === 'object' ? (el as Record<string, unknown>)[key] : undefined))
-        if (v !== null && typeof v === 'object') return [(v as Record<string, unknown>)[key]]
-        return []
-      })
-    }
-    return values
-  }
-  if (path.length === 0) {
-    // Every leaf anywhere under this subtree, key-blind — used once `path`
-    // has been fully consumed (see the 'object'/'array' branches below).
-    return Object.values(patch.set ?? {}).flatMap((sub) => leavesUnderPath(sub, []))
-  }
-  const [head, ...rest] = path
-  if (patch.t === 'object') {
-    const sub = patch.set?.[head]
-    return sub ? leavesUnderPath(sub, rest) : []
-  }
-  // 'array': `head` (a numeric index as a string key in `patch.set`) doesn't
-  // name a step into this path — every element of `players` is a candidate,
-  // so `head` here is actually still meaningful only once we're one level
-  // further in ('declineCardIds'), which is why this branch re-applies the
-  // *original* `path`, not `rest`, to each element.
-  return Object.values(patch.set ?? {}).flatMap((sub) => leavesUnderPath(sub, path))
-}
-
-/** Recursively collects every string found anywhere within `value` — used on whatever `leavesUnderPath` above returns, since a `t: 'value'` replacement can hand back an arbitrarily-nested plain object/array rather than a single leaf. */
-function collectStrings(value: unknown, into: Set<string>): void {
-  if (typeof value === 'string') {
-    into.add(value)
-  } else if (Array.isArray(value)) {
-    for (const v of value) collectStrings(v, into)
-  } else if (value !== null && typeof value === 'object') {
-    for (const v of Object.values(value)) collectStrings(v, into)
-  }
-}
-
 /**
  * Every card id this response actually discloses through one of the three
  * places redactStateForPlayer (../../engine/redaction.ts) ever masks —
  * `chosenCardIdByPlayerId`, `players[].declineCardIds`, or a CHOOSE_CARD/
- * MOVE_TO_DECLINE `actionHistory`/`actionHistoryAppend` entry's own `cardId`.
- * Deliberately not a blind "does this string appear anywhere in the
- * response" scan: a card id is not itself secret (HIDDEN_INFORMATION_PLAN.md
- * §2 — hands, supply and discard are public, and `state.cards` lists every
- * card that exists) — only whether one of *these* fields ties a still-
- * pending pick to it is. A blind scan would find the acting seat's own
- * chosen card sitting in plain sight in its own (never-masked) hand/discard
- * and misreport it as a leak.
+ * MOVE_TO_DECLINE `actionHistory` entry's own `cardId`. Deliberately not a
+ * blind "does this string appear anywhere in the response" scan: a card id
+ * is not itself secret (HIDDEN_INFORMATION_PLAN.md §2 — hands, supply and
+ * discard are public, and `state.cards` lists every card that exists) —
+ * only whether one of *these* fields ties a still-pending pick to it is. A
+ * blind scan would find the acting seat's own chosen card sitting in plain
+ * sight in its own (never-masked) hand/discard and misreport it as a leak.
  *
- * Two response shapes reach here (see `RedactedGameStateDelta`,
- * ../../engine/redaction.ts): `get-game-state`'s plain full fetch (no
- * `sinceActionIndex` in this file's own calls) still nests `chosenCardIdByPlayerId`/
- * `players`/`actionHistory` under `state` exactly as before; `apply-action`'s
- * response (issue #648) is always a delta — `statePatch` against the
- * pre-action state, `actionHistoryAppend` alongside it rather than nested —
- * so `leavesUnderPath` walks into `statePatch` the same way plain property
- * access would walk into `state`. `actionHistory`'s own `entry.turn ===
- * state.turn` scoping (an old, already-resolved round's own CHOOSE_CARD
- * naming the same, no-longer-secret cardId, per the full-state branch below)
- * has no equivalent for `actionHistoryAppend`: that array is already scoped
- * to just the entries newly appended since the caller's last fetch — for
- * this file's own short-lived, freshly-provisioned rooms, that's tight
- * enough on its own.
+ * `actionHistory` is scoped to `entry.turn === state.turn`, exactly like
+ * redactStateForPlayer's own masking condition — a card cycles through
+ * hand/discard/supply many times over a real game, so an old, already-
+ * resolved round's own CHOOSE_CARD/MOVE_TO_DECLINE entry can legitimately
+ * name the very same cardId this phase is trying to keep secret, without
+ * that being a leak of anything.
  */
 function disclosedCardIds(response: RawWireResponse): Set<string> {
-  const body = response.body as { state?: WireStateLike; statePatch?: WirePatchLike; actionHistoryAppend?: WireStateLike['actionHistory'] }
+  const state = (response.body as { state?: WireStateLike }).state
   const disclosed = new Set<string>()
-
-  if (body.state) {
-    const state = body.state
-    for (const choice of Object.values(state.chosenCardIdByPlayerId ?? {})) {
-      if (choice.chosen && choice.cardId) disclosed.add(choice.cardId)
-    }
-    for (const player of state.players ?? []) {
-      for (const cardId of player.declineCardIds ?? []) {
-        if (cardId) disclosed.add(cardId)
-      }
-    }
-    for (const entry of state.actionHistory ?? []) {
-      if (entry.turn !== state.turn) continue
-      if ((entry.action.type === 'CHOOSE_CARD' || entry.action.type === 'MOVE_TO_DECLINE') && entry.action.cardId) {
-        disclosed.add(entry.action.cardId)
-      }
-    }
-  } else if (body.statePatch) {
-    for (const leaf of leavesUnderPath(body.statePatch, ['chosenCardIdByPlayerId'])) collectStrings(leaf, disclosed)
-    for (const leaf of leavesUnderPath(body.statePatch, ['players', 'declineCardIds'])) collectStrings(leaf, disclosed)
+  if (!state) return disclosed
+  for (const choice of Object.values(state.chosenCardIdByPlayerId ?? {})) {
+    if (choice.chosen && choice.cardId) disclosed.add(choice.cardId)
   }
-
-  for (const entry of body.actionHistoryAppend ?? []) {
+  for (const player of state.players ?? []) {
+    for (const cardId of player.declineCardIds ?? []) {
+      if (cardId) disclosed.add(cardId)
+    }
+  }
+  for (const entry of state.actionHistory ?? []) {
+    if (entry.turn !== state.turn) continue
     if ((entry.action.type === 'CHOOSE_CARD' || entry.action.type === 'MOVE_TO_DECLINE') && entry.action.cardId) {
       disclosed.add(entry.action.cardId)
     }
