@@ -24,7 +24,15 @@ import { resolveChatNotificationsEnabled } from './chatNotificationPreference'
 import { resolveUnitReserveDisplayMode, type UnitReserveDisplayMode } from './unitReserveDisplay'
 import type { Board, GameState as EngineGameState, GameStatus, PlayMode, RoundPhase } from '../engine/types'
 import type { Action } from '../engine/actions'
-import { applyRedactedGameStateDelta, toClientGameState, type RedactedGameState, type RedactedGameStateDelta } from '../engine/redaction'
+import { applyRedactedGameStateDelta, toClientGameState, type RedactedGameState, type RedactedGameStateDelta, type RedactedLoggedAction } from '../engine/redaction'
+import { extendReplay, replayActions } from '../engine/replay'
+import { applyInFlightOverlay, type InFlightOverlay } from '../engine/inFlightOverlay'
+import { hashGameStateView } from './gameStateHash'
+import type { LoggedAction } from '../engine/actions'
+import type { UnitContent } from '../engine/unitContent'
+import type { AchievementContent } from '../engine/achievementContent'
+import type { BoardGenerationContent } from '../engine/boardGenerationContent'
+import type { TaleContent } from '../engine/taleContent'
 
 /**
  * Reads a user's Discord webhook URL (supabase/migrations/0005_discord_webhooks.sql).
@@ -948,8 +956,36 @@ export function subscribeToGame(gameId: string, onChange: (game: GameRow) => voi
 }
 
 export interface GameStateSnapshot {
+  /** What to render: the viewer's full current view. */
   state: EngineGameState
+  /**
+   * What to cache and send back as the next delta's starting point: the state
+   * replayed up to the viewer's safe `actionHistory` prefix, *before* the
+   * in-flight overlay is laid over it (../engine/inFlightOverlay.ts).
+   *
+   * Never the same object as `state` when anything is masked, and that
+   * distinction is load-bearing: caching the rendered view instead would
+   * double-apply the overlay's effects the moment those actions became
+   * visible and entered the replay for real. Absent when this response could
+   * not produce one (no replay context, or a local replay that disagreed with
+   * the server), in which case the caller should not cache.
+   */
+  base?: EngineGameState
   version: number
+}
+
+/**
+ * Everything `getGameStateRedacted` needs to rebuild a state from actions
+ * rather than be handed one — supplied by GamePage.tsx, which already derives
+ * all of it for the game log and turn review. Absent means "speak the old
+ * protocol": the server keeps sending a materialised state.
+ */
+export interface DeltaReplayContext {
+  genesis: EngineGameState
+  unitContent: UnitContent
+  achievementContent: AchievementContent
+  boardGenerationContent: BoardGenerationContent
+  taleContent: TaleContent
 }
 
 /**
@@ -1082,23 +1118,88 @@ export async function getGameState(gameId: string): Promise<GameStateSnapshot | 
  * `previous`, or any other inconsistency) falls back to an ordinary full fetch
  * rather than risk assembling a wrong `actionHistory`.
  */
-export async function getGameStateRedacted(gameId: string, previous?: EngineGameState | null): Promise<GameStateSnapshot | null> {
+export async function getGameStateRedacted(
+  gameId: string,
+  previous?: EngineGameState | null,
+  replay?: DeltaReplayContext,
+): Promise<GameStateSnapshot | null> {
   const sinceActionIndex = previous ? previous.actionHistory.length : undefined
+  const protocol = replay ? 2 : undefined
   const { data, error } = await supabase.functions.invoke('get-game-state', {
-    body: sinceActionIndex === undefined ? { gameId } : { gameId, sinceActionIndex },
+    body: { gameId, ...(sinceActionIndex === undefined ? {} : { sinceActionIndex }), ...(protocol ? { protocol } : {}) },
   })
   if (error) return null
   const result = data as
-    | { ok: true; state: RedactedGameState; version: number }
+    | { ok: true; state: RedactedGameState; stateHash?: string; version: number }
     | ({ ok: true; version: number } & RedactedGameStateDelta)
+    | { ok: true; version: number; actionHistoryFrom: number; actionHistoryAppend: RedactedLoggedAction[]; actionHistoryLength: number; overlay?: InFlightOverlay; stateHash: string }
     | { ok: false; error: string }
   if (!result.ok) return null
-  if (!('actionHistoryAppend' in result)) {
-    return { state: toClientGameState(result.state), version: result.version }
+
+  // Protocol 2 (issue #648): no materialised state on the wire at all. Rebuild
+  // it from the actions, lay the overlay over what a replay cannot reach, and
+  // prove the answer matches the server's before trusting any of it.
+  if ('stateHash' in result && 'actionHistoryAppend' in result && replay && previous) {
+    if (result.actionHistoryFrom !== previous.actionHistory.length) return getGameStateRedacted(gameId, null, replay)
+    const content = [replay.unitContent, replay.achievementContent, replay.boardGenerationContent, replay.taleContent] as const
+    let base: EngineGameState
+    try {
+      base = extendReplay(replay.genesis, previous, result.actionHistoryAppend as unknown as LoggedAction[], ...content)
+    } catch {
+      // A client running an older engine than the server can fail to replay an
+      // action it does not understand. That is a cache miss, not an error.
+      return getGameStateRedacted(gameId, null, replay)
+    }
+    if (base.actionHistory.length !== result.actionHistoryLength) return getGameStateRedacted(gameId, null, replay)
+    const state = applyInFlightOverlay(base, result.overlay)
+    // The check the whole design rests on: if this client's engine disagrees
+    // with the server's — a stale PWA bundle after a rules change, which is
+    // normal here — the hashes differ and we pay for one full fetch instead of
+    // rendering a board that quietly disagrees with everyone else's.
+    if (hashGameStateView(state) !== result.stateHash) return getGameStateRedacted(gameId, null, replay)
+    return { state, base, version: result.version }
   }
+
+  if (!('actionHistoryAppend' in result)) {
+    const state = toClientGameState(result.state)
+    return { state, base: replay ? seedBase(state, replay) : undefined, version: result.version }
+  }
+  // A protocol-2 delta that reached here has no replay context to apply it
+  // with (only possible if `replay`/`previous` went missing between request
+  // and response) — there is no materialised state in it to fall back on, so
+  // ask for a full one.
+  if (!('state' in result)) return getGameStateRedacted(gameId, null, replay)
   const merged = applyRedactedGameStateDelta(previous!.actionHistory, result)
   if (!merged) return getGameStateRedacted(gameId)
   return { state: toClientGameState(merged), version: result.version }
+}
+
+/**
+ * Rebuilds the cacheable base from a full response, by replaying the viewer's
+ * safe prefix from genesis — the one place a full replay happens, and only
+ * because a full response hands over the *view*, which already has the
+ * overlay baked in and cannot be un-applied.
+ *
+ * Measured at 10-130ms for a completed game, which is fine for the cold start
+ * it belongs to and is why every other path extends incrementally instead.
+ * Returns undefined rather than throwing if the local engine can't reproduce
+ * the log: the caller simply doesn't cache, and the next read is another full
+ * fetch.
+ */
+function seedBase(view: EngineGameState, replay: DeltaReplayContext): EngineGameState | undefined {
+  try {
+    const rebuilt = replayActions(
+      replay.genesis,
+      view.actionHistory,
+      replay.unitContent,
+      replay.achievementContent,
+      replay.boardGenerationContent,
+      replay.taleContent,
+    )
+    return { ...rebuilt, actionHistory: view.actionHistory }
+  } catch {
+    return undefined
+  }
 }
 
 /**
@@ -1252,8 +1353,9 @@ export function subscribeToGameState(
   redacted = false,
   getAppliedVersion?: () => number | null,
   getAppliedState?: () => EngineGameState | null,
+  getReplayContext?: () => DeltaReplayContext | null,
 ): () => void {
-  const fetchState = () => (redacted ? getGameStateRedacted(gameId, getAppliedState?.()) : getGameState(gameId))
+  const fetchState = () => (redacted ? getGameStateRedacted(gameId, getAppliedState?.(), getReplayContext?.() ?? undefined) : getGameState(gameId))
   const channel = supabase
     .channel(`game_state:${gameId}`)
     .on(

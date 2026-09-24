@@ -25,7 +25,8 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import type { Action } from '../../engine/actions.ts'
 import { applyAction } from '../../engine/applyAction.ts'
 import { applyRedoAction, applyUndoAction } from '../../engine/undoRedo.ts'
-import { toClientGameState, type RedactedGameState, type RedactedGameStateDelta } from '../../engine/redaction.ts'
+import { toClientGameState, type RedactedGameState, type RedactedGameStateDelta, type RedactedLoggedAction } from '../../engine/redaction.ts'
+import type { InFlightOverlay } from '../../engine/inFlightOverlay.ts'
 import type { GameState } from '../../engine/types.ts'
 import type { GameRow, PlayerRow } from '../../lib/dbTypes.ts'
 import { decompressGameStateFromStorage, type StoredGameState } from '../../lib/gameStateCompression.ts'
@@ -58,6 +59,16 @@ export type GameStateReadResult = ({ ok: true; state: RedactedGameState; version
  * getGameStateRedacted, the only real caller of this shape.
  */
 export type GameStateDeltaReadResult = (({ ok: true; version: number } & RedactedGameStateDelta) | { ok: false; error: string }) & { status: number }
+
+/**
+ * get-game-state's protocol-2 delta (issue #648): no materialised state at
+ * all, just the actions the caller may replay, an overlay for what a replay
+ * cannot reach (src/engine/inFlightOverlay.ts) and a hash of the result.
+ */
+export type GameStateReplayDeltaReadResult = (
+  | { ok: true; version: number; actionHistoryFrom: number; actionHistoryAppend: RedactedLoggedAction[]; actionHistoryLength: number; overlay?: InFlightOverlay; stateHash: string }
+  | { ok: false; error: string }
+) & { status: number }
 
 /** start-game's response shape — no state/version to redact, unlike every other Edge Function here (see supabase/functions/start-game/index.ts). */
 export type StartGameCallResult = ({ ok: true } | { ok: false; error: string }) & { status: number }
@@ -105,6 +116,7 @@ export interface ProductionStack {
    * since it never sends `sinceActionIndex`, but still narrows the union with
    * a one-line assertion for TypeScript's sake — see getGameState.test.ts.
    */
+  getGameState(userId: string, gameId: string, sinceActionIndex: number | undefined, protocol: 2): Promise<GameStateReplayDeltaReadResult | GameStateReadResult>
   getGameState(userId: string, gameId: string, sinceActionIndex?: number): Promise<GameStateReadResult | GameStateDeltaReadResult>
   /** Submits `action` to the real apply-action Edge Function as `userId`, the way gameApi.ts's applyActionEnforced does. */
   applyAction(userId: string, gameId: string, action: Action): Promise<EnforcedCallResult>
@@ -377,12 +389,19 @@ export async function createProductionStack(): Promise<ProductionStack> {
       return { state: await decompressGameStateFromStorage(data.state as StoredGameState), version: data.version as number }
     },
 
-    getGameState: (userId, gameId, sinceActionIndex) =>
-      invoke<{ ok: true; state: RedactedGameState; version: number } | ({ ok: true; version: number } & RedactedGameStateDelta)>(
-        'get-game-state',
-        userId,
-        sinceActionIndex === undefined ? { gameId } : { gameId, sinceActionIndex },
-      ),
+    // Cast because the interface declares two overloads (a protocol-2 caller
+    // gets the replay-delta shape, everyone else the pre-#648 union) and a
+    // single implementation signature cannot satisfy both structurally.
+    getGameState: ((userId: string, gameId: string, sinceActionIndex?: number, protocol?: number) =>
+      invoke<
+        | { ok: true; state: RedactedGameState; stateHash?: string; version: number }
+        | ({ ok: true; version: number } & RedactedGameStateDelta)
+        | { ok: true; version: number; actionHistoryFrom: number; actionHistoryAppend: RedactedLoggedAction[]; actionHistoryLength: number; overlay?: InFlightOverlay; stateHash: string }
+      >('get-game-state', userId, {
+        gameId,
+        ...(sinceActionIndex === undefined ? {} : { sinceActionIndex }),
+        ...(protocol === undefined ? {} : { protocol }),
+      })) as ProductionStack['getGameState'],
     applyAction: (userId, gameId, action) => invokeEnforced('apply-action', userId, { gameId, action }),
     undoAction: (userId, gameId) => invokeEnforced('undo-action', userId, { gameId }),
     redoAction: (userId, gameId) => invokeEnforced('redo-action', userId, { gameId }),

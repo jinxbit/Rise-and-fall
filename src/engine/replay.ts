@@ -69,3 +69,54 @@ export function replayActions(
   }
   return { ...state, actionHistory: history }
 }
+
+/**
+ * Advances a state that was replayed up to `base.actionHistory` by the
+ * entries in `append`, for the delta read path (gameApi.ts's
+ * `getGameStateRedacted`, and ../inFlightOverlay.ts's story about why a
+ * client rebuilds state at all).
+ *
+ * Two things this gets right that a naive `append.forEach(applyAction)` does
+ * not, both load-bearing:
+ *
+ * 1. **Undo and redo are logged actions, not a splice** (see ./undoRedo.ts and
+ *    ./historyFold.ts). `resolveHistory` folds them, so an append carrying an
+ *    `UNDO_ACTION` changes which *earlier* actions are effective — it cannot be
+ *    applied incrementally on top of a state that already includes them.
+ *    Applying the raw log in order instead of the effective log is exactly how
+ *    this fails, and it fails loudly ("Not in the purchase phase") rather than
+ *    subtly. So: incremental only when the append is undo-free, and a full
+ *    rebuild from `genesis` otherwise. Undo is rare, so the cheap path is the
+ *    normal one.
+ * 2. **The log comes from the wire, not from the replay.** `applyAction`
+ *    stamps `new Date().toISOString()` on each entry it logs, so entries the
+ *    client reconstructs would carry its own clock instead of the server's.
+ *    The resulting `actionHistory` is therefore `base.actionHistory` plus
+ *    `append` verbatim — the server's entries, timestamps and all — rather
+ *    than whatever the local replay happened to log. Without this, every
+ *    client's log would drift from the server's by exactly the time it took to
+ *    deliver the response.
+ */
+export function extendReplay(
+  genesis: GameState,
+  base: GameState,
+  append: LoggedAction[],
+  unitContent: UnitContent = EMPTY_UNIT_CONTENT,
+  achievementContent: AchievementContent = EMPTY_ACHIEVEMENT_CONTENT,
+  boardGenerationContent: BoardGenerationContent = EMPTY_BOARD_GENERATION_CONTENT,
+  taleContent: TaleContent = EMPTY_TALE_CONTENT,
+): GameState {
+  const actionHistory = [...base.actionHistory, ...append]
+  const foldRequired = append.some((entry) => entry.action.type === 'UNDO_ACTION' || entry.action.type === 'REDO_ACTION')
+  if (foldRequired) {
+    const rebuilt = replayActions(genesis, actionHistory, unitContent, achievementContent, boardGenerationContent, taleContent)
+    return { ...rebuilt, actionHistory }
+  }
+  let state = base
+  for (const entry of append) {
+    const result = applyAction(state, entry.action, unitContent, achievementContent, boardGenerationContent, taleContent, true)
+    if (!result.ok) throw new Error(`Delta replay failed at ${JSON.stringify(entry.action)}: ${result.error}`)
+    state = result.state
+  }
+  return { ...state, actionHistory }
+}
