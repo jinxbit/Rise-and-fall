@@ -72,6 +72,33 @@ cannot survive that (the hotseat owner-override gap pinned in
 fails: a green tick that verified nothing is the worst shape a smoke test can
 take.
 
+## Hidden information is forced on
+
+None of the checked-in exports was played with
+`hiddenInformationEnabled`, so a replay of them used to reach the deployed
+Edge Functions' `revealedGameStateView` and never
+`redactStateForPlayer` — leaving the wire check below as the only live
+coverage of redaction. `runSmoke.ts` therefore provisions each room with
+`{ hiddenInformation: true }`, overriding whatever the export recorded.
+
+Nothing in `src/engine/` reads the flag (only `redaction.ts` does), so the
+game replays identically; it is reconciled in `fixtureForRoom` alongside
+`playMode`, for the same reason, rather than showing up as a divergence on
+every run.
+
+It does change one thing the replay depends on. With redaction live, an
+`apply-action` response is masked for the acting seat — truncated at
+`unredactedPrefix`, in-flight fields hidden — and
+`replayFixtureThroughStack` uses the response as its own copy of the state to
+decide whether the next logged entry is a stale forced follow-up. Both
+eligible fixtures genuinely fold entries (12 and 18), and measured against the
+in-process stack 37 of 462 responses come back materially redacted, so that is
+not theoretical. The replay therefore takes the state from `LiveRoom`'s
+service-role `readTrueState()` instead, once per action, for a redacted game
+only. That read is deliberately outside the `actionDurationsMs` window, which
+exists to catch a regression in the *round trip*; a target that can't supply
+it fails loudly rather than replaying against a state that isn't the game.
+
 ## Player ids are remapped
 
 A fixture's action history names the original room's `players.id` uuids, and

@@ -6940,3 +6940,58 @@ which would look exactly like the bug this fixes.
 because `gameApi.ts` imports `./supabase` and therefore throws at import time
 without env vars — nothing in the repo can test anything that lives there. That
 is the same reason #146's regression went unnoticed.
+
+## 148. Smoke replays a hidden-information game
+
+`hiddenInformationEnabled` was absent from all three checked-in exports, so
+`loadFixtures.ts` defaulted it to `false` and every fixture replay against a
+deployed project went through `revealedGameStateView`. Redaction's only live
+coverage was `hiddenInformationWire.ts` — one scripted three-seat room, one
+leak check, a couple of dozen actions. `redactStateForPlayer` itself, across a
+real game, was in-process-stack-only.
+
+`provisionLiveRoom` now takes `hiddenInformation`, and `runSmoke.ts` passes
+`true`. The override has to land on the row *before* `start-game` runs, since
+`gameEnforcement.ts`'s `shouldRedact` reads `state.hiddenInformationEnabled`
+and genesis copies it off the row — so it is applied both to the room's
+initial settings and to the resolved ones pinned afterwards. Left undefined,
+the fixture's own setting stands, which is what the preview seeder (a public
+game nobody should have to open through a redacted read) and the wire check
+(already `true`) both want.
+
+Nothing in `src/engine/` reads the flag — only `redaction.ts` does — so the
+game replays identically. It is reconciled in `fixtureForRoom` next to
+`playMode`, which is there for exactly the same reason.
+
+**The part that wasn't free.** `replayFixtureThroughStack` feeds each write
+response back in as its own copy of the state, and that copy is what
+`isStaleForcedFollowUp` dispatches against to decide whether today's engine
+has already folded the next logged entry in. Redacted, that state is truncated
+at `unredactedPrefix` with the in-flight fields masked — a different game. Not
+theoretical on either count: both eligible fixtures fold entries (12 and 18),
+and measured against the in-process stack 37 of 462 responses come back
+materially redacted (`chosenCardIdByPlayerId` in both games; `actionHistory`
+and `players` too in the three-player one, where the prefix actually lags).
+Carrying those forward would have skipped or submitted the wrong entries and
+surfaced as a mid-replay rejection blaming the wrong action.
+
+So `ReplayTarget` gained an optional `readTrueState()` — an unredacted
+service-role read, which `LiveRoom` already had under the name
+`readGameState()`. A separate member rather than a rename, because
+`ProductionStack.readGameState(userId, gameId)` reads as a *named actor* on
+purpose, to exercise RLS, and owns that name with a different signature. The
+replay uses it once per action for a redacted game only, deliberately outside
+the `actionDurationsMs` window — that ceiling exists to catch a regression in
+the round trip (#139) and shouldn't be measuring a row read. A hidden game
+replayed against a target with no `readTrueState` throws with the reason
+rather than silently mis-folding.
+
+The wire check was quietly fixed by the same change: it always provisioned a
+hidden room, so it had been feeding redacted responses into that fold check
+all along.
+
+Cost is one direct `game_state` read per action — no function boot — on a run
+that already makes ~500 function invocations. Still untouched: neither smoke
+file sends `protocol`/`sinceActionIndex`, so the protocol-2 delta path, the
+in-flight overlay and the hash check have no deployed coverage at all. That
+is a separate gap from this one.

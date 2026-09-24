@@ -51,7 +51,17 @@ export function fixtureForRoom(fixture: ProductionGameFixture, room: LiveRoom): 
   // and the enforcement path treats live and async identically, so this is the
   // one field the replay is expected to differ on — stated here rather than
   // left to surface as a mystery diff.
-  const finalState: GameState = { ...remapped.expectedFinalState, playMode: room.game.play_mode }
+  //
+  // `hiddenInformationEnabled` is the second such field, for the same reason:
+  // the room overrides it on (runProductionSmoke below), and no export has it
+  // set. Nothing in src/engine/ reads it — only redaction.ts does — so the
+  // game replays identically either way, and the flag is reconciled here
+  // rather than showing up as a divergence on every run.
+  const finalState: GameState = {
+    ...remapped.expectedFinalState,
+    playMode: room.game.play_mode,
+    hiddenInformationEnabled: Boolean(room.game.settings.hiddenInformationEnabled),
+  }
   return {
     ...fixture,
     game: room.game,
@@ -113,7 +123,14 @@ export async function runProductionSmoke(
 
     const startedAt = Date.now()
     log(`start ${fixture.name}: provisioning a room for ${fixture.finalState.players.length} throwaway players`)
-    const room = await provisionLiveRoom(config, fixture)
+    // Hidden information on, whatever the export recorded: none of the
+    // checked-in fixtures was played with it, so without this override the
+    // replay never reaches `redactStateForPlayer` against a deployed project
+    // and the only live coverage of redaction is ./hiddenInformationWire.ts's
+    // single leak check. With it, every one of this fixture's writes comes
+    // back redacted for the acting seat — which is why `LiveRoom` hands the
+    // replay `readTrueState` (../supabaseStack/replayFixture.ts).
+    const room = await provisionLiveRoom(config, fixture, { hiddenInformation: true })
     try {
       const roomFixture = fixtureForRoom(fixture, room)
 

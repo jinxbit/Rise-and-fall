@@ -21,6 +21,7 @@ import { loadProductionGameFixtures } from '../fixtures/productionGames/loadFixt
 import { createProductionStack, type ProductionStack } from '../supabaseStack/index.ts'
 import { provisionLiveRoom } from '../productionSmoke/liveProject.ts'
 import { runProductionSmoke } from '../productionSmoke/runSmoke.ts'
+import { replayFixtureThroughStack } from '../supabaseStack/replayFixture.ts'
 import type { CompressedGameState } from '../../lib/gameStateCompression.ts'
 
 const fixtures = await loadProductionGameFixtures()
@@ -100,6 +101,46 @@ describe('production smoke runner', () => {
     } finally {
       await room.teardown()
     }
+  }, 60_000)
+
+  it('hides in-progress information in the rooms it replays into', async () => {
+    const fixture = enforcedFixtures[0]
+    // No checked-in export was played with hidden information on, so without
+    // this override the replay never reaches redactStateForPlayer against a
+    // deployed project (runSmoke.ts passes the same thing).
+    expect(fixture.game.settings.hiddenInformationEnabled ?? false).toBe(false)
+
+    const room = await provisionLiveRoom(config(), fixture, { hiddenInformation: true })
+    try {
+      // It has to reach GameState, not just games.settings: gameEnforcement.ts's
+      // `shouldRedact` reads `state.hiddenInformationEnabled`, which start-game
+      // copies off the row at genesis.
+      expect(room.game.settings.hiddenInformationEnabled).toBe(true)
+      expect(room.genesis.hiddenInformationEnabled).toBe(true)
+
+      // And the room really is one 0028_hidden_information_rls_lockdown.sql
+      // covers: a seated player's own direct table read gets nothing, so
+      // every read and write has to go through the Edge Functions' redaction.
+      const seatUserId = room.players[0].user_id
+      expect(await stack.readGameState(seatUserId, room.game.id)).toBeNull()
+
+      // The service-role read the replay falls back to still works.
+      const trueState = await room.readTrueState()
+      expect(trueState?.state.hiddenInformationEnabled).toBe(true)
+    } finally {
+      await room.teardown()
+    }
+  }, 60_000)
+
+  it('refuses to replay a hidden-information game against a target that cannot read the true state', async () => {
+    const fixture = enforcedFixtures[0]
+    const hidden = { ...fixture, game: { ...fixture.game, settings: { ...fixture.game.settings, hiddenInformationEnabled: true } } }
+
+    // `stack` is a valid ReplayTarget but has no readTrueState — its own
+    // readGameState reads as a named actor, on purpose. Taking the redacted
+    // write responses as the replay's state would corrupt the
+    // stale-forced-follow-up check silently; this fails loudly instead.
+    await expect(replayFixtureThroughStack(stack, hidden)).rejects.toThrow(/readTrueState/)
   }, 60_000)
 
   it('tears the room down even when provisioning fails part-way', async () => {

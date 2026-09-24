@@ -81,6 +81,18 @@ export interface LiveRoom extends ReplayTarget {
   remapped: RemappedFixture
   readGameState(): Promise<{ state: GameState; version: number } | null>
   /**
+   * The same service-role read as `readGameState`, under the name
+   * ../supabaseStack/replayFixture.ts's `ReplayTarget` asks for it by. A
+   * replay has to keep its own copy of the *true* state to decide whether a
+   * logged entry is a stale forced follow-up, and for a
+   * `hiddenInformationEnabled` room the Edge Function response it would
+   * otherwise use is redacted for the acting seat. Kept as a separate member
+   * rather than renaming `readGameState`, because `ProductionStack`'s
+   * `readGameState(userId, gameId)` — which reads as a specific actor, on
+   * purpose — already owns that name with a different signature.
+   */
+  readTrueState(): Promise<{ state: GameState; version: number } | null>
+  /**
    * The signed-in client for one of this room's seats — the same one
    * `applyAction`/`undoAction`/`redoAction` invoke Edge Functions through.
    * Exposed for HIDDEN_INFORMATION_PLAN.md §8 phase 9's wire-level check
@@ -109,6 +121,17 @@ export interface LiveRoomOptions {
   visibility?: 'private' | 'public'
   /** Prefixes `games.name`, so a room's origin is legible in a room list. */
   namePrefix?: string
+  /**
+   * Overrides `games.settings.hiddenInformationEnabled` for this room,
+   * whatever the fixture recorded. The smoke runner sets it to `true`
+   * (../productionSmoke/runSmoke.ts): none of the checked-in exports was
+   * played with hidden information on, so without this the replay would
+   * never reach `redactStateForPlayer` on a deployed project and the only
+   * live coverage of redaction would be ./hiddenInformationWire.ts's single
+   * leak check. Left undefined — the default — the fixture's own setting
+   * stands, which is what the preview seeder and the wire check both want.
+   */
+  hiddenInformation?: boolean
 }
 
 /** A short, room-name-safe label — `games.name` is capped at 60 chars by 0012_room_name.sql. */
@@ -186,7 +209,12 @@ async function invokeStartGame(client: SupabaseClient, gameId: string): Promise<
  * rethrowing, so a broken run doesn't leave a room behind.
  */
 export async function provisionLiveRoom(config: LiveProjectConfig, fixture: ProductionGameFixture, options: LiveRoomOptions = {}): Promise<LiveRoom> {
-  const { visibility = 'private', namePrefix = '[smoke]' } = options
+  const { visibility = 'private', namePrefix = '[smoke]', hiddenInformation } = options
+  // Applied to both the room's initial settings and the resolved ones pinned
+  // before start-game, since genesis — and so `GameState.hiddenInformationEnabled`,
+  // which is what gameEnforcement.ts's `shouldRedact` actually reads — is
+  // built from the row as it stands at start.
+  const hiddenInformationOverride = hiddenInformation === undefined ? {} : { hiddenInformationEnabled: hiddenInformation }
   const admin = createClient(config.url, config.serviceRoleKey, { auth: { persistSession: false, autoRefreshToken: false } })
   const createdUserIds: string[] = []
   let gameId: string | null = null
@@ -240,7 +268,7 @@ export async function provisionLiveRoom(config: LiveProjectConfig, fixture: Prod
         created_by: ownerUserId,
         min_players: fixture.finalState.players.length,
         max_players: fixture.finalState.players.length,
-        settings: { ...fixture.game.settings, ruleEnforcementEnabled: true },
+        settings: { ...fixture.game.settings, ruleEnforcementEnabled: true, ...hiddenInformationOverride },
         visibility,
       })
       .select()
@@ -271,6 +299,7 @@ export async function provisionLiveRoom(config: LiveProjectConfig, fixture: Prod
       userIdByOriginalPlayerId,
     }
     const remapped = remapFixtureToRoom(fixture, identity)
+    const roomSettings = { ...remapped.settings, ...hiddenInformationOverride }
 
     // LobbyPage's resolve-then-persist step: whatever `buildGenesisState`
     // needs that isn't already on the row (a recovered preset board, a
@@ -278,7 +307,7 @@ export async function provisionLiveRoom(config: LiveProjectConfig, fixture: Prod
     // room's ids, so genesis is a deterministic function of the row alone.
     const { data: pinnedGame, error: settingsError } = await ownerClient
       .from('games')
-      .update({ settings: remapped.settings })
+      .update({ settings: roomSettings })
       .eq('id', gameId)
       .select('config_version')
       .single()
@@ -300,7 +329,7 @@ export async function provisionLiveRoom(config: LiveProjectConfig, fixture: Prod
       if (readyError) throw new Error(`Could not mark ${player.display_name} ready: ${readyError.message}`)
     }
 
-    const game: GameRow = { ...(gameRow as GameRow), settings: remapped.settings }
+    const game: GameRow = { ...(gameRow as GameRow), settings: roomSettings }
 
     // 0029_start_game_edge_function.sql: this room is always
     // ruleEnforcementEnabled (see the games.insert above), so genesis is no
@@ -329,6 +358,22 @@ export async function provisionLiveRoom(config: LiveProjectConfig, fixture: Prod
       return client
     }
 
+    // Ground truth for test assertions, not a simulation of any app read
+    // path (contrast supabaseStack's `readGameState(userId, ...)`, which
+    // deliberately reads as a specific actor to exercise RLS) — so this
+    // reads as the service role, bypassing RLS entirely. It has to: since
+    // 0028_hidden_information_rls_lockdown.sql (issue #488), even the seated
+    // `ownerClient` this used to read as gets nothing back for a
+    // hiddenInformationEnabled room, which — since the smoke runner passes
+    // `hiddenInformation: true` — is now every room this file provisions,
+    // not just the wire check's.
+    const readTrueState = async () => {
+      const { data, error } = await admin.from('game_state').select('state, version').eq('game_id', gameId).maybeSingle()
+      if (error) throw new Error(`Could not read the smoke room's state: ${error.message}`)
+      if (!data) return null
+      return { state: await decompressGameStateFromStorage(data.state as StoredGameState), version: data.version as number }
+    }
+
     return {
       game,
       players,
@@ -337,20 +382,8 @@ export async function provisionLiveRoom(config: LiveProjectConfig, fixture: Prod
       applyAction: (userId, _gameId, action: Action) => invoke(clientFor(userId), 'apply-action', { gameId, action }),
       undoAction: (userId) => invoke(clientFor(userId), 'undo-action', { gameId }),
       redoAction: (userId) => invoke(clientFor(userId), 'redo-action', { gameId }),
-      async readGameState() {
-        // Ground truth for test assertions, not a simulation of any app read
-        // path (contrast supabaseStack's `readGameState(userId, ...)`, which
-        // deliberately reads as a specific actor to exercise RLS) — so this
-        // reads as the service role, bypassing RLS entirely. It has to:
-        // since 0028_hidden_information_rls_lockdown.sql (issue #488), even
-        // the seated `ownerClient` this used to read as gets nothing back
-        // for a hiddenInformationEnabled room, which every room this file
-        // provisions for the wire check is.
-        const { data, error } = await admin.from('game_state').select('state, version').eq('game_id', gameId).maybeSingle()
-        if (error) throw new Error(`Could not read the smoke room's state: ${error.message}`)
-        if (!data) return null
-        return { state: await decompressGameStateFromStorage(data.state as StoredGameState), version: data.version as number }
-      },
+      readGameState: readTrueState,
+      readTrueState,
       clientFor,
       teardown,
     }

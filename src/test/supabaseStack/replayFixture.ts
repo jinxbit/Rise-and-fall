@@ -32,6 +32,14 @@ export interface ReplayTarget {
   applyActionClientTrusted?: ProductionStack['applyActionClientTrusted']
   undoActionClientTrusted?: ProductionStack['undoActionClientTrusted']
   redoActionClientTrusted?: ProductionStack['redoActionClientTrusted']
+  /**
+   * An unredacted read of the row, as the service role. Required only for a
+   * `hiddenInformationEnabled` game — see `trueStateAfter` below for why the
+   * write response can't stand in there. A live room supplies it
+   * (../productionSmoke/liveProject.ts); the in-process `ProductionStack`
+   * doesn't, because no fixture it replays directly hides anything.
+   */
+  readTrueState?(): Promise<{ state: GameState; version: number } | null>
 }
 
 export type LoggedEntry = GameState['actionHistory'][number]
@@ -116,6 +124,21 @@ function isStaleForcedFollowUp(state: GameState, entry: LoggedEntry, fixture: Pr
 }
 
 /**
+ * Does this game's write response come back redacted, so the replay can't use
+ * it as its own copy of the state?
+ *
+ * The same condition gameEnforcement.ts's `shouldRedact` applies, minus the
+ * admin escape hatch (no replay runs as an admin): a hidden-information game
+ * outside hotseat gets `redactStateForPlayer` for the acting seat, which
+ * truncates `actionHistory` at `unredactedPrefix` and masks the in-flight
+ * fields. `isStaleForcedFollowUp` dispatches against that state, so feeding
+ * it a redacted one would have it reasoning about a game that doesn't exist.
+ */
+function responsesAreRedacted(fixture: ProductionGameFixture): boolean {
+  return Boolean(fixture.game.settings.hiddenInformationEnabled) && fixture.game.play_mode !== 'hotseat'
+}
+
+/**
  * Submits every entry in order, failing with the action's position and the
  * server's own message the moment one is rejected — which is the useful half
  * of a failure here: "action 143/210, RESOLVE_UNIT_ACTION by seat-2, 400: ..."
@@ -127,6 +150,18 @@ export async function replayFixtureThroughStack(stack: ReplayTarget, fixture: Pr
   const actionDurationsMs: number[] = []
   let state = fixture.genesis
   let version = 0
+
+  // Both eligible checked-in fixtures genuinely fold entries (12 and 18), so
+  // this isn't a theoretical path: a redacted `state` here would silently
+  // skip or submit the wrong entries, and surface as a mid-replay rejection
+  // with a misleading message.
+  const needsTrueState = responsesAreRedacted(fixture)
+  if (needsTrueState && !stack.readTrueState) {
+    throw new Error(
+      `[${fixture.name}] hides in-progress information, so every write response is redacted for the acting seat — ` +
+        `this replay target must supply readTrueState() for the stale-follow-up check to have the real state to work from.`,
+    )
+  }
 
   for (const [index, entry] of history.entries()) {
     if (isStaleForcedFollowUp(state, entry, fixture)) {
@@ -145,7 +180,18 @@ export async function replayFixtureThroughStack(stack: ReplayTarget, fixture: Pr
     if (result.version !== version) {
       throw new Error(`[${fixture.name}] action ${index + 1}/${history.length} left game_state at version ${result.version}, expected ${version}.`)
     }
-    state = result.state
+    // One extra direct row read per action, and only for a redacted game —
+    // it costs no Edge Function boot, and it is deliberately outside the
+    // `actionDurationsMs` window above, which exists to catch a regression in
+    // the *round trip* (runSmoke.ts's ceiling, todo.md #139) and would
+    // otherwise be measuring this read too.
+    if (needsTrueState) {
+      const trueState = await stack.readTrueState!()
+      if (!trueState) throw new Error(`[${fixture.name}] the game_state row vanished after action ${index + 1}/${history.length}.`)
+      state = trueState.state
+    } else {
+      state = result.state
+    }
   }
   return { version, foldedEntryIndices, actionDurationsMs }
 }
