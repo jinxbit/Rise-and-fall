@@ -91,8 +91,28 @@ function phaseLabel(state: GameState): string {
 interface DatabaseWebhookPayload {
   type: string
   table: string
-  record: { game_id: string; state: GameState } | null
-  old_record: { game_id: string; state: GameState } | null
+  record: GameStateRow | null
+  old_record: GameStateRow | null
+}
+
+interface GameStateRow {
+  game_id: string
+  state: GameState
+  active_player_id: string | null
+}
+
+// The acting player during the turn-order `actions` phase, read from the
+// row's `active_player_id` column rather than `state.activePlayerId`. A
+// rule-enforced game stores `state` gzipped under `__gz` with only
+// status/roundPhase/turn/pendingPlayerIds/turnOrder/boardSetup duplicated
+// in plaintext (src/lib/gameStateCompression.ts) — `activePlayerId` isn't
+// one of them, so reading it off `state` saw `undefined` and silently sent
+// no ping for any action-phase turn in an enforced game, while the other
+// phases still pinged: the "intermittent" notifications. Both write paths
+// (gameApi.ts's writeGameState and gameEnforcement.ts's writeGameStateCAS)
+// keep the column in sync, so it's right for either encoding.
+function rowState(row: GameStateRow): GameState {
+  return { ...row.state, activePlayerId: row.active_player_id ?? row.state.activePlayerId ?? null }
 }
 
 interface PushSubscriptionRow {
@@ -187,8 +207,8 @@ Deno.serve(async (req) => {
     return handleGameFinished(supabase, payload.record.game_id)
   }
 
-  const wasPending = new Set(pendingActorIds(payload.old_record.state))
-  const nowPending = pendingActorIds(payload.record.state).filter((id) => !wasPending.has(id))
+  const wasPending = new Set(pendingActorIds(rowState(payload.old_record)))
+  const nowPending = pendingActorIds(rowState(payload.record)).filter((id) => !wasPending.has(id))
   if (nowPending.length === 0) {
     return new Response('no new pending players', { status: 200 })
   }

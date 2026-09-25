@@ -7049,3 +7049,26 @@ this file silently before, because nothing ever looked.
 Also one protocol-2 `get-game-state` per seat once the game is finished, so
 the read path's delta branch is covered and not only the three write
 endpoints.
+
+## 150. Turn pings skipped every action-phase turn in an enforced game
+
+Reported: Discord turn notifications "a bit intermittent". Nothing in the
+week before the report touched `notify-discord-turn` or `notify-web-push`
+(or the `game_state` storage they read); the cause is older and grew as
+games moved to rule enforcement (every UI-created game since #96 / issue
+#552).
+
+Both functions work out who is newly owed a turn from the Database Webhook's
+`record.state`/`old_record.state`. During the turn-order `actions` phase
+that is `state.activePlayerId` — but a rule-enforced game stores `state`
+gzipped under `__gz`, with only `status`/`roundPhase`/`turn`/
+`pendingPlayerIds`/`turnOrder`/`boardSetup` in plaintext
+(`gameStateCompression.ts`). `activePlayerId` read as `undefined`, so no
+action-phase turn in an enforced game ever pinged, while board setup and the
+simultaneous selectCards/decline/purchase phases (all plaintext fields) did.
+Client-trusted games were unaffected, which made it look intermittent.
+
+Fix: both functions read the acting player from the row's
+`active_player_id` column (`rowState()`), which both write paths already keep
+in sync, falling back to `state.activePlayerId`. No storage or migration
+change, and no change to the plaintext set.
