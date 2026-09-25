@@ -7147,3 +7147,39 @@ its own Nomad, Temple stealing an enemy unit, City creating a Nomad two hexes
 away) updated to expect the new `from`; the self-transform and adjacent-hex
 destroySelf-transform cases were already exercising the "no double arrow"
 paths and needed no changes.
+
+## 154. Temple UX: a cost badge on each convertible unit (issue #703)
+
+Temple's Convert Enemy Unit (and The Cathedral Tale's own convert companion
+action) varies its price by the target's kind — `ConvertEffect.
+costByTargetKind`, 2/3/5 gold for a Nomad/Mountaineer/Merchant-or-Ship (see
+`src/content/README.md`). Before this, the only cost preview a player saw was
+the radial action menu's own listed `effect.cost`, which for these actions is
+just the flat 0-gold placeholder `costByTargetKind` overrides — the real
+price only ever showed up as an error once an unaffordable target was
+clicked. There was also no per-unit indication at all once a target had
+narrowed the choice down to "which adjacent enemy is cheapest."
+
+`actionTargeting.ts`'s new `convertTargetCost(state, playerId, coord, effect,
+content)` resolves `effect.costByTargetKind?.[target.kind] ?? effect.cost`
+for whatever unit is actually standing on `coord` right now — the same
+one-line fallback `legalConvertTargets` and `applyConvert` (`unitActions.ts`)
+already each had inline, now available for a UI caller that has a coordinate
+but no unit to check affordability against. Negated the same way
+`computeActionOutcomePreview`'s cost entries are, so it drops straight into
+the existing resource-icon badge styling.
+
+`HexBoard.tsx`'s `UnitMarker` gains a `conversionCost?: Partial<Resources>`
+field, rendered through the exact same badge (icon + signed amount, one per
+resource) and the same overlap-avoiding label-position solver that
+`historyDelta` already used for history-review production/income amounts —
+the two are mutually exclusive (`historyDelta` only during review,
+`conversionCost` only live), so `computeHistoryLabelPositions` and its render
+pass now key off either one (`labelResourcesFor`).
+
+`RoundView.tsx` computes the coordinates to badge — `legalTargets` while
+picking a target for a selected convert action (`mode.kind === 'targeting'`),
+or the single already-picked `supportingTarget` while choosing support units
+for it (`mode.kind === 'supporting'`) — and calls `convertTargetCost` per
+convertible unit sitting on one of them, gated `!showHistory` alongside every
+other live-play-only marker on this same board.

@@ -417,6 +417,18 @@ export interface UnitMarker {
   historyHalos?: HistoryHaloType[]
   /** History-review overlay: a small tag near the marker for an income/produce/trade amount, rendered as one icon+amount badge per affected resource (see RESOURCE_ICONS) rather than text, e.g. a coin icon next to "+5" instead of "+5 Gold". */
   historyDelta?: Partial<Resources>
+  /**
+   * Live targeting overlay (issue #703): while the player is choosing among
+   * legalConvertTargets, the actual per-target price of converting this
+   * unit — from actionTargeting.ts's convertTargetCost, which resolves
+   * ConvertEffect.costByTargetKind for this unit's own kind rather than the
+   * action menu's flat `effect.cost` approximation. Renders with the exact
+   * same icon+amount badge as `historyDelta` (see the shared render pass
+   * below) since the two are mutually exclusive in practice: this only ever
+   * shows on a legal convert target during live play, `historyDelta` only
+   * during history review.
+   */
+  conversionCost?: Partial<Resources>
   /** Mirrors Unit.connectedNeighborCoords (see ../engine/types) — the two neighboring hexes this structure spans between, e.g. Bridge. Drawn as a marker on those two hex sides so it's visible which sides land units may cross onto/from. */
   connectedNeighborCoords?: [Coordinate, Coordinate]
   /**
@@ -662,16 +674,21 @@ export interface PlacementControls {
   onConfirm: () => void
 }
 
+/** The resource badge `computeHistoryLabelPositions`/its render pass owe this unit, if any — `historyDelta` and `conversionCost` are mutually exclusive in practice (see UnitMarker.conversionCost's doc comment), so whichever is set wins. */
+function labelResourcesFor(unit: UnitMarker): Partial<Resources> | undefined {
+  return unit.historyDelta ?? unit.conversionCost
+}
+
 /**
- * Top-left corner for each unit's history label (see UnitMarker.historyDelta),
- * keyed by that unit's index in `units` — normally centered just above the
- * unit's own hex, but a label is wider than the gap between adjacent hexes,
- * so two nearby labeled units would otherwise draw right on top of each
- * other. Each label greedily claims the first vertical "slot" (stacked
- * downward in `size`-scaled steps) that doesn't overlap a slot an
- * earlier-indexed unit already claimed at a similar x position — a simple,
- * deterministic layout, not a general solver, but enough to pull apart the
- * common case of two or three units near one another.
+ * Top-left corner for each unit's resource label (see UnitMarker.historyDelta
+ * and .conversionCost), keyed by that unit's index in `units` — normally
+ * centered just above the unit's own hex, but a label is wider than the gap
+ * between adjacent hexes, so two nearby labeled units would otherwise draw
+ * right on top of each other. Each label greedily claims the first vertical
+ * "slot" (stacked downward in `size`-scaled steps) that doesn't overlap a
+ * slot an earlier-indexed unit already claimed at a similar x position — a
+ * simple, deterministic layout, not a general solver, but enough to pull
+ * apart the common case of two or three units near one another.
  */
 function computeHistoryLabelPositions(units: UnitMarker[], size: number): Map<number, { x: number; y: number }> {
   const plateSize = size * 0.8
@@ -686,7 +703,8 @@ function computeHistoryLabelPositions(units: UnitMarker[], size: number): Map<nu
   const claimed: { x: number; y: number }[] = []
 
   units.forEach((unit, i) => {
-    if (!unit.historyDelta || RESOURCE_ORDER.every((key) => !unit.historyDelta![key])) return
+    const resources = labelResourcesFor(unit)
+    if (!resources || RESOURCE_ORDER.every((key) => !resources[key])) return
     const { x, y } = axialToPixel(unit.coord, size)
     // Centered horizontally on the unit's own hex rather than offset to one
     // side, so the label reads as belonging to that hex at a glance.
@@ -1296,7 +1314,8 @@ export function HexBoard(props: {
        * "label is sometimes not the top most element".
        */}
       {(props.units ?? []).map((unit, i) => {
-        if (!unit.historyDelta || !historyLabelPositions.has(i)) return null
+        const resources = labelResourcesFor(unit)
+        if (!resources || !historyLabelPositions.has(i)) return null
         const { x, y } = historyLabelPositions.get(i)!
         return (
           <foreignObject
@@ -1318,8 +1337,8 @@ export function HexBoard(props: {
               // already use safely.
               className="flex h-full w-full items-center justify-center gap-1 whitespace-nowrap rounded-md border border-neutral-700 bg-neutral-900/95 px-1.5 font-medium text-neutral-100"
             >
-              {RESOURCE_ORDER.filter((key) => unit.historyDelta![key]).map((key) => {
-                const amount = unit.historyDelta![key]!
+              {RESOURCE_ORDER.filter((key) => resources[key]).map((key) => {
+                const amount = resources[key]!
                 return (
                   <span key={key} className={`inline-flex items-center gap-0.5 font-bold ${RESOURCE_COLOR_CLASS[key]}`}>
                     <ResourceIcon resource={key} title={RESOURCE_LABEL[key]} className="h-[1em] w-[1em] shrink-0" />

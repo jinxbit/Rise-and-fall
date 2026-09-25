@@ -3,6 +3,7 @@ import {
   boostedStateForSupport,
   computeActionOutcomePreview,
   computeActionShortfall,
+  convertTargetCost,
   findSupportCandidates,
   isActionAvailableForUnit,
   isActionSupportable,
@@ -1688,6 +1689,21 @@ export function RoundView(props: {
   // what's already been picked, even though it's no longer "needed".
   const supportCandidateUnitIds = new Set([...supportingNeededCandidates.map((c) => c.unit.id), ...supportingSelectedIds])
   const historyByUnit = showHistory && turnReview ? summarizeUnitHistory(turnReview.events) : null
+  // Temple UX (issue #703): while the player is choosing (or has chosen, and
+  // is now picking support units for) a convert action's target, show the
+  // real per-target gold cost next to each convertible unit instead of
+  // leaving it a surprise — ConvertEffect.costByTargetKind means it isn't
+  // always the same as the flat cost the action-menu button itself previews.
+  // `legalTargets` only ever holds the *current* targetingAction's targets
+  // (see its definition above), so gating on convertCostEffect being convert
+  // is enough to know they're convert targets here too.
+  const convertCostEffect =
+    mode.kind === 'targeting' && targetingAction && targetingAction.effect.actionType === 'convert'
+      ? targetingAction.effect
+      : mode.kind === 'supporting' && supportingAction && supportingAction.effect.actionType === 'convert'
+        ? supportingAction.effect
+        : null
+  const convertCostCoords: Coordinate[] = mode.kind === 'supporting' && supportingTarget ? [supportingTarget] : legalTargets
   const units: UnitMarker[] = state.units.map((u) => {
     const history = historyByUnit?.get(u.id)
     // Card-zone lookup for the plate colour / "in decline" grey glyph
@@ -1730,6 +1746,10 @@ export function RoundView(props: {
       supportSelected: !showHistory && mode.kind === 'supporting' && supportingSelectedIds.includes(u.id),
       historyHalos: history?.halos,
       historyDelta: history && Object.keys(history.resourceDelta).length > 0 ? history.resourceDelta : undefined,
+      conversionCost:
+        !showHistory && convertCostEffect && myPlayerId && convertCostCoords.some((c) => c.q === u.coord.q && c.r === u.coord.r)
+          ? convertTargetCost(state, myPlayerId, u.coord, convertCostEffect, unitContent)
+          : undefined,
       connectedNeighborCoords: u.connectedNeighborCoords,
       cardState,
       declined: cardZone === 'decline',
