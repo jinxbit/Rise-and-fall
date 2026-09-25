@@ -7093,3 +7093,28 @@ entry per recipient with the Discord/push service's HTTP status (or
 and a trimmed error body on failure. Webhook URLs and push endpoints are
 never logged — both are capabilities; web push logs only the service's host.
 No behavior change beyond the logging: sends stay best-effort.
+
+## 152. Unit tests for who the turn pings notify
+
+Follow-up to #150/#151. The decision behind both turn pings — who a
+`game_state` UPDATE newly owes a turn — moved out of `notify-discord-turn`
+and `notify-web-push`, which each kept a hand-synced copy, into
+`supabase/functions/_shared/turnNotify.ts` (`newlyPendingActorIds`,
+`justFinished`, `phaseLabel`, `rowState`). It has no imports, so both the
+Edge Runtime and vitest load it as-is. Sharing it fixed one drift the copies
+already had: `notify-web-push`'s never learned "Build alone" mode's
+`builderId`, so it pushed the turn-order tile placer instead of the builder.
+
+`src/test/__tests__/turnNotify.test.ts` walks every state of every
+checked-in production game, stores each pair of states the way a webhook
+delivers them (compressed as the Edge Functions write it, and plain as a
+client-trusted write does, round-tripped through JSON with the
+`active_player_id` column), and requires the shared module to name exactly
+the players the engine's `pendingActorIds()` newly owes a turn. It also
+requires each game to contain at least one action-phase hand-off, so the
+#150 case is always covered. With #150's fix reverted it fails on all three
+games at the first action-phase hand-off (compressed rows only), plus a
+hand-built regression case.
+
+The live end-to-end check — a smoke run that plays an async game and reads
+the functions' #151 log lines — is filed as its own issue.

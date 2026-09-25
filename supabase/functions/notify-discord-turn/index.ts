@@ -33,84 +33,7 @@
 // a plain name in a webhook message doesn't actually notify anyone.
 
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2'
-
-// --- Pure turn-order logic, ported from src/engine/turnOrder.ts and
-// src/engine/boardSetup.ts (currentTilePlacerId/currentUnitPlacerId). Deno
-// Edge Functions run in an isolated runtime that can't import the app's
-// Vite-aliased TypeScript sources directly, so this is a deliberate,
-// minimal copy — keep it in sync if pendingActorIds()'s rules ever change.
-interface BoardSetupState {
-  tileTierQueue: unknown[]
-  tilePlacerIndex: number
-  unitsRemainingByPlayerId: Record<string, unknown[]>
-  unitPlacerIndex: number
-  /** "Build alone" map mode (GameSettings.soloBuildMap) — see src/engine/types.ts's BoardSetupState.builderId doc comment. */
-  builderId?: string | null
-}
-
-type RoundPhase = 'selectCards' | 'actions' | 'decline' | 'purchase'
-
-interface GameState {
-  status: 'lobby' | 'boardSetup' | 'active' | 'completed'
-  turnOrder: string[]
-  boardSetup: BoardSetupState | null
-  activePlayerId: string | null
-  pendingPlayerIds: string[]
-  /** Round number — increments each time a round finishes (see src/engine/round.ts). */
-  turn: number
-  roundPhase: RoundPhase
-}
-
-function currentTilePlacerId(state: GameState): string | null {
-  const boardSetup = state.boardSetup
-  if (state.status !== 'boardSetup' || !boardSetup || boardSetup.tileTierQueue.length === 0) return null
-  if (boardSetup.builderId) return boardSetup.builderId
-  if (state.turnOrder.length === 0) return null
-  return state.turnOrder[boardSetup.tilePlacerIndex % state.turnOrder.length]
-}
-
-function currentUnitPlacerId(state: GameState): string | null {
-  const boardSetup = state.boardSetup
-  if (state.status !== 'boardSetup' || !boardSetup || boardSetup.tileTierQueue.length > 0) return null
-  if (Object.keys(boardSetup.unitsRemainingByPlayerId).length === 0) return null
-  if (state.turnOrder.length === 0) return null
-  return state.turnOrder[boardSetup.unitPlacerIndex % state.turnOrder.length]
-}
-
-function pendingActorIds(state: GameState): string[] {
-  if (state.status === 'boardSetup') {
-    const id = currentTilePlacerId(state) ?? currentUnitPlacerId(state)
-    return id ? [id] : []
-  }
-  if (state.status === 'active') {
-    if (state.roundPhase === 'selectCards' || state.roundPhase === 'decline' || state.roundPhase === 'purchase') {
-      return state.pendingPlayerIds
-    }
-    return state.activePlayerId ? [state.activePlayerId] : []
-  }
-  return []
-}
-
-// A game_state UPDATE that moves the state to `completed` is the "game
-// finished" event. `status` is one of the fields gameStateCompression.ts
-// duplicates in plaintext alongside a rule-enforced game's gzipped state, so
-// this reads correctly on both write paths without decompressing anything.
-function justFinished(oldState: GameState, newState: GameState): boolean {
-  return oldState.status !== 'completed' && newState.status === 'completed'
-}
-
-// --- Human-readable phase label, mirrors src/lib/discordNotify.ts's ---
-const ROUND_PHASE_LABEL: Record<RoundPhase, string> = {
-  selectCards: 'select a card',
-  actions: 'take your action',
-  decline: 'decline a card',
-  purchase: 'make a purchase',
-}
-
-function phaseLabel(state: GameState): string {
-  if (state.status === 'boardSetup') return currentTilePlacerId(state) ? 'place a tile' : 'place a unit'
-  return ROUND_PHASE_LABEL[state.roundPhase]
-}
+import { type GameStateRow, justFinished, newlyPendingActorIds, phaseLabel } from '../_shared/turnNotify.ts'
 
 // --- Discord ---
 
@@ -251,26 +174,6 @@ interface DatabaseWebhookPayload {
   old_record: GameStateRow | null
 }
 
-interface GameStateRow {
-  game_id: string
-  state: GameState
-  active_player_id: string | null
-}
-
-// The acting player during the turn-order `actions` phase, read from the
-// row's `active_player_id` column rather than `state.activePlayerId`. A
-// rule-enforced game stores `state` gzipped under `__gz` with only
-// status/roundPhase/turn/pendingPlayerIds/turnOrder/boardSetup duplicated
-// in plaintext (src/lib/gameStateCompression.ts) — `activePlayerId` isn't
-// one of them, so reading it off `state` saw `undefined` and silently sent
-// no ping for any action-phase turn in an enforced game, while the other
-// phases still pinged: the "intermittent" notifications. Both write paths
-// (gameApi.ts's writeGameState and gameEnforcement.ts's writeGameStateCAS)
-// keep the column in sync, so it's right for either encoding.
-function rowState(row: GameStateRow): GameState {
-  return { ...row.state, activePlayerId: row.active_player_id ?? row.state.activePlayerId ?? null }
-}
-
 Deno.serve(async (req) => {
   const log: InvocationLog = {}
   let res: Response
@@ -304,8 +207,7 @@ async function handle(req: Request, log: InvocationLog): Promise<Response> {
     return handleGameFinished(supabase, payload.record.game_id, log)
   }
 
-  const wasPending = new Set(pendingActorIds(rowState(payload.old_record)))
-  const nowPending = pendingActorIds(rowState(payload.record)).filter((id) => !wasPending.has(id))
+  const nowPending = newlyPendingActorIds(payload.old_record, payload.record)
   log.nowPending = nowPending
   if (nowPending.length === 0) {
     return new Response('no new pending players', { status: 200 })
