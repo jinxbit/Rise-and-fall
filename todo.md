@@ -7118,3 +7118,64 @@ hand-built regression case.
 
 The live end-to-end check — a smoke run that plays an async game and reads
 the functions' #151 log lines — is filed as its own issue.
+
+## 153. Action latency: the client started replaying games from genesis
+
+Reported: actions feel considerably slower after the replay-delta work
+(#142-#147). The deployed round trip is not where it went. Smoke's
+ms/action has hovered between ~770 and ~1100 on both projects since #141
+started printing it (run 98 onward), with no step at any commit. Run 110's
+2020 ms/action for the three-player fixture (issue #700) was one production
+run; Preview at the same commit, 13 minutes earlier, did 771. What smoke
+does *not* time is the app's own main-thread work after a response. That is
+new, because a protocol-2 client rebuilds state rather than being handed
+one.
+
+Measured per update against the recorded games (Node, fast desktop; a phone
+is several times slower):
+
+| client work | 2-player games | 3-player game |
+| --- | --- | --- |
+| `extendReplay`, one entry | p50 0.15 ms | p50 0.11 ms |
+| `hashGameStateView` | ~0.9 ms | ~1.0 ms |
+| cache write (stringify + gzip) | ~2 ms | ~2 ms |
+| **replay from genesis** (`deriveBaseFromView`, or `extendReplay` over an undo/redo) | **~130 ms** | ~6 ms |
+
+The genesis replay was reached in two common places:
+
+- **The cache-save effect (#146) on every update of a game without redacted
+  reads**: every client-trusted game, and every enforced game with hidden
+  information off (all hotseat games). Nothing in those games ever produces a
+  `base`, so the effect replayed the whole game after every move and every
+  opponent move, only to write an IndexedDB entry that nothing reads back.
+  Only `getGameStateRedacted` consults the cache.
+- **Every undo/redo, on every client.** `extendReplay` has to fold undo from
+  genesis (#142's point 4).
+
+Almost all of the ~130 ms was the tile-setup search. A trusted replay still
+re-derives every forced tile placement folded into a log entry, so
+`findForcedPlacement` runs after each placement. It sorted every legal
+placement with `prioritizePlacements` (a flood fill per candidate) and only
+*then* applied its "more than 60 means not forced" cutoff. Early in a tier
+that is nearly every call.
+
+Fixes:
+
+1. `findForcedPlacement` checks the cap on the raw enumeration, which now
+   stops at 61 (`enumerateLegalPlacements`), and orders only what survives.
+   The enumeration is deterministic, and ordering only feeds the combo
+   search, so every answer is unchanged; the production-fixture replays
+   still reproduce every exported state. The enumeration also stops
+   re-rotating the shape once per anchor. Genesis replay: ~130 -> ~50 ms. It
+   is engine code, so the Edge Functions get it too (apply-action during
+   setup, and undo/redo's genesis rebuild).
+2. `GamePage.tsx`'s `applyGameStateSnapshot` treats a non-redacted snapshot
+   as its own base. Nothing is masked and there is no overlay, so the state
+   in hand *is* the base; a hash check still catches engine skew on the next
+   delta, as for any other base.
+3. The save effect skips games without redacted reads entirely.
+
+Not done: undo/redo still costs one genesis replay per client in a redacted
+game (~50 ms desktop now). Checkpointing a base per recent prefix would
+remove it, and the hash check would keep that safe, but it is more machinery
+than this fix.

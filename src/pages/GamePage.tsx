@@ -222,7 +222,9 @@ export function GamePage() {
    * cached, because the view has the overlay's effects already baked in and
    * would double-apply them once those actions became visible for real.
    * `null` whenever the last response could not produce one, which just means
-   * the next read is a full fetch.
+   * the next read is a full fetch. For a game without redacted reads
+   * (usesRedactedReads) it is simply the state itself — see
+   * applyGameStateSnapshot.
    */
   const latestBaseRef = useRef<EngineGameState | null>(null)
   /**
@@ -254,7 +256,12 @@ export function GamePage() {
     if (latestVersionRef.current !== null && snapshot.version <= latestVersionRef.current) return
     latestVersionRef.current = snapshot.version
     latestGameStateRef.current = snapshot.state
-    latestBaseRef.current = snapshot.base ?? null
+    // A game that never redacts hands out the true state on every path —
+    // nothing masked, no overlay — so the state *is* its own base. Replaying
+    // it from genesis instead (the save effect below) cost ~130ms of main
+    // thread per update for a 2-player game on a fast desktop, after every
+    // move and every opponent move, to reproduce the object already in hand.
+    latestBaseRef.current = snapshot.base ?? (game && !usesRedactedReads(game) ? snapshot.state : null)
     setGameState(snapshot.state)
     setVersion(snapshot.version)
   }
@@ -271,6 +278,10 @@ export function GamePage() {
    */
   useEffect(() => {
     if (!game || !session || !gameState || version === null) return
+    // Only a redacted read ever consults the cache (fetchGameState ignores
+    // `previous` otherwise), so for any other game this would be a
+    // stringify + gzip + IndexedDB write per update that nothing reads back.
+    if (!usesRedactedReads(game)) return
     // The base, not the rendered view — see latestBaseRef.
     //
     // Derived here when the last response couldn't produce one, which on a

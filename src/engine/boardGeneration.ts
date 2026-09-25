@@ -213,6 +213,18 @@ interface CandidatePlacement {
 
 /** Every distinct legal placement of `shapeCells` on `board` (deduped by covered cell-set — a symmetric shape can reach the same cells via more than one rotation/anchor pair), ordered by prioritizePlacements so the backtracking searches below (findDisjointCombos) tend to find a working combo well before exhausting their step budget. */
 function findAllLegalPlacements(board: Board, shapeCells: Coordinate[], placesOn: Terrain[]): CandidatePlacement[] {
+  return prioritizePlacements(board, enumerateLegalPlacements(board, shapeCells, placesOn), placesOn, shapeCells.length)
+}
+
+/**
+ * findAllLegalPlacements's enumeration, unordered, optionally stopping once
+ * `stopAfter` distinct placements have been found. The enumeration order is
+ * deterministic, so the first `stopAfter` found are always the same ones —
+ * findForcedPlacement uses this to learn "more than 60" without paying for
+ * the rest of the enumeration or for prioritizePlacements's ordering, which
+ * together were most of a trusted replay's board-setup cost.
+ */
+function enumerateLegalPlacements(board: Board, shapeCells: Coordinate[], placesOn: Terrain[], stopAfter = Infinity): CandidatePlacement[] {
   const candidateHexes = Object.values(board.tiles).filter((tile) => placesOn.includes(tile.terrain))
   const seen = new Set<string>()
   const placements: CandidatePlacement[] = []
@@ -222,16 +234,19 @@ function findAllLegalPlacements(board: Board, shapeCells: Coordinate[], placesOn
     for (const hex of candidateHexes) {
       for (const localCell of rotatedCells) {
         const anchor: Coordinate = { q: hex.coord.q - localCell.q, r: hex.coord.r - localCell.r }
-        const cells = placedShapeCells(shapeCells, anchor, rotation)
+        // placedShapeCells(shapeCells, anchor, rotation), without re-rotating
+        // the shape for every anchor.
+        const cells = rotatedCells.map((c) => ({ q: c.q + anchor.q, r: c.r + anchor.r }))
         if (!isLegalTilePlacement(board, cells, placesOn)) continue
         const key = cells.map(coordKey).sort().join('|')
         if (seen.has(key)) continue
         seen.add(key)
         placements.push({ cells, anchor, rotationSteps: rotation })
+        if (placements.length >= stopAfter) return placements
       }
     }
   }
-  return prioritizePlacements(board, placements, placesOn, shapeCells.length)
+  return placements
 }
 
 /**
@@ -443,6 +458,9 @@ export function canPlaceRemainingTilesDetailed(
   return { ran: true, legal: combos.length > 0, stepsUsed, stepBudget: COMBO_SEARCH_STEP_BUDGET, budgetReached, elapsedMs }
 }
 
+/** findForcedPlacement's cap on distinct legal placements — see its doc comment. */
+const FORCED_PLACEMENT_CAP = 60
+
 /**
  * A legal placement guaranteed to be part of it if and only if there is
  * exactly one way left to place all `count` of this tier's remaining tiles
@@ -475,8 +493,14 @@ export function findForcedPlacement(
 ): { anchor: Coordinate; rotationSteps: number } | null {
   if (placesOn === null || count <= 0) return null
 
-  const placements = findAllLegalPlacements(board, shapeCells, placesOn)
-  if (placements.length > 60) return null
+  // The cap is checked on the raw enumeration, before ordering: ordering
+  // only matters to the combo search below, and early in a tier — where
+  // there are almost always more than 60 placements — the ordering was
+  // computed and then thrown away on every call, including every trusted
+  // replay step. Same answer either way; see enumerateLegalPlacements.
+  const unordered = enumerateLegalPlacements(board, shapeCells, placesOn, FORCED_PLACEMENT_CAP + 1)
+  if (unordered.length > FORCED_PLACEMENT_CAP) return null
+  const placements = prioritizePlacements(board, unordered, placesOn, shapeCells.length)
 
   const { combos } = findDisjointCombos(placements, count, 2)
   if (combos.length !== 1) return null
