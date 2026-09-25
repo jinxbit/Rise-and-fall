@@ -444,6 +444,15 @@ describe('HexBoard — history-review labels', () => {
     const { container } = render(<HexBoard board={makeBoard()} units={units} />)
     expect(container.querySelectorAll('foreignObject')).toHaveLength(0)
   })
+
+  it("renders a unit's conversionCost with the same icon+amount badge as historyDelta (issue #703's per-target convert cost indicator)", () => {
+    const units: UnitMarker[] = [{ coord: { q: 0, r: 0 }, color: '#ef4444', kind: 'nomad', conversionCost: { gold: -2 } }]
+    const { container } = render(<HexBoard board={makeBoard()} units={units} />)
+
+    const label = container.querySelector('foreignObject')!
+    expect(label.querySelectorAll('svg')).toHaveLength(1)
+    expect(label.textContent).toContain('-2')
+  })
 })
 
 describe('HexBoard — territory control overlay', () => {

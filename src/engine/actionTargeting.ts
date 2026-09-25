@@ -128,6 +128,27 @@ export function legalConvertTargets(state: GameState, playerId: string, unit: Un
 }
 
 /**
+ * The actual resource cost of converting the unit sitting on `coord` right
+ * now, honoring ConvertEffect.costByTargetKind (see its doc comment) —
+ * negated the same way computeActionOutcomePreview's cost entries are, so
+ * this drops straight into the same badge rendering (UnitMarker.
+ * conversionCost, ../components/HexBoard.tsx). Exists because
+ * computeActionOutcomePreview's own 'convert' case can only show
+ * `effect.cost` as an approximation (issue #703): it runs before the player
+ * has picked a target, so it can't know the target's kind yet. RoundView
+ * calls this once a target IS known — while the player is choosing among
+ * legalConvertTargets — to show the real per-target price next to each
+ * convertible unit instead. Undefined wherever legalConvertTargets would
+ * already exclude `coord` (no target there at all), same convention as
+ * computeActionOutcomePreview.
+ */
+export function convertTargetCost(state: GameState, playerId: string, coord: Coordinate, effect: ConvertEffect, content: UnitContent): Partial<Resources> | undefined {
+  const target = findConvertTarget(state, playerId, coord, effect, content)
+  if (!target) return undefined
+  return negatedCost(effect.costByTargetKind?.[target.kind] ?? effect.cost)
+}
+
+/**
  * Whether `unit` could actually perform `action` right now — used to
  * disable options in the radial action menu (see ActionMenuOption in
  * ../components/HexBoard.tsx) before the player even picks one, so a

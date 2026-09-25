@@ -1885,6 +1885,82 @@ describe("RoundView — City's Convert to Merchant/Mountaineer (bug report: \"no
   })
 })
 
+describe("RoundView — Temple's Convert Enemy Unit cost badge (issue #703: show the real per-target cost, not just the flat menu preview)", () => {
+  it('shows the resolved costByTargetKind gold cost next to the enemy Nomad once Convert Enemy Unit is selected', () => {
+    const content = buildRealUnitContent()
+    const board = setTile(setTile(createEmptyBoard('hex'), { q: 0, r: 0 }, 'plain'), { q: 1, r: 0 }, 'plain')
+    const temple: Unit = { id: 'temple1', ownerId: 'p1', kind: 'temple', coord: { q: 0, r: 0 }, movement: content.movementByKind.temple, traits: [] }
+    const enemyNomad: Unit = { id: 'nomad1', ownerId: 'p2', kind: 'nomad', coord: { q: 1, r: 0 }, movement: content.movementByKind.nomad, traits: [] }
+
+    const lobby = createNewGame({
+      gameId: 'g',
+      playMode: 'hotseat',
+      board,
+      players: [
+        { id: 'p1', authUserId: null, displayName: 'Alice', color: 'red' },
+        { id: 'p2', authUserId: null, displayName: 'Bob', color: 'blue' },
+      ],
+      resourceBank: { gold: 100, wood: 100, stone: 100 },
+    })
+    // Same single-player-turnOrder shape as the City/Convert scenario above —
+    // this test only exercises p1's own Temple, p2 never takes a turn.
+    let active: GameState = {
+      ...lobby,
+      board,
+      units: [temple, enemyNomad],
+      status: 'active',
+      turnOrder: ['p1'],
+      players: lobby.players.map((p) => (p.id === 'p2' ? { ...p, eliminated: true } : p)),
+    }
+    active = { ...active, players: active.players.map((p) => (p.id === 'p1' ? { ...p, resources: { gold: 5, wood: 5, stone: 5 } } : p)) }
+    const selecting = beginSelectCardsPhase(syncCardZonesWithBoard(active))
+    const chosen = applyAction(selecting, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'temple') }, content)
+    if (!chosen.ok) throw new Error('setup failed: ' + chosen.error)
+
+    const players: PlayerRow[] = [
+      { id: 'p1', game_id: 'g', user_id: 'p1', display_name: 'Alice', avatar_url: null, seat_index: 0, color: '#ef4444', is_active: true, joined_at: '', ready_for_version: 0 },
+      { id: 'p2', game_id: 'g', user_id: 'p2', display_name: 'Bob', avatar_url: null, seat_index: 1, color: '#3b82f6', is_active: true, joined_at: '', ready_for_version: 0 },
+    ]
+
+    const { container } = render(
+      <RoundView
+        state={chosen.state}
+        players={players}
+        myPlayerId="p1"
+        unitContent={content}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
+        turnReview={null}
+        showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
+        gameLog={[]}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+
+    const boardSvg = container.querySelector('svg.bg-neutral-950')!
+    const basePolygons = boardSvg.querySelectorAll(':scope > polygon')
+    fireEvent.click(basePolygons[0])
+
+    const convertOption = [...container.querySelectorAll('foreignObject div')].find((d) => d.textContent?.startsWith('Convert Enemy Unit'))
+    expect(convertOption).toBeTruthy()
+    fireEvent.click(convertOption!)
+
+    // Temple's flat listed cost is 0 — the badge only appears once a real
+    // per-target price (costByTargetKind.nomad, 2 gold) can be resolved.
+    const badge = [...container.querySelectorAll('foreignObject')].find((el) => el.textContent?.includes('-2'))
+    expect(badge).toBeTruthy()
+  })
+})
+
 describe('RoundView — cheat mode "move anywhere" (issue #430, admin testing aid)', () => {
   function renderCheatScenario(cheatModeEnabled: boolean | undefined, onResolveUnit: (unitId: string, actionId: string, target?: { q: number; r: number }) => void) {
     const content = buildRealUnitContent()

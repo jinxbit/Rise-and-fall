@@ -3,6 +3,7 @@ import {
   boostedStateForSupport,
   computeActionOutcomePreview,
   computeActionShortfall,
+  convertTargetCost,
   findSupportCandidates,
   isActionAvailableForUnit,
   isActionSupportable,
@@ -430,6 +431,54 @@ describe('legalConvertTargets', () => {
 
     // 3 gold affords the Nomad (2) but not the Ship (5) — only the Nomad's hex is legal.
     expect(legalConvertTargets(state, 'p1', unit, effectWithVaryingCost, content)).toEqual([{ q: 1, r: 0 }])
+  })
+})
+
+describe('convertTargetCost', () => {
+  it("resolves costByTargetKind for the unit actually standing on the given hex, negated the same way computeActionOutcomePreview's cost entries are (issue #703's per-target cost badge)", () => {
+    const effect: ConvertEffect = {
+      actionType: 'convert',
+      targetHex: { location: 'adj' },
+      targetOwner: 'enemy',
+      targetMobileOnly: true,
+      cost: { gold: 999 },
+      costByTargetKind: { nomad: { gold: 2 }, ship: { gold: 5 } },
+    }
+    const content: UnitContent = {
+      ...emptyContent,
+      movementByKind: {
+        nomad: { isMobile: true, terrains: [], canCrossCliffs: false },
+        ship: { isMobile: true, terrains: ['water'], canCrossCliffs: false },
+      },
+    }
+    const board = boardOf([[0, 0, 'plain'], [1, 0, 'plain'], [-1, 0, 'plain']])
+    const unit = makeUnit('p1', 'temple', { q: 0, r: 0 })
+    const enemyNomad = makeUnit('p2', 'nomad', { q: 1, r: 0 }, { isMobile: true })
+    const enemyShip = makeUnit('p2', 'ship', { q: -1, r: 0 }, { isMobile: true })
+    const state = makeState({ board, units: [unit, enemyNomad, enemyShip], players: [makePlayer('p1'), makePlayer('p2')] })
+
+    expect(convertTargetCost(state, 'p1', { q: 1, r: 0 }, effect, content)).toEqual({ gold: -2 })
+    expect(convertTargetCost(state, 'p1', { q: -1, r: 0 }, effect, content)).toEqual({ gold: -5 })
+  })
+
+  it('falls back to the flat cost for a target kind with no override', () => {
+    const effect: ConvertEffect = { actionType: 'convert', targetHex: { location: 'adj' }, targetOwner: 'enemy', targetMobileOnly: true, cost: { gold: 3 } }
+    const board = boardOf([[0, 0, 'plain'], [1, 0, 'plain']])
+    const unit = makeUnit('p1', 'temple', { q: 0, r: 0 })
+    const enemy = makeUnit('p2', 'nomad', { q: 1, r: 0 }, { isMobile: true })
+    const state = makeState({ board, units: [unit, enemy], players: [makePlayer('p1'), makePlayer('p2')] })
+    const content: UnitContent = { ...emptyContent, movementByKind: { nomad: { isMobile: true, terrains: [], canCrossCliffs: false } } }
+
+    expect(convertTargetCost(state, 'p1', { q: 1, r: 0 }, effect, content)).toEqual({ gold: -3 })
+  })
+
+  it('is undefined where there is no legal convert target at all', () => {
+    const effect: ConvertEffect = { actionType: 'convert', targetHex: { location: 'adj' }, targetOwner: 'enemy', targetMobileOnly: true, cost: { gold: 3 } }
+    const board = boardOf([[0, 0, 'plain'], [1, 0, 'plain']])
+    const unit = makeUnit('p1', 'temple', { q: 0, r: 0 })
+    const state = makeState({ board, units: [unit], players: [makePlayer('p1')] })
+
+    expect(convertTargetCost(state, 'p1', { q: 1, r: 0 }, effect, emptyContent)).toBeUndefined()
   })
 })
 
