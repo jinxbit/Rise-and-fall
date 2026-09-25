@@ -158,16 +158,56 @@ function discordUserIdFromIdentities(identities: { provider: string; id: string 
   return identities?.find((identity) => identity.provider === 'discord')?.id ?? null
 }
 
-async function sendDiscordNotification(webhookUrl: string, content: string): Promise<void> {
+// --- Logging ---
+//
+// One JSON line per invocation (evt: 'notify_discord_turn', written by the
+// Deno.serve wrapper below), in the same shape as gameEnforcement.ts's
+// state_response line, so the Edge Function logs say what each call decided
+// and what Discord answered. Before this the function logged nothing: a
+// skipped ping returned 200 with its reason only in the response body, which
+// the invocation list doesn't show, and a Discord rejection (429 rate limit,
+// 404 deleted webhook) was swallowed outright — so the missed action-phase
+// pings of todo.md #150 were invisible (todo.md #151). Never log a webhook
+// URL: its token is what lets anyone post into that player's channel.
+interface SendOutcome {
+  playerId?: string
+  userId: string
+  /** Discord's HTTP status, 'no-webhook', 'invalid-webhook', or 'fetch-error'. */
+  result: number | string
+  /** Discord's error body on a non-2xx, trimmed — it names the reason (e.g. unknown webhook, rate limited). */
+  detail?: string
+}
+
+interface InvocationLog {
+  gameId?: string
+  phase?: string
+  round?: number | null
+  nowPending?: string[]
+  sends?: SendOutcome[]
+}
+
+// Best-effort — a bad/deleted webhook or network hiccup shouldn't fail the
+// request — but the outcome is returned so it can be logged.
+async function sendDiscordNotification(webhookUrl: string, content: string): Promise<Pick<SendOutcome, 'result' | 'detail'>> {
   try {
-    await fetch(webhookUrl, {
+    const res = await fetch(webhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ content }),
     })
-  } catch {
-    // Best-effort — a bad/deleted webhook or network hiccup shouldn't fail the request.
+    if (res.ok) return { result: res.status }
+    return { result: res.status, detail: (await res.text().catch(() => '')).slice(0, 200) }
+  } catch (err) {
+    return { result: 'fetch-error', detail: String(err).slice(0, 200) }
   }
+}
+
+// Resolves the outcome for a player with no (or a malformed) webhook without
+// calling Discord, so the log still shows they were due a ping.
+async function sendIfConfigured(webhookUrl: string | null | undefined, content: string): Promise<Pick<SendOutcome, 'result' | 'detail'>> {
+  if (!webhookUrl) return { result: 'no-webhook' }
+  if (!WEBHOOK_URL_PATTERN.test(webhookUrl)) return { result: 'invalid-webhook' }
+  return sendDiscordNotification(webhookUrl, content)
 }
 
 // Identical wording to the version this replaces in notify-discord-lifecycle,
@@ -176,7 +216,7 @@ function roomText(name: string, roomCode: string, url: string | null): string {
   return url ? `[${name}](${url})` : `**${name}** (room \`${roomCode}\`)`
 }
 
-async function handleGameFinished(supabase: SupabaseClient, gameId: string): Promise<Response> {
+async function handleGameFinished(supabase: SupabaseClient, gameId: string, log: InvocationLog): Promise<Response> {
   const { data: game } = await supabase.from('games').select('room_code, name, play_mode').eq('id', gameId).maybeSingle()
   // Live players watched it end over Realtime; hotseat is one shared device.
   // Same async-only rule as the turn ping below.
@@ -194,12 +234,12 @@ async function handleGameFinished(supabase: SupabaseClient, gameId: string): Pro
     )
 
   const message = `**Rise & Fall** — ${roomText(game.name, game.room_code, gameUrlFor(game.room_code))} has finished!`
-  await Promise.allSettled(
-    ((profiles ?? []) as { user_id: string; discord_webhook_url: string | null }[]).map((profile) => {
-      const webhookUrl = profile.discord_webhook_url
-      if (!webhookUrl || !WEBHOOK_URL_PATTERN.test(webhookUrl)) return Promise.resolve()
-      return sendDiscordNotification(webhookUrl, message)
-    }),
+  const webhookByUserId = new Map(((profiles ?? []) as { user_id: string; discord_webhook_url: string | null }[]).map((p) => [p.user_id, p.discord_webhook_url]))
+  log.sends = await Promise.all(
+    (players as { user_id: string }[]).map(async (player) => ({
+      userId: player.user_id,
+      ...(await sendIfConfigured(webhookByUserId.get(player.user_id), message)),
+    })),
   )
   return new Response('ok', { status: 200 })
 }
@@ -232,6 +272,18 @@ function rowState(row: GameStateRow): GameState {
 }
 
 Deno.serve(async (req) => {
+  const log: InvocationLog = {}
+  let res: Response
+  try {
+    res = await handle(req, log)
+  } catch (err) {
+    res = new Response(`unexpected error: ${String(err)}`, { status: 500 })
+  }
+  console.log(JSON.stringify({ evt: 'notify_discord_turn', status: res.status, outcome: await res.clone().text(), ...log }))
+  return res
+})
+
+async function handle(req: Request, log: InvocationLog): Promise<Response> {
   const expectedSecret = Deno.env.get('DISCORD_NOTIFY_WEBHOOK_SECRET')
   if (expectedSecret && req.headers.get('x-webhook-secret') !== expectedSecret) {
     return new Response('Unauthorized', { status: 401 })
@@ -246,12 +298,15 @@ Deno.serve(async (req) => {
 
   // The write that completes a game leaves nobody pending, so these two
   // branches can't both have something to say about the same payload.
+  log.gameId = payload.record.game_id
   if (justFinished(payload.old_record.state, payload.record.state)) {
-    return handleGameFinished(supabase, payload.record.game_id)
+    log.phase = 'finished'
+    return handleGameFinished(supabase, payload.record.game_id, log)
   }
 
   const wasPending = new Set(pendingActorIds(rowState(payload.old_record)))
   const nowPending = pendingActorIds(rowState(payload.record)).filter((id) => !wasPending.has(id))
+  log.nowPending = nowPending
   if (nowPending.length === 0) {
     return new Response('no new pending players', { status: 200 })
   }
@@ -271,6 +326,8 @@ Deno.serve(async (req) => {
   const gameUrl = gameUrlFor(game.room_code)
   const phase = phaseLabel(payload.record.state)
   const round = payload.record.state.status === 'active' ? payload.record.state.turn : null
+  log.phase = phase
+  log.round = round
 
   const { data: players, error: playersError } = await supabase
     .from('players')
@@ -290,10 +347,11 @@ Deno.serve(async (req) => {
 
   const webhookByUserId = new Map((profiles ?? []).map((p) => [p.user_id, p.discord_webhook_url]))
 
-  await Promise.allSettled(
-    players.map(async (player) => {
+  log.sends = await Promise.all(
+    players.map(async (player): Promise<SendOutcome> => {
       const webhookUrl = webhookByUserId.get(player.user_id)
-      if (!webhookUrl || !WEBHOOK_URL_PATTERN.test(webhookUrl)) return
+      if (!webhookUrl) return { playerId: player.id, userId: player.user_id, result: 'no-webhook' }
+      if (!WEBHOOK_URL_PATTERN.test(webhookUrl)) return { playerId: player.id, userId: player.user_id, result: 'invalid-webhook' }
 
       // Look up the player's Discord snowflake ID so the ping can @mention them
       // (a plain name in a webhook message doesn't notify anyone) — falls back
@@ -302,7 +360,7 @@ Deno.serve(async (req) => {
       const { data: authUser } = await supabase.auth.admin.getUserById(player.user_id)
       const discordUserId = discordUserIdFromIdentities(authUser?.user?.identities ?? null)
 
-      return sendDiscordNotification(
+      const outcome = await sendDiscordNotification(
         webhookUrl,
         turnNotificationMessage({
           displayName: player.display_name,
@@ -314,8 +372,9 @@ Deno.serve(async (req) => {
           gameUrl,
         }),
       )
+      return { playerId: player.id, userId: player.user_id, ...outcome }
     }),
   )
 
   return new Response('ok', { status: 200 })
-})
+}

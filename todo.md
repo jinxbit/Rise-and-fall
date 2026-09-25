@@ -7072,3 +7072,24 @@ Fix: both functions read the acting player from the row's
 `active_player_id` column (`rowState()`), which both write paths already keep
 in sync, falling back to `state.activePlayerId`. No storage or migration
 change, and no change to the plaintext set.
+
+## 151. Turn-ping functions log what they did
+
+Follow-up to #150: that bug was invisible because neither turn-ping function
+logged anything. A skipped ping returned 200 with its reason only in the
+response body, which the Edge Function invocation list doesn't show, and a
+failed send (Discord 429/404, a push service error) was swallowed. The only
+other trace, pg_net's `net._http_response`, is kept for about 6 hours.
+
+`notify-discord-turn` and `notify-web-push` now write one JSON line per
+invocation from a wrapper around their handler, in the same shape as
+`gameEnforcement.ts`'s `state_response` line: `evt`
+(`notify_discord_turn`/`notify_web_push`), HTTP `status`, `outcome` (the
+response body — `ok`, `no new pending players`, `not an async game`, a
+lookup error, or an uncaught exception, which now also becomes a logged 500),
+and when known `gameId`, `phase`, `round`, `nowPending`, and `sends`: one
+entry per recipient with the Discord/push service's HTTP status (or
+`no-webhook`/`invalid-webhook`/`no-subscription`/`fetch-error`/`send-error`)
+and a trimmed error body on failure. Webhook URLs and push endpoints are
+never logged — both are capabilities; web push logs only the service's host.
+No behavior change beyond the logging: sends stay best-effort.

@@ -403,8 +403,8 @@ export interface StateResponseRequest {
  * nothing and Supabase already collects it.
  *
  * `evt` is a fixed string so the Logs Explorer has something exact to filter
- * on, and nothing else in supabase/functions/ writes to the console at all, so
- * these lines are the only ones there.
+ * on. The only other console writers in supabase/functions/ are the turn-ping
+ * functions' `notify_discord_turn`/`notify_web_push` lines (todo.md #151).
  */
 function logStateResponse(fields: Record<string, unknown>): void {
   console.log(JSON.stringify({ evt: 'state_response', ...fields }))
