@@ -520,7 +520,7 @@ describe('buildTurnReview', () => {
     expect(review.events).toContainEqual({ unitId: 'nomad_a', playerId: 'p1', type: 'moved', from: { q: 0, r: 0 }, to: { q: 1, r: 0 } })
   })
 
-  it('records a create effect as a "created" event for the new unit', () => {
+  it('records a create effect as a "created" event for the new unit, with an arrow origin at the acting City\'s own hex', () => {
     const board = boardOf([
       [0, 0, 'plain'],
       [1, 0, 'plain'],
@@ -536,6 +536,7 @@ describe('buildTurnReview', () => {
     const created = review.events.find((e) => e.type === 'created')
     expect(created).toBeTruthy()
     expect(created?.to).toEqual({ q: 1, r: 0 })
+    expect(created?.from).toEqual({ q: 0, r: 0 })
     expect(created?.playerId).toBe('p1')
   })
 
@@ -637,7 +638,7 @@ describe('buildTurnReview', () => {
     expect(review.events).toContainEqual({ unitId: 'merchant_a', playerId: 'p1', type: 'traded', to: { q: 0, r: 0 }, resourceDelta: { gold: -5, wood: 1 } })
   })
 
-  it("records a City's own-Nomad convert as a 'converted' event on the SAME unit id (kind changes, id doesn't)", () => {
+  it("records a City's own-Nomad convert as a 'converted' event on the SAME unit id (kind changes, id doesn't), with an arrow origin at the acting City's own hex", () => {
     const board = boardOf([
       [0, 0, 'plain'],
       [1, 0, 'plain'],
@@ -651,10 +652,10 @@ describe('buildTurnReview', () => {
     ])
 
     const review = buildTurnReview(genesis, state.actionHistory, content)
-    expect(review.events).toContainEqual({ unitId: 'nomad_a', playerId: 'p1', type: 'converted', to: { q: 1, r: 0 } })
+    expect(review.events).toContainEqual({ unitId: 'nomad_a', playerId: 'p1', type: 'converted', from: { q: 0, r: 0 }, to: { q: 1, r: 0 } })
   })
 
-  it("records Temple stealing an enemy unit as a 'converted' event (owner changes, kind doesn't)", () => {
+  it("records Temple stealing an enemy unit as a 'converted' event (owner changes, kind doesn't), with an arrow origin at the acting Temple's own hex", () => {
     const board = boardOf([
       [0, 0, 'plain'],
       [1, 0, 'plain'],
@@ -672,7 +673,7 @@ describe('buildTurnReview', () => {
     ])
 
     const review = buildTurnReview(genesis, state.actionHistory, content)
-    expect(review.events).toContainEqual({ unitId: 'nomad_enemy', playerId: 'p1', type: 'converted', to: { q: 1, r: 0 } })
+    expect(review.events).toContainEqual({ unitId: 'nomad_enemy', playerId: 'p1', type: 'converted', from: { q: 0, r: 0 }, to: { q: 1, r: 0 } })
   })
 
   it('attributes distinct events to each unit in a multi-assignment RESOLVE_UNIT_ACTION, without conflating them', () => {

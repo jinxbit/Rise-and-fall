@@ -7118,3 +7118,32 @@ hand-built regression case.
 
 The live end-to-end check — a smoke run that plays an async game and reads
 the functions' #151 log lines — is filed as its own issue.
+
+## 153. Review history: an arrow from the acting City to a created/converted unit (issue #701)
+
+"Show history"/"Review history" (#63/#68) already draws an arrow for a
+`'moved'` event, but a `'created'`/`'converted'` event only ever got a halo
+on the resulting unit — a City building a Ship two hexes away, or converting
+an enemy unit, showed a ring on the result with no visual link back to which
+City did it. `engine/turnReview.ts`'s `UnitReviewEvent` now carries an
+optional `from` for those two event types too: `recordAssignmentEvents`'s new
+`arrowOriginFor(targetCoord)` returns the acting unit's own pre-action hex
+whenever it differs from the target's hex (omitted for a same-hex
+conversion/transform, e.g. a City converting itself, where there's nothing to
+draw). The existing destroySelf-transform link (Nomad -> Ship onto an
+adjacent hex, already surfaced as its own `'moved'` event so the vacated hex
+reads as a proper hop) is left alone — `arrowOriginFor` is skipped for that
+case specifically so the same hop isn't drawn twice.
+
+`RoundView.tsx`'s `summarizeUnitHistory` now folds a `'created'`/`'converted'`
+event's `from`/`to` into the same per-unit `moves` list a `'moved'` event
+uses, in addition to (not instead of) its usual halo — `HexBoard`'s `arrows`
+prop and its rendering needed no changes at all, since every arrow was always
+just a `{ from, to }` pair drawn the same way regardless of which event
+produced it.
+
+3 existing `turnReview.test.ts` cases (City creating a Merchant by converting
+its own Nomad, Temple stealing an enemy unit, City creating a Nomad two hexes
+away) updated to expect the new `from`; the self-transform and adjacent-hex
+destroySelf-transform cases were already exercising the "no double arrow"
+paths and needed no changes.

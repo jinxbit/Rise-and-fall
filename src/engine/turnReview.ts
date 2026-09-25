@@ -23,7 +23,13 @@ export interface UnitReviewEvent {
   unitId: string
   playerId: string
   type: UnitReviewEventType
-  /** Set for 'moved': the hex it moved from. */
+  /**
+   * Set for 'moved': the hex it moved from. Also set for 'created'/
+   * 'converted' when the acting unit that built or converted it (e.g. a
+   * City) sits on a different hex — the arrow origin for that hop, same
+   * treatment as a move (issue #701). Omitted when there's no acting unit to
+   * point back to (PLACE_UNIT, or the acting unit shares the target's hex).
+   */
   from?: Coordinate
   /** The unit's hex after this event (its current one, if this is the last event for it). */
   to?: Coordinate
@@ -431,15 +437,29 @@ function recordAssignmentEvents(
   const actingUnitBefore = beforeById.get(actingUnitId)
   const transformRelocated = actionType === 'transform' && !!actingUnitBefore && !afterById.has(actingUnitId)
 
+  // Where a 'created'/'converted' arrow should originate — the acting unit's
+  // own hex (e.g. the City that built or converted this), so history review
+  // draws a line from actor to result (issue #701). Omitted when the acting
+  // unit sits on the same hex as the target: nothing to draw an arrow to/from
+  // (e.g. a City converting itself, or a same-hex transform).
+  function arrowOriginFor(targetCoord: Coordinate): Coordinate | undefined {
+    if (!actingUnitBefore) return undefined
+    if (actingUnitBefore.coord.q === targetCoord.q && actingUnitBefore.coord.r === targetCoord.r) return undefined
+    return actingUnitBefore.coord
+  }
+
   for (const [id, afterUnit] of afterById) {
     const beforeUnit = beforeById.get(id)
     if (!beforeUnit) {
-      events.push({ unitId: id, playerId: afterUnit.ownerId, type: 'created', to: afterUnit.coord })
-      if (
+      const relocatedFromActingUnit =
         transformRelocated &&
         afterUnit.ownerId === actingUnitBefore!.ownerId &&
         (afterUnit.coord.q !== actingUnitBefore!.coord.q || afterUnit.coord.r !== actingUnitBefore!.coord.r)
-      ) {
+      // The destroySelf-transform link below already draws this arrow (from
+      // the acting unit's own old hex, which is exactly what `arrowOriginFor`
+      // would compute anyway) — skip it here so the same hop isn't drawn twice.
+      events.push({ unitId: id, playerId: afterUnit.ownerId, type: 'created', from: relocatedFromActingUnit ? undefined : arrowOriginFor(afterUnit.coord), to: afterUnit.coord })
+      if (relocatedFromActingUnit) {
         events.push({ unitId: id, playerId: afterUnit.ownerId, type: 'moved', from: actingUnitBefore!.coord, to: afterUnit.coord })
       }
       continue
@@ -448,7 +468,7 @@ function recordAssignmentEvents(
       events.push({ unitId: id, playerId: afterUnit.ownerId, type: 'moved', from: beforeUnit.coord, to: afterUnit.coord })
     }
     if (beforeUnit.ownerId !== afterUnit.ownerId || beforeUnit.kind !== afterUnit.kind) {
-      events.push({ unitId: id, playerId: afterUnit.ownerId, type: 'converted', to: afterUnit.coord })
+      events.push({ unitId: id, playerId: afterUnit.ownerId, type: 'converted', from: arrowOriginFor(afterUnit.coord), to: afterUnit.coord })
     }
   }
 
