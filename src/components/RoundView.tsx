@@ -184,7 +184,10 @@ interface UnitHistorySummary {
  * one red ring, not two) and, if it carries one, folds its resourceDelta
  * into a single running total per unit (so two produce events in the same
  * window show one combined badge per resource, e.g. a wood icon with "+4",
- * rather than two separate tags).
+ * rather than two separate tags). A 'created'/'converted' event that also
+ * carries a `from` (the acting unit's own hex, e.g. a City — see
+ * UnitReviewEvent's doc comment) additionally draws an arrow from actor to
+ * result, on top of its usual halo (issue #701).
  */
 function summarizeUnitHistory(events: UnitReviewEvent[]): Map<string, UnitHistorySummary> {
   const byUnit = new Map<string, UnitHistorySummary>()
@@ -197,6 +200,9 @@ function summarizeUnitHistory(events: UnitReviewEvent[]): Map<string, UnitHistor
     if (event.type === 'moved') {
       if (event.from && event.to) entry.moves.push({ from: event.from, to: event.to })
       continue
+    }
+    if ((event.type === 'created' || event.type === 'converted') && event.from && event.to) {
+      entry.moves.push({ from: event.from, to: event.to })
     }
     if ((event.type === 'created' || event.type === 'converted' || event.type === 'produced' || event.type === 'income') && !entry.halos.includes(event.type)) {
       entry.halos.push(event.type)
