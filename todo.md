@@ -7228,3 +7228,11 @@ never marked as having moved.
 also folds in `turnOrder`/`pendingPlayerIds`, since both can change the
 roster's rendered width without changing `playersSignature`, `turn`, or
 `resourceBank`.
+
+## 157. Header player list: drop the ★ start-player mark (issue #707 follow-up)
+
+Feedback on #156 was that the ★ next to the first player's pill was
+redundant: the header roster is already reordered each round to start from
+`turnOrder[0]`, so the first pill *is* the first player without a separate
+marker. Removed the ★ span from `GamePage.tsx`'s header roster; the
+ordering itself and the ✓ "already acted" mark are unchanged.

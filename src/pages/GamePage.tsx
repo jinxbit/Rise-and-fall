@@ -2094,11 +2094,6 @@ export function GamePage() {
                 >
                   <span className="h-2 w-2 rounded-full" style={{ backgroundColor: p.color }} />
                   {p.display_name}
-                  {displayState?.turnOrder[0] === p.id && (
-                    <span title="Start player — rotates to the next player each round" className="text-amber-400">
-                      ★
-                    </span>
-                  )}
                   {hasActedThisPhase && (
                     <span title="Already acted this phase" className="text-emerald-400">
                       ✓
