@@ -388,6 +388,106 @@ describe('RoundView — player status summary and achievements panel', () => {
     expect(startPlayerMark().closest('button')?.textContent).toContain('Bob')
   })
 
+  it('renders player chips in static round-1 turn order regardless of how turnOrder later rotates (issue #705)', () => {
+    const p1 = makeEnginePlayer('p1', ['nomad'])
+    const p2 = makeEnginePlayer('p2', ['city'])
+    const p3 = makeEnginePlayer('p3', ['ship'])
+    const cards = Object.fromEntries([...createPlayerCards('p1'), ...createPlayerCards('p2'), ...createPlayerCards('p3')].map((c) => [c.id, c]))
+    // state.players itself never reorders after genesis (see gameGenesis.ts/
+    // elimination.ts) — it's always seat order, which equals turnOrder as
+    // dealt for round 1 — so it's the right thing for the UI to key display
+    // order off of, rather than the live (rotating) turnOrder.
+    const baseState: GameState = { ...makeState(), players: [p1, p2, p3], cards, pendingPlayerIds: ['p1', 'p2', 'p3'], chosenCardIdByPlayerId: { p1: null, p2: null, p3: null } }
+    const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff'), makePlayerRow('p3', 'Cara', '#00ff00')]
+
+    function chipOrder() {
+      const chips = screen.getAllByTitle('Click for full VP breakdown, cards, unit counts, and resources.')
+      return chips.map((chip) => ['Alice', 'Bob', 'Cara'].find((name) => chip.textContent?.includes(name)))
+    }
+
+    const { rerender, unmount } = render(
+      <RoundView
+        state={{ ...baseState, turnOrder: ['p1', 'p2', 'p3'] }}
+        players={players}
+        myPlayerId="p1"
+        unitContent={EMPTY_UNIT_CONTENT}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
+        turnReview={null}
+        showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
+        gameLog={[]}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+
+    expect(chipOrder()).toEqual(['Alice', 'Bob', 'Cara'])
+
+    // Round 2: turnOrder rotates to [p2, p3, p1] (engine/round.ts) — the
+    // chips must stay put; only the star mark (covered above) follows.
+    rerender(
+      <RoundView
+        state={{ ...baseState, turnOrder: ['p2', 'p3', 'p1'] }}
+        players={players}
+        myPlayerId="p1"
+        unitContent={EMPTY_UNIT_CONTENT}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
+        turnReview={null}
+        showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
+        gameLog={[]}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+
+    expect(chipOrder()).toEqual(['Alice', 'Bob', 'Cara'])
+
+    // Round 3: turnOrder rotates again to [p3, p1, p2] — still unchanged.
+    rerender(
+      <RoundView
+        state={{ ...baseState, turnOrder: ['p3', 'p1', 'p2'] }}
+        players={players}
+        myPlayerId="p1"
+        unitContent={EMPTY_UNIT_CONTENT}
+        achievementContent={EMPTY_ACHIEVEMENT_CONTENT}
+        taleContent={EMPTY_TALE_CONTENT}
+        turnReview={null}
+        showHistory={false}
+        territoryControlMode="off"
+        previousHistoryState={null}
+        gameLog={[]}
+        onChooseCard={() => {}}
+        onResolveUnit={() => {}}
+        onResolveBulkAction={() => {}}
+        onResolveSupportedAction={() => {}}
+        onPassActions={() => {}}
+        onMoveToDecline={() => {}}
+        onPurchaseCard={() => {}}
+        onPassPurchase={() => {}}
+      />,
+    )
+
+    expect(chipOrder()).toEqual(['Alice', 'Bob', 'Cara'])
+    unmount()
+  })
+
   it('shows every achievement (claimed and unclaimed) and the current decline buyback price', () => {
     const state = makeState()
     const players = [makePlayerRow('p1', 'Alice', '#ff0000'), makePlayerRow('p2', 'Bob', '#0000ff')]
