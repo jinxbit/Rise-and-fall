@@ -2029,28 +2029,38 @@ export function GamePage() {
           </button>
         </div>
         <div className={headerGroupClass}>
-          {chatEnabled && (
-            <button
-              type="button"
-              onClick={() => setChatOpen((v) => !v)}
-              aria-expanded={chatOpen}
-              title={chatOpen ? 'Hide chat' : 'Show chat'}
-              className="relative rounded-md border border-neutral-700 p-2 hover:border-neutral-500"
-            >
-              <svg viewBox="0 0 20 20" className="h-5 w-5 fill-current" aria-hidden="true">
-                <path d="M3 4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h1.5v3.25a.75.75 0 0 0 1.28.53L9.31 14H17a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H3Z" />
-              </svg>
-              {chatUnreadCount > 0 && (
-                <span
-                  className="absolute -right-1 -top-1 rounded-full bg-sky-600 px-1.5 py-0.5 text-xs font-semibold leading-none text-white"
-                  aria-label={`${chatUnreadCount} unread message${chatUnreadCount === 1 ? '' : 's'}`}
+          {/*
+            The chat toggle is a flex item inside the same wrapping `<ul>` as
+            the player names (issue #706), rather than a sibling before it —
+            two separate flex items in a wrapping row wrap independently, so
+            long display names could push the whole player list onto its own
+            line while stranding the button alone above it. As a `<li>` in
+            the same flow it always wraps together with the first player pill.
+          */}
+          <ul className="flex flex-wrap items-center gap-3 text-sm text-neutral-400">
+            {chatEnabled && (
+              <li>
+                <button
+                  type="button"
+                  onClick={() => setChatOpen((v) => !v)}
+                  aria-expanded={chatOpen}
+                  title={chatOpen ? 'Hide chat' : 'Show chat'}
+                  className="relative rounded-md border border-neutral-700 p-2 hover:border-neutral-500"
                 >
-                  {formatUnreadBadge(chatUnreadCount)}
-                </span>
-              )}
-            </button>
-          )}
-          <ul className="flex flex-wrap gap-3 text-sm text-neutral-400">
+                  <svg viewBox="0 0 20 20" className="h-5 w-5 fill-current" aria-hidden="true">
+                    <path d="M3 4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h1.5v3.25a.75.75 0 0 0 1.28.53L9.31 14H17a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H3Z" />
+                  </svg>
+                  {chatUnreadCount > 0 && (
+                    <span
+                      className="absolute -right-1 -top-1 rounded-full bg-sky-600 px-1.5 py-0.5 text-xs font-semibold leading-none text-white"
+                      aria-label={`${chatUnreadCount} unread message${chatUnreadCount === 1 ? '' : 's'}`}
+                    >
+                      {formatUnreadBadge(chatUnreadCount)}
+                    </span>
+                  )}
+                </button>
+              </li>
+            )}
             {players.map((p) => (
               <li key={p.id} className="flex items-center gap-1">
                 <span className="h-2 w-2 rounded-full" style={{ backgroundColor: p.color }} />
