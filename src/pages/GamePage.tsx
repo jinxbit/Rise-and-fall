@@ -1242,6 +1242,19 @@ export function GamePage() {
   const displayState = isReviewingHistory ? reviewState : gameState
 
   /**
+   * The header roster (issue #707), reordered each round to start from
+   * `displayState.turnOrder[0]` — the current first player — rather than
+   * seat order, since first player rotates every round (see engine/round.ts)
+   * and this is the one place in the header a viewer can see whose "turn
+   * zero" it is without opening RoundView's sidebar. Falls back to the
+   * `players` roster's own (seat) order before a game has state to order by
+   * (lobby, or genesis still loading).
+   */
+  const headerPlayers = displayState
+    ? displayState.turnOrder.map((id) => players.find((p) => p.id === id)).filter((p): p is PlayerRow => p !== undefined)
+    : players
+
+  /**
    * Does the whole header row still fit on one line? Drives the two header
    * layouts (issue #640) — see the header's own comment in the JSX below,
    * and ../hooks/useOneLineFit.ts for why this is measured rather than
@@ -1259,7 +1272,9 @@ export function GamePage() {
     game?.name ?? '',
     playersSignature,
     chatEnabled ? 'chat' : '',
-    displayState ? `${displayState.turn}|${JSON.stringify(displayState.resourceBank)}` : '',
+    displayState
+      ? `${displayState.turn}|${JSON.stringify(displayState.resourceBank)}|${displayState.turnOrder.join(',')}|${displayState.pendingPlayerIds.join(',')}`
+      : '',
     isReviewingHistory ? 'review' : '',
   ].join('\u0000')
   const [headerRef, headerFitsOneLine] = useOneLineFit<HTMLElement>(headerContentKey)
@@ -2061,12 +2076,37 @@ export function GamePage() {
                 </button>
               </li>
             )}
-            {players.map((p) => (
-              <li key={p.id} className="flex items-center gap-1">
-                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: p.color }} />
-                {p.display_name}
-              </li>
-            ))}
+            {headerPlayers.map((p) => {
+              const enginePlayer = displayState?.players.find((ep) => ep.id === p.id)
+              // pendingPlayerIds is "still owed a turn this phase" for every
+              // active-status phase (see engine/turnOrder.ts) and, unlike
+              // chosenCardId, is never redacted under hiddenInformationEnabled
+              // (RoundView.tsx's PlayersStrip relies on the same property) —
+              // so "not pending" is a safe, always-visible "already moved".
+              const hasActedThisPhase =
+                displayState?.status === 'active' && enginePlayer && !enginePlayer.eliminated
+                  ? !displayState.pendingPlayerIds.includes(p.id)
+                  : false
+              return (
+                <li
+                  key={p.id}
+                  className={`flex items-center gap-1 ${enginePlayer?.eliminated ? 'opacity-40' : hasActedThisPhase ? 'opacity-60' : ''}`}
+                >
+                  <span className="h-2 w-2 rounded-full" style={{ backgroundColor: p.color }} />
+                  {p.display_name}
+                  {displayState?.turnOrder[0] === p.id && (
+                    <span title="Start player — rotates to the next player each round" className="text-amber-400">
+                      ★
+                    </span>
+                  )}
+                  {hasActedThisPhase && (
+                    <span title="Already acted this phase" className="text-emerald-400">
+                      ✓
+                    </span>
+                  )}
+                </li>
+              )
+            })}
           </ul>
         </div>
         {headerFitsOneLine && displayState && (

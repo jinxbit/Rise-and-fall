@@ -7199,3 +7199,32 @@ pills live in (an `<li>` wrapping the existing button, first in the list),
 instead of a sibling before it. It now wraps as part of the same flex flow
 as the player names, so it always sits beside the first player pill rather
 than on a row of its own.
+
+## 156. Header player list: order by current first player, mark who's moved (issue #707)
+
+The same header roster (group 1.2, see #706 above) listed players in seat
+order regardless of whose round it was, and gave no indication of who had
+already acted in the current phase versus who was still owed a turn —
+that was only visible in `RoundView.tsx`'s `PlayersStrip` sidebar, not in
+the compact header every screen shares.
+
+`GamePage.tsx` now derives `headerPlayers` from `displayState.turnOrder`
+(falling back to the existing seat-ordered `players` before there's any
+state to order by, e.g. in the lobby) rather than mapping `players`
+directly — `turnOrder[0]` is the current first player and rotates every
+round (`src/engine/round.ts`), so the header reorders itself each round
+without any extra state. Each pill also gets the same ★ "start player" mark
+`PlayersStrip` already draws next to `turnOrder[0]`, and a ✓ once
+`displayState.pendingPlayerIds` no longer contains that player (dimmed
+alongside it) — `pendingPlayerIds` is "still owed a turn this phase" across
+every `active`-status phase and, unlike `chosenCardId`, is never redacted
+under `hiddenInformationEnabled` (see `PlayersStrip`'s own comment on why it
+uses that field rather than checking the pick itself), so this is safe to
+show unconditionally rather than gating it the way `PlayersStrip` gates its
+richer "Chosen"/"Choosing…" badges. Eliminated players are dimmed instead,
+never marked as having moved.
+
+`headerContentKey` (the one-line-fit measurement cache key just above) now
+also folds in `turnOrder`/`pendingPlayerIds`, since both can change the
+roster's rendered width without changing `playersSignature`, `turn`, or
+`resourceBank`.
