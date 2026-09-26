@@ -7183,3 +7183,19 @@ or the single already-picked `supportingTarget` while choosing support units
 for it (`mode.kind === 'supporting'`) — and calls `convertTargetCost` per
 convertible unit sitting on one of them, gated `!showHistory` alongside every
 other live-play-only marker on this same board.
+
+## 155. Mobile header: the chat button could strand itself above the player list (issue #706)
+
+`GamePage.tsx`'s header group 1.2 (issue #640/#580) put the chat toggle
+button and the player-name `<ul>` in as two separate items of the same
+wrapping flex container. Two sibling flex items in a wrapping row wrap
+independently of each other's contents: once a long display name (or enough
+players) made the `<ul>` itself not fit next to the button, the whole `<ul>`
+wrapped down to its own line while the button — having fit on the first line
+by itself — stayed stranded there alone.
+
+Fixed by making the button a flex item *inside* the same `<ul>` the player
+pills live in (an `<li>` wrapping the existing button, first in the list),
+instead of a sibling before it. It now wraps as part of the same flex flow
+as the player names, so it always sits beside the first player pill rather
+than on a row of its own.
