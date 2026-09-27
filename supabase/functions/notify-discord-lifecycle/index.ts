@@ -172,7 +172,7 @@ Deno.serve(async (req) => {
     return handlePlayerJoined(supabase, payload.record as { id: string; game_id: string; display_name: string })
   }
   if (payload.table === 'games' && payload.type === 'UPDATE' && payload.record && payload.old_record) {
-    return handleGameStatusChange(supabase, payload.old_record as GameRow, payload.record as GameRow)
+    return handleGameStatusChange(supabase, payload.old_record as unknown as GameRow, payload.record as unknown as GameRow)
   }
   return new Response('ignored', { status: 200 })
 })
