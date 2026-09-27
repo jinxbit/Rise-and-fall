@@ -177,7 +177,12 @@ export class Database {
         if (command === 'update') {
           // 0026_rule_enforcement_flag.sql: a rule-enforced game's state is
           // service-role-write-only, i.e. only the Edge Functions may write it.
-          return seated && !this.ruleEnforcementEnabled(gameId)
+          // 0037_block_canceled_game_state_writes.sql (issue #713): a canceled
+          // room's state is never directly writable either, restoring
+          // 0008_room_lifecycle.sql's original check that 0026 dropped when
+          // it replaced this same policy.
+          const game = this.game(gameId)
+          return seated && game?.status !== 'canceled' && !this.ruleEnforcementEnabled(gameId)
         }
         return false
       }

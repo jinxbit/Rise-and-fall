@@ -140,6 +140,25 @@ export async function loadGameContext(supabase: SupabaseClient, gameId: string, 
 }
 
 /**
+ * Issue #713: a canceled room's client-trusted `game_state` write is blocked
+ * by RLS (0037_block_canceled_game_state_writes.sql, restoring the
+ * `games.status <> 'canceled'` condition 0008_room_lifecycle.sql originally
+ * had, which 0026_rule_enforcement_flag.sql dropped when it replaced that
+ * policy) — but apply-action/undo-action/redo-action write through the
+ * service-role client, which bypasses RLS entirely, so they need the same
+ * check by hand. Callers run this right after `loadGameContext`, before any
+ * other authorization check, so a canceled room's move/undo/redo is refused
+ * regardless of who's asking or what they're trying to do.
+ *
+ * `completed` needs no equivalent check here either — see this repo's
+ * 0037 migration for why: `games.status` never actually reaches that value.
+ */
+export function cancelledGameResponse(ctx: GameContext): Response | null {
+  if (ctx.game.status !== 'canceled') return null
+  return jsonResponse(409, { ok: false, error: 'This room has been canceled and no longer accepts moves.' })
+}
+
+/**
  * §4.1: is `callerUserId` entitled to submit `playerId`'s action? Hotseat is
  * explicitly out of scope (one shared `auth.uid()` covers every local seat —
  * see RULE_ENFORCEMENT_PLAN.md's Scope section), so any player enrolled in a
