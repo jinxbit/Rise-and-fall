@@ -86,7 +86,10 @@ interface ChatPanelProps {
    * (CHAT_PLAN.md §10.1, enforced server-side by the "post chat" RLS
    * policy). The composer is replaced with an explanation instead of being
    * left to fail on submit with a raw RLS error. Always true for site-wide
-   * chat, where posting only ever requires a session.
+   * chat, where posting only ever requires a session. Also true for the site
+   * admin in any game's chat, seated or not (issue #719,
+   * `0038_chat_admin_access.sql`'s "admins can post any chat" policy) — the
+   * caller passes `isSeated || isAdmin`, not just seat membership.
    */
   canPost?: boolean
   /**

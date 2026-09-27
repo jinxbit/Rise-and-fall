@@ -911,3 +911,36 @@ asked for it directly (unlike §7, which is still gated on open question
   `redo-action`/`get-game-state`/`start-game`) — these are webhook-triggered,
   not called from client code, and deploy-time/smoke-test verification is
   this repo's existing posture for the whole notify-\* family.
+
+## 21. Site admin can read and post in every game's chat (issue #719)
+
+Before this, the site admin (`profiles.is_admin`, §10.1's sibling concept —
+see `0017_admin_delete_any_game.sql`) was subject to the same "post chat"
+policy as anyone else: read-only on a `public` game they weren't seated in,
+and locked out entirely of a `private` one, even though `0024_admin_read_all_game_state.sql`
+already lets that same admin read *any* game's `games` row and `game_state`
+regardless of visibility or seating. Chat was the one surface of a room an
+admin with the "all rooms" screen (`AdminRoomsPage.tsx`, issue #361) could
+navigate into but not fully see or take part in.
+
+- **New RLS, additive, mirroring 0024's own shape exactly**
+  (`0038_chat_admin_access.sql`): an "admins can read any game chat" select
+  policy and an "admins can post any chat" insert policy, both gated on
+  `profiles.is_admin` alongside the existing `chat_enabled()`/`sender_id =
+  auth.uid()` checks every other policy already carries. Additive rather
+  than a replacement for §3's "read game chat"/"post chat" policies —
+  Postgres ORs multiple permissive policies together, so this only widens
+  who may read/post without touching the seated-player or public-visitor
+  rules those already enforce.
+- **Site-wide chat needed no change** — posting there has only ever required
+  a session (§3), which an admin already has.
+- **Client-side:** `GamePage.tsx` and `LobbyPage.tsx` both pass
+  `canPost={isSeated || isAdmin}` (previously seat membership alone) to
+  `ChatPanel.tsx`, so an admin sees the composer in any game's chat, not just
+  ones they're seated in. `useIsAdmin`/`getIsAdmin` were already wired into
+  both pages for their existing delete-any-game override; no new hook.
+- **Not addressed:** a moderation surface (deleting or hiding another
+  player's message) — out of scope for this issue and for §8's future
+  reporting phase, which is about a *player* flagging a message, not an
+  admin acting on one directly. Nothing here changes chat's append-only,
+  no-delete-policy posture (§3).

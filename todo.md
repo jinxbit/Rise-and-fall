@@ -7372,3 +7372,30 @@ and true again once a second card is available to switch to. No engine
 change — `applyRetractChoice`/`canRetractChoiceAfterReveal` themselves are
 unchanged, so a forced pick's fold-back is still correct when it happens as
 a side effect of some *other* player's own real retraction.
+
+## 162. Site admin can read and post in every game's chat (issue #719)
+
+The site admin (`profiles.is_admin`) could already read any game's `games`
+row and `game_state` regardless of visibility or seating
+(`0024_admin_read_all_game_state.sql`), but chat was still gated by
+`0031_chat_messages.sql`'s ordinary seated-player/public-visitor rules — an
+admin browsing in from `AdminRoomsPage.tsx` could open a private room they
+weren't seated in and see the board, but not its chat, and couldn't post to
+any game's chat they hadn't joined.
+
+`0038_chat_admin_access.sql` adds two RLS policies, additive to (not a
+replacement for) the existing ones — Postgres ORs permissive policies
+together for the same command, the same technique `0017_admin_delete_any_game.sql`/
+`0024` already use: "admins can read any game chat" (select) and "admins
+can post any chat" (insert), both gated on `profiles.is_admin` alongside the
+`chat_enabled()` kill switch and (for insert) `sender_id = auth.uid()`. Site-
+wide chat needed no change — posting there has only ever required a session.
+
+`GamePage.tsx` and `LobbyPage.tsx` now pass `canPost={isSeated || isAdmin}`
+to `ChatPanel.tsx` (previously seat membership alone); both pages already
+had `useIsAdmin` wired in for their existing delete-any-game override.
+Mirrored in `src/test/supabaseStack/database.ts`'s `visible()` for
+`chat_messages`, with new coverage in `chatMessages.test.ts`: the admin can
+read and post a private room's chat despite not being seated, still can't
+post as someone else, and is still blocked by the kill switch like everyone
+else. See `CHAT_PLAN.md` §21.

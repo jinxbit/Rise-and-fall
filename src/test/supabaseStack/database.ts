@@ -203,13 +203,17 @@ export class Database {
       case 'app_config':
         return command === 'select'
 
+      // 0038_chat_admin_access.sql (issue #719): the site admin can read and
+      // post any game's chat too, additive to the seated-player/public-visitor
+      // rules above — same `isAdmin` override 0024_admin_read_all_game_state.sql
+      // already grants for `game_state`.
       case 'chat_messages': {
         const gameId = row.game_id as string | null
         if (!this.chatEnabled()) return false
-        if (command === 'select') return this.canReadChatChannel(uid, gameId)
+        if (command === 'select') return this.canReadChatChannel(uid, gameId) || (gameId !== null && this.isAdmin(uid))
         if (command === 'insert') {
           if (row.sender_id !== uid) return false
-          return gameId === null || this.isSeated(uid, gameId)
+          return gameId === null || this.isSeated(uid, gameId) || this.isAdmin(uid)
         }
         return false
       }

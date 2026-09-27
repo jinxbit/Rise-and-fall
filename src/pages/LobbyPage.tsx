@@ -483,7 +483,7 @@ export function LobbyPage() {
         </div>
       </header>
 
-      <ChatPanel gameId={game.id} players={players} canPost={isSeated} open={chatOpen} onUnreadCountChange={setChatUnreadCount} />
+      <ChatPanel gameId={game.id} players={players} canPost={isSeated || isAdmin} open={chatOpen} onUnreadCountChange={setChatUnreadCount} />
 
       {error && <ErrorBanner message={error.message} details={error.details} onDismiss={() => setError(null)} />}
 
