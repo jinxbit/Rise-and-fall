@@ -17,6 +17,7 @@ const PUBLIC_GAME_ID = '3f1c2d4e-0000-4000-8000-0000000000c2'
 const ALICE = 'auth-user-alice' // seated in both games
 const BOB = 'auth-user-bob' // seated in the private game only
 const CAROL = 'auth-user-carol' // never seated anywhere
+const DAVE = 'auth-user-dave' // site admin, never seated anywhere
 
 function settingsFor(): GameSettings {
   return {
@@ -68,6 +69,7 @@ describe('chat_messages / app_config RLS + kill switch (issue #563)', () => {
     stack.addUser(ALICE)
     stack.addUser(BOB)
     stack.addUser(CAROL)
+    stack.addUser(DAVE, { isAdmin: true })
     stack.db.seed('games', gameRow(PRIVATE_GAME_ID, 'CHATP1', 'private') as unknown as Record<string, unknown>)
     stack.db.seed('games', gameRow(PUBLIC_GAME_ID, 'CHATP2', 'public') as unknown as Record<string, unknown>)
     stack.db.seed('players', playerRow('seat-alice-private', PRIVATE_GAME_ID, ALICE, 0) as unknown as Record<string, unknown>)
@@ -111,6 +113,16 @@ describe('chat_messages / app_config RLS + kill switch (issue #563)', () => {
       const { error: insertError } = await stack.clientFor(ALICE).from('chat_messages').insert({ game_id: PRIVATE_GAME_ID, sender_id: ALICE, body: 'hi' })
       expect(insertError?.code).toBe('42501')
     })
+
+    it('rejects reading and posting a private room’s chat for the site admin too (issue #719)', async () => {
+      seedMessage(PRIVATE_GAME_ID, ALICE, 'hi')
+      const { data, error: readError } = await stack.clientFor(DAVE).from('chat_messages').select('*').eq('game_id', PRIVATE_GAME_ID)
+      expect(readError).toBeNull()
+      expect(data).toEqual([])
+
+      const { error: insertError } = await stack.clientFor(DAVE).from('chat_messages').insert({ game_id: PRIVATE_GAME_ID, sender_id: DAVE, body: 'hi' })
+      expect(insertError?.code).toBe('42501')
+    })
   })
 
   describe('kill switch on', () => {
@@ -152,6 +164,26 @@ describe('chat_messages / app_config RLS + kill switch (issue #563)', () => {
       const { data, error: readError } = await stack.clientFor(CAROL).from('chat_messages').select('*').eq('game_id', PRIVATE_GAME_ID)
       expect(readError).toBeNull()
       expect(data).toEqual([])
+    })
+
+    it('lets the site admin read and post a private room’s chat despite not being seated (issue #719)', async () => {
+      seedMessage(PRIVATE_GAME_ID, ALICE, 'secret strategy')
+
+      const { data, error: readError } = await stack.clientFor(DAVE).from('chat_messages').select('*').eq('game_id', PRIVATE_GAME_ID)
+      expect(readError).toBeNull()
+      expect(data).toHaveLength(1)
+
+      const { error: insertError } = await stack.clientFor(DAVE).from('chat_messages').insert({ game_id: PRIVATE_GAME_ID, sender_id: DAVE, body: 'admin here' })
+      expect(insertError).toBeNull()
+
+      const { data: afterInsert, error: readAfterError } = await stack.clientFor(ALICE).from('chat_messages').select('*').eq('game_id', PRIVATE_GAME_ID)
+      expect(readAfterError).toBeNull()
+      expect(afterInsert).toHaveLength(2)
+    })
+
+    it('still requires the admin to post as themselves', async () => {
+      const { error } = await stack.clientFor(DAVE).from('chat_messages').insert({ game_id: PRIVATE_GAME_ID, sender_id: ALICE, body: 'pretending to be alice' })
+      expect(error?.code).toBe('42501')
     })
 
     it('rejects posting on someone else’s behalf', async () => {
