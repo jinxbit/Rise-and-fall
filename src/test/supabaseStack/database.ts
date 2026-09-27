@@ -275,6 +275,22 @@ export class Database {
     return Boolean(this.game(gameId)?.settings?.hiddenInformationEnabled)
   }
 
+  /**
+   * `enforce_profiles_is_admin_unchanged` (0036_lock_down_profiles_is_admin.sql,
+   * issue #712), transcribed: a direct client write (anything but the
+   * service role) may not insert a `profiles` row with `is_admin` true, nor
+   * change an existing row's `is_admin`. `newValue` is the raw insert/patch
+   * payload rather than a merged row, so an UPDATE that never mentions
+   * `is_admin` at all is untouched, matching `new.is_admin is distinct from
+   * old.is_admin` only firing when the column is actually part of the write.
+   */
+  private blocksProfileIsAdminChange(actor: Actor, op: 'insert' | 'update', oldRow: Row | undefined, newValue: Row): boolean {
+    if (actor.role === 'service_role') return false
+    if (op === 'insert') return Boolean(newValue.is_admin)
+    if (!('is_admin' in newValue)) return false
+    return newValue.is_admin !== (oldRow?.is_admin ?? false)
+  }
+
   /** `public.chat_enabled()` (0031_chat_messages.sql) — the chat kill switch. */
   private chatEnabled(): boolean {
     return Boolean((this.rows.app_config as unknown as AppConfigRow[])[0]?.chat_enabled)
@@ -360,6 +376,9 @@ export class Database {
       if (!this.visible(actor, table, 'insert', row)) {
         throw new DatabaseError(403, '42501', `new row violates row-level security policy for table "${table}"`)
       }
+      if (table === 'profiles' && this.blocksProfileIsAdminChange(actor, 'insert', undefined, row)) {
+        throw new DatabaseError(400, 'P0001', 'is_admin cannot be set by a client session')
+      }
       this.rows[table].push(row)
       inserted.push(structuredClone(row))
       this.afterWrite(table, row)
@@ -380,6 +399,9 @@ export class Database {
       if (!this.visible(actor, table, 'update', row)) continue
       if (table === 'games' && this.blocksDirectGameStart(actor, row as unknown as GameRow, patch)) {
         throw new DatabaseError(400, '42501', 'An enforced game can only be started via the start-game Edge Function.')
+      }
+      if (table === 'profiles' && this.blocksProfileIsAdminChange(actor, 'update', row, patch)) {
+        throw new DatabaseError(400, 'P0001', 'is_admin cannot be changed by a client session')
       }
       Object.assign(row, structuredClone(patch))
       if (table === 'games' || table === 'game_state') row.updated_at = new Date().toISOString()
