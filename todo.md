@@ -7327,3 +7327,48 @@ New coverage in `src/engine/__tests__/undoRedo.test.ts`: with admin mode on,
 an Undo and the Redo that follows it both carry `viaAdminMode: true`; with
 it off, neither does. `viaAdminMode` is log metadata only — it doesn't
 affect replay — so no `productionGames` fixture's outcome changed.
+
+## 161. Undo did nothing, repeatedly, for a player whose card pick was forced (issue #718)
+
+Reported from a production game: a player (down to a one-card hand) tried to
+undo their last action, got no visible change, and repeated it several times
+before giving up and reaching for admin mode instead. Diagnosed from the
+game's exported `actionHistory`: `handleUndo()` (`src/pages/GamePage.tsx`)
+checks `shouldRetractOwnChoice` (`src/lib/undoDecision.ts`) first, and routes
+to `RETRACT_CHOICE` whenever the caller has *any* card chosen in the open
+`selectCards` phase — including a forced one. A single-card hand's pick is
+forced (`nextSelectCardsFastForward`, `src/engine/applyAction.ts`
+§4.2/§4.3's "no real decision" rule), so `RETRACT_CHOICE` succeeded every
+time, but the very same forced-follow-up convergence it triggers
+immediately re-picked the identical card right back, folded into that same
+dispatch — a real, successful `actionHistory` entry that changed nothing.
+Worse than a no-op: since `chosenCardIdByPlayerId[caller]` was non-null
+again the instant the click resolved, `shouldRetractOwnChoice` stayed true
+on every subsequent click too, so the player could never reach a real
+`UNDO_ACTION` through the ordinary button at all — each click buried the
+substantive action they actually meant to undo one more entry out of reach,
+since a bare Undo only ever reverts the tip one entry at a time. In the
+reported game, admin mode's `me` override (issue #391) happened to swap `me`
+to a *different*, still-genuinely-pending player mid-session, which
+incidentally let a real `UNDO_ACTION` through — but that was luck, not a fix,
+and it landed several entries short of the one that mattered.
+
+Fixed `shouldRetractOwnChoice` to require the caller's hand to actually hold
+more than one card — exactly `nextSelectCardsFastForward`'s own "is this
+forced" check, so the two can't drift apart — before ever preferring
+`RETRACT_CHOICE` over a plain Undo, for both the mid-`selectCards` case and
+the post-reveal `canRetractChoiceAfterReveal` case (issue #547). A forced
+pick now falls straight through to a real `UNDO_ACTION`, which — per
+`applyUndoAction`'s own design — reverts the tip's own entry (the player's
+last substantive action, with its folded-in forced pick) in one clean step,
+exactly as intended. `applyChooseCard` never removes the chosen card from
+`handCardIds` itself (that happens later, when the turn actually finishes),
+so a player who just made a genuine multi-card choice is unaffected — their
+picked card still sits in `handCardIds` alongside at least one alternative.
+
+New coverage in `src/lib/__tests__/undoDecision.test.ts`: a forced
+single-card pick is false for both the `selectCards` and post-reveal cases,
+and true again once a second card is available to switch to. No engine
+change — `applyRetractChoice`/`canRetractChoiceAfterReveal` themselves are
+unchanged, so a forced pick's fold-back is still correct when it happens as
+a side effect of some *other* player's own real retraction.

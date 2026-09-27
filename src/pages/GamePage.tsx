@@ -1535,6 +1535,15 @@ export function GamePage() {
    * the information) is still open. See `shouldRetractOwnDecline`
    * (`../lib/undoDecision.ts`) and `RetractDeclineAction`'s own doc comment
    * for why "all at once" rather than one card at a time.
+   *
+   * `shouldRetractOwnChoice`/`shouldRetractOwnDecline` both require the pick
+   * to be a genuine one — issue #718: a single-card hand's pick is forced
+   * (`nextSelectCardsFastForward`, `../engine/applyAction.ts`), and
+   * retracting a forced pick just gets it re-forced right back in the same
+   * dispatch, so routing Undo there is a silent no-op that still consumes a
+   * real `actionHistory` entry, burying the substantive action underneath
+   * it one step further out of reach with every click instead of ever
+   * reaching a real `UNDO_ACTION`.
    */
   async function handleUndo() {
     if (!game) return

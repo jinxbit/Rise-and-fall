@@ -26,6 +26,28 @@
 // canRetractChoiceAfterReveal (../engine/applyAction.ts) is the engine's own
 // authoritative legality check for RETRACT_CHOICE in that state; reused here
 // rather than re-derived so this and applyRetractChoice can't drift apart.
+//
+// Issue #718: a single-card hand has no real pick standing to retract into
+// — RULE_ENFORCEMENT_PLAN.md §4.4's refinement only means RETRACT_CHOICE for
+// a pick the caller could actually change; a forced one (nextSelectCards-
+// FastForward, ../engine/applyAction.ts) doesn't qualify, since the very
+// same forced-follow-up convergence that made the pick in the first place
+// immediately re-forces the identical card right back the instant
+// RETRACT_CHOICE reopens it, folded into that same dispatch. Routing Undo
+// there anyway still succeeds and still appends a real actionHistory entry
+// — so it looks like Undo did something — but it's a pure no-op on game
+// state, and worse, it buries whatever substantive action the player
+// actually meant to undo one entry further out of reach with every click,
+// since a bare Undo only ever reverts the tip one entry at a time. A player
+// stuck this way could never reach a real UNDO_ACTION through the ordinary
+// button at all: their pick keeps re-materializing, so
+// `chosenCardIdByPlayerId[myPlayerId]` never goes back to null on its own.
+// Gating on `handCardIds.length > 1` is exactly nextSelectCardsFastForward's
+// own "is this forced" check, so the two can't drift apart either — a
+// player who just made a genuine choice still has their chosen card sitting
+// in `handCardIds` alongside at least one alternative until the turn
+// actually finishes (applyChooseCard never touches handCardIds itself), so
+// this doesn't affect the ordinary "let me change my mind" case at all.
 
 import { canRetractChoiceAfterReveal } from '../engine/applyAction'
 import type { GameState } from '../engine/types'
@@ -34,10 +56,14 @@ export function shouldRetractOwnChoice(
   state: Pick<
     GameState,
     'roundPhase' | 'chosenCardIdByPlayerId' | 'lockRevealedInformationEnabled' | 'pendingPlayerIds' | 'turnOrder' | 'resolvedUnitIdsThisTurn' | 'unitsCreatedThisTurn'
-  >,
+  > & {
+    players: Pick<GameState['players'][number], 'id' | 'handCardIds'>[]
+  },
   myPlayerId: string | null | undefined,
 ): boolean {
   if (!myPlayerId) return false
+  const me = state.players.find((p) => p.id === myPlayerId)
+  if (!me || me.handCardIds.length <= 1) return false
   if (state.roundPhase === 'selectCards') return state.chosenCardIdByPlayerId[myPlayerId] != null
   return canRetractChoiceAfterReveal(state, myPlayerId)
 }
