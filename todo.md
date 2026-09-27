@@ -7444,3 +7444,46 @@ seat-order fallback with no hint, confirms a hint fixes the order, and
 confirms a hint missing one player still places that player correctly via
 seat-order fallback. `npm run lint`, `npm run test`, and `npm run build` all
 pass.
+
+## 164. Room creation option: let every seated player use room admin mode (issue #723)
+
+Room admin mode (issue #391/#464) — the toggle that lets someone act as
+whichever player is currently pending, plus the undo/redo owner-override —
+was previously restricted to the room owner or a site admin
+(`GamePage.tsx`'s `canAdminOverride`, `isOwnerOrAdmin` server-side). Some
+groups don't want a single designated owner holding that power alone (e.g.
+so anyone can nudge a stuck game along, or take a turn for someone who
+stepped away).
+
+New per-room, creation-time setting: `GameSettings.allowAllPlayersAdminMode`
+(`dbTypes.ts`), off by default so every existing room is unaffected.
+`CreateGamePage.tsx` offers it as a checkbox for non-hotseat games only —
+admin mode itself is already excluded there (one shared device already lets
+any local player act as whoever's turn it is). When on, `GamePage.tsx`'s
+`canAdminOverride` includes any seated player, not just `isCreator ||
+isAdmin`.
+
+Server-side, `supabase/functions/_shared/gameEnforcement.ts` gains two
+functions: `mayUseAdminMode` (the room owner/an admin, or — when the setting
+is on — any seated player, but *only* while `GameState.adminModeActive` is
+itself switched on for either case) and `mayToggleAdminMode` (the same
+broadening for submitting `SET_ADMIN_MODE` itself, deliberately not gated on
+`adminModeActive` already being true, since that would make turning the
+toggle on for the first time impossible). `isAuthorizedToActAs` and the
+owner-override checks in `apply-action`/`undo-action` (previously keyed on
+`isOwnerOrAdmin` alone) now go through `mayUseAdminMode` instead; the
+`SET_ADMIN_MODE` gate in `apply-action` goes through `mayToggleAdminMode`.
+An ordinary player's extended privileges last only as long as the toggle is
+actually on, same as the existing owner-override checks already required
+for the owner — the first pass at this change missed that (`mayUseAdminMode`
+returned `true` for the owner unconditionally, dropping the existing
+`adminModeActive` requirement `ownerOverrideAvailable` always had), caught
+by the existing "refuses an ordinary player from even undoing their own
+already-revealed pick" test in `supabaseStack.test.ts` regressing.
+
+New coverage in `supabaseStack.test.ts`: a non-owner seat is refused both
+toggling admin mode and acting for another seat with the setting off (same
+as today), granted both once it's on and the toggle is switched on, and
+still refused acting for another seat if nobody has switched the toggle on
+yet. See `RULE_ENFORCEMENT_PLAN.md` §4.5's own update for the full
+before/after. `npm run lint`, `npm run test`, and `npm run build` all pass.

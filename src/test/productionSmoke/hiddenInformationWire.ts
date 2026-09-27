@@ -73,6 +73,7 @@ function settingsForWireCheck(): GameSettings {
     ruleEnforcementEnabled: true,
     hiddenInformationEnabled: true,
     lockRevealedInformationEnabled: false,
+    allowAllPlayersAdminMode: false,
     activeTaleIds: [],
     gameLength: 3,
   }

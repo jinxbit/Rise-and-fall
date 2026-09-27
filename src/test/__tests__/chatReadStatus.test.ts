@@ -34,6 +34,7 @@ function settingsFor(): GameSettings {
     ruleEnforcementEnabled: false,
     hiddenInformationEnabled: false,
     lockRevealedInformationEnabled: false,
+    allowAllPlayersAdminMode: false,
     activeTaleIds: [],
     gameLength: 3,
   }

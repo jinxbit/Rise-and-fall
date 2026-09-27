@@ -639,7 +639,9 @@ information from each other.
 
 The same "act as whoever is pending" mechanism is what admin mode reuses
 for live/async games, where a room owner or site admin can take a turn on
-behalf of the player the game is waiting on.
+behalf of the player the game is waiting on — or, if the room was created
+with **"Let any seated player switch on room admin mode"** checked
+(`settings.allowAllPlayersAdminMode`, issue #723), any seated player.
 
 ## Debugging: game state export
 

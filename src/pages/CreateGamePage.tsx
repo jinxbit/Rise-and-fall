@@ -37,6 +37,7 @@ export function CreateGamePage() {
   const [soloBuilderUnitOrder, setSoloBuilderUnitOrder] = useState<SoloBuilderUnitOrder>('last')
   const [skipHotseatPassGate, setSkipHotseatPassGate] = useState(true)
   const [lockRevealedInformationEnabled, setLockRevealedInformationEnabled] = useState(true)
+  const [allowAllPlayersAdminMode, setAllowAllPlayersAdminMode] = useState(false)
   const [activeTaleIds, setActiveTaleIds] = useState<string[]>([])
   const [gameLength, setGameLength] = useState(4)
   const [minPlayersInput, setMinPlayersInput] = useState('2')
@@ -73,6 +74,10 @@ export function CreateGamePage() {
   // never actually submitted, otherwise. Defaults to checked (issue #552,
   // superseding issue #529's opt-in default).
   const lockRevealedInformationAvailable = computeLockRevealedInformationAvailable(hiddenInformationAvailable)
+  // Room admin mode itself is excluded for hotseat (GamePage.tsx's
+  // canAdminOverride) — one shared device already lets any local player act
+  // as whoever's turn it is, so there's nothing this setting would add.
+  const allowAllPlayersAdminModeAvailable = playMode !== 'hotseat'
 
   if (loading) {
     return <div className="p-8 text-neutral-400">Loading…</div>
@@ -113,6 +118,7 @@ export function CreateGamePage() {
         ruleEnforcementEnabled: RULE_ENFORCEMENT_ENABLED,
         hiddenInformationEnabled: hiddenInformationAvailable,
         lockRevealedInformationEnabled: lockRevealedInformationAvailable && lockRevealedInformationEnabled,
+        allowAllPlayersAdminMode: allowAllPlayersAdminModeAvailable && allowAllPlayersAdminMode,
         activeTaleIds,
         gameLength,
         minPlayers,
@@ -236,6 +242,17 @@ export function CreateGamePage() {
           />
           Lock a card pick once revealed — only the room owner or an admin, with admin mode on, can undo past it (unavailable for hotseat)
         </label>
+        {allowAllPlayersAdminModeAvailable && (
+          <label className="flex items-center gap-2 text-sm text-neutral-400">
+            <input
+              type="checkbox"
+              checked={allowAllPlayersAdminMode}
+              onChange={(e) => setAllowAllPlayersAdminMode(e.target.checked)}
+              className="h-4 w-4 rounded border-neutral-700 bg-neutral-900"
+            />
+            Let any seated player switch on room admin mode, not just the room owner
+          </label>
+        )}
         <button
           disabled={busy || displayNameLoading || name.trim().length === 0 || !playerCountValid}
           onClick={() => void handleCreate()}

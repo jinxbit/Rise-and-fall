@@ -61,6 +61,7 @@ function settings(): GameSettings {
     // the test's own request-counting simple.
     hiddenInformationEnabled: false,
     lockRevealedInformationEnabled: false,
+    allowAllPlayersAdminMode: false,
     activeTaleIds: [],
     gameLength: 3,
   }

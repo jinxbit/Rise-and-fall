@@ -50,6 +50,7 @@ function settingsFor(overrides: Partial<GameSettings> = {}): GameSettings {
     ruleEnforcementEnabled: true,
     hiddenInformationEnabled: true,
     lockRevealedInformationEnabled: false,
+    allowAllPlayersAdminMode: false,
     activeTaleIds: [],
     gameLength: 3,
     ...overrides,
