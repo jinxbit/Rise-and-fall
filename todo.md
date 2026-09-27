@@ -7236,3 +7236,36 @@ redundant: the header roster is already reordered each round to start from
 `turnOrder[0]`, so the first pill *is* the first player without a separate
 marker. Removed the ★ span from `GamePage.tsx`'s header roster; the
 ordering itself and the ✓ "already acted" mark are unchanged.
+
+## 158. Security: block browser sessions from changing profiles.is_admin (issue #712)
+
+`0005_discord_webhooks.sql`'s "users can update their own profile" policy
+let any authenticated user change any column on their own `profiles` row,
+with no column-level limit. `0017_admin_delete_any_game.sql` later added
+`profiles.is_admin` to that same table, and the two combined meant any
+signed-in user could set `is_admin = true` on themselves through the
+ordinary anon-key client — no SQL access needed — which then let them
+delete any game (0017) and read any game's state, including hidden
+information (0024/0025_game_state_meta.sql).
+
+RLS can't express "this column may not change" (a `with check` clause only
+ever sees the new row, not whether the value moved), so
+`0036_lock_down_profiles_is_admin.sql` adds a `before insert or update`
+trigger instead — the same reason `0029_start_game_edge_function.sql`'s
+`enforce_game_status_transition` isn't a plain policy either.
+`enforce_profiles_is_admin_unchanged()` rejects an insert with `is_admin`
+true, or an update where `new.is_admin is distinct from old.is_admin`,
+whenever `current_setting('role')` is `authenticated` or `anon` — matching
+0029's own role-detection approach so the service role (the Edge Functions)
+and the SQL editor (`postgres`) are untouched.
+
+Mirrored in `src/test/supabaseStack/database.ts`'s `blocksProfileIsAdminChange`,
+checked from both `insert()` and `update()` the same way `blocksDirectGameStart`
+already gates `games`' status transition. `src/test/__tests__/profilesIsAdminLockdown.test.ts`
+covers all four cases: an authenticated insert/update can't set/change
+`is_admin`, an authenticated update can still change its other columns, and
+the service role can still set it.
+
+Manual follow-up (can't be done from CI): the maintainer should run
+`select user_id from profiles where is_admin;` against both Preview and
+production and remove any account that shouldn't be there.
