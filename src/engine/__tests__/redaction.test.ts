@@ -56,6 +56,41 @@ function requireOk(result: ReturnType<typeof applyAction>): GameState {
   return result.state
 }
 
+/** Same shape as makeActiveGameWithFullHands above, but a third seat so a viewer can see two other players resolve their picks in an order that differs from turnOrder (issue #720's revealOrderHint tests need that gap to exist at all). */
+function makeActive3PGameWithFullHands(): GameState {
+  const state = createNewGame({
+    gameId: 'game_1',
+    playMode: 'live',
+    board: createEmptyBoard('hex'),
+    players: [
+      { id: 'p1', authUserId: 'auth_1', displayName: 'Alice', color: 'red' },
+      { id: 'p2', authUserId: 'auth_2', displayName: 'Bob', color: 'blue' },
+      { id: 'p3', authUserId: 'auth_3', displayName: 'Carol', color: 'green' },
+    ],
+  })
+
+  const players = state.players.map((player) => {
+    let next = player
+    for (const cardId of player.supplyCardIds) {
+      next = moveCard(next, cardId, 'hand')
+    }
+    return next
+  })
+
+  const units: Unit[] = state.players.flatMap((player, playerIndex) =>
+    UNIT_KINDS.filter((kind) => kind !== 'city').map((kind, kindIndex) => ({
+      id: `${player.id}_seed_${kind}`,
+      ownerId: player.id,
+      kind,
+      coord: { q: 100 + kindIndex, r: 100 + playerIndex },
+      movement: { isMobile: false, terrains: [], canCrossCliffs: false },
+      traits: [],
+    })),
+  )
+
+  return { ...state, status: 'active', players, units }
+}
+
 describe('redactStateForPlayer', () => {
   describe('selectCards phase', () => {
     it('shows nobody has chosen yet to every viewer before anyone picks', () => {
@@ -797,6 +832,47 @@ describe('redactGameLog (issue #399)', () => {
     // gets its own real actionHistory entry back unmasked (redactStateForPlayer).
     const asP1 = redactGameLog(log, state, 'p1')
     expect(asP1.find((e) => e.playerId === 'p1')).toBeUndefined()
+  })
+
+  it('without a revealOrderHint, falls back to seat order for multiple synthesized picks — even when that is not the order they actually happened in (issue #720)', () => {
+    const genesis = makeActive3PGameWithFullHands()
+    expect(genesis.turnOrder).toEqual(['p1', 'p2', 'p3'])
+    // p3 picks before p1, the opposite of seat order — neither entry reaches
+    // this client (see the issue #497 test above for why).
+    let state = requireOk(applyAction(genesis, { type: 'CHOOSE_CARD', playerId: 'p3', cardId: cardIdFor('p3', 'nomad') }))
+    state = requireOk(applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'nomad') }))
+    expect(state.pendingPlayerIds).toEqual(['p2'])
+    const log = buildGameLog(genesis, [])
+
+    const asP2 = redactGameLog(log, state, 'p2')
+    const order = asP2.filter((e) => e.playerId === 'p1' || e.playerId === 'p3').map((e) => e.playerId)
+    // Wrong relative to what actually happened (p3 then p1) — this is the bug
+    // the next test's revealOrderHint fixes.
+    expect(order).toEqual(['p1', 'p3'])
+  })
+
+  it("a revealOrderHint reflecting the client's own observed reveal order fixes the synthesized picks' relative order (issue #720)", () => {
+    const genesis = makeActive3PGameWithFullHands()
+    let state = requireOk(applyAction(genesis, { type: 'CHOOSE_CARD', playerId: 'p3', cardId: cardIdFor('p3', 'nomad') }))
+    state = requireOk(applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'nomad') }))
+    const log = buildGameLog(genesis, [])
+
+    const asP2 = redactGameLog(log, state, 'p2', ['p3', 'p1'])
+    const order = asP2.filter((e) => e.playerId === 'p1' || e.playerId === 'p3').map((e) => e.playerId)
+    expect(order).toEqual(['p3', 'p1'])
+  })
+
+  it('a revealOrderHint missing a player (not yet observed pending) still places them via seat-order fallback (issue #720)', () => {
+    const genesis = makeActive3PGameWithFullHands()
+    let state = requireOk(applyAction(genesis, { type: 'CHOOSE_CARD', playerId: 'p3', cardId: cardIdFor('p3', 'nomad') }))
+    state = requireOk(applyAction(state, { type: 'CHOOSE_CARD', playerId: 'p1', cardId: cardIdFor('p1', 'nomad') }))
+    const log = buildGameLog(genesis, [])
+
+    // Only p3's reveal was actually observed; p1 falls back to seat order,
+    // sorted after every hinted entry.
+    const asP2 = redactGameLog(log, state, 'p2', ['p3'])
+    const order = asP2.filter((e) => e.playerId === 'p1' || e.playerId === 'p3').map((e) => e.playerId)
+    expect(order).toEqual(['p3', 'p1'])
   })
 
   it('tags a synthesized "chose a card" line as admin mode when the game currently has it on (issue #536)', () => {
