@@ -50,7 +50,7 @@ export function applyUndoAction(
   if (!resolveHistory(state.actionHistory).canUndo) {
     return { ok: false, error: 'Nothing left to undo.' }
   }
-  const history = [...state.actionHistory, { action: { type: 'UNDO_ACTION' as const, playerId }, turn: state.turn, timestamp: new Date().toISOString() }]
+  const history = [...state.actionHistory, { action: { type: 'UNDO_ACTION' as const, playerId }, turn: state.turn, timestamp: new Date().toISOString(), ...(state.adminModeActive ? { viaAdminMode: true as const } : {}) }]
   return { ok: true, state: replayActions(genesis, history, unitContent, achievementContent, boardGenerationContent, taleContent) }
 }
 
@@ -67,6 +67,6 @@ export function applyRedoAction(
   if (!resolveHistory(state.actionHistory).canRedo) {
     return { ok: false, error: 'Nothing left to redo.' }
   }
-  const history = [...state.actionHistory, { action: { type: 'REDO_ACTION' as const, playerId }, turn: state.turn, timestamp: new Date().toISOString() }]
+  const history = [...state.actionHistory, { action: { type: 'REDO_ACTION' as const, playerId }, turn: state.turn, timestamp: new Date().toISOString(), ...(state.adminModeActive ? { viaAdminMode: true as const } : {}) }]
   return { ok: true, state: replayActions(genesis, history, unitContent, achievementContent, boardGenerationContent, taleContent) }
 }

@@ -7305,3 +7305,25 @@ code, so this stays scoped to `canceled` only.
 update on a canceled non-enforced game is refused; apply, undo and redo on a
 canceled enforced game are all refused (409); both paths still work
 unchanged on an active game.
+
+## 160. Undo/Redo made in admin mode weren't tagged viaAdminMode (issue #714)
+
+`applyUndoAction`/`applyRedoAction` (`src/engine/undoRedo.ts`) build their
+`UNDO_ACTION`/`REDO_ACTION` log entries by hand rather than going through
+`applyActionWithSteps` (`src/engine/applyAction.ts`), so they never picked up
+the `viaAdminMode` stamp every other action gets while room admin mode is on
+(issue #464). An admin undoing or redoing on someone else's behalf showed up
+in the game log with no "(admin mode)" tag, indistinguishable from the
+player doing it themselves.
+
+Fixed by stamping both entries the same way `applyActionWithSteps` does:
+`...(state.adminModeActive ? { viaAdminMode: true as const } : {})`, read
+from the pre-dispatch `state` passed in. `LoggedAction.viaAdminMode`'s doc
+comment (`src/engine/actions.ts`) and `GameState.adminModeActive`'s
+(`src/engine/types.ts`) now both name `undoRedo.ts` alongside
+`applyAction.ts` as a source of this stamp.
+
+New coverage in `src/engine/__tests__/undoRedo.test.ts`: with admin mode on,
+an Undo and the Redo that follows it both carry `viaAdminMode: true`; with
+it off, neither does. `viaAdminMode` is log metadata only — it doesn't
+affect replay — so no `productionGames` fixture's outcome changed.

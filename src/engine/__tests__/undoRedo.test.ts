@@ -298,3 +298,35 @@ describe('SET_ADMIN_MODE is immune to Undo/Redo (issue #545)', () => {
     expect(undone.state.adminModeActive).toBe(false)
   })
 })
+
+describe('viaAdminMode tagging on UNDO_ACTION/REDO_ACTION (issue #714)', () => {
+  it('tags the logged entry when admin mode is on', () => {
+    const genesis = makeGenesis()
+    const afterP1 = choose(genesis, 'p1')
+    const toggledOn = applyAction(afterP1, { type: 'SET_ADMIN_MODE', playerId: null, enabled: true }, unitContent)
+    if (!toggledOn.ok) throw new Error('setup failed')
+
+    const undone = applyUndoAction(genesis, toggledOn.state, 'p1', unitContent)
+    if (!undone.ok) throw new Error(undone.error)
+    expect(undone.state.actionHistory.at(-1)?.action.type).toBe('UNDO_ACTION')
+    expect(undone.state.actionHistory.at(-1)?.viaAdminMode).toBe(true)
+
+    const redone = applyRedoAction(genesis, undone.state, 'p1', unitContent)
+    if (!redone.ok) throw new Error(redone.error)
+    expect(redone.state.actionHistory.at(-1)?.action.type).toBe('REDO_ACTION')
+    expect(redone.state.actionHistory.at(-1)?.viaAdminMode).toBe(true)
+  })
+
+  it('leaves the logged entry untagged when admin mode is off', () => {
+    const genesis = makeGenesis()
+    const afterP1 = choose(genesis, 'p1')
+
+    const undone = applyUndoAction(genesis, afterP1, 'p1', unitContent)
+    if (!undone.ok) throw new Error(undone.error)
+    expect(undone.state.actionHistory.at(-1)?.viaAdminMode).toBeUndefined()
+
+    const redone = applyRedoAction(genesis, undone.state, 'p1', unitContent)
+    if (!redone.ok) throw new Error(redone.error)
+    expect(redone.state.actionHistory.at(-1)?.viaAdminMode).toBeUndefined()
+  })
+})
