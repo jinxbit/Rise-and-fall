@@ -518,7 +518,9 @@ export interface GameState {
    * not by the engine itself, which has no notion of room ownership) is
    * free to turn it back off the same way; every other action submitted
    * while it's on gets stamped `LoggedAction.viaAdminMode` (see
-   * applyActionWithSteps, ./applyAction.ts) so the log can call it out.
+   * applyActionWithSteps, ./applyAction.ts, and applyUndoAction/
+   * applyRedoAction, ./undoRedo.ts, for UNDO_ACTION/REDO_ACTION) so the log
+   * can call it out.
    * "Toggled only by SET_ADMIN_MODE" is enforced, not just documented
    * (issue #545): `resolveHistory`/`replayActions` (./historyFold.ts,
    * ./replay.ts) deliberately keep `SET_ADMIN_MODE` out of the undo/redo

@@ -286,11 +286,14 @@ export interface LoggedAction {
   /**
    * True if `GameState.adminModeActive` was already on when this entry was
    * submitted (issue #464) — stamped by applyActionWithSteps
-   * (./applyAction.ts) from the pre-dispatch state. Never set on a
-   * SET_ADMIN_MODE entry itself (its own narration — "turned admin mode
-   * on/off" — already says as much); every other action submitted while
-   * admin mode is on gets it. Absent (not `false`) when admin mode wasn't
-   * active, so old history predating this field and a fresh action
+   * (./applyAction.ts) from the pre-dispatch state, or by
+   * applyUndoAction/applyRedoAction (./undoRedo.ts) the same way for
+   * UNDO_ACTION/REDO_ACTION entries (issue #714 — those bypass
+   * applyActionWithSteps entirely, so they need their own stamp). Never set
+   * on a SET_ADMIN_MODE entry itself (its own narration — "turned admin
+   * mode on/off" — already says as much); every other action submitted
+   * while admin mode is on gets it. Absent (not `false`) when admin mode
+   * wasn't active, so old history predating this field and a fresh action
    * submitted with admin mode off serialize identically. gameLog.ts
    * surfaces it as an "(admin mode)" tag on the narrated line.
    */
