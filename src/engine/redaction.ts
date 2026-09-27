@@ -336,8 +336,21 @@ export function applyRedactedGameStateDelta(previousActionHistory: LoggedAction[
  * `state.adminModeActive` — the *current* value — rather than the real
  * entry's `LoggedAction.viaAdminMode`, since that entry was never sent to
  * this client to read it from.
+ *
+ * `revealOrderHint` (issue #720) fixes these synthesized lines' own relative
+ * order: with nothing else to go on, `unannouncedPickers` used to list them
+ * in seat order (`state.turnOrder`), which has no relationship to the order
+ * the picks actually happened in — a single state snapshot carries no memory
+ * of that. `state` alone still doesn't; the caller (GamePage.tsx) does,
+ * because it watches the same game's `pendingPlayerIds` shrink one real pick
+ * at a time across successive realtime updates and remembers that reveal
+ * order for the current turn. Passing it through lets these lines match the
+ * order players actually picked in whenever the caller observed it happen
+ * incrementally; a player who left `pendingPlayerIds` before the caller ever
+ * saw them pending (e.g. a cold load partway through the phase) isn't in the
+ * hint and falls back to seat order, same as before.
  */
-export function redactGameLog(events: GameEvent[], state: GameState, viewerId: string | null): GameEvent[] {
+export function redactGameLog(events: GameEvent[], state: GameState, viewerId: string | null, revealOrderHint: string[] = []): GameEvent[] {
   const hideChosenCards = state.roundPhase === 'selectCards' && state.pendingPlayerIds.length > 0
   const redacted = events.map((event) => {
     if (!event.secret || event.playerId === viewerId) return event
@@ -351,9 +364,15 @@ export function redactGameLog(events: GameEvent[], state: GameState, viewerId: s
   const unannouncedPickers = state.turnOrder.filter((playerId) => playerId !== viewerId && !stillPending.has(playerId) && !announced.has(playerId))
   if (unannouncedPickers.length === 0) return redacted
 
+  const revealRank = (playerId: string) => {
+    const hinted = revealOrderHint.indexOf(playerId)
+    return hinted === -1 ? revealOrderHint.length + state.turnOrder.indexOf(playerId) : hinted
+  }
+  const orderedPickers = [...unannouncedPickers].sort((a, b) => revealRank(a) - revealRank(b))
+
   return [
     ...redacted,
-    ...unannouncedPickers.map((playerId) => ({
+    ...orderedPickers.map((playerId) => ({
       id: `hidden-pick-${state.turn}-${playerId}`,
       turn: state.turn,
       playerId,

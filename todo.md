@@ -7399,3 +7399,48 @@ Mirrored in `src/test/supabaseStack/database.ts`'s `visible()` for
 read and post a private room's chat despite not being seated, still can't
 post as someone else, and is still blocked by the kill switch like everyone
 else. See `CHAT_PLAN.md` §21.
+
+## 163. Game log rows out of order within a hidden-information round (issue #720)
+
+Reported as "several log lines with the same minute don't appear in the
+right order." Reproduced directly rather than guessed: `buildGameLog`
+against three real production exports (up to 370 events each) never
+produced a single out-of-order timestamp, which ruled out the core
+narration engine (`src/engine/gameLog.ts`) — that array is always built by
+walking `actionHistory` in order, so it's correct by construction.
+
+The actual bug is in `redactGameLog` (`src/engine/redaction.ts`, issue
+#399/#497): while a `hiddenInformationEnabled` game's selectCards phase is
+still open, another player's real CHOOSE_CARD entry never reaches this
+client at all (`unredactedPrefix` cuts it), so `redactGameLog` synthesizes
+a placeholder "chose a card" line for each such player instead. Those
+placeholders were ordered by seat (`state.turnOrder`) — the only ordering
+information a single `GameState` snapshot carries — which has no
+relationship to the order the picks actually happened in. A 3-player
+engine test confirms it: p3 picks, then p1 picks, and the synthesized lines
+came back as p1-then-p3. Since issue #552 made hidden information the
+default for every game created through the UI, this now surfaces in most
+games' logs rather than an opt-in minority.
+
+Fixed by giving `redactGameLog` an optional `revealOrderHint: string[]`
+parameter (default `[]`, so every existing caller/test is unaffected) that
+reorders the synthesized lines by that hint, falling back to seat order for
+any player missing from it. `GamePage.tsx` supplies the hint itself: a
+`pickRevealOrderRef` (mutated inside `visibleGameLog`'s own `useMemo`, the
+same pattern `gameLogCacheRef` already uses) watches the live
+`gameState.pendingPlayerIds` shrink across successive realtime updates and
+records the order players actually leave it in, reset whenever `turn`
+changes. Since a realtime update fires per submitted action
+(CLAUDE.md invariant 4), this client generally observes picks resolving one
+at a time, in the real order — the hint is exact for the common case and
+degrades to the old seat-order behavior only for a player whose pick
+resolved before this client ever saw them pending (e.g. a cold load
+partway through the phase). `reviewState` (history scrubbing) gets no hint,
+since it is a one-shot replay to a fixed past point rather than something
+this client has watched evolve live.
+
+New coverage in `redaction.test.ts`: a 3-player fixture confirms the old
+seat-order fallback with no hint, confirms a hint fixes the order, and
+confirms a hint missing one player still places that player correctly via
+seat-order fallback. `npm run lint`, `npm run test`, and `npm run build` all
+pass.

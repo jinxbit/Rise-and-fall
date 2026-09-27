@@ -1187,6 +1187,25 @@ export function GamePage() {
   ])
 
   /**
+   * The order this client has actually observed other players' still-secret
+   * selectCards picks resolve in, for redactGameLog's `revealOrderHint`
+   * (issue #720) — a single GameState snapshot has no memory of that order
+   * (see redactGameLog's own doc comment), but this client watches
+   * `pendingPlayerIds` shrink across successive realtime updates, and a
+   * realtime update fires per submitted action (CLAUDE.md invariant 4), so
+   * it generally sees one pick resolve at a time, in the real order. Reset
+   * whenever `turn` changes — a new round's phase has nothing to do with the
+   * last one's — including the rare case of a live regression (undo) back
+   * into a still-open selectCards phase, since there's no cheaper way to
+   * tell that apart from "next round" than the turn number changing either
+   * way, and starting over is harmless either way (worst case, seat-order
+   * fallback until picks resolve again). Mutated from inside visibleGameLog's
+   * own useMemo below, same as gameLogCacheRef above — it's a derived cache
+   * keyed on render inputs, not stateful, so it doesn't need a state setter.
+   */
+  const pickRevealOrderRef = useRef<{ turn: number; order: string[] }>({ turn: -1, order: [] })
+
+  /**
    * Per-viewer redacted copy of the narration log (issue #399) —
    * `gameLog`/`reviewGameLog` above are the fully-revealing narration, kept
    * shared/cached since they never differ by viewer; this applies
@@ -1208,7 +1227,22 @@ export function GamePage() {
     if (isAdmin && cheatModeEnabled) return source
     const redactionState = isReviewingHistory ? reviewState : gameState
     if (!redactionState) return source
-    return redactGameLog(source, redactionState, me?.id ?? null)
+    // Only the live state gets a hint: reviewState is a one-shot replay to a
+    // fixed past point, not something this client has watched evolve, so
+    // there's nothing observed to feed in — same seat-order fallback as ever.
+    let revealOrderHint: string[] = []
+    if (!isReviewingHistory && gameState) {
+      if (pickRevealOrderRef.current.turn !== gameState.turn) pickRevealOrderRef.current = { turn: gameState.turn, order: [] }
+      if (gameState.roundPhase === 'selectCards') {
+        const stillPending = new Set(gameState.pendingPlayerIds)
+        const order = pickRevealOrderRef.current.order
+        for (const playerId of gameState.turnOrder) {
+          if (!stillPending.has(playerId) && !order.includes(playerId)) order.push(playerId)
+        }
+      }
+      revealOrderHint = pickRevealOrderRef.current.order
+    }
+    return redactGameLog(source, redactionState, me?.id ?? null, revealOrderHint)
   }, [isReviewingHistory, reviewGameLog, gameLog, isAdmin, cheatModeEnabled, reviewState, gameState, me?.id])
 
   /** The action most recently applied as of `reviewIndex`, for the review banner's label — null at genesis (reviewIndex 0). */
