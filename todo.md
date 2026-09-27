@@ -7269,3 +7269,39 @@ the service role can still set it.
 Manual follow-up (can't be done from CI): the maintainer should run
 `select user_id from profiles where is_admin;` against both Preview and
 production and remove any account that shouldn't be there.
+
+## 159. Security: cancelled rooms could still be played, on both write paths (issue #713)
+
+`0008_room_lifecycle.sql`'s `game_state` update policy blocked writes once
+`games.status = 'canceled'`. `0026_rule_enforcement_flag.sql` replaced that
+policy (Postgres OR's permissive policies together, so replacing rather than
+adding a second one is the only way to *restrict* access) to add the
+`ruleEnforcementEnabled` check, and dropped the canceled check in the
+process — so a canceled room's client-trusted `game_state` was directly
+writable again by any seated player. The rule-enforced path had the same
+gap from day one: `gameEnforcement.ts` never rejected a canceled room, so
+`apply-action`/`undo-action`/`redo-action` all accepted moves for it, since
+those functions write through the service role, which bypasses RLS entirely.
+
+`0037_block_canceled_game_state_writes.sql` recreates the client-trusted
+policy with both conditions (0008's `games.status <> 'canceled'` alongside
+0026's enforcement check). `cancelledGameResponse()`
+(`supabase/functions/_shared/gameEnforcement.ts`) closes the other path —
+called right after `loadGameContext` in all three Edge Functions, before any
+other authorization check, returning a 409. Mirrored in
+`src/test/supabaseStack/database.ts`'s hand-written `game_state` UPDATE
+policy, which isn't real SQL and so doesn't pick up the migration on its own.
+
+Checked whether `completed` needs the same guard: no. `games.status` never
+actually reaches `'completed'` —
+`enforce_game_status_transition` (also 0008) only allows
+`lobby->active`/`lobby->canceled`/`active->canceled`, so a finished game's
+`games` row stays `'active'` forever; "finished" lives only in
+`game_state.state.status` (`dbTypes.ts`'s `GameRow` doc comment, todo.md
+#98). Gating either write path on `games.status = 'completed'` would be dead
+code, so this stays scoped to `canceled` only.
+
+`src/test/__tests__/supabaseStack.test.ts` covers: a direct `game_state`
+update on a canceled non-enforced game is refused; apply, undo and redo on a
+canceled enforced game are all refused (409); both paths still work
+unchanged on an active game.

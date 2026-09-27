@@ -31,6 +31,7 @@
 import type { Action } from '../../../src/engine/actions.ts'
 import {
   applyActionFullyEnforced,
+  cancelledGameResponse,
   corsHeaders,
   getCallerUserId,
   isAuthorizedToActAs,
@@ -83,6 +84,8 @@ Deno.serve(async (req) => {
   const supabase = serviceRoleClient()
   const ctx = await loadGameContext(supabase, gameId, callerUserId)
   if (!ctx) return jsonResponse(404, { ok: false, error: 'Game not found, or has no state yet (still in the lobby?).' })
+  const cancelled = cancelledGameResponse(ctx)
+  if (cancelled) return cancelled
 
   // SET_ADMIN_MODE (issue #464) has no seat to check `isAuthorizedToActAs`
   // against (`playerId` is narration-only, like Undo/Redo) — who may flip it

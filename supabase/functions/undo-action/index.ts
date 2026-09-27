@@ -37,6 +37,7 @@ import { applyUndoAction } from '../../../src/engine/undoRedo.ts'
 import { undoWouldReopenRevealedPick } from '../../../src/engine/historyFold.ts'
 import {
   buildGenesisState,
+  cancelledGameResponse,
   corsHeaders,
   getCallerUserId,
   jsonResponse,
@@ -83,6 +84,8 @@ Deno.serve(async (req) => {
   const supabase = serviceRoleClient()
   const ctx = await loadGameContext(supabase, gameId, callerUserId)
   if (!ctx) return jsonResponse(404, { ok: false, error: 'Game not found, or has no state yet (still in the lobby?).' })
+  const cancelled = cancelledGameResponse(ctx)
+  if (cancelled) return cancelled
 
   const isSeated = ctx.players.some((p) => p.user_id === callerUserId)
   if (!isSeated && !ctx.isOwnerOrAdmin) {

@@ -326,6 +326,71 @@ describe('production Supabase stack', () => {
       expect(await stack.readGameState(ALICE, GAME_ID)).not.toBeNull()
       expect(await stack.readGameState('auth-user-carol', GAME_ID)).not.toBeNull()
     })
+
+    // Issue #713: 0026_rule_enforcement_flag.sql replaced 0008_room_lifecycle.sql's
+    // update policy and dropped its `games.status <> 'canceled'` condition in
+    // the process, so a canceled room's client-trusted game_state was still
+    // directly writable. 0037_block_canceled_game_state_writes.sql restores it.
+    it('blocks a direct game_state write once the room is canceled, even with enforcement off (0037, issue #713)', async () => {
+      const genesis = await seed(stack, settingsFor({ ruleEnforcementEnabled: false }))
+      const canceled = { ...stack.db.table<{ id: string; status: string }>('games').find((row) => row.id === GAME_ID)!, status: 'canceled' }
+      stack.db.replaceRow('games', canceled)
+
+      const { data, error } = await stack
+        .clientFor(ALICE)
+        .from('game_state')
+        .update({ state: { ...genesis, turn: 7 }, turn: 7, active_player_id: null, version: 1 })
+        .eq('game_id', GAME_ID)
+        .eq('version', 0)
+        .select('version')
+      expect(error).toBeNull()
+      expect(data).toEqual([])
+      expect((await stack.readGameState(ALICE, GAME_ID))?.state.turn).toBe(genesis.turn)
+    })
+  })
+
+  // Issue #713: gameEnforcement.ts never rejected a canceled room, so
+  // apply-action/undo-action/redo-action all accepted moves for one — the
+  // rule-enforced path's equivalent of the RLS gap the "row level security"
+  // tests above cover for the client-trusted path.
+  describe('canceled rooms are refused on both write paths (issue #713)', () => {
+    function cancelRoom(): void {
+      const canceled = { ...stack.db.table<{ id: string; status: string }>('games').find((row) => row.id === GAME_ID)!, status: 'canceled' }
+      stack.db.replaceRow('games', canceled)
+    }
+
+    it('refuses apply-action, undo-action and redo-action once the room is canceled', async () => {
+      const genesis = await seed(stack)
+      const { state, version } = await playThroughStack(stack, genesis, 4)
+      cancelRoom()
+
+      const action = nextLegalAction(state, resolveGameContent(genesis))!
+      const applyResult = await stack.applyAction(ALICE, GAME_ID, action)
+      expect(applyResult).toMatchObject({ ok: false, status: 409 })
+
+      const undoResult = await stack.undoAction(ALICE, GAME_ID)
+      expect(undoResult).toMatchObject({ ok: false, status: 409 })
+
+      const redoResult = await stack.redoAction(ALICE, GAME_ID)
+      expect(redoResult).toMatchObject({ ok: false, status: 409 })
+
+      // Nothing landed — the version the room was canceled at is still current.
+      expect((await stack.readGameState(ALICE, GAME_ID))?.version).toBe(version)
+    })
+
+    it('still allows apply-action, undo-action and redo-action on an active (not canceled) room', async () => {
+      const genesis = await seed(stack)
+      const { state, version } = await playThroughStack(stack, genesis, 4)
+
+      const undone = await stack.undoAction(ALICE, GAME_ID)
+      if (!undone.ok) throw new Error(undone.error)
+      expect(undone.version).toBe(version + 1)
+
+      const redone = await stack.redoAction(ALICE, GAME_ID)
+      if (!redone.ok) throw new Error(redone.error)
+      expect(redone.version).toBe(version + 2)
+      expect(stripTimestamps({ ...redone.state, actionHistory: state.actionHistory })).toEqual(stripTimestamps(state))
+    })
   })
 
   /**
