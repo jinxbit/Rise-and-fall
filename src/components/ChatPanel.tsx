@@ -7,8 +7,11 @@
 // of the panel's own heading/badge (issue #631, §14 — that chrome was
 // redundant with GamePage's own external toggle button and unnecessary
 // for site-wide chat), and extending the same in-game surface to the
-// pre-start lobby screen (issue #650, §11.10). One shared component for
-// both surfaces: site-wide (`gameId: null`, wired into HomePage.tsx,
+// pre-start lobby screen (issue #650, §11.10), and an "Admin" tag next to
+// any message from the site admin (issue #729, §22 — they can post in any
+// game's chat since issue #719, seated or not, so a tag is the only way to
+// tell their message apart from an ordinary player's). One shared component
+// for both surfaces: site-wide (`gameId: null`, wired into HomePage.tsx,
 // permanently expanded) and in-game (a real `gameId`, wired into both
 // LobbyPage.tsx and GamePage.tsx — the same `gameId` and message history
 // carry over from one to the other since a room's chat starts before its
@@ -125,7 +128,7 @@ export function ChatPanel({ gameId, players, canPost = true, open, onUnreadCount
 
   const [enabled, setEnabled] = useState(false)
   const [messages, setMessages] = useState<ChatMessageRow[] | null>(null)
-  const [names, setNames] = useState<Record<string, string>>({})
+  const [names, setNames] = useState<Record<string, { displayName: string | null; isAdmin: boolean }>>({})
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<AppError | null>(null)
@@ -429,7 +432,19 @@ export function ChatPanel({ gameId, players, canPost = true, open, onUnreadCount
   function nameFor(senderId: string): string {
     if (senderId === uid) return ownDisplayName || 'Player'
     const seatName = gameId !== null ? players?.find((p) => p.user_id === senderId)?.display_name : null
-    return seatName ?? names[senderId] ?? 'Player'
+    return seatName ?? names[senderId]?.displayName ?? 'Player'
+  }
+
+  /**
+   * Whether this sender is the site admin (`profiles.is_admin`, issue #729,
+   * CHAT_PLAN.md §22) — true regardless of whether their name resolved from
+   * a seat or from `names` (`chat_sender_display_names` always carries
+   * `isAdmin`, even for a seated sender whose name came from `players`
+   * instead), so the "Admin" tag renders the same everywhere the admin
+   * posts, seated or not.
+   */
+  function isAdminFor(senderId: string): boolean {
+    return names[senderId]?.isAdmin ?? false
   }
 
   /**
@@ -496,6 +511,9 @@ export function ChatPanel({ gameId, players, canPost = true, open, onUnreadCount
               )}
               <p>
                 {time && <span className="text-neutral-600">[{time}] </span>}
+                {isAdminFor(message.sender_id) && (
+                  <span className="mr-1 rounded bg-sky-900 px-1 py-0.5 text-[10px] font-semibold tracking-wide text-sky-300 uppercase">Admin</span>
+                )}
                 <span className="font-bold text-neutral-300" style={{ color: colorFor(message.sender_id) }}>
                   {nameFor(message.sender_id)}:
                 </span>{' '}

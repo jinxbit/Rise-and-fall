@@ -944,3 +944,30 @@ navigate into but not fully see or take part in.
   reporting phase, which is about a *player* flagging a message, not an
   admin acting on one directly. Nothing here changes chat's append-only,
   no-delete-policy posture (§3).
+
+## 22. "Admin" tag on the site admin's messages (issue #729)
+
+§21 let the site admin post in any game's chat, seated or not — but their
+message then looked identical to any other player's, with no way to tell it
+came through that admin-only carve-out.
+
+- **`chat_sender_display_names` widened** (0035_chat_sender_display_names.sql
+  → `0039_chat_sender_admin_flag.sql`) to also return `is_admin`, dropping and
+  recreating the function since its return columns changed. The row filter
+  widens from "display_name is not null" to "display_name is not null or
+  is_admin" — an admin who never set a custom display name would otherwise
+  be omitted from the result entirely, silently dropping the tag along with
+  the name. Still never returns `discord_webhook_url`; same `authenticated`-
+  only grant.
+- **Client:** `chatApi.ts`'s `getChatDisplayNames` return type widens from
+  `Record<string, string>` to `Record<string, { displayName: string | null;
+  isAdmin: boolean }>`. `ChatPanel.tsx` renders a small "Admin" badge before
+  the sender's name whenever `isAdminFor(senderId)` is true — computed from
+  this RPC result regardless of whether the name itself resolved from it or
+  from a seat (`players`), so a seated admin is tagged the same as an
+  unseated one. Site-wide chat and in-game chat both go through the same
+  lookup, so no surface-specific branching was needed.
+- **Not addressed:** no equivalent tag exists for a room owner acting through
+  admin-mode overrides (issue #391/#464/#723) — that's a per-game role, not
+  the site-wide `profiles.is_admin` flag this tag reads, and carries no chat
+  privilege of its own.

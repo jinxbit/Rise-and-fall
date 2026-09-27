@@ -152,28 +152,29 @@ export async function markChatRead(gameId: string, userId: string, lastReadId: n
 }
 
 /**
- * Best-effort display names for a batch of sender ids, keyed by `user_id`.
- * Backed by `profiles.display_name` (0015_profile_display_name.sql) via the
- * `chat_sender_display_names` RPC (0035_chat_sender_display_names.sql,
- * issue #684, CHAT_PLAN.md §10.5), not a direct `profiles` select —
- * `profiles`' own RLS (0013_discord_notify_backend.sql) only exposes a row
- * to its own owner, and a plain relaxation would also expose
- * `discord_webhook_url` (RLS is row-, not column-scoped). The `security
- * definer` RPC returns only `(user_id, display_name)` for any signed-in
- * caller, which is what lets a site-wide message from someone the caller
- * has never shared a game with still resolve to their custom name. Callers
- * fall back to a generic label for any id missing from the result (no
- * custom name set, or the caller is signed out), the same way
- * resolveDisplayName falls back to `'Player'`.
+ * Best-effort display name + site-admin flag for a batch of sender ids,
+ * keyed by `user_id`. Backed by `profiles.display_name`/`profiles.is_admin`
+ * via the `chat_sender_display_names` RPC (0035_chat_sender_display_names.sql,
+ * issue #684, CHAT_PLAN.md §10.5; widened to also carry `is_admin` by issue
+ * #729, §22), not a direct `profiles` select — `profiles`' own RLS
+ * (0013_discord_notify_backend.sql) only exposes a row to its own owner, and
+ * a plain relaxation would also expose `discord_webhook_url` (RLS is row-,
+ * not column-scoped). The `security definer` RPC returns only
+ * `(user_id, display_name, is_admin)` for any signed-in caller, which is
+ * what lets a site-wide message from someone the caller has never shared a
+ * game with still resolve to their custom name and admin tag. A missing
+ * entry means "no custom name and not an admin" — callers fall back to a
+ * generic label the same way resolveDisplayName falls back to `'Player'`,
+ * and treat `isAdmin` as false.
  */
-export async function getChatDisplayNames(userIds: string[]): Promise<Record<string, string>> {
+export async function getChatDisplayNames(userIds: string[]): Promise<Record<string, { displayName: string | null; isAdmin: boolean }>> {
   const distinctIds = [...new Set(userIds)]
   if (distinctIds.length === 0) return {}
   const { data, error } = await supabase.rpc('chat_sender_display_names', { sender_ids: distinctIds })
   if (error) throw error
-  const names: Record<string, string> = {}
-  for (const row of (data ?? []) as { user_id: string; display_name: string | null }[]) {
-    if (row.display_name) names[row.user_id] = row.display_name
+  const result: Record<string, { displayName: string | null; isAdmin: boolean }> = {}
+  for (const row of (data ?? []) as { user_id: string; display_name: string | null; is_admin: boolean }[]) {
+    if (row.display_name || row.is_admin) result[row.user_id] = { displayName: row.display_name, isAdmin: row.is_admin }
   }
-  return names
+  return result
 }

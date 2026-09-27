@@ -307,11 +307,15 @@ export class Database {
 
   /**
    * `public.chat_sender_display_names` (0035_chat_sender_display_names.sql,
-   * issue #684): a `security definer` function granted to `authenticated`
+   * issue #684; widened to also carry `is_admin` by 0039_chat_sender_admin_flag.sql,
+   * issue #729): a `security definer` function granted to `authenticated`
    * only, deliberately narrower than `profiles`' own RLS — it returns
-   * `(user_id, display_name)` for any signed-in caller (not just the row's
-   * owner), and never `discord_webhook_url` no matter what's asked for,
-   * since the query itself only ever selects those two columns.
+   * `(user_id, display_name, is_admin)` for any signed-in caller (not just
+   * the row's owner), and never `discord_webhook_url` no matter what's asked
+   * for, since the query itself only ever selects those three columns. A
+   * profile is included if it has a custom display name *or* is an admin —
+   * an admin with no custom name must still surface so the "Admin" tag
+   * doesn't silently disappear for them.
    */
   rpc(actor: Actor, name: string, args: Row): Row[] {
     switch (name) {
@@ -321,8 +325,8 @@ export class Database {
         }
         const senderIds = new Set((args.sender_ids as string[] | undefined) ?? [])
         return (this.rows.profiles as unknown as ProfileRow[])
-          .filter((profile) => senderIds.has(profile.user_id) && profile.display_name !== null)
-          .map((profile) => ({ user_id: profile.user_id, display_name: profile.display_name }))
+          .filter((profile) => senderIds.has(profile.user_id) && (profile.display_name !== null || profile.is_admin))
+          .map((profile) => ({ user_id: profile.user_id, display_name: profile.display_name, is_admin: profile.is_admin }))
       }
       default:
         throw new UnsupportedQueryError(`No RPC function named "${name}" is modeled by the test stack.`)
