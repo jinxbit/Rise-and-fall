@@ -251,6 +251,8 @@ export async function createGame(params: {
   hiddenInformationEnabled?: boolean
   /** Opt in to locking a `selectCards`/`decline` pick once it's been revealed (see GameSettings.lockRevealedInformationEnabled) — only meaningful alongside hiddenInformationEnabled. Defaults to false when omitted, same contract as hiddenInformationEnabled above; CreateGamePage.tsx's checkbox now defaults to *checked* (issue #552, superseding issue #529's unchecked-by-default). */
   lockRevealedInformationEnabled?: boolean
+  /** Widen "room admin mode" from the room owner/an admin to every seated player (see GameSettings.allowAllPlayersAdminMode, issue #723). Defaults to false when omitted; CreateGamePage.tsx's checkbox defaults to unchecked and is hidden for hotseat. */
+  allowAllPlayersAdminMode?: boolean
   /** Content ids of active Tales (src/content/tales.json) for the Tales variant, or omitted/empty for none. */
   activeTaleIds?: string[]
   /** Total achievements claimed (across all players) that ends the game — content/achievements.json's gameLength.min/max bounds it (1-6). Defaults to gameLength.default (4). */
@@ -278,6 +280,7 @@ export async function createGame(params: {
     ruleEnforcementEnabled: params.ruleEnforcementEnabled ?? false,
     hiddenInformationEnabled: params.hiddenInformationEnabled ?? false,
     lockRevealedInformationEnabled: params.lockRevealedInformationEnabled ?? false,
+    allowAllPlayersAdminMode: params.allowAllPlayersAdminMode ?? false,
     activeTaleIds: params.activeTaleIds ?? [],
     gameLength: params.gameLength ?? 4,
   }
@@ -797,6 +800,7 @@ export async function importGameExportAsHotseat(params: { exportText: string; ho
     ruleEnforcementEnabled: false,
     hiddenInformationEnabled: false,
     lockRevealedInformationEnabled: false,
+    allowAllPlayersAdminMode: false,
     activeTaleIds: sourceState.activeTaleIds,
     gameLength: sourceState.gameLength,
   }

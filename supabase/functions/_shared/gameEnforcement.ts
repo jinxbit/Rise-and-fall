@@ -60,6 +60,8 @@ export interface GameRow {
   created_by: string
   /** Room lifecycle status (0008_room_lifecycle.sql) — only get-game-state's read-visibility check (mirroring 0021_remove_observers.sql's RLS policy) uses this today; apply-action/undo-action/redo-action ignore it. */
   status: 'lobby' | 'active' | 'completed' | 'canceled'
+  /** Only the one field these functions need out of the full `games.settings` jsonb column (dbTypes.ts's GameSettings) — see `mayUseAdminMode`/`mayToggleAdminMode` below (issue #723). */
+  settings: { allowAllPlayersAdminMode: boolean }
 }
 export interface PlayerRow {
   id: string
@@ -116,7 +118,7 @@ export interface GameContext {
 /** Loads everything apply-action/undo-action/redo-action need about one game in one place, or null if the game/its state doesn't exist. */
 export async function loadGameContext(supabase: SupabaseClient, gameId: string, callerUserId: string): Promise<GameContext | null> {
   const [{ data: game, error: gameError }, { data: players, error: playersError }, { data: gameState, error: stateError }] = await Promise.all([
-    supabase.from('games').select('id, play_mode, created_by, status').eq('id', gameId).maybeSingle(),
+    supabase.from('games').select('id, play_mode, created_by, status, settings').eq('id', gameId).maybeSingle(),
     supabase.from('players').select('id, user_id').eq('game_id', gameId),
     supabase.from('game_state').select('state, version').eq('game_id', gameId).maybeSingle(),
   ])
@@ -159,19 +161,60 @@ export function cancelledGameResponse(ctx: GameContext): Response | null {
 }
 
 /**
- * §4.1: is `callerUserId` entitled to submit `playerId`'s action? Hotseat is
- * explicitly out of scope (one shared `auth.uid()` covers every local seat —
- * see RULE_ENFORCEMENT_PLAN.md's Scope section), so any player enrolled in a
+ * Whether `callerUserId` currently holds room admin mode's privileges — the
+ * room owner/a site admin (`isOwnerOrAdmin`), or, when the room was created
+ * with `games.settings.allowAllPlayersAdminMode` on (issue #723, a room
+ * creation-time opt-in for groups that don't want a single designated
+ * owner), any seated player — but always, for either case, only while
+ * `GameState.adminModeActive` is itself switched on: unlike
+ * `isAuthorizedToActAs`'s unconditional owner bypass below, this backs the
+ * §4.5 owner-override checks in apply-action/undo-action, which have
+ * required room admin mode to be on (not just being the owner/admin) since
+ * issue #464. See `mayToggleAdminMode` below for the one privilege this
+ * doesn't cover: submitting `SET_ADMIN_MODE` itself can't require the toggle
+ * already be on.
+ */
+export function mayUseAdminMode(ctx: GameContext, callerUserId: string): boolean {
+  if (!ctx.gameState.state.adminModeActive) return false
+  if (ctx.isOwnerOrAdmin) return true
+  if (!ctx.game.settings.allowAllPlayersAdminMode) return false
+  return ctx.players.some((p) => p.user_id === callerUserId)
+}
+
+/**
+ * Whether `callerUserId` may submit `SET_ADMIN_MODE` — the room owner/a site
+ * admin, or (issue #723) any seated player when
+ * `games.settings.allowAllPlayersAdminMode` is on. Deliberately not routed
+ * through `mayUseAdminMode` above: that one requires `adminModeActive`
+ * already be true for the extended case, which would make turning the
+ * toggle on for the first time impossible.
+ */
+export function mayToggleAdminMode(ctx: GameContext, callerUserId: string): boolean {
+  if (ctx.isOwnerOrAdmin) return true
+  return Boolean(ctx.game.settings.allowAllPlayersAdminMode) && ctx.players.some((p) => p.user_id === callerUserId)
+}
+
+/**
+ * §4.1: is `callerUserId` entitled to submit `playerId`'s action? The room
+ * owner/a site admin bypass this unconditionally (`isOwnerOrAdmin`),
+ * regardless of whether room admin mode itself happens to be on — this
+ * predates issue #464 and stays that way, since the client only ever
+ * exercises this for them via the toggle anyway. Hotseat is explicitly out
+ * of scope next (one shared `auth.uid()` covers every local seat — see
+ * RULE_ENFORCEMENT_PLAN.md's Scope section), so any player enrolled in a
  * hotseat game may act for any seat in it, same as today's client-trusted
- * behavior. Live/async requires an exact (game, seat, caller) match. §4.5's
- * owner/admin override applies on top for live/async — issue #486 gives
- * hotseat its own carve-out from that check instead (apply-action/index.ts),
- * since it exists to stop one human discarding another human's undone move,
- * and hotseat has only one human to begin with.
+ * behavior. Live/async otherwise requires an exact (game, seat, caller)
+ * match, unless (issue #723) `mayUseAdminMode` grants any seated player the
+ * same bypass while room admin mode is actually on. §4.5's owner/admin
+ * override applies on top for live/async — issue #486 gives hotseat its own
+ * carve-out from that check instead (apply-action/index.ts), since it
+ * exists to stop one human discarding another human's undone move, and
+ * hotseat has only one human to begin with.
  */
 export function isAuthorizedToActAs(ctx: GameContext, callerUserId: string, playerId: string): boolean {
   if (ctx.isOwnerOrAdmin) return true
   if (ctx.game.play_mode === 'hotseat') return ctx.players.some((p) => p.user_id === callerUserId)
+  if (mayUseAdminMode(ctx, callerUserId)) return true
   return ctx.players.some((p) => p.id === playerId && p.user_id === callerUserId)
 }
 

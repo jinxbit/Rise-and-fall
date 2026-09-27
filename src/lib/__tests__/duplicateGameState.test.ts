@@ -37,6 +37,7 @@ function makeSettings(overrides: Partial<GameSettings> = {}): GameSettings {
     ruleEnforcementEnabled: false,
     hiddenInformationEnabled: false,
     lockRevealedInformationEnabled: false,
+    allowAllPlayersAdminMode: false,
     activeTaleIds: [],
     gameLength: 4,
     ...overrides,

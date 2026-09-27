@@ -47,6 +47,7 @@ function settingsFor(overrides: Partial<GameSettings> = {}): GameSettings {
     // "not opted in"/hotseat tests below override it back to false.
     hiddenInformationEnabled: true,
     lockRevealedInformationEnabled: false,
+    allowAllPlayersAdminMode: false,
     activeTaleIds: [],
     gameLength: 3,
     ...overrides,

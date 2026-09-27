@@ -37,6 +37,8 @@ import {
   isAuthorizedToActAs,
   jsonResponse,
   loadGameContext,
+  mayToggleAdminMode,
+  mayUseAdminMode,
   redactedResponseState,
   respondWithState,
   requiresOwnerOverride,
@@ -89,15 +91,17 @@ Deno.serve(async (req) => {
 
   // SET_ADMIN_MODE (issue #464) has no seat to check `isAuthorizedToActAs`
   // against (`playerId` is narration-only, like Undo/Redo) — who may flip it
-  // is its own, simpler question: only the room owner or a site admin, same
-  // `isOwnerOrAdmin` check §4.5's other carve-outs already use. It's also
+  // is its own, simpler question: the room owner or a site admin, same
+  // `isOwnerOrAdmin` check §4.5's other carve-outs already use — or (issue
+  // #723) any seated player when `games.settings.allowAllPlayersAdminMode`
+  // is on (`mayToggleAdminMode`, ../_shared/gameEnforcement.ts). It's also
   // deliberately exempt from the owner-override branch-pruning check below:
   // that check exists to gate the very privilege this action turns on, so
   // requiring it already be on would make it unreachable the one time
   // there's actually a pending redo to preserve.
   if (action.type === 'SET_ADMIN_MODE') {
-    if (!ctx.isOwnerOrAdmin) {
-      return jsonResponse(403, { ok: false, error: 'Only the room owner or an admin may toggle admin mode.' })
+    if (!mayToggleAdminMode(ctx, callerUserId)) {
+      return jsonResponse(403, { ok: false, error: 'Only the room owner, an admin, or (if the room allows it) a seated player may toggle admin mode.' })
     }
   } else {
     if (!isAuthorizedToActAs(ctx, callerUserId, action.playerId)) {
@@ -112,8 +116,10 @@ Deno.serve(async (req) => {
     // (GameState.lockRevealedInformationEnabled) puts the same override
     // behind the same gate for discarding an already-revealed pick of one's
     // own, when the game opts into that stricter behavior — see
-    // requiresOwnerOverride's own doc comment.
-    const ownerOverrideAvailable = ctx.isOwnerOrAdmin && Boolean(ctx.gameState.state.adminModeActive)
+    // requiresOwnerOverride's own doc comment. Issue #723 extends the same
+    // override to any seated player instead of just the owner/admin, when
+    // the room opted into that (mayUseAdminMode).
+    const ownerOverrideAvailable = mayUseAdminMode(ctx, callerUserId)
     // issue #486: this check exists to stop one human discarding another
     // human's undone move. In hotseat, one shared auth.uid() covers every
     // seat (same reasoning as isAuthorizedToActAs's hotseat branch above and
@@ -129,7 +135,7 @@ Deno.serve(async (req) => {
       return jsonResponse(403, {
         ok: false,
         error:
-          "Submitting this action would discard another player's undone move, or a card pick that's already been revealed — only the room owner or an admin, with room admin mode on, may do that.",
+          "Submitting this action would discard another player's undone move, or a card pick that's already been revealed — only the room owner or an admin (or, if the room allows it, any seated player), with room admin mode on, may do that.",
       })
     }
   }

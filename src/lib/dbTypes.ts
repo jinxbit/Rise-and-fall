@@ -173,6 +173,23 @@ export interface GameSettings {
    * surprises).
    */
   lockRevealedInformationEnabled: boolean
+  /**
+   * Opt-in switch (issue #723) widening who may use "room admin mode"
+   * (GameState.adminModeActive, RULE_ENFORCEMENT_PLAN.md §4.5) from just the
+   * room owner/a site admin to every seated player. Off by default, and
+   * every game that existed before this key was added reads as `false` too
+   * — createGame()'s default is unaffected. Never meaningful for hotseat
+   * (CreateGamePage.tsx doesn't offer the checkbox there — admin mode itself
+   * is already excluded for hotseat, see GamePage.tsx's canAdminOverride).
+   * Read directly off this `games` row rather than mirrored onto
+   * `GameState` — unlike hiddenInformationEnabled/lockRevealedInformationEnabled
+   * above, this only ever gates *authorization* (who may submit
+   * `SET_ADMIN_MODE`, act as another seat, or use the owner-override), never
+   * the engine's own rules, so it's read fresh the same way
+   * `isOwnerOrAdmin` (games.created_by/profiles.is_admin) already is —
+   * see supabase/functions/_shared/gameEnforcement.ts's `mayUseAdminMode`.
+   */
+  allowAllPlayersAdminMode: boolean
   /** Content ids of active Tales (src/content/tales.json). Empty = Tales variant off. */
   activeTaleIds: string[]
   /** Total achievements claimed (across all players) that ends the game. content/achievements.json's gameLength.min/max bounds it (1-6). */

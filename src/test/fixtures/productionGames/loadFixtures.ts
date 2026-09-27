@@ -243,6 +243,7 @@ function reconstructRoom(finalState: GameState, overrides: RoomOverrides): { gam
     ruleEnforcementEnabled: true,
     hiddenInformationEnabled: finalState.hiddenInformationEnabled ?? false,
     lockRevealedInformationEnabled: finalState.lockRevealedInformationEnabled ?? false,
+    allowAllPlayersAdminMode: false,
     activeTaleIds: finalState.activeTaleIds,
     gameLength: finalState.gameLength,
     ...mapSettings,

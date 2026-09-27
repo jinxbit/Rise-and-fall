@@ -690,11 +690,14 @@ export function GamePage() {
   const isSeatedPlayer = players.some((p) => p.user_id === session?.user.id)
   /**
    * Who may switch on admin mode (issue #391): the room owner or a site
-   * admin. Hotseat is excluded — it already lets one local device act as
-   * whoever's turn it is (pendingActorId-driven `me`, the same mechanism
-   * admin mode reuses below), so the toggle would be redundant there.
+   * admin — or, when the room was created with
+   * `games.settings.allowAllPlayersAdminMode` on (issue #723), any seated
+   * player. Hotseat is excluded either way — it already lets one local
+   * device act as whoever's turn it is (pendingActorId-driven `me`, the
+   * same mechanism admin mode reuses below), so the toggle would be
+   * redundant there.
    */
-  const canAdminOverride = (isCreator || isAdmin) && !isHotseat
+  const canAdminOverride = (isCreator || isAdmin || ((game?.settings.allowAllPlayersAdminMode ?? false) && isSeatedPlayer)) && !isHotseat
   /**
    * Issue #534: with `lockRevealedInformationEnabled` on, undoing the tip's
    * own entry can itself put an already-revealed CHOOSE_CARD/MOVE_TO_DECLINE

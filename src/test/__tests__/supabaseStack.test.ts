@@ -46,6 +46,7 @@ function settingsFor(overrides: Partial<GameSettings> = {}): GameSettings {
     ruleEnforcementEnabled: true,
     hiddenInformationEnabled: false,
     lockRevealedInformationEnabled: false,
+    allowAllPlayersAdminMode: false,
     activeTaleIds: [],
     gameLength: 3,
     ...overrides,
@@ -166,6 +167,55 @@ describe('production Supabase stack', () => {
     const result = await stack.applyAction(BOB, GAME_ID, action)
     expect(result).toMatchObject({ ok: false, status: 403 })
     expect((await stack.readGameState(ALICE, GAME_ID))?.version).toBe(0)
+  })
+
+  /**
+   * `allowAllPlayersAdminMode` (issue #723) widens room admin mode's
+   * privileges — normally the room owner/an admin only (issue #391/#464) —
+   * to every seated player. Bob (a non-owner, non-admin seat) is refused
+   * both halves of admin mode (toggling it, and acting for Alice's seat)
+   * with the setting off, same as the base "refuses one player's attempt to
+   * act on another's behalf" test above, and granted both once it's on —
+   * but only while the toggle itself is actually switched on, mirroring the
+   * room owner's own existing behavior (see the "locking a revealed pick"
+   * describe below, whose ownerOverrideAvailable already required this for
+   * the owner).
+   */
+  describe('allowAllPlayersAdminMode extends room admin mode to every seated player (issue #723)', () => {
+    it("refuses Bob from toggling admin mode, and from acting on Alice's behalf, when the setting is off", async () => {
+      const genesis = await seed(stack, settingsFor({ allowAllPlayersAdminMode: false }))
+
+      const toggled = await stack.applyAction(BOB, GAME_ID, { type: 'SET_ADMIN_MODE', playerId: null, enabled: true })
+      expect(toggled).toMatchObject({ ok: false, status: 403 })
+
+      const action = nextLegalAction(genesis, resolveGameContent(genesis))!
+      expect(action.playerId).toBe('seat-alice')
+      const acted = await stack.applyAction(BOB, GAME_ID, action)
+      expect(acted).toMatchObject({ ok: false, status: 403 })
+    })
+
+    it("lets Bob toggle admin mode on and act on Alice's behalf once the setting is on", async () => {
+      const genesis = await seed(stack, settingsFor({ allowAllPlayersAdminMode: true }))
+
+      const toggled = await stack.applyAction(BOB, GAME_ID, { type: 'SET_ADMIN_MODE', playerId: null, enabled: true })
+      if (!toggled.ok) throw new Error(toggled.error)
+      expect(toggled.state.adminModeActive).toBe(true)
+
+      const action = nextLegalAction(genesis, resolveGameContent(genesis))!
+      expect(action.playerId).toBe('seat-alice')
+      const acted = await stack.applyAction(BOB, GAME_ID, action)
+      if (!acted.ok) throw new Error(acted.error)
+      expect(acted.state.actionHistory).toHaveLength(genesis.actionHistory.length + 2)
+    })
+
+    it("still refuses Bob from acting on Alice's behalf when the setting is on but nobody has switched the toggle on", async () => {
+      const genesis = await seed(stack, settingsFor({ allowAllPlayersAdminMode: true }))
+
+      const action = nextLegalAction(genesis, resolveGameContent(genesis))!
+      expect(action.playerId).toBe('seat-alice')
+      const acted = await stack.applyAction(BOB, GAME_ID, action)
+      expect(acted).toMatchObject({ ok: false, status: 403 })
+    })
   })
 
   it('refuses an unauthenticated caller', async () => {

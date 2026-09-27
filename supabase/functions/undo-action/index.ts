@@ -43,6 +43,7 @@ import {
   jsonResponse,
   loadFullGameAndPlayers,
   loadGameContext,
+  mayUseAdminMode,
   redactedResponseState,
   respondWithState,
   resolveGameContent,
@@ -92,9 +93,11 @@ Deno.serve(async (req) => {
     return jsonResponse(403, { ok: false, error: 'Only a seated player (or the room owner/an admin) may undo.' })
   }
 
-  // Issue #534 — see this file's own doc comment above.
+  // Issue #534 — see this file's own doc comment above. Issue #723 extends
+  // the override to any seated player instead of just the owner/admin, when
+  // the room opted into that (mayUseAdminMode).
   const isHotseat = ctx.game.play_mode === 'hotseat'
-  const ownerOverrideAvailable = ctx.isOwnerOrAdmin && Boolean(ctx.gameState.state.adminModeActive)
+  const ownerOverrideAvailable = mayUseAdminMode(ctx, callerUserId)
   if (
     !isHotseat &&
     ctx.gameState.state.lockRevealedInformationEnabled &&
@@ -104,7 +107,7 @@ Deno.serve(async (req) => {
     return jsonResponse(403, {
       ok: false,
       error:
-        "Undoing this would reopen a card pick that's already been revealed — only the room owner or an admin, with room admin mode on, may do that.",
+        "Undoing this would reopen a card pick that's already been revealed — only the room owner or an admin (or, if the room allows it, any seated player), with room admin mode on, may do that.",
     })
   }
 

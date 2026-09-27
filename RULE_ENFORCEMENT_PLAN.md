@@ -522,6 +522,26 @@ still use the broader `isOwnerOrAdmin` — forcing a stuck player's action
 through is a distinct, unchanged owner responsibility, orthogonal to
 reading that player's still-secret state.
 
+**Update (2026-09-27, issue #723): room admin mode's privileges can now be
+opened up to every seated player, not just the owner/an admin.** A new
+room-creation-time toggle, `games.settings.allowAllPlayersAdminMode`
+(`dbTypes.ts`), defaults to off (every existing room is unaffected) and is
+offered as a checkbox in `CreateGamePage.tsx` for non-hotseat games only
+(admin mode itself is already excluded there). When on: `GamePage.tsx`'s
+`canAdminOverride` includes any seated player, not just `isCreator ||
+isAdmin`; server-side, `supabase/functions/_shared/gameEnforcement.ts` gains
+`mayUseAdminMode` (the broadened, `adminModeActive`-gated form of
+`isOwnerOrAdmin` this whole section already uses for
+`isAuthorizedToActAs`/the owner-override checks) and `mayToggleAdminMode`
+(the same broadening for submitting `SET_ADMIN_MODE` itself, which can't be
+gated on `adminModeActive` already being true). Unlike the owner/admin case,
+an ordinary player's extended privileges last only while the toggle is
+actually on — turning it off immediately drops them back to acting only for
+their own seat. `get-game-state`'s `ctx.isAdmin`-only unredacted-read
+carve-out above is untouched by this: this setting only ever widens the
+write-side `isOwnerOrAdmin`-keyed checks, never who may see another
+player's still-secret state.
+
 ## 6. Data model changes
 
 **Update (2026-09-04, phase 4, §8): smaller than originally scoped.**
