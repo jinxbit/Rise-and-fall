@@ -6,9 +6,12 @@ function stateWith(
   roundPhase: GameState['roundPhase'],
   chosenCardIdByPlayerId: GameState['chosenCardIdByPlayerId'],
   overrides: Partial<
-    Pick<GameState, 'lockRevealedInformationEnabled' | 'pendingPlayerIds' | 'turnOrder' | 'resolvedUnitIdsThisTurn' | 'unitsCreatedThisTurn'>
+    Pick<GameState, 'lockRevealedInformationEnabled' | 'pendingPlayerIds' | 'turnOrder' | 'resolvedUnitIdsThisTurn' | 'unitsCreatedThisTurn'> & {
+      players: { id: string; handCardIds: string[] }[]
+    }
   > = {},
 ) {
+  const { players, ...rest } = overrides
   return {
     roundPhase,
     chosenCardIdByPlayerId,
@@ -17,7 +20,12 @@ function stateWith(
     turnOrder: [],
     resolvedUnitIdsThisTurn: [],
     unitsCreatedThisTurn: [],
-    ...overrides,
+    // Two cards standing by default — a genuine pick, not a forced one — so
+    // existing callers exercising the "real choice" path don't all need to
+    // spell this out. Tests for the forced single-card case (issue #718)
+    // override it explicitly.
+    players: players ?? Object.keys(chosenCardIdByPlayerId).map((id) => ({ id, handCardIds: [`${id}-card-1`, `${id}-card-2`] })),
+    ...rest,
   }
 }
 
@@ -50,6 +58,32 @@ describe('shouldRetractOwnChoice', () => {
     const state = stateWith('selectCards', { p1: 'card-1' })
     expect(shouldRetractOwnChoice(state, null)).toBe(false)
     expect(shouldRetractOwnChoice(state, undefined)).toBe(false)
+  })
+
+  describe('a forced single-card pick has nothing real to retract into (issue #718)', () => {
+    // p1's hand holds only the card they were forced onto
+    // (nextSelectCardsFastForward, ../../engine/applyAction.ts) — retracting
+    // it would just get immediately re-forced right back, folded into the
+    // same RETRACT_CHOICE dispatch, so it's not a real pick to route Undo
+    // into.
+    it('is false when the caller only has the one card they were forced onto', () => {
+      const state = stateWith('selectCards', { p1: 'card-1', p2: null }, { players: [{ id: 'p1', handCardIds: ['card-1'] }] })
+      expect(shouldRetractOwnChoice(state, 'p1')).toBe(false)
+    })
+
+    it('is false for a forced pick even after the round has resolved into actions (issue #547 case)', () => {
+      const state = stateWith(
+        'actions',
+        { p1: 'card-1', p2: 'card-2' },
+        { pendingPlayerIds: ['p1', 'p2'], turnOrder: ['p1', 'p2'], players: [{ id: 'p1', handCardIds: ['card-1'] }] },
+      )
+      expect(shouldRetractOwnChoice(state, 'p1')).toBe(false)
+    })
+
+    it('is true again once the caller has a second card to actually switch to', () => {
+      const state = stateWith('selectCards', { p1: 'card-1', p2: null }, { players: [{ id: 'p1', handCardIds: ['card-1', 'card-2'] }] })
+      expect(shouldRetractOwnChoice(state, 'p1')).toBe(true)
+    })
   })
 
   describe('after the round resolves into actions via someone else\'s pick (issue #547)', () => {
