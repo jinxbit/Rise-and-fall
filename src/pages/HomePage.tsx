@@ -226,6 +226,9 @@ export function HomePage() {
                 >
                   Map builder
                 </Link>
+                <Link to="/kogge" role="menuitem" onClick={() => setMenuOpen(false)} className="px-3 py-2 text-left hover:bg-neutral-800">
+                  Kogge (hotseat)
+                </Link>
                 {isAdmin && (
                   <Link
                     to="/admin/maps"
