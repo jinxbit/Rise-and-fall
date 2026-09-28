@@ -288,6 +288,7 @@ one check. See `RULE_ENFORCEMENT_PLAN.md` §10 (2026-09-11 update, issue
 | `ELO_SYSTEM_PLAN.md` | Rating system design (not built). |
 | `DELIVERY_PIPELINE_PLAN.md` | How a change reaches production: the pre-production environment, branch topology, what auto-merges and what never does (design agreed, not built). |
 | `PRODUCTION_DEPLOYMENT.md` | The production deployment runbook: preconditions, how to promote, what to watch afterwards, how to recover, and how a hotfix reaches production without dragging pre-production with it. |
+| `KOGGE_PLAN.md` | Kogge, a second, separate game: rules restated in our own words, every interpretation made, and the code map for `src/kogge/` (pure engine) + `src/pages/KoggePage.tsx` (local hotseat at `/kogge`, no backend). |
 | `src/content/README.md` | **The most important single doc**: every content file's fields, the board-generation rules, achievements/VP, resources, and Tales, each cross-referenced to the engine module that implements it. |
 
 ## Working conventions
