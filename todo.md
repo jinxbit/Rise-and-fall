@@ -7487,3 +7487,32 @@ as today), granted both once it's on and the toggle is switched on, and
 still refused acting for another seat if nobody has switched the toggle on
 yet. See `RULE_ENFORCEMENT_PLAN.md` §4.5's own update for the full
 before/after. `npm run lint`, `npm run test`, and `npm run build` all pass.
+
+## 165. Admin tag on chat messages sent by the site admin (issue #729)
+
+Issue #719 let the site admin (`profiles.is_admin`) read and post in any
+game's chat, seated or not (`0038_chat_admin_access.sql`), but their message
+then looked identical to any other player's — a co-player watching that
+game's chat had no way to tell it came from the admin rather than an
+ordinary participant.
+
+`chat_sender_display_names` (0035_chat_sender_display_names.sql) is widened
+by `0039_chat_sender_admin_flag.sql` to also return `is_admin`, dropped and
+recreated since its return columns changed. Its row filter widens from
+"display_name is not null" to "display_name is not null or is_admin" so an
+admin with no custom display name still surfaces (with `display_name null`)
+instead of being omitted along with the flag. `chatApi.ts`'s
+`getChatDisplayNames` return type widens to
+`Record<string, { displayName: string | null; isAdmin: boolean }>` to carry
+it, and `ChatPanel.tsx` renders a small "Admin" badge before the sender's
+name whenever that flag is set — computed the same way whether the sender's
+name itself came from this RPC (site-wide chat, or an unseated admin in a
+game's chat) or from their seat (`players.display_name`), so a seated admin
+is tagged identically to an unseated one.
+
+New coverage in `chatSenderDisplayNames.test.ts` (an admin with no custom
+display name is still returned, RLS coverage the RPC's own widened filter
+now needs) and `ChatPanel.test.tsx` (the tag shows for an admin sender, not
+for an ordinary one, and shows even when the name resolves from a seat
+rather than the RPC). See `CHAT_PLAN.md` §22 for the full design.
+`npm run lint`, `npm run test`, and `npm run build` all pass.
