@@ -6,7 +6,6 @@ import { AdminRoomsPage } from './pages/AdminRoomsPage'
 import { CreateGamePage } from './pages/CreateGamePage'
 import { GamePage } from './pages/GamePage'
 import { HomePage } from './pages/HomePage'
-import { KoggePage } from './pages/KoggePage'
 import { LobbyPage } from './pages/LobbyPage'
 import { MapBuilderPage } from './pages/MapBuilderPage'
 import { MyGamesPage } from './pages/MyGamesPage'
@@ -41,7 +40,6 @@ function App() {
           <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/lobby/:roomCode" element={<LobbyPage />} />
           <Route path="/game/:roomCode" element={<GamePage />} />
-          <Route path="/kogge" element={<KoggePage />} />
         </Routes>
         {environmentBadge && <EnvironmentBadge {...environmentBadge} />}
       </div>
