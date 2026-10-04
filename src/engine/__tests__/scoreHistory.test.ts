@@ -84,7 +84,7 @@ describe('calculateScoreHistory', () => {
     // No gold-producing action content and no terrain-VP content in this test, so totals, gold and terrain VP stay 0 at every round — the point here is the number and ordering of snapshots, not nonzero scoring (that's victoryPoints.test.ts's job).
     for (const snapshot of snapshots) {
       expect(snapshot.totalByPlayerId).toEqual({ p1: 0, p2: 0 })
-      expect(snapshot.goldByPlayerId).toEqual({ p1: 0, p2: 0 })
+      expect(snapshot.goldVPByPlayerId).toEqual({ p1: 0, p2: 0 })
       expect(snapshot.terrainVPByPlayerId).toEqual({ p1: 0, p2: 0 })
     }
   })
@@ -188,8 +188,8 @@ describe('calculateScoreHistory', () => {
 
     const { snapshots } = calculateScoreHistory(genesisWithPlainTemple, result.state.actionHistory, contentWithActions, achievementContent)
     expect(snapshots.map((snapshot) => snapshot.turn)).toEqual([0, 1])
-    expect(snapshots[0].goldByPlayerId).toEqual({ p1: 0, p2: 0 })
-    expect(snapshots[1].goldByPlayerId).toEqual({ p1: 3, p2: 0 })
+    expect(snapshots[0].goldVPByPlayerId).toEqual({ p1: 0, p2: 0 })
+    expect(snapshots[1].goldVPByPlayerId).toEqual({ p1: 3, p2: 0 })
   })
 
   it("captures each player's terrain-control VP at every snapshot, not just the final one", () => {

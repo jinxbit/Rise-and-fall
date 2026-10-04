@@ -270,7 +270,7 @@ export function EndGameView({
           Math.max(
             1,
             ...scoreHistory.flatMap((snapshot) =>
-              rankedIds.flatMap((id) => [snapshot.totalByPlayerId[id] ?? 0, snapshot.goldByPlayerId[id] ?? 0, snapshot.terrainVPByPlayerId[id] ?? 0]),
+              rankedIds.flatMap((id) => [snapshot.totalByPlayerId[id] ?? 0, snapshot.goldVPByPlayerId[id] ?? 0, snapshot.terrainVPByPlayerId[id] ?? 0]),
             ),
           ),
         )

@@ -9,9 +9,11 @@ const PLOT_WIDTH = WIDTH - MARGIN.left - MARGIN.right
 const PLOT_HEIGHT = HEIGHT - MARGIN.top - MARGIN.bottom
 
 /**
- * Line chart of each player's banked gold across every round of the game —
- * the "gold over time" graph requested for the end-of-game screen (issue
- * #612), alongside the existing "total score over time" chart
+ * Line chart of each player's gold VP (banked gold converted at the game's
+ * gold-per-VP rate, VPBreakdown.gold) across every round of the game — the
+ * "gold over time" graph requested for the end-of-game screen (issue #612),
+ * switched from raw gold to gold VP by issue #733 so it plots on the same
+ * VP scale as the other charts, alongside the existing "total score over time" chart
  * (ScoreOverTimeChart.tsx). Shares that component's data source
  * (ScoreSnapshot, ./engine/scoreHistory.ts — one snapshot per round
  * boundary, plus a final one for a mid-round finish) and most of its visual
@@ -39,7 +41,7 @@ export function GoldOverTimeChart({
 }) {
   if (history.length < 2) return null
 
-  const maxGold = maxValue ?? niceMax(Math.max(1, ...history.flatMap((snapshot) => playerIds.map((id) => snapshot.goldByPlayerId[id] ?? 0))))
+  const maxGold = maxValue ?? niceMax(Math.max(1, ...history.flatMap((snapshot) => playerIds.map((id) => snapshot.goldVPByPlayerId[id] ?? 0))))
   const xFor = (index: number) => MARGIN.left + (history.length === 1 ? PLOT_WIDTH / 2 : (index / (history.length - 1)) * PLOT_WIDTH)
   const yFor = (value: number) => MARGIN.top + PLOT_HEIGHT - (value / maxGold) * PLOT_HEIGHT
 
@@ -49,8 +51,8 @@ export function GoldOverTimeChart({
 
   return (
     <div className="flex flex-col gap-2">
-      <p className="text-sm font-medium text-neutral-200">Gold over time</p>
-      <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} className="w-full text-neutral-500" role="img" aria-label="Line chart of each player's banked gold by round">
+      <p className="text-sm font-medium text-neutral-200">Gold VP over time</p>
+      <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} className="w-full text-neutral-500" role="img" aria-label="Line chart of each player's gold VP by round">
         {gridSteps.map((step) => {
           const y = MARGIN.top + PLOT_HEIGHT - step * PLOT_HEIGHT
           return (
@@ -73,13 +75,13 @@ export function GoldOverTimeChart({
 
         {playerIds.map((playerId) => {
           const color = players.find((p) => p.id === playerId)?.color ?? '#a3a3a3'
-          const points = history.map((snapshot, index) => ({ x: xFor(index), y: yFor(snapshot.goldByPlayerId[playerId] ?? 0), value: snapshot.goldByPlayerId[playerId] ?? 0, turn: snapshot.turn }))
+          const points = history.map((snapshot, index) => ({ x: xFor(index), y: yFor(snapshot.goldVPByPlayerId[playerId] ?? 0), value: snapshot.goldVPByPlayerId[playerId] ?? 0, turn: snapshot.turn }))
           return (
             <g key={playerId}>
               <polyline points={points.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
               {points.map((p, i) => (
                 <circle key={i} cx={p.x} cy={p.y} r={3} fill={color}>
-                  <title>{`${players.find((pl) => pl.id === playerId)?.display_name ?? playerId} — ${p.value} gold (round ${p.turn})`}</title>
+                  <title>{`${players.find((pl) => pl.id === playerId)?.display_name ?? playerId} — ${p.value} gold VP (round ${p.turn})`}</title>
                 </circle>
               ))}
             </g>
@@ -100,7 +102,7 @@ export function GoldOverTimeChart({
       </div>
 
       <table className="sr-only">
-        <caption>Gold by round, per player</caption>
+        <caption>Gold VP by round, per player</caption>
         <thead>
           <tr>
             <th>Round</th>
@@ -114,7 +116,7 @@ export function GoldOverTimeChart({
             <tr key={snapshot.turn}>
               <td>{snapshot.turn}</td>
               {playerIds.map((playerId) => (
-                <td key={playerId}>{snapshot.goldByPlayerId[playerId] ?? 0}</td>
+                <td key={playerId}>{snapshot.goldVPByPlayerId[playerId] ?? 0}</td>
               ))}
             </tr>
           ))}
