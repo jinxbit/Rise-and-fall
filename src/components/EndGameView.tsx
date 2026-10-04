@@ -439,7 +439,9 @@ export function EndGameView({
 
       {unitValueDetail && (
         <div className="flex flex-col gap-3" data-testid="unit-value">
-          <p className="text-sm font-medium text-neutral-200">Unit value</p>
+          <p className="text-sm font-medium text-neutral-200">
+            Unit value <span className="font-normal text-neutral-500">(in victory points)</span>
+          </p>
           <UnitValueChart detailByPlayerId={unitValueDetail} players={players} playerIds={activeIds} />
         </div>
       )}
