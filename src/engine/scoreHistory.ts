@@ -16,8 +16,8 @@ export interface ScoreSnapshot {
   /** GameState.turn (the round number) at the moment this snapshot was taken. */
   turn: number
   totalByPlayerId: Record<string, number>
-  /** Each player's banked Player.resources.gold at this snapshot — for the "gold over time" line chart (EndGameView.tsx/GoldOverTimeChart.tsx), alongside the VP total already captured above. */
-  goldByPlayerId: Record<string, number>
+  /** Each player's gold VP (VPBreakdown.gold — banked Player.resources.gold converted at goldPerVictoryPoint) at this snapshot — for the "gold VP over time" line chart (EndGameView.tsx/GoldOverTimeChart.tsx), alongside the VP total already captured above. */
+  goldVPByPlayerId: Record<string, number>
   /** Each player's terrain-control VP (VPBreakdown.terrainControl) at this snapshot — for the "terrain score over time" line chart (EndGameView.tsx/TerrainScoreOverTimeChart.tsx), alongside the VP total already captured above. */
   terrainVPByPlayerId: Record<string, number>
 }
@@ -38,14 +38,14 @@ export interface ScoreHistoryResult {
 function snapshotOf(state: GameState, achievementContent: AchievementContent, taleContent: TaleContent): ScoreSnapshot {
   const breakdown = calculateVPBreakdown(state, achievementContent, taleContent)
   const totalByPlayerId: Record<string, number> = {}
-  const goldByPlayerId: Record<string, number> = {}
+  const goldVPByPlayerId: Record<string, number> = {}
   const terrainVPByPlayerId: Record<string, number> = {}
   for (const player of state.players) {
     totalByPlayerId[player.id] = breakdown[player.id]?.total ?? 0
-    goldByPlayerId[player.id] = player.resources.gold
+    goldVPByPlayerId[player.id] = breakdown[player.id]?.gold ?? 0
     terrainVPByPlayerId[player.id] = breakdown[player.id]?.terrainControl ?? 0
   }
-  return { turn: state.turn, totalByPlayerId, goldByPlayerId, terrainVPByPlayerId }
+  return { turn: state.turn, totalByPlayerId, goldVPByPlayerId, terrainVPByPlayerId }
 }
 
 /**
