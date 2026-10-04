@@ -21,7 +21,7 @@ const FACTORS: { key: keyof UnitValueBreakdown; label: string; color: string }[]
   { key: 'achievement', label: 'Achievement', color: '#3987e5' },
   { key: 'presence', label: 'Presence', color: '#d95926' },
   { key: 'territoryControl', label: 'Territory control', color: '#199e70' },
-  { key: 'goldProduced', label: 'Gold produced', color: '#c98500' },
+  { key: 'goldProduced', label: 'Gold produced (as VP)', color: '#c98500' },
 ]
 
 function capitalize(s: string): string {
@@ -60,7 +60,7 @@ export function UnitValueChart({ detailByPlayerId, players, playerIds }: { detai
 
   return (
     <div className="flex flex-col gap-2">
-      <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} className="w-full text-neutral-500" role="img" aria-label="Stacked bar chart comparing each player's unit value by unit kind">
+      <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} className="w-full text-neutral-500" role="img" aria-label="Stacked bar chart comparing each player's unit value, in victory points, by unit kind">
         {gridSteps.map((step) => {
           const y = MARGIN.top + PLOT_HEIGHT - step * PLOT_HEIGHT
           return (
@@ -145,7 +145,7 @@ export function UnitValueChart({ detailByPlayerId, players, playerIds }: { detai
       </div>
 
       <table className="sr-only">
-        <caption>Unit value by unit kind, per player, split by achievement, presence, territory control, and gold produced</caption>
+        <caption>Unit value in victory points by unit kind, per player, split by achievement, presence, territory control, and gold produced</caption>
         <thead>
           <tr>
             <th>Player</th>
