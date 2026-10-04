@@ -118,7 +118,7 @@ describe('ChatPanel', () => {
   it('renders the message list once enabled and signed in', async () => {
     mockAuth.session = makeSession('alice')
     chatApi.listChatMessages.mockResolvedValue([makeMessage(1, 'bob', 'hello there')])
-    chatApi.getChatDisplayNames.mockResolvedValue({ bob: 'Bob' })
+    chatApi.getChatDisplayNames.mockResolvedValue({ bob: { displayName: 'Bob', isAdmin: false } })
 
     render(<ChatPanel gameId={null} />)
 
@@ -130,7 +130,7 @@ describe('ChatPanel', () => {
     it('shows a minute-resolution [HH:MM] timestamp before each message', async () => {
       mockAuth.session = makeSession('alice')
       chatApi.listChatMessages.mockResolvedValue([makeMessage(1, 'bob', 'hello there', '2026-08-28T14:32:00.000Z')])
-      chatApi.getChatDisplayNames.mockResolvedValue({ bob: 'Bob' })
+      chatApi.getChatDisplayNames.mockResolvedValue({ bob: { displayName: 'Bob', isAdmin: false } })
 
       render(<ChatPanel gameId={null} />)
 
@@ -141,7 +141,7 @@ describe('ChatPanel', () => {
     it('renders the sender name in bold', async () => {
       mockAuth.session = makeSession('alice')
       chatApi.listChatMessages.mockResolvedValue([makeMessage(1, 'bob', 'hello there')])
-      chatApi.getChatDisplayNames.mockResolvedValue({ bob: 'Bob' })
+      chatApi.getChatDisplayNames.mockResolvedValue({ bob: { displayName: 'Bob', isAdmin: false } })
 
       render(<ChatPanel gameId={null} />)
 
@@ -160,7 +160,7 @@ describe('ChatPanel', () => {
         makeMessage(2, 'bob', 'second today', day1b),
         makeMessage(3, 'bob', 'next day', day2),
       ])
-      chatApi.getChatDisplayNames.mockResolvedValue({ bob: 'Bob' })
+      chatApi.getChatDisplayNames.mockResolvedValue({ bob: { displayName: 'Bob', isAdmin: false } })
 
       render(<ChatPanel gameId={null} />)
 
@@ -194,7 +194,7 @@ describe('ChatPanel', () => {
     render(<ChatPanel gameId={null} />)
     await waitFor(() => expect(chatApi.subscribeToChatMessages).toHaveBeenCalled())
 
-    chatApi.getChatDisplayNames.mockResolvedValue({ carol: 'Carol' })
+    chatApi.getChatDisplayNames.mockResolvedValue({ carol: { displayName: 'Carol', isAdmin: false } })
     onInsert?.(makeMessage(2, 'carol', 'incoming'))
 
     expect(await screen.findByText('incoming')).toBeInTheDocument()
@@ -235,7 +235,7 @@ describe('ChatPanel', () => {
     it('renders the panel while open=true, with no internal toggle button', async () => {
       mockAuth.session = makeSession('alice')
       chatApi.listChatMessages.mockResolvedValue([makeMessage(1, 'bob', 'hello there')])
-      chatApi.getChatDisplayNames.mockResolvedValue({ bob: 'Bob' })
+      chatApi.getChatDisplayNames.mockResolvedValue({ bob: { displayName: 'Bob', isAdmin: false } })
 
       render(<ChatPanel gameId="game-1" open={true} />)
 
@@ -422,11 +422,49 @@ describe('ChatPanel', () => {
     })
   })
 
+  describe('admin tag (issue #729, CHAT_PLAN.md §22)', () => {
+    it('shows an "Admin" tag next to a message from the site admin', async () => {
+      mockAuth.session = makeSession('alice')
+      chatApi.listChatMessages.mockResolvedValue([makeMessage(1, 'bob', 'hello there')])
+      chatApi.getChatDisplayNames.mockResolvedValue({ bob: { displayName: 'Bob', isAdmin: true } })
+
+      render(<ChatPanel gameId={null} />)
+
+      expect(await screen.findByText('Bob:')).toBeInTheDocument()
+      expect(screen.getByText('Admin')).toBeInTheDocument()
+    })
+
+    it('shows no tag next to a message from an ordinary player', async () => {
+      mockAuth.session = makeSession('alice')
+      chatApi.listChatMessages.mockResolvedValue([makeMessage(1, 'bob', 'hello there')])
+      chatApi.getChatDisplayNames.mockResolvedValue({ bob: { displayName: 'Bob', isAdmin: false } })
+
+      render(<ChatPanel gameId={null} />)
+
+      expect(await screen.findByText('Bob:')).toBeInTheDocument()
+      expect(screen.queryByText('Admin')).not.toBeInTheDocument()
+    })
+
+    it('tags an admin\'s message even when their name resolves from a game seat, not getChatDisplayNames', async () => {
+      mockAuth.session = makeSession('alice')
+      chatApi.listChatMessages.mockResolvedValue([makeMessage(1, 'bob', 'hello there')])
+      // The seat supplies the name; getChatDisplayNames is still the only
+      // source for the admin flag, and is fetched regardless of seating.
+      chatApi.getChatDisplayNames.mockResolvedValue({ bob: { displayName: null, isAdmin: true } })
+      const players = [makePlayer('alice', '#111111', 'Alice'), makePlayer('bob', '#3b82f6', 'Bob')]
+
+      render(<ChatPanel gameId="game-1" players={players} open={true} />)
+
+      expect(await screen.findByText('Bob:')).toBeInTheDocument()
+      expect(screen.getByText('Admin')).toBeInTheDocument()
+    })
+  })
+
   describe('sender name colors (issue #581, CHAT_PLAN.md §15)', () => {
     it('colors an in-game sender name with their PlayerRow.color, matched on user_id', async () => {
       mockAuth.session = makeSession('alice')
       chatApi.listChatMessages.mockResolvedValue([makeMessage(1, 'bob', 'hello there')])
-      chatApi.getChatDisplayNames.mockResolvedValue({ bob: 'Bob' })
+      chatApi.getChatDisplayNames.mockResolvedValue({ bob: { displayName: 'Bob', isAdmin: false } })
       const players = [makePlayer('alice', '#111111'), makePlayer('bob', '#3b82f6', 'Bob')]
 
       render(<ChatPanel gameId="game-1" players={players} open={true} />)
@@ -438,7 +476,7 @@ describe('ChatPanel', () => {
     it('falls back to the default text color for an in-game sender missing from players', async () => {
       mockAuth.session = makeSession('alice')
       chatApi.listChatMessages.mockResolvedValue([makeMessage(1, 'bob', 'hello there')])
-      chatApi.getChatDisplayNames.mockResolvedValue({ bob: 'Bob' })
+      chatApi.getChatDisplayNames.mockResolvedValue({ bob: { displayName: 'Bob', isAdmin: false } })
 
       render(<ChatPanel gameId="game-1" players={[makePlayer('alice', '#111111')]} open={true} />)
 
@@ -449,7 +487,7 @@ describe('ChatPanel', () => {
     it('colors a site-wide sender name by a deterministic hash of their display name', async () => {
       mockAuth.session = makeSession('alice')
       chatApi.listChatMessages.mockResolvedValue([makeMessage(1, 'bob', 'hello there')])
-      chatApi.getChatDisplayNames.mockResolvedValue({ bob: 'Bob' })
+      chatApi.getChatDisplayNames.mockResolvedValue({ bob: { displayName: 'Bob', isAdmin: false } })
 
       render(<ChatPanel gameId={null} />)
 
@@ -500,7 +538,7 @@ describe('ChatPanel', () => {
       fireEvent.scroll(list)
       expect(list.scrollTop).toBe(400)
 
-      chatApi.getChatDisplayNames.mockResolvedValue({ carol: 'Carol' })
+      chatApi.getChatDisplayNames.mockResolvedValue({ carol: { displayName: 'Carol', isAdmin: false } })
       onInsert?.(makeMessage(2, 'carol', 'incoming while scrolled up'))
       await screen.findByText('incoming while scrolled up')
 
