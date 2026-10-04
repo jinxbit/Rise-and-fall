@@ -82,7 +82,11 @@ jwt_expiry = 3600
 enable_refresh_token_rotation = true
 refresh_token_reuse_interval = 10
 enable_signup = true
-enable_anonymous_sign_ins = false
+# Local stack only: lets the app's "Continue as guest" button (VITE_ALLOW_GUEST_AUTH)
+# work against `supabase start` without OAuth. No workflow runs `supabase config push`,
+# so this never reaches the hosted Preview or production projects, whose auth settings
+# live in the Supabase dashboard.
+enable_anonymous_sign_ins = true
 enable_manual_linking = false
 minimum_password_length = 6
 password_requirements = ""

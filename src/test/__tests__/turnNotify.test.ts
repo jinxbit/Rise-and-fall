@@ -28,6 +28,12 @@ import { type GameStateRow, justFinished, newlyPendingActorIds, phaseLabel } fro
 
 const fixtures = await loadProductionGameFixtures()
 
+// Each sweep below replays a whole checked-in game and gzips every state it
+// passes through, so it can legitimately run past vitest's 5000ms default
+// `testTimeout` on a loaded machine even though nothing is hung — the same
+// reasoning as productionGames.test.ts's REPLAY_TIMEOUT_MS.
+const SWEEP_TIMEOUT_MS = 60_000
+
 type Encoding = 'compressed' | 'plain'
 
 /** The row as the webhook delivers it: the stored `state` plus the `active_player_id` column both write paths set. */
@@ -77,7 +83,7 @@ describe('turn-ping decision (supabase/functions/_shared/turnNotify.ts)', () => 
       // The case todo.md #150 missed has to actually occur in the sweep, or
       // the equality above proves nothing about it.
       expect(actionPhaseHandoffs, `${fixture.name} never hands the action phase to a new player`).toBeGreaterThan(0)
-    })
+    }, SWEEP_TIMEOUT_MS)
 
     it('labels the phase the same from a compressed row as from the full state', async () => {
       for (const [, after] of statePairs(fixture)) {
@@ -85,7 +91,7 @@ describe('turn-ping decision (supabase/functions/_shared/turnNotify.ts)', () => 
         const plain = await webhookRow(fixture.game.id, after, 'plain')
         expect(phaseLabel(compressed.state)).toBe(phaseLabel(plain.state))
       }
-    })
+    }, SWEEP_TIMEOUT_MS)
   })
 
   describe('rows built by hand', () => {
