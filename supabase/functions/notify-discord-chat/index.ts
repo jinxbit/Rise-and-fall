@@ -26,14 +26,16 @@
 // (previously off, issue #658) — so only an explicit `false` opts a player
 // out, not merely leaving the preference unset.
 //
+// Delivery (issue #737): bot DM first, personal webhook as fallback — see
+// _shared/discordSend.ts.
+//
 // `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` are provided automatically in
 // the Edge Function runtime — the service-role key is what lets this read
 // any player's `profiles.discord_webhook_url`/`preferences` regardless of
 // RLS, same as every other notify-* function.
 
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2'
-
-const WEBHOOK_URL_PATTERN = /^https:\/\/(?:discord\.com|discordapp\.com)\/api\/webhooks\/\d+\/[\w-]+$/
+import { hasDestination, resolveDiscordUserId, sendDiscordToPlayer } from '../_shared/discordSend.ts'
 
 // A chat message can be up to 2000 chars (0031_chat_messages.sql's check
 // constraint) — far too long for a ping. Trimmed with an ellipsis, not
@@ -88,18 +90,6 @@ function previewBody(body: string): string {
   return trimmed.length > BODY_PREVIEW_MAX ? `${trimmed.slice(0, BODY_PREVIEW_MAX)}…` : trimmed
 }
 
-async function sendDiscordNotification(webhookUrl: string, content: string): Promise<void> {
-  try {
-    await fetch(webhookUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content }),
-    })
-  } catch {
-    // Best-effort — a bad/deleted webhook or network hiccup shouldn't fail the request.
-  }
-}
-
 async function handleChatMessage(supabase: SupabaseClient, message: ChatMessageRow): Promise<Response> {
   if (!message.game_id) return new Response('site-wide chat, no notification', { status: 200 })
 
@@ -130,12 +120,13 @@ async function handleChatMessage(supabase: SupabaseClient, message: ChatMessageR
   const content = `**Rise & Fall** — **${senderName}** in ${roomText(game_.name, game_.room_code, gameUrlFor(game_.room_code))}: ${previewBody(message.body)}`
 
   await Promise.allSettled(
-    recipients.map((player) => {
+    recipients.map(async (player) => {
       const profile = profileByUserId.get(player.user_id)
-      if (!profile || profile.preferences?.chatNotificationsEnabled === false) return Promise.resolve()
+      if (!profile || profile.preferences?.chatNotificationsEnabled === false) return
       const webhookUrl = profile.discord_webhook_url
-      if (!webhookUrl || !WEBHOOK_URL_PATTERN.test(webhookUrl)) return Promise.resolve()
-      return sendDiscordNotification(webhookUrl, content)
+      if (!hasDestination(webhookUrl)) return
+      const discordUserId = await resolveDiscordUserId(supabase, player.user_id)
+      await sendDiscordToPlayer({ discordUserId, webhookUrl, content })
     }),
   )
   return new Response('ok', { status: 200 })

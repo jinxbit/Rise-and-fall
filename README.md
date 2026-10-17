@@ -261,8 +261,20 @@ end.
 ## Discord turn notifications (optional, per player)
 
 This is separate from Discord OAuth above — sign-in identifies who you are,
-this is just an optional ping for async games. No bot or extra Discord app
-setup: each player creates their own [Discord
+this is just an optional ping for async games.
+
+**Notification bot (issue #737, optional).** Create a Discord application with
+a bot user, invite it to one small private server that all players join
+(Discord only lets a bot DM someone who shares a server with it), and put the
+bot token in a GitHub Environment secret `DISCORD_BOT_TOKEN` (Preview and
+production). Then run the "Set Discord Bot Token" workflow
+(`scripts/supabase/set-discord-bot-token.workflow.yml` — move it to
+`.github/workflows/` to activate it) to push it to Supabase. Players who signed
+in with Discord then get DMs with nothing to paste; the personal webhook below
+stays as a fallback for anyone the bot can't reach (shared delivery:
+`supabase/functions/_shared/discordSend.ts`).
+
+Without the bot: each player creates their own [Discord
 webhook](https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks)
 on a channel they control and pastes the URL into the "Discord
 notifications" panel on the home page. When it becomes their turn in an
