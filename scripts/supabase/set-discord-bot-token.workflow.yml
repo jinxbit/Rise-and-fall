@@ -1,0 +1,92 @@
+# Issue #737 — NOT ACTIVE until moved to .github/workflows/set-discord-bot-token.yml
+# (the @claude Action's GitHub App cannot write under .github/workflows, so a
+# maintainer has to `git mv` this file; nothing else about it needs editing).
+#
+# Sets or rotates the DISCORD_BOT_TOKEN function secret that
+# supabase/functions/_shared/discordSend.ts uses to DM players, on Preview or
+# production. The token is read from the GitHub Environment secret of the same
+# name (Settings -> Environments -> <env> -> Secrets -> DISCORD_BOT_TOKEN), so
+# it never appears in a workflow input or log. Leaving it unset keeps the
+# personal-webhook-only behaviour. Functions pick the secret up on their next
+# cold start; no redeploy is needed.
+
+name: Set Discord Bot Token
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Which Supabase project to update. Preview is pre-production (what `main` deploys to); production is the live one.'
+        required: true
+        type: choice
+        options:
+          - Preview
+          - production
+        default: Preview
+      action:
+        description: 'set = push the environment secret DISCORD_BOT_TOKEN to Supabase; remove = unset it (back to webhook-only)'
+        required: true
+        type: choice
+        options:
+          - set
+          - remove
+        default: set
+      confirm:
+        description: 'Type YES to proceed'
+        required: true
+        default: 'no'
+
+jobs:
+  update:
+    if: ${{ github.event.inputs.confirm == 'YES' }}
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
+    steps:
+      - name: Refuse to touch the wrong project
+        env:
+          ENVIRONMENT: ${{ github.event.inputs.environment }}
+          PRODUCTION_PROJECT_ID: ${{ vars.PRODUCTION_SUPABASE_PROJECT_ID }}
+        run: |
+          if [ -z "$SUPABASE_PROJECT_ID" ] || [ -z "$PRODUCTION_PROJECT_ID" ]; then
+            echo "::error::SUPABASE_PROJECT_ID (environment '$ENVIRONMENT') and repository variable PRODUCTION_SUPABASE_PROJECT_ID must both be set."
+            exit 1
+          fi
+          if [ "$ENVIRONMENT" = "production" ] && [ "$SUPABASE_PROJECT_ID" != "$PRODUCTION_PROJECT_ID" ]; then
+            echo "::error::Environment 'production' resolved to project '$SUPABASE_PROJECT_ID', not '$PRODUCTION_PROJECT_ID'. Refusing to continue."
+            exit 1
+          fi
+          if [ "$ENVIRONMENT" != "production" ] && [ "$SUPABASE_PROJECT_ID" = "$PRODUCTION_PROJECT_ID" ]; then
+            echo "::error::Environment '$ENVIRONMENT' resolved to the PRODUCTION project. Add SUPABASE_PROJECT_ID under Settings -> Environments -> $ENVIRONMENT. Refusing to continue."
+            exit 1
+          fi
+
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link Supabase project
+        run: supabase link --project-ref "$SUPABASE_PROJECT_ID"
+
+      - name: Set DISCORD_BOT_TOKEN
+        if: ${{ github.event.inputs.action == 'set' }}
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$DISCORD_BOT_TOKEN" ]; then
+            echo "::error::No DISCORD_BOT_TOKEN secret on the '${{ github.event.inputs.environment }}' GitHub Environment. Add it under Settings -> Environments first."
+            exit 1
+          fi
+          supabase secrets set DISCORD_BOT_TOKEN="$DISCORD_BOT_TOKEN"
+
+      - name: Remove DISCORD_BOT_TOKEN
+        if: ${{ github.event.inputs.action == 'remove' }}
+        run: supabase secrets unset DISCORD_BOT_TOKEN
+
+      - name: Report
+        run: |
+          echo "DISCORD_BOT_TOKEN ${{ github.event.inputs.action }} on project \`$SUPABASE_PROJECT_ID\` (${{ github.event.inputs.environment }})." >> "$GITHUB_STEP_SUMMARY"
